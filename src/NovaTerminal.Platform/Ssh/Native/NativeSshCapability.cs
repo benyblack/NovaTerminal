@@ -13,13 +13,7 @@ public enum NativeSshUnsupportedReason
     /// The profile carries a remote (server-side listener) forward. The native backend has no
     /// <c>tcpip-forward</c> support, so there is nothing to degrade to.
     /// </summary>
-    RemotePortForward = 1,
-
-    /// <summary>
-    /// The profile chains more than one jump hop. The native backend nests exactly one
-    /// direct-tcpip hop today.
-    /// </summary>
-    MultipleJumpHops = 2
+    RemotePortForward = 1
 }
 
 /// <summary>
@@ -69,15 +63,11 @@ public static class NativeSshCapability
         IReadOnlyCollection<PortForward>? forwards,
         IReadOnlyCollection<SshJumpHop>? jumpHops)
     {
-        // Jump hops first: a profile with both problems is more likely to be reshaped around the
-        // hop chain than around the forward, so lead with the structural one.
-        if (jumpHops is { Count: > 1 })
-        {
-            return NativeSshCapabilityResult.Unsupported(
-                NativeSshUnsupportedReason.MultipleJumpHops,
-                "Multiple jump hops are not supported by the native SSH backend yet. "
-                + "Use a single jump hop, or switch this profile to the OpenSSH backend.");
-        }
+        // Jump hops of any length are supported: the native backend nests one direct-tcpip hop
+        // per entry, the way OpenSSH treats a -J chain. The parameter stays so callers keep
+        // stating the whole shape they are asking about, and so a future hop-shaped limit has
+        // somewhere to live.
+        _ = jumpHops;
 
         if (forwards != null && forwards.Any(forward => forward.Kind is not PortForwardKind.Local and not PortForwardKind.Dynamic))
         {

@@ -57,39 +57,35 @@ public sealed class NativeSshCapabilityTests
         Assert.Equal(NativeSshUnsupportedReason.RemotePortForward, NativeSshCapability.Evaluate(profile).Reason);
     }
 
-    [Fact]
-    public void Evaluate_ForSingleJumpHop_IsSupported()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void Evaluate_ForJumpHopChainsOfAnyLength_IsSupported(int hopCount)
     {
+        // Chains of any length are served natively — one nested direct-tcpip hop per entry, the
+        // way OpenSSH treats a -J chain. A profile that used to be refused for its second hop
+        // must now save and connect.
         SshProfile profile = CreateProfile();
-        profile.JumpHops.Add(new SshJumpHop { Host = "jump.internal" });
+        for (int i = 0; i < hopCount; i++)
+        {
+            profile.JumpHops.Add(new SshJumpHop { Host = $"jump-{i}.internal" });
+        }
 
         Assert.True(NativeSshCapability.Evaluate(profile).IsSupported);
     }
 
     [Fact]
-    public void Evaluate_ForJumpHopChain_IsUnsupportedWithTheEstablishedWording()
+    public void Evaluate_ForRemoteForwardBehindAJumpChain_StillReportsTheForward()
     {
-        SshProfile profile = CreateProfile();
-        profile.JumpHops.Add(new SshJumpHop { Host = "jump-one.internal" });
-        profile.JumpHops.Add(new SshJumpHop { Host = "jump-two.internal" });
-
-        NativeSshCapabilityResult result = NativeSshCapability.Evaluate(profile);
-
-        Assert.False(result.IsSupported);
-        Assert.Equal(NativeSshUnsupportedReason.MultipleJumpHops, result.Reason);
-        // JumpHostConnectPlan surfaces this same string; its test pins the prefix.
-        Assert.Contains("Multiple jump hops", result.Explanation, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Evaluate_WhenBothProblemsPresent_ReportsTheHopChainFirst()
-    {
+        // The chain is no longer a problem, so the remote forward must be what gets reported —
+        // not masked by hops that are now fine.
         SshProfile profile = CreateProfile();
         profile.JumpHops.Add(new SshJumpHop { Host = "jump-one.internal" });
         profile.JumpHops.Add(new SshJumpHop { Host = "jump-two.internal" });
         profile.Forwards.Add(new PortForward { Kind = PortForwardKind.Remote, SourcePort = 8080, DestinationHost = "svc", DestinationPort = 80 });
 
-        Assert.Equal(NativeSshUnsupportedReason.MultipleJumpHops, NativeSshCapability.Evaluate(profile).Reason);
+        Assert.Equal(NativeSshUnsupportedReason.RemotePortForward, NativeSshCapability.Evaluate(profile).Reason);
     }
 
     [Fact]

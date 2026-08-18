@@ -24,7 +24,7 @@ Verified by automated tests:
 - native SSH interaction prompts for password, passphrase, and keyboard-interactive auth
 - native local port-forward listener lifecycle and teardown
 - native dynamic port-forward SOCKS5 `CONNECT` lifecycle and teardown for direct-host sessions
-- one-hop jump-host planning and explicit multi-hop rejection
+- jump-host planning for single hops and multi-hop chains, preserving chain order
 - native rollout gating and failure classification
 - native session input, resize, output decoding, and exit behavior
 - Dockerized native SSH connect/auth, command execution, alternate-screen recovery, resize-burst recovery, and `vim` downward-scroll behavior
@@ -35,6 +35,9 @@ Verified by automated tests:
   connection before any credential is solicited
 - Dockerized local and dynamic (SOCKS5) forwarding carrying real bytes to an in-container echo
   service, rather than only opening a channel
+- Dockerized jump-host tunnelling: a one-hop session, a two-hop chain running a live command, and
+  dynamic forwarding through a hop — each hop dialling the fixture container back into itself, so
+  every hop is a real nested SSH session without a multi-container fixture
 
 ## Manual Matrix
 
@@ -55,8 +58,9 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
 | Terminal behavior | Fullscreen/alt-screen TUI | Automated + pending manual | Dockerized native SSH validates alternate-screen recovery and `vim` downward scrolling; still validate against a real host |
 | Forwarding | One local forward | Automated | `LocalForward_CarriesRealBytesToTheEchoService` |
 | Forwarding | One direct-host dynamic forward | Automated | `DynamicForward_CarriesRealBytesThroughSocks5ToTheEchoService` |
-| Forwarding | One-hop jump-host dynamic forward | Follow-up | Not implemented in the native backend yet |
-| Jump host | One-hop jump host | Pending manual | Needs a second container as bastion on a shared docker network; fixture is single-container today |
+| Forwarding | One-hop jump-host dynamic forward | Automated | `NativeSshDockerJumpChainE2eTests.DynamicForward_ThroughAJumpHop_...`; forward channels ride the target session regardless of how it was reached |
+| Jump host | One-hop jump host | Automated + pending manual | `NativeSshDockerJumpChainE2eTests.JumpHost_OneHop_...` (the hop dials the fixture container back into itself); still validate against a real bastion |
+| Jump host | Multi-hop jump chain | Automated + pending manual | `NativeSshDockerJumpChainE2eTests.JumpChain_TwoHops_...` runs a live command through two nested tunnels; still validate against real distinct bastions |
 | Rollback | Broken native profile switched back to OpenSSH | Pending manual | Confirm backend selector flow is obvious and safe |
 
 ## Rollout Notes
@@ -68,8 +72,8 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
 - Native SSH remains opt-in through `TerminalSettings.ExperimentalNativeSshEnabled`.
 - `OpenSsh` remains the default backend for new profiles.
 - Native backend refusal is explicit when the global experimental toggle is disabled.
-- Profile shapes the native backend cannot serve (remote forwards, jump-hop chains)
-  are refused by `NativeSshCapability` at profile-save time as well as at connect
+- The one profile shape the native backend cannot serve (a remote forward) is
+  refused by `NativeSshCapability` at profile-save time as well as at connect
   time, so such a profile can no longer be saved as `Native` and then fail on use.
   See the rollout guidance in `docs/SSH_ROADMAP.md`.
 - Forward-channel data reaching the local socket is queued per channel and written
@@ -86,7 +90,10 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
     pump retries. That stops it reading the local socket, so TCP flow control
     throttles the local peer and nothing is dropped or closed for slowness alone.
     `INativeSshInterop.TryWriteChannel` is the managed half of that contract.
-- Native backend now supports local and direct-host dynamic forwarding.
+- Native backend supports local and dynamic forwarding, on direct connections and through
+  jump hops alike.
+- Native backend supports jump chains of any length: one nested direct-tcpip hop per entry,
+  ordered client → target, each hop with its own host-key verification and authentication.
+  The chain crosses the FFI as a JSON array (`jump_hops_json` / the SFTP request's `jumpHops`),
+  so chain length never renegotiates the ABI.
 - Remote forwarding remains unsupported in the native backend.
-- Dynamic forwarding through one-hop jump hosts remains follow-up work.
-- Multi-hop jump hosts are intentionally unsupported in the native backend at this stage.

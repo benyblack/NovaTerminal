@@ -130,12 +130,21 @@ public sealed class NativeSftpTransferInteropTests
             Port = 2222,
             Password = "secret",
             KnownHostsFilePath = @"C:\known-hosts.json",
-            JumpHost = new NovaTerminal.Platform.Ssh.Models.SshJumpHop
-            {
-                Host = "jump.internal",
-                User = "jumper",
-                Port = 2200
-            }
+            JumpHops =
+            [
+                new NovaTerminal.Platform.Ssh.Models.SshJumpHop
+                {
+                    Host = "jump-one.internal",
+                    User = "jumper",
+                    Port = 2200
+                },
+                new NovaTerminal.Platform.Ssh.Models.SshJumpHop
+                {
+                    Host = "jump-two.internal",
+                    User = string.Empty,
+                    Port = 22
+                }
+            ]
         };
         NativeSftpTransferOptions transferOptions = new()
         {
@@ -150,7 +159,13 @@ public sealed class NativeSftpTransferInteropTests
         Assert.Contains("\"connection\":", json, StringComparison.Ordinal);
         Assert.Contains("\"transfer\":", json, StringComparison.Ordinal);
         Assert.Contains("\"knownHostsFilePath\":\"C:\\\\known-hosts.json\"", json, StringComparison.Ordinal);
-        Assert.Contains("\"jumpHost\":", json, StringComparison.Ordinal);
+        // The chain serializes in connect order, and a hop without a user crosses as null rather
+        // than an empty string, so the native side applies its "target user" default.
+        Assert.Contains(
+            "\"jumpHops\":[{\"host\":\"jump-one.internal\",\"user\":\"jumper\",\"port\":2200},"
+            + "{\"host\":\"jump-two.internal\",\"user\":null,\"port\":22}]",
+            json,
+            StringComparison.Ordinal);
         Assert.Contains("\"remotePath\":\"/mnt/box1/media/movies/Movie Name/movie.mkv\"", json, StringComparison.Ordinal);
     }
 

@@ -26,7 +26,7 @@ The native SSH initiative is implemented behind conservative rollout controls.
 - Native SFTP file and folder upload/download
 - Local port forwarding
 - Direct-host dynamic port forwarding (SOCKS5)
-- One-hop jump-host support
+- Jump-host support, single hop or a chain of any length (nested direct-tcpip, as OpenSSH treats `-J`)
 - Rollout controls, backend selector, and stable failure classification
 - Resize coalescing for fullscreen TUIs (vim, htop, tmux)
 - Keepalive honoring user settings
@@ -39,11 +39,12 @@ The native SSH initiative is implemented behind conservative rollout controls.
 - `Native` is gated by `TerminalSettings.ExperimentalNativeSshEnabled`.
 - Native SSH does **not** silently fall back to OpenSSH on failure.
 - Whether native *can* serve a given profile is answered in one place,
-  `NativeSshCapability.Evaluate` — remote forwards and jump-hop chains are the two
-  shapes it refuses. The connection editor asks it at save time (so an unusable
-  native profile cannot be saved), `SshSessionFactory` asks it before building a
-  session, and `NativeSshSession` / `JumpHostConnectPlan` /
-  `NativePortForwardSession` share its wording instead of spelling their own.
+  `NativeSshCapability.Evaluate` — a remote forward is the one shape it refuses
+  (jump-hop chains used to be the other, and are served natively now). The
+  connection editor asks it at save time (so an unusable native profile cannot be
+  saved), `SshSessionFactory` asks it before building a session, and
+  `NativeSshSession` / `NativePortForwardSession` share its wording instead of
+  spelling their own.
 - The two native refusals are deliberately distinguishable: the global toggle is a
   rollout decision the user can reverse in settings, an unsupported shape is not.
   Warnings and errors lead with the shape when both apply, so nobody is sent to
@@ -52,10 +53,14 @@ The native SSH initiative is implemented behind conservative rollout controls.
 - Native SSH transfer dialogs can autocomplete remote paths when an active session for that profile already exists.
 - Native SSH single-file transfers show live byte progress when the total size is known; folder transfers report per-file progress only.
 - OpenSSH file transfers still use the system `scp` path.
-- Native SSH supports local forwards and direct-host dynamic forwards.
-- Dynamic forwarding through a one-hop jump host is **not** yet supported.
+- Native SSH supports local and dynamic forwards, on direct connections and
+  through jump hops alike — the forward channels ride the target session,
+  however that session was reached.
+- Native SSH supports jump chains of any length. Each hop is a full SSH session
+  (its own host-key verification and authentication) nested over a direct-tcpip
+  channel of the previous hop; SFTP transfers and remote browsing take the same
+  chain.
 - Remote forwarding is **not** supported in the native backend.
-- Multi-hop jump chains are **not** supported in the native backend.
 
 ### Verification
 

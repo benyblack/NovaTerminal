@@ -63,7 +63,7 @@ public sealed class NativeSshSession : ITerminalSession
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        // Single gate for every shape the native backend cannot serve (remote forwards, hop chains).
+        // Single gate for every shape the native backend cannot serve (remote forwards).
         // The editor asks NativeSshCapability the same question at save time, so reaching this throw
         // means either a profile saved before the check existed or a caller constructing us directly.
         NativeSshCapabilityResult capability = NativeSshCapability.Evaluate(profile);
@@ -335,7 +335,7 @@ public sealed class NativeSshSession : ITerminalSession
             Password = baseOptions.Password,
             IdentityFilePath = baseOptions.IdentityFilePath,
             KnownHostsFilePath = baseOptions.KnownHostsFilePath,
-            JumpHost = baseOptions.JumpHost,
+            JumpHops = baseOptions.JumpHops,
             KeepAliveIntervalSeconds = baseOptions.KeepAliveIntervalSeconds,
             KeepAliveCountMax = baseOptions.KeepAliveCountMax,
             RemoteShellKind = remoteShellKind,

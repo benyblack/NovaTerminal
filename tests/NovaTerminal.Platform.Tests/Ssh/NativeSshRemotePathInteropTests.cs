@@ -15,12 +15,15 @@ public sealed class NativeSshRemotePathInteropTests
             Port = 2222,
             Password = "secret",
             KnownHostsFilePath = @"C:\known-hosts.json",
-            JumpHost = new SshJumpHop
-            {
-                Host = "jump.internal",
-                User = "jumper",
-                Port = 2200
-            }
+            JumpHops =
+            [
+                new SshJumpHop
+                {
+                    Host = "jump.internal",
+                    User = "jumper",
+                    Port = 2200
+                }
+            ]
         };
 
         string json = NativeSshInterop.SerializeRemotePathListRequestForTests(connectionOptions, "/mnt/media");

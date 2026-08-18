@@ -45,9 +45,11 @@ pub struct NovaSshConnectArgs {
     pub rows: u16,
     pub term: *const c_char,
     pub identity_file: *const c_char,
-    pub jump_host: *const c_char,
-    pub jump_user: *const c_char,
-    pub jump_port: u16,
+    /// UTF-8 JSON array of jump hops ordered client → target, e.g.
+    /// `[{"host":"bastion","user":"ops","port":22}]`. Null or `[]` means a direct
+    /// connection. JSON rather than a repeated C struct so the chain can be any length
+    /// without renegotiating the ABI.
+    pub jump_hops_json: *const c_char,
     pub keepalive_interval_seconds: u32,
     pub keepalive_count_max: u32,
     pub remote_shell_kind: u32,
@@ -295,7 +297,8 @@ struct ConnectConfig {
     rows: u16,
     term: String,
     identity_file: Option<String>,
-    jump_host: Option<JumpHostConfig>,
+    /// Ordered client → target; empty means a direct connection.
+    jump_hops: Vec<JumpHostConfig>,
     keepalive_interval_seconds: u32,
     keepalive_count_max: u32,
     remote_shell_kind: RemoteShellKind,
@@ -319,6 +322,45 @@ struct JumpHostConfig {
     host: String,
     user: String,
     port: u16,
+}
+
+/// One hop as it crosses the FFI boundary — in the connect args' `jump_hops_json` array and in
+/// the SFTP transfer request JSON. `user` is optional because a hop without one authenticates as
+/// the connection's target user.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JumpHopRequest {
+    host: String,
+    user: Option<String>,
+    port: u16,
+}
+
+/// Parses the FFI jump-hop JSON into resolved configs. Absent or empty means direct. Invalid
+/// JSON, a blank host, or a mangled entry rejects the whole connect — connecting anyway after
+/// dropping or altering a hop would hand credentials to an endpoint the caller never named.
+fn parse_jump_hops(json: Option<&str>, default_user: &str) -> Option<Vec<JumpHostConfig>> {
+    let Some(json) = json else {
+        return Some(Vec::new());
+    };
+
+    let hops: Vec<JumpHopRequest> = serde_json::from_str(json).ok()?;
+    let mut configs = Vec::with_capacity(hops.len());
+    for hop in hops {
+        if hop.host.trim().is_empty() {
+            return None;
+        }
+
+        configs.push(JumpHostConfig {
+            host: hop.host,
+            user: match hop.user {
+                Some(user) if !user.trim().is_empty() => user,
+                _ => default_user.to_owned(),
+            },
+            port: if hop.port == 0 { 22 } else { hop.port },
+        });
+    }
+
+    Some(configs)
 }
 
 #[derive(Clone)]
@@ -437,15 +479,9 @@ struct SftpConnectionRequest {
     password: Option<String>,
     identity_file_path: Option<String>,
     known_hosts_file_path: String,
-    jump_host: Option<SftpJumpHostRequest>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SftpJumpHostRequest {
-    host: String,
-    user: Option<String>,
-    port: u16,
+    /// Ordered client → target; absent or empty means a direct connection.
+    #[serde(default)]
+    jump_hops: Vec<JumpHopRequest>,
 }
 
 #[derive(Deserialize)]
@@ -1279,17 +1315,8 @@ impl ConnectConfig {
         let user = read_c_arg(args.user).required()?;
         let term = read_c_arg(args.term).or_default("xterm-256color")?;
         let identity_file = read_c_arg(args.identity_file).optional()?;
-        let jump_host = read_c_arg(args.jump_host).optional()?;
-        let jump_user = read_c_arg(args.jump_user).optional()?;
-        let effective_jump_host = jump_host.map(|host| JumpHostConfig {
-            host,
-            user: jump_user.unwrap_or_else(|| user.clone()),
-            port: if args.jump_port == 0 {
-                22
-            } else {
-                args.jump_port
-            },
-        });
+        let jump_hops_json = read_c_arg(args.jump_hops_json).optional()?;
+        let jump_hops = parse_jump_hops(jump_hops_json.as_deref(), &user)?;
 
         Some(Self {
             host,
@@ -1299,7 +1326,7 @@ impl ConnectConfig {
             rows: if args.rows == 0 { 30 } else { args.rows },
             term,
             identity_file,
-            jump_host: effective_jump_host,
+            jump_hops,
             keepalive_interval_seconds: if args.keepalive_interval_seconds == 0 {
                 30
             } else {
@@ -1584,19 +1611,19 @@ fn write_remote_path_list_response_json(
     result
 }
 
+fn jump_hops_have_blank_fields(jump_hops: &[JumpHopRequest]) -> bool {
+    jump_hops.iter().any(|hop| {
+        hop.host.trim().is_empty()
+            || hop
+                .user
+                .as_deref()
+                .is_some_and(|user| user.trim().is_empty())
+            || hop.port == 0
+    })
+}
+
 fn sftp_request_has_blank_fields(request: &SftpTransferRequest) -> bool {
-    let jump_host_is_blank = request
-        .connection
-        .jump_host
-        .as_ref()
-        .is_some_and(|jump_host| {
-            jump_host.host.trim().is_empty()
-                || jump_host
-                    .user
-                    .as_deref()
-                    .is_some_and(|user| user.trim().is_empty())
-                || jump_host.port == 0
-        });
+    let jump_host_is_blank = jump_hops_have_blank_fields(&request.connection.jump_hops);
 
     request.connection.host.trim().is_empty()
         || request.connection.user.trim().is_empty()
@@ -1625,18 +1652,7 @@ fn sftp_request_has_blank_fields(request: &SftpTransferRequest) -> bool {
 }
 
 fn remote_path_list_request_has_blank_fields(request: &RemotePathListRequest) -> bool {
-    let jump_host_is_blank = request
-        .connection
-        .jump_host
-        .as_ref()
-        .is_some_and(|jump_host| {
-            jump_host.host.trim().is_empty()
-                || jump_host
-                    .user
-                    .as_deref()
-                    .is_some_and(|user| user.trim().is_empty())
-                || jump_host.port == 0
-        });
+    let jump_host_is_blank = jump_hops_have_blank_fields(&request.connection.jump_hops);
 
     request.connection.host.trim().is_empty()
         || request.connection.user.trim().is_empty()
@@ -1747,60 +1763,84 @@ fn run_sftp_transfer(
         let client_config = Arc::new(client::Config::default());
         let auth = TransferAuthConfig::take_from(&mut request.connection);
 
-        let jump_session = if let Some(jump_host) = &request.connection.jump_host {
-            let jump_handler = TransferClientHandler {
-                host: jump_host.host.clone(),
-                port: jump_host.port,
-                known_hosts: known_hosts.clone(),
-            };
+        let (_jump_sessions, mut session) =
+            connect_transfer_session(&request.connection, &auth, &known_hosts, &client_config)
+                .await?;
+        perform_sftp_transfer(&mut session, &request.transfer, progress).await
+    })
+}
 
-            let mut jump = client::connect(
-                client_config.clone(),
-                (jump_host.host.as_str(), jump_host.port),
-                jump_handler,
-            )
-            .await?;
-
-            let jump_user = jump_host
-                .user
-                .as_deref()
-                .unwrap_or(request.connection.user.as_str());
-            authenticate_transfer(jump_user, &auth, &mut jump).await?;
-            Some(jump)
-        } else {
-            None
-        };
-
-        let target_handler = TransferClientHandler {
-            host: request.connection.host.clone(),
-            port: request.connection.port,
+/// Connects a transfer session, tunnelling through each jump hop in order — the transfer twin
+/// of `establish_session`, differing only in handler (known-hosts file instead of interactive
+/// prompts) and auth (non-interactive only). The jump handles are returned alongside the target
+/// session; the caller holds them so the tunnels outlive the transfer.
+async fn connect_transfer_session(
+    connection: &SftpConnectionRequest,
+    auth: &TransferAuthConfig,
+    known_hosts: &NativeKnownHostsVerifier,
+    client_config: &Arc<client::Config>,
+) -> anyhow::Result<(
+    Vec<client::Handle<TransferClientHandler>>,
+    client::Handle<TransferClientHandler>,
+)> {
+    let mut jump_sessions: Vec<client::Handle<TransferClientHandler>> =
+        Vec::with_capacity(connection.jump_hops.len());
+    for hop in &connection.jump_hops {
+        let hop_port = if hop.port == 0 { 22 } else { hop.port };
+        let hop_handler = TransferClientHandler {
+            host: hop.host.clone(),
+            port: hop_port,
             known_hosts: known_hosts.clone(),
         };
 
-        let mut session = if let Some(jump) = &jump_session {
-            let stream = jump
-                .channel_open_direct_tcpip(
-                    request.connection.host.clone(),
-                    request.connection.port as u32,
-                    "127.0.0.1",
-                    0,
+        let mut hop_session = match jump_sessions.last() {
+            None => {
+                client::connect(
+                    client_config.clone(),
+                    (hop.host.as_str(), hop_port),
+                    hop_handler,
                 )
                 .await?
-                .into_stream();
-
-            client::connect_stream(client_config.clone(), stream, target_handler).await?
-        } else {
-            client::connect(
-                client_config.clone(),
-                (request.connection.host.as_str(), request.connection.port),
-                target_handler,
-            )
-            .await?
+            }
+            Some(previous) => {
+                let stream = open_tunnel_channel(previous, hop.host.as_str(), hop_port)
+                    .await?
+                    .into_stream();
+                client::connect_stream(client_config.clone(), stream, hop_handler).await?
+            }
         };
 
-        authenticate_transfer(&request.connection.user, &auth, &mut session).await?;
-        perform_sftp_transfer(&mut session, &request.transfer, progress).await
-    })
+        let hop_user = hop
+            .user
+            .as_deref()
+            .filter(|user| !user.trim().is_empty())
+            .unwrap_or(connection.user.as_str());
+        authenticate_transfer(hop_user, auth, &mut hop_session).await?;
+        jump_sessions.push(hop_session);
+    }
+
+    let target_handler = TransferClientHandler {
+        host: connection.host.clone(),
+        port: connection.port,
+        known_hosts: known_hosts.clone(),
+    };
+
+    let mut session = if let Some(last_jump) = jump_sessions.last() {
+        let stream = open_tunnel_channel(last_jump, connection.host.as_str(), connection.port)
+            .await?
+            .into_stream();
+        client::connect_stream(client_config.clone(), stream, target_handler).await?
+    } else {
+        client::connect(
+            client_config.clone(),
+            (connection.host.as_str(), connection.port),
+            target_handler,
+        )
+        .await?
+    };
+
+    authenticate_transfer(&connection.user, auth, &mut session).await?;
+    Ok((jump_sessions, session))
 }
 
 fn run_remote_path_list(
@@ -1814,58 +1854,9 @@ fn run_remote_path_list(
         let client_config = Arc::new(client::Config::default());
         let auth = TransferAuthConfig::take_from(&mut request.connection);
 
-        let jump_session = if let Some(jump_host) = &request.connection.jump_host {
-            let jump_handler = TransferClientHandler {
-                host: jump_host.host.clone(),
-                port: jump_host.port,
-                known_hosts: known_hosts.clone(),
-            };
-
-            let mut jump = client::connect(
-                client_config.clone(),
-                (jump_host.host.as_str(), jump_host.port),
-                jump_handler,
-            )
-            .await?;
-
-            let jump_user = jump_host
-                .user
-                .as_deref()
-                .unwrap_or(request.connection.user.as_str());
-            authenticate_transfer(jump_user, &auth, &mut jump).await?;
-            Some(jump)
-        } else {
-            None
-        };
-
-        let target_handler = TransferClientHandler {
-            host: request.connection.host.clone(),
-            port: request.connection.port,
-            known_hosts: known_hosts.clone(),
-        };
-
-        let mut session = if let Some(jump) = &jump_session {
-            let stream = jump
-                .channel_open_direct_tcpip(
-                    request.connection.host.clone(),
-                    request.connection.port as u32,
-                    "127.0.0.1",
-                    0,
-                )
-                .await?
-                .into_stream();
-
-            client::connect_stream(client_config.clone(), stream, target_handler).await?
-        } else {
-            client::connect(
-                client_config.clone(),
-                (request.connection.host.as_str(), request.connection.port),
-                target_handler,
-            )
-            .await?
-        };
-
-        authenticate_transfer(&request.connection.user, &auth, &mut session).await?;
+        let (_jump_sessions, mut session) =
+            connect_transfer_session(&request.connection, &auth, &known_hosts, &client_config)
+                .await?;
         list_remote_directory(&mut session, &request.path).await
     })
 }
@@ -2786,41 +2777,81 @@ async fn connect_tcp_with_timeout(host: &str, port: u16) -> anyhow::Result<tokio
     }
 }
 
-/// Establishes the SSH session up to a ready shell channel: optional jump hop,
+/// Opens a direct-tcpip channel through `session` to the next hop. This channel open IS that
+/// hop's TCP connect (performed by the server behind `session`), so it carries the same bound
+/// as a direct connect: a blackholed next hop would otherwise hang until the remote sshd
+/// gives up.
+async fn open_tunnel_channel<H>(
+    session: &client::Handle<H>,
+    host: &str,
+    port: u16,
+) -> anyhow::Result<russh::Channel<client::Msg>>
+where
+    H: client::Handler,
+{
+    tokio::time::timeout(
+        TCP_CONNECT_TIMEOUT,
+        session.channel_open_direct_tcpip(host.to_owned(), port as u32, "127.0.0.1", 0),
+    )
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "direct-tcpip open to {host}:{port} via jump host timed out after {}s",
+            TCP_CONNECT_TIMEOUT.as_secs()
+        )
+    })?
+    .map_err(Into::into)
+}
+
+/// Establishes the SSH session up to a ready shell channel: the jump chain hop by hop,
 /// TCP connect (bounded by TCP_CONNECT_TIMEOUT), handshake, auth, shell detection,
 /// PTY + shell/exec setup. Runs inside run_session's select! race against
-/// SharedState::wait_closed, so it must not consume `command_rx`. The jump handle is
-/// returned so the tunnel outlives establishment.
+/// SharedState::wait_closed, so it must not consume `command_rx`. The jump handles are
+/// returned so every tunnel in the chain outlives establishment.
+///
+/// Each hop is a full SSH session in its own right — its own handshake, its own host-key
+/// verification through the shared prompt machinery, its own authentication — nested over a
+/// direct-tcpip channel of the previous hop, exactly as OpenSSH treats a `-J` chain.
 async fn establish_session(
     config: &ConnectConfig,
     shared: &Arc<SharedState>,
     client_config: Arc<client::Config>,
 ) -> anyhow::Result<(
-    Option<client::Handle<NovaClientHandler>>,
+    Vec<client::Handle<NovaClientHandler>>,
     client::Handle<NovaClientHandler>,
     russh::Channel<client::Msg>,
 )> {
-    let jump_session = if let Some(jump_host) = &config.jump_host {
-        let jump_handler = NovaClientHandler {
+    let mut jump_sessions: Vec<client::Handle<NovaClientHandler>> =
+        Vec::with_capacity(config.jump_hops.len());
+    for hop in &config.jump_hops {
+        let hop_handler = NovaClientHandler {
             shared: shared.clone(),
-            host: jump_host.host.clone(),
-            port: jump_host.port,
+            host: hop.host.clone(),
+            port: hop.port,
         };
 
-        let stream = connect_tcp_with_timeout(jump_host.host.as_str(), jump_host.port).await?;
-        let mut jump = client::connect_stream(client_config.clone(), stream, jump_handler).await?;
+        let mut hop_session = match jump_sessions.last() {
+            None => {
+                let stream = connect_tcp_with_timeout(hop.host.as_str(), hop.port).await?;
+                client::connect_stream(client_config.clone(), stream, hop_handler).await?
+            }
+            Some(previous) => {
+                let stream = open_tunnel_channel(previous, hop.host.as_str(), hop.port)
+                    .await?
+                    .into_stream();
+                client::connect_stream(client_config.clone(), stream, hop_handler).await?
+            }
+        };
 
         authenticate(
-            &jump_host.user,
+            &hop.user,
             config.identity_file.as_deref(),
             shared,
-            &mut jump,
+            &mut hop_session,
         )
         .await?;
-        Some(jump)
-    } else {
-        None
-    };
+        jump_sessions.push(hop_session);
+    }
 
     let handler = NovaClientHandler {
         shared: shared.clone(),
@@ -2828,25 +2859,10 @@ async fn establish_session(
         port: config.port,
     };
 
-    let mut session = if let Some(jump) = &jump_session {
-        // This channel open IS the target-side TCP connect (performed by the jump
-        // server), so it needs the same bound as a direct connect: a blackholed
-        // target would otherwise hang until the remote sshd gives up.
-        let stream = tokio::time::timeout(
-            TCP_CONNECT_TIMEOUT,
-            jump.channel_open_direct_tcpip(config.host.clone(), config.port as u32, "127.0.0.1", 0),
-        )
-        .await
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "direct-tcpip open to {}:{} via jump host timed out after {}s",
-                config.host,
-                config.port,
-                TCP_CONNECT_TIMEOUT.as_secs()
-            )
-        })??
-        .into_stream();
-
+    let mut session = if let Some(last_jump) = jump_sessions.last() {
+        let stream = open_tunnel_channel(last_jump, config.host.as_str(), config.port)
+            .await?
+            .into_stream();
         client::connect_stream(client_config.clone(), stream, handler).await?
     } else {
         let stream = connect_tcp_with_timeout(config.host.as_str(), config.port).await?;
@@ -2890,7 +2906,7 @@ async fn establish_session(
         channel.request_shell(true).await?;
     }
 
-    Ok((jump_session, session, channel))
+    Ok((jump_sessions, session, channel))
 }
 
 fn run_session(
@@ -2911,7 +2927,7 @@ fn run_session(
         // handshake/auth legs deliberately carry no timeout of their own: they can block
         // on user interaction (host-key and password prompts), and mark_closed already
         // unblocks those via wait_for_response.
-        let (jump_session, mut session, mut channel) = tokio::select! {
+        let (jump_sessions, mut session, mut channel) = tokio::select! {
             result = establish_session(&config, &shared, client_config.clone()) => result?,
             _ = shared.wait_closed() => {
                 // Closed while connecting: exit cleanly; nova_ssh_close is joining us.
@@ -3026,7 +3042,10 @@ fn run_session(
         let _ = session
             .disconnect(Disconnect::ByApplication, "Closed by NovaTerminal", "en")
             .await;
-        if let Some(jump) = jump_session {
+        // Tear the chain down innermost-first, mirroring how it was built: each hop's transport
+        // is a channel of the hop before it, so disconnecting an outer hop first would just drop
+        // the inner ones mid-conversation.
+        for jump in jump_sessions.into_iter().rev() {
             let _ = jump
                 .disconnect(Disconnect::ByApplication, "Closed by NovaTerminal", "en")
                 .await;
@@ -3784,9 +3803,7 @@ mod tests {
             rows: 30,
             term: term.as_ptr(),
             identity_file: ptr::null(),
-            jump_host: ptr::null(),
-            jump_user: ptr::null(),
-            jump_port: 0,
+            jump_hops_json: ptr::null(),
             keepalive_interval_seconds: 15,
             keepalive_count_max: 7,
             remote_shell_kind: 0,
@@ -3820,9 +3837,7 @@ mod tests {
             rows: 30,
             term: term.as_ptr(),
             identity_file: ptr::null(),
-            jump_host: ptr::null(),
-            jump_user: ptr::null(),
-            jump_port: 0,
+            jump_hops_json: ptr::null(),
             keepalive_interval_seconds: 15,
             keepalive_count_max: 7,
             remote_shell_kind: 2,
@@ -3878,7 +3893,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
-            jump_host: None,
+            jump_hops: Vec::new(),
             keepalive_interval_seconds: 15,
             keepalive_count_max: 7,
             remote_shell_kind: RemoteShellKind::Auto,
@@ -3908,7 +3923,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
-            jump_host: None,
+            jump_hops: Vec::new(),
             keepalive_interval_seconds: 30,
             keepalive_count_max: 3,
             remote_shell_kind: RemoteShellKind::Bash,
@@ -3940,7 +3955,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
-            jump_host: None,
+            jump_hops: Vec::new(),
             keepalive_interval_seconds: 30,
             keepalive_count_max: 3,
             remote_shell_kind: RemoteShellKind::Fish,
@@ -3968,7 +3983,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
-            jump_host: None,
+            jump_hops: Vec::new(),
             keepalive_interval_seconds: 30,
             keepalive_count_max: 3,
             remote_shell_kind: RemoteShellKind::Zsh,
@@ -3998,7 +4013,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
-            jump_host: None,
+            jump_hops: Vec::new(),
             keepalive_interval_seconds: 30,
             keepalive_count_max: 3,
             remote_shell_kind: RemoteShellKind::Auto,
@@ -4787,10 +4802,9 @@ mod connect_arg_encoding_tests {
 
         type Setter = fn(&mut NovaSshConnectArgs, *const c_char);
 
-        let sites: [(&str, Setter); 7] = [
+        let sites: [(&str, Setter); 6] = [
             ("identity_file", |a, p| a.identity_file = p),
-            ("jump_host", |a, p| a.jump_host = p),
-            ("jump_user", |a, p| a.jump_user = p),
+            ("jump_hops_json", |a, p| a.jump_hops_json = p),
             ("shell_detection_command", |a, p| {
                 a.shell_detection_command = p
             }),
@@ -4830,8 +4844,8 @@ mod connect_arg_encoding_tests {
             "absent identity_file still means password auth"
         );
         assert!(
-            config.jump_host.is_none(),
-            "absent jump_host still means no jump"
+            config.jump_hops.is_empty(),
+            "absent jump_hops_json still means no jump"
         );
         assert!(config.shell_detection_command.is_none());
         assert!(config.bash_cwd_bootstrap.is_none());
@@ -4879,6 +4893,69 @@ mod connect_arg_encoding_tests {
 
         assert!(config.identity_file.is_none());
         assert_eq!("xterm-256color", config.term);
+    }
+
+    #[test]
+    fn jump_hops_json_chain_is_parsed_in_order_with_per_hop_defaults() {
+        let good = CString::new("nova").unwrap();
+        let hops = CString::new(
+            r#"[{"host":"bastion-one","user":"ops","port":2200},{"host":"bastion-two","user":null,"port":0}]"#,
+        )
+        .unwrap();
+
+        let mut args = valid_base_args(&good, &good);
+        args.jump_hops_json = hops.as_ptr();
+
+        let config = ConnectConfig::from_args(&args).expect("a valid chain must parse");
+
+        assert_eq!(2, config.jump_hops.len());
+        assert_eq!("bastion-one", config.jump_hops[0].host);
+        assert_eq!("ops", config.jump_hops[0].user);
+        assert_eq!(2200, config.jump_hops[0].port);
+        // The second hop exercises both defaults: no user means the connection's target user,
+        // port 0 means 22 — the same rules the single-hop FFI fields had.
+        assert_eq!("bastion-two", config.jump_hops[1].host);
+        assert_eq!("nova", config.jump_hops[1].user);
+        assert_eq!(22, config.jump_hops[1].port);
+    }
+
+    #[test]
+    fn jump_hops_json_empty_array_means_direct() {
+        let good = CString::new("nova").unwrap();
+        let hops = CString::new("[]").unwrap();
+
+        let mut args = valid_base_args(&good, &good);
+        args.jump_hops_json = hops.as_ptr();
+
+        let config = ConnectConfig::from_args(&args).expect("an empty chain must parse");
+
+        assert!(config.jump_hops.is_empty());
+    }
+
+    #[test]
+    fn jump_hops_json_rejects_malformed_json_and_blank_hosts() {
+        // Rejection, not best-effort: dropping or mangling a hop and connecting anyway would hand
+        // credentials to an endpoint the caller never named. Same rule as invalid UTF-8 above.
+        let good = CString::new("nova").unwrap();
+
+        for (label, payload) in [
+            ("malformed JSON", "[{"),
+            ("non-array JSON", r#"{"host":"bastion"}"#),
+            (
+                "blank hop host",
+                r#"[{"host":"  ","user":"ops","port":22}]"#,
+            ),
+            ("missing hop host", r#"[{"user":"ops","port":22}]"#),
+        ] {
+            let hops = CString::new(payload).unwrap();
+            let mut args = valid_base_args(&good, &good);
+            args.jump_hops_json = hops.as_ptr();
+
+            assert!(
+                ConnectConfig::from_args(&args).is_none(),
+                "{label} must refuse the connect, not degrade it"
+            );
+        }
     }
 }
 

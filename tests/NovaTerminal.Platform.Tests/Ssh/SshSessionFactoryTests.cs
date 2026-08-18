@@ -111,8 +111,11 @@ public sealed class SshSessionFactoryTests
     }
 
     [Fact]
-    public void Create_ForNativeProfileWithJumpHopChain_RefusesBeforeBuildingASession()
+    public void Create_ForNativeProfileWithJumpHopChain_BuildsASessionAndLogsTheChainLength()
     {
+        // This exact shape used to be refused with "Multiple jump hops are not supported".
+        // The chain is served natively now, so the factory must route it like any other native
+        // profile — and say in the log that a chain, not a single hop, is in play.
         var profileId = Guid.Parse("5c7d9e10-2b3a-4d5e-9f01-7a8b9c0d1e22");
         var store = new InMemorySshProfileStore(new SshProfile
         {
@@ -127,12 +130,13 @@ public sealed class SshSessionFactoryTests
                 new SshJumpHop { Host = "jump-two.internal" }
             ]
         });
+        var logs = new List<string>();
 
         var factory = new SshSessionFactory(store, launcher: null, nativeInterop: new StubNativeSshInterop());
+        using ITerminalSession session = factory.Create(profileId, log: logs.Add);
 
-        NotSupportedException ex = Assert.Throws<NotSupportedException>(() => factory.Create(profileId));
-
-        Assert.Contains("Multiple jump hops", ex.Message, StringComparison.Ordinal);
+        Assert.IsType<NativeSshSession>(session);
+        Assert.Contains(logs, message => message.Contains("path=jump-chain:2", StringComparison.Ordinal));
     }
 
     // Not covered here: an OpenSSH profile carrying a remote forward. The capability gate sits in the

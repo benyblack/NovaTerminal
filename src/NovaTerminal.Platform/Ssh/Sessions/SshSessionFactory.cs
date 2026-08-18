@@ -90,7 +90,7 @@ public sealed class SshSessionFactory : ISshSessionFactory
         {
             0 => "direct",
             1 => "jump-host",
-            _ => "jump-host-unsupported"
+            _ => $"jump-chain:{profile.JumpHops.Count}"
         };
 
         log?.Invoke($"[SshSessionFactory] backend=native path={path} profile={profile.Name}");

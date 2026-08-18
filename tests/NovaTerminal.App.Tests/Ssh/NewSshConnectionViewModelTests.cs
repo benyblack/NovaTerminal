@@ -318,8 +318,11 @@ public sealed class NewSshConnectionViewModelTests
     }
 
     [Fact]
-    public void Validate_ForNativeProfileWithJumpHopChain_Fails()
+    public void Validate_ForNativeProfileWithJumpHopChain_Succeeds()
     {
+        // This shape used to be refused at save time ("Multiple jump hops are not supported").
+        // The native backend serves chains now, so the same editor state must save cleanly and
+        // show no backend warning.
         var vm = new NewSshConnectionViewModel
         {
             HostName = "target.internal",
@@ -330,8 +333,9 @@ public sealed class NewSshConnectionViewModelTests
         vm.JumpHops.Add(new SshJumpHop { Host = "jump-one.internal" });
         vm.JumpHops.Add(new SshJumpHop { Host = "jump-two.internal" });
 
-        Assert.False(vm.Validate());
-        Assert.Contains("Multiple jump hops", vm.ValidationError, StringComparison.Ordinal);
+        Assert.True(vm.Validate());
+        Assert.Equal(string.Empty, vm.ValidationError);
+        Assert.Equal(string.Empty, vm.BackendWarning);
     }
 
     [Fact]

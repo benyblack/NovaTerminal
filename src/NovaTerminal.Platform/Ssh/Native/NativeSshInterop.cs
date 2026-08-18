@@ -3,6 +3,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NovaTerminal.Platform.Ssh.Models;
 
 namespace NovaTerminal.Platform.Ssh.Native;
 
@@ -69,18 +70,19 @@ public sealed partial class NativeSshInterop : INativeSshInterop
                 fishCwdBootstrapPtr = Marshal.StringToCoTaskMemUTF8(options.FishCwdBootstrap);
             }
 
-            IntPtr jumpHostPtr = IntPtr.Zero;
-            IntPtr jumpUserPtr = IntPtr.Zero;
+            IntPtr jumpHopsJsonPtr = IntPtr.Zero;
 
             try
             {
-                if (options.JumpHost != null)
+                if (options.JumpHops.Count > 0)
                 {
-                    jumpHostPtr = Marshal.StringToCoTaskMemUTF8(options.JumpHost.Host);
-                    if (!string.IsNullOrWhiteSpace(options.JumpHost.User))
-                    {
-                        jumpUserPtr = Marshal.StringToCoTaskMemUTF8(options.JumpHost.User);
-                    }
+                    // The chain crosses the FFI as one JSON array rather than repeated C fields,
+                    // so any length works without renegotiating the ABI. Same shape as the hops
+                    // in the SFTP request JSON; the Rust side parses both with one struct.
+                    jumpHopsJsonPtr = Marshal.StringToCoTaskMemUTF8(
+                        JsonSerializer.Serialize(
+                            options.JumpHops.Select(JumpHopRequest.From).ToArray(),
+                            NativeSshJsonContext.Default.JumpHopRequestArray));
                 }
 
                 NativeConnectArgs args = new()
@@ -92,9 +94,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
                     Rows = checked((ushort)options.Rows),
                     Term = termPtr,
                     IdentityFile = identityPtr,
-                    JumpHost = jumpHostPtr,
-                    JumpUser = jumpUserPtr,
-                    JumpPort = checked((ushort)(options.JumpHost?.Port ?? 0)),
+                    JumpHopsJson = jumpHopsJsonPtr,
                     KeepAliveIntervalSeconds = checked((uint)Math.Max(0, options.KeepAliveIntervalSeconds)),
                     KeepAliveCountMax = checked((uint)Math.Max(0, options.KeepAliveCountMax)),
                     RemoteShellKind = (uint)options.RemoteShellKind,
@@ -115,8 +115,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
             }
             finally
             {
-                FreeUtf8(jumpHostPtr);
-                FreeUtf8(jumpUserPtr);
+                FreeUtf8(jumpHopsJsonPtr);
             }
         }
         finally
@@ -641,29 +640,29 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     {
         if (string.IsNullOrWhiteSpace(options.Host))
         {
-            throw new ArgumentException("A host is required for native SSH operations.", nameof(options.Host));
+            throw new ArgumentException("A host is required for native SSH operations.", nameof(options));
         }
 
         if (string.IsNullOrWhiteSpace(options.User))
         {
-            throw new ArgumentException("A user is required for native SSH operations.", nameof(options.User));
+            throw new ArgumentException("A user is required for native SSH operations.", nameof(options));
         }
 
         if (options.Port is < 1 or > 65535)
         {
-            throw new ArgumentOutOfRangeException(nameof(options.Port), "The SSH port must be between 1 and 65535.");
+            throw new ArgumentOutOfRangeException(nameof(options), "The SSH port must be between 1 and 65535.");
         }
 
-        if (options.JumpHost is { } jumpHost)
+        foreach (SshJumpHop jumpHop in options.JumpHops)
         {
-            if (string.IsNullOrWhiteSpace(jumpHost.Host))
+            if (string.IsNullOrWhiteSpace(jumpHop.Host))
             {
-                throw new ArgumentException("A jump-host name is required when jump-host options are supplied.", nameof(options.JumpHost));
+                throw new ArgumentException("A jump-host name is required for every jump hop.", nameof(options));
             }
 
-            if (jumpHost.Port is < 1 or > 65535)
+            if (jumpHop.Port is < 1 or > 65535)
             {
-                throw new ArgumentOutOfRangeException(nameof(options.JumpHost), "The jump-host port must be between 1 and 65535.");
+                throw new ArgumentOutOfRangeException(nameof(options), "Every jump-hop port must be between 1 and 65535.");
             }
         }
     }
@@ -690,7 +689,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         {
             NativeSftpTransferResponse? response = JsonSerializer.Deserialize(
                 responseJson,
-                NativeSshTransferJsonContext.Default.NativeSftpTransferResponse);
+                NativeSshJsonContext.Default.NativeSftpTransferResponse);
             if (!string.IsNullOrWhiteSpace(response?.Message))
             {
                 return $"{message} {response.Message}";
@@ -715,7 +714,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         {
             RemotePathListResponse? response = JsonSerializer.Deserialize(
                 responseJson,
-                NativeSshTransferJsonContext.Default.RemotePathListResponse);
+                NativeSshJsonContext.Default.RemotePathListResponse);
             if (!string.IsNullOrWhiteSpace(response?.Message))
             {
                 return $"{message} {response.Message}";
@@ -754,7 +753,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
 
         NativeSftpTransferResponse? response = JsonSerializer.Deserialize(
             responseJson,
-            NativeSshTransferJsonContext.Default.NativeSftpTransferResponse);
+            NativeSshJsonContext.Default.NativeSftpTransferResponse);
         return response?.Message;
     }
 
@@ -770,7 +769,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
 
         return JsonSerializer.Serialize(
             request,
-            NativeSshTransferJsonContext.Default.SftpTransferRequest);
+            NativeSshJsonContext.Default.SftpTransferRequest);
     }
 
     private static string SerializeRemotePathListRequest(RemotePathListRequest request)
@@ -779,14 +778,14 @@ public sealed partial class NativeSshInterop : INativeSshInterop
 
         return JsonSerializer.Serialize(
             request,
-            NativeSshTransferJsonContext.Default.RemotePathListRequest);
+            NativeSshJsonContext.Default.RemotePathListRequest);
     }
 
     private static IReadOnlyList<NativeRemotePathEntry> DeserializeRemotePathListResponse(string responseJson)
     {
         RemotePathListResponse? response = JsonSerializer.Deserialize(
             responseJson,
-            NativeSshTransferJsonContext.Default.RemotePathListResponse);
+            NativeSshJsonContext.Default.RemotePathListResponse);
 
         return response?.Entries?
             .Select(entry => new NativeRemotePathEntry(
@@ -844,9 +843,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         public ushort Rows;
         public IntPtr Term;
         public IntPtr IdentityFile;
-        public IntPtr JumpHost;
-        public IntPtr JumpUser;
-        public ushort JumpPort;
+        public IntPtr JumpHopsJson;
         public uint KeepAliveIntervalSeconds;
         public uint KeepAliveCountMax;
         public uint RemoteShellKind;
@@ -878,13 +875,6 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     {
         public static SftpTransferRequest From(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions)
         {
-            SftpJumpHostRequest? jumpHost = connectionOptions.JumpHost is null
-                ? null
-                : new SftpJumpHostRequest(
-                    connectionOptions.JumpHost.Host,
-                    string.IsNullOrWhiteSpace(connectionOptions.JumpHost.User) ? null : connectionOptions.JumpHost.User,
-                    connectionOptions.JumpHost.Port);
-
             return new SftpTransferRequest(
                 new SftpConnectionRequest(
                     connectionOptions.Host,
@@ -893,7 +883,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
                     string.IsNullOrWhiteSpace(connectionOptions.Password) ? null : connectionOptions.Password,
                     string.IsNullOrWhiteSpace(connectionOptions.IdentityFilePath) ? null : connectionOptions.IdentityFilePath,
                     connectionOptions.KnownHostsFilePath!,
-                    jumpHost),
+                    connectionOptions.JumpHops.Select(JumpHopRequest.From).ToArray()),
                 new SftpTransferRequestBody(
                     transferOptions.Direction.ToString().ToLowerInvariant(),
                     transferOptions.Kind.ToString().ToLowerInvariant(),
@@ -909,21 +899,24 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         string? Password,
         string? IdentityFilePath,
         string KnownHostsFilePath,
-        SftpJumpHostRequest? JumpHost);
+        IReadOnlyList<JumpHopRequest> JumpHops);
 
-    private sealed record SftpJumpHostRequest(string Host, string? User, int Port);
+    /// <summary>
+    /// One jump hop as it crosses to the native layer — in the connect args' JSON chain and in
+    /// the SFTP request JSON alike. Null user means "authenticate as the connection's user".
+    /// </summary>
+    private sealed record JumpHopRequest(string Host, string? User, int Port)
+    {
+        public static JumpHopRequest From(SshJumpHop hop) => new(
+            hop.Host,
+            string.IsNullOrWhiteSpace(hop.User) ? null : hop.User,
+            hop.Port);
+    }
 
     private sealed record RemotePathListRequest(SftpConnectionRequest Connection, string Path)
     {
         public static RemotePathListRequest From(NativeSshConnectionOptions connectionOptions, string remotePath)
         {
-            SftpJumpHostRequest? jumpHost = connectionOptions.JumpHost is null
-                ? null
-                : new SftpJumpHostRequest(
-                    connectionOptions.JumpHost.Host,
-                    string.IsNullOrWhiteSpace(connectionOptions.JumpHost.User) ? null : connectionOptions.JumpHost.User,
-                    connectionOptions.JumpHost.Port);
-
             return new RemotePathListRequest(
                 new SftpConnectionRequest(
                     connectionOptions.Host,
@@ -932,7 +925,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
                     string.IsNullOrWhiteSpace(connectionOptions.Password) ? null : connectionOptions.Password,
                     string.IsNullOrWhiteSpace(connectionOptions.IdentityFilePath) ? null : connectionOptions.IdentityFilePath,
                     connectionOptions.KnownHostsFilePath!,
-                    jumpHost),
+                    connectionOptions.JumpHops.Select(JumpHopRequest.From).ToArray()),
                 remotePath);
         }
     }
@@ -969,13 +962,14 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
     [JsonSerializable(typeof(SftpTransferRequest))]
     [JsonSerializable(typeof(SftpConnectionRequest))]
-    [JsonSerializable(typeof(SftpJumpHostRequest))]
+    [JsonSerializable(typeof(JumpHopRequest))]
+    [JsonSerializable(typeof(JumpHopRequest[]))]
     [JsonSerializable(typeof(RemotePathListRequest))]
     [JsonSerializable(typeof(SftpTransferRequestBody))]
     [JsonSerializable(typeof(NativeSftpTransferResponse))]
     [JsonSerializable(typeof(RemotePathListResponse))]
     [JsonSerializable(typeof(RemotePathListResponseEntry))]
-    private partial class NativeSshTransferJsonContext : JsonSerializerContext
+    private sealed partial class NativeSshJsonContext : JsonSerializerContext
     {
     }
 
