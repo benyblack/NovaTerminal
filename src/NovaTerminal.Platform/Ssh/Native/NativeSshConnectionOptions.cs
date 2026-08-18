@@ -16,7 +16,9 @@ public sealed class NativeSshConnectionOptions
     public string? Password { get; init; }
     public string? IdentityFilePath { get; init; }
     public string? KnownHostsFilePath { get; init; }
-    public SshJumpHop? JumpHost { get; init; }
+
+    /// <summary>The jump chain in connect order, client → target; empty means direct.</summary>
+    public IReadOnlyList<SshJumpHop> JumpHops { get; init; } = Array.Empty<SshJumpHop>();
     public int KeepAliveIntervalSeconds { get; init; } = DefaultKeepAliveIntervalSeconds;
     public int KeepAliveCountMax { get; init; } = DefaultKeepAliveCountMax;
     public RemoteShellKind RemoteShellKind { get; init; } = RemoteShellKind.Auto;

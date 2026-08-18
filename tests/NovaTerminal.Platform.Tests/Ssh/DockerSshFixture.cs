@@ -55,6 +55,14 @@ internal sealed class DockerSshFixture : IAsyncDisposable
     /// </summary>
     public int EchoServicePort => EchoServicePortValue;
 
+    /// <summary>
+    /// Port the in-container sshd listens on, as seen from the SSH server itself. Jump tests dial
+    /// this as the next-hop and target address: the server resolves it against its own loopback,
+    /// so the one container plays every hop of a chain — each hop is still a full SSH session over
+    /// a real direct-tcpip tunnel, there just happens to be one sshd answering all of them.
+    /// </summary>
+    public int InContainerSshPort => 22;
+
     public async Task WriteTextFileAsync(string path, string contents)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);

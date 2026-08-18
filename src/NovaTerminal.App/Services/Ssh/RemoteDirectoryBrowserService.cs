@@ -150,14 +150,14 @@ public sealed class RemoteDirectoryBrowserService : IRemoteDirectoryBrowserServi
                 KnownHostsFilePath = string.IsNullOrWhiteSpace(baseOptions.KnownHostsFilePath)
                     ? AppPaths.NativeKnownHostsFilePath
                     : baseOptions.KnownHostsFilePath,
-                JumpHost = baseOptions.JumpHost == null
-                    ? null
-                    : new SshJumpHop
+                JumpHops = baseOptions.JumpHops
+                    .Select(hop => new SshJumpHop
                     {
-                        Host = baseOptions.JumpHost.Host,
-                        User = baseOptions.JumpHost.User,
-                        Port = baseOptions.JumpHost.Port
-                    }
+                        Host = hop.Host,
+                        User = hop.User,
+                        Port = hop.Port
+                    })
+                    .ToArray()
             };
 
             errorMessage = string.Empty;

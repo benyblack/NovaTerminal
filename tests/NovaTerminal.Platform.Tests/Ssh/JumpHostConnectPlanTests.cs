@@ -12,8 +12,8 @@ public sealed class JumpHostConnectPlanTests
     {
         JumpHostConnectPlan plan = JumpHostConnectPlan.Create(CreateProfile());
 
-        Assert.False(plan.HasJumpHost);
-        Assert.Null(plan.JumpHost);
+        Assert.False(plan.HasJumpHops);
+        Assert.Empty(plan.JumpHops);
         Assert.Equal("target.internal", plan.TargetHost);
         Assert.Equal(22, plan.TargetPort);
         Assert.Equal("nova", plan.TargetUser);
@@ -32,24 +32,32 @@ public sealed class JumpHostConnectPlanTests
 
         JumpHostConnectPlan plan = JumpHostConnectPlan.Create(profile);
 
-        Assert.True(plan.HasJumpHost);
-        Assert.NotNull(plan.JumpHost);
-        Assert.Equal("jump.internal", plan.JumpHost!.Host);
-        Assert.Equal("ops", plan.JumpHost.User);
-        Assert.Equal(2200, plan.JumpHost.Port);
+        Assert.True(plan.HasJumpHops);
+        SshJumpHop hop = Assert.Single(plan.JumpHops);
+        Assert.Equal("jump.internal", hop.Host);
+        Assert.Equal("ops", hop.User);
+        Assert.Equal(2200, hop.Port);
         Assert.Equal("target.internal", plan.TargetHost);
     }
 
     [Fact]
-    public void Create_FromProfileWithMultipleJumpHops_ThrowsClearUnsupportedError()
+    public void Create_FromProfileWithMultipleJumpHops_PreservesTheChainInOrder()
     {
+        // Order is the whole contract: the first hop is the only one reached over raw TCP, every
+        // later hop is tunnelled through the one before it. A reordered chain connects through
+        // the wrong bastions or not at all.
         SshProfile profile = CreateProfile();
-        profile.JumpHops.Add(new SshJumpHop { Host = "jump-one.internal" });
+        profile.JumpHops.Add(new SshJumpHop { Host = "jump-one.internal", User = "ops", Port = 2200 });
         profile.JumpHops.Add(new SshJumpHop { Host = "jump-two.internal" });
 
-        NotSupportedException ex = Assert.Throws<NotSupportedException>(() => JumpHostConnectPlan.Create(profile));
+        JumpHostConnectPlan plan = JumpHostConnectPlan.Create(profile);
 
-        Assert.Contains("Multiple jump hops", ex.Message, StringComparison.Ordinal);
+        Assert.True(plan.HasJumpHops);
+        Assert.Equal(2, plan.JumpHops.Count);
+        Assert.Equal("jump-one.internal", plan.JumpHops[0].Host);
+        Assert.Equal(2200, plan.JumpHops[0].Port);
+        Assert.Equal("jump-two.internal", plan.JumpHops[1].Host);
+        Assert.Equal(22, plan.JumpHops[1].Port);
     }
 
     [Fact]
@@ -70,24 +78,38 @@ public sealed class JumpHostConnectPlanTests
         await WaitUntilAsync(() => interop.LastConnectOptions != null);
 
         Assert.NotNull(interop.LastConnectOptions);
-        Assert.NotNull(interop.LastConnectOptions!.JumpHost);
-        Assert.Equal("jump.internal", interop.LastConnectOptions.JumpHost!.Host);
-        Assert.Equal("ops", interop.LastConnectOptions.JumpHost.User);
-        Assert.Equal(2222, interop.LastConnectOptions.JumpHost.Port);
+        SshJumpHop hop = Assert.Single(interop.LastConnectOptions!.JumpHops);
+        Assert.Equal("jump.internal", hop.Host);
+        Assert.Equal("ops", hop.User);
+        Assert.Equal(2222, hop.Port);
         Assert.Contains(logs, message => message.Contains("backend=native", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(logs, message => message.Contains("path=jump-host", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public void NativeSession_WithMultipleJumpHops_ThrowsClearUnsupportedError()
+    public async Task NativeSession_WithMultipleJumpHops_ConnectsWithTheWholeChainAndLogsIt()
     {
+        var interop = new CapturingNativeSshInterop();
+        var logs = new ConcurrentQueue<string>();
         SshProfile profile = CreateProfile();
-        profile.JumpHops.Add(new SshJumpHop { Host = "jump-one.internal" });
+        profile.JumpHops.Add(new SshJumpHop { Host = "jump-one.internal", User = "ops", Port = 2200 });
         profile.JumpHops.Add(new SshJumpHop { Host = "jump-two.internal" });
 
-        NotSupportedException ex = Assert.Throws<NotSupportedException>(() => new NativeSshSession(profile, interop: new CapturingNativeSshInterop()));
+        using var session = new NativeSshSession(profile, interop: interop, log: logs.Enqueue);
 
-        Assert.Contains("Multiple jump hops", ex.Message, StringComparison.Ordinal);
+        await WaitUntilAsync(() => interop.LastConnectOptions != null);
+
+        Assert.NotNull(interop.LastConnectOptions);
+        IReadOnlyList<SshJumpHop> hops = interop.LastConnectOptions!.JumpHops;
+        Assert.Equal(2, hops.Count);
+        Assert.Equal("jump-one.internal", hops[0].Host);
+        Assert.Equal("ops", hops[0].User);
+        Assert.Equal(2200, hops[0].Port);
+        Assert.Equal("jump-two.internal", hops[1].Host);
+        // A hop without its own user runs as the target user — OpenSSH's default for a bare -J entry.
+        Assert.Equal("nova", hops[1].User);
+        Assert.Equal(22, hops[1].Port);
+        Assert.Contains(logs, message => message.Contains("path=jump-chain:2", StringComparison.OrdinalIgnoreCase));
     }
 
     private static SshProfile CreateProfile()

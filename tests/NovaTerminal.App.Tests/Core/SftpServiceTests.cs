@@ -493,10 +493,10 @@ public sealed class SftpServiceTests
         Assert.Equal(2200, options.Port);
         Assert.Equal(45, options.KeepAliveIntervalSeconds);
         Assert.Equal(6, options.KeepAliveCountMax);
-        Assert.NotNull(options.JumpHost);
-        Assert.Equal("jump.internal", options.JumpHost!.Host);
-        Assert.Equal("jumper", options.JumpHost.User);
-        Assert.Equal(2222, options.JumpHost.Port);
+        SshJumpHop hop = Assert.Single(options.JumpHops);
+        Assert.Equal("jump.internal", hop.Host);
+        Assert.Equal("jumper", hop.User);
+        Assert.Equal(2222, hop.Port);
     }
 
     [Fact]
@@ -544,10 +544,10 @@ public sealed class SftpServiceTests
 
         NativeSshConnectionOptions options = SftpService.BuildNativeTransferConnectionOptions(service, targetProfile, new[] { jumpProfile, targetProfile });
 
-        Assert.NotNull(options.JumpHost);
-        Assert.Equal("jump.internal", options.JumpHost!.Host);
-        Assert.Equal("jumper", options.JumpHost.User);
-        Assert.Equal(2222, options.JumpHost.Port);
+        SshJumpHop hop = Assert.Single(options.JumpHops);
+        Assert.Equal("jump.internal", hop.Host);
+        Assert.Equal("jumper", hop.User);
+        Assert.Equal(2222, hop.Port);
     }
 
     [Fact]

@@ -638,14 +638,14 @@ namespace NovaTerminal.Shell
                 Password = string.IsNullOrWhiteSpace(resolvedPassword) ? null : resolvedPassword,
                 IdentityFilePath = baseOptions.IdentityFilePath,
                 KnownHostsFilePath = effectiveKnownHostsPath,
-                JumpHost = baseOptions.JumpHost == null
-                    ? null
-                    : new NovaTerminal.Platform.Ssh.Models.SshJumpHop
+                JumpHops = baseOptions.JumpHops
+                    .Select(hop => new NovaTerminal.Platform.Ssh.Models.SshJumpHop
                     {
-                        Host = baseOptions.JumpHost.Host,
-                        User = baseOptions.JumpHost.User,
-                        Port = baseOptions.JumpHost.Port
-                    },
+                        Host = hop.Host,
+                        User = hop.User,
+                        Port = hop.Port
+                    })
+                    .ToArray(),
                 KeepAliveIntervalSeconds = baseOptions.KeepAliveIntervalSeconds,
                 KeepAliveCountMax = baseOptions.KeepAliveCountMax
             };
