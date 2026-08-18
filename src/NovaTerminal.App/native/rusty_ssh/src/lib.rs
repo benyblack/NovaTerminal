@@ -205,6 +205,23 @@ struct QueuedEvent {
     flags: u32,
 }
 
+/// One item for a forward channel's writer task, in the order the managed side asked for it.
+enum ForwardWrite {
+    Data(Vec<u8>),
+    Eof,
+    Close,
+}
+
+/// A live forward channel, represented by a queue into its writer task rather than by the channel's
+/// write half. The write half is owned by that task alone; nothing else can `await` it, which is what
+/// keeps a stalled forward from freezing the session worker's select loop.
+struct ForwardChannelHandle {
+    writes: mpsc::UnboundedSender<ForwardWrite>,
+    writer_task: tokio::task::JoinHandle<()>,
+}
+
+type ForwardChannels = Arc<tokio::sync::Mutex<HashMap<u32, ForwardChannelHandle>>>;
+
 /// A queued event's shape, without its payload. Lets the FFI report `payload_len` so the caller can
 /// size a buffer, without copying anything (#173 item 1).
 #[derive(Clone, Copy)]
@@ -2676,6 +2693,9 @@ fn join_remote_path(base: &str, child: &str) -> String {
 /// instead of a wall-clock timeout.
 const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// How long session teardown waits for forward-channel writer tasks to flush their close.
+const FORWARD_CHANNEL_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
 async fn connect_tcp_with_timeout(host: &str, port: u16) -> anyhow::Result<tokio::net::TcpStream> {
     match tokio::time::timeout(
         TCP_CONNECT_TIMEOUT,
@@ -2875,17 +2895,21 @@ fn run_session(
                             .await;
                             let _ = reply.send(result);
                         }
+                        // These three only queue onto the target channel's writer task. They used to
+                        // `await` the write half here and propagate with `?`, which meant a single
+                        // failed forward-channel write tore down the entire session — terminal
+                        // included. A forward channel can now only take itself down.
                         Some(WorkerCommand::WriteForwardChannel { channel_id, data }) => {
-                            write_forward_channel(forward_channels.clone(), channel_id, data).await?;
+                            write_forward_channel(&forward_channels, channel_id, data).await;
                         }
                         Some(WorkerCommand::ForwardChannelEof { channel_id }) => {
-                            send_forward_channel_eof(forward_channels.clone(), channel_id).await?;
+                            send_forward_channel_eof(&forward_channels, channel_id).await;
                         }
                         Some(WorkerCommand::CloseForwardChannel { channel_id }) => {
-                            close_forward_channel(forward_channels.clone(), channel_id).await?;
+                            close_forward_channel(&forward_channels, channel_id).await;
                         }
                         Some(WorkerCommand::Close) | None => {
-                            close_all_forward_channels(forward_channels.clone()).await;
+                            close_all_forward_channels(&forward_channels).await;
                             let _ = channel.eof().await;
                             let _ = channel.close().await;
                             break;
@@ -2982,9 +3006,7 @@ fn coalesce_pending_resize_commands(
 
 async fn open_direct_tcpip_channel(
     session: &client::Handle<NovaClientHandler>,
-    forward_channels: Arc<
-        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
-    >,
+    forward_channels: ForwardChannels,
     shared: Arc<SharedState>,
     host_to_connect: String,
     port_to_connect: u32,
@@ -3002,10 +3024,41 @@ async fn open_direct_tcpip_channel(
 
     let channel_id = u32::from(channel.id());
     let (mut read_half, write_half) = channel.split();
-    forward_channels
-        .lock()
-        .await
-        .insert(channel_id, Arc::new(write_half));
+
+    // Writer task per forward channel. The session worker's select loop used to `await` the write
+    // half directly, so a remote that stopped reading a forwarded connection stalled the loop — and
+    // with it the shell channel's own reads and writes. Now the loop only queues, and blocking lives
+    // here where it can only hold up this one channel.
+    let (write_tx, mut write_rx) = mpsc::unbounded_channel::<ForwardWrite>();
+    let writer_task = tokio::spawn(async move {
+        // Ends when the sender is dropped (channel removed) after draining what is already queued.
+        while let Some(write) = write_rx.recv().await {
+            match write {
+                ForwardWrite::Data(data) => {
+                    if write_half.data(Cursor::new(data)).await.is_err() {
+                        break;
+                    }
+                }
+                ForwardWrite::Eof => {
+                    if write_half.eof().await.is_err() {
+                        break;
+                    }
+                }
+                ForwardWrite::Close => {
+                    let _ = write_half.close().await;
+                    break;
+                }
+            }
+        }
+    });
+
+    forward_channels.lock().await.insert(
+        channel_id,
+        ForwardChannelHandle {
+            writes: write_tx,
+            writer_task,
+        },
+    );
 
     let reader_shared = shared.clone();
     let reader_channels = forward_channels.clone();
@@ -3054,73 +3107,69 @@ async fn open_direct_tcpip_channel(
     Ok(channel_id)
 }
 
-async fn write_forward_channel(
-    forward_channels: Arc<
-        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
-    >,
+/// Queues one item for a forward channel's writer task. Only ever awaits the map lock, never the
+/// network, so callers on the session worker's select loop cannot be stalled by a slow peer.
+async fn queue_forward_write(
+    forward_channels: &ForwardChannels,
     channel_id: u32,
-    data: Vec<u8>,
-) -> anyhow::Result<()> {
-    let writer = {
-        let channels = forward_channels.lock().await;
-        channels.get(&channel_id).cloned()
-    };
-
-    if let Some(writer) = writer {
-        writer.data(Cursor::new(data)).await?;
-    }
-
-    Ok(())
-}
-
-async fn send_forward_channel_eof(
-    forward_channels: Arc<
-        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
-    >,
-    channel_id: u32,
-) -> anyhow::Result<()> {
-    let writer = {
-        let channels = forward_channels.lock().await;
-        channels.get(&channel_id).cloned()
-    };
-
-    if let Some(writer) = writer {
-        writer.eof().await?;
-    }
-
-    Ok(())
-}
-
-async fn close_forward_channel(
-    forward_channels: Arc<
-        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
-    >,
-    channel_id: u32,
-) -> anyhow::Result<()> {
-    let writer = forward_channels.lock().await.remove(&channel_id);
-    if let Some(writer) = writer {
-        writer.close().await?;
-    }
-
-    Ok(())
-}
-
-async fn close_all_forward_channels(
-    forward_channels: Arc<
-        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
-    >,
+    write: ForwardWrite,
 ) {
-    let writers = {
+    let sender = {
+        let channels = forward_channels.lock().await;
+        channels
+            .get(&channel_id)
+            .map(|handle| handle.writes.clone())
+    };
+
+    if let Some(sender) = sender {
+        // A send error means the writer task already ended (the channel died under us); the
+        // subsequent ForwardChannelClosed event is what the managed side acts on.
+        let _ = sender.send(write);
+    }
+}
+
+async fn write_forward_channel(forward_channels: &ForwardChannels, channel_id: u32, data: Vec<u8>) {
+    queue_forward_write(forward_channels, channel_id, ForwardWrite::Data(data)).await;
+}
+
+async fn send_forward_channel_eof(forward_channels: &ForwardChannels, channel_id: u32) {
+    queue_forward_write(forward_channels, channel_id, ForwardWrite::Eof).await;
+}
+
+async fn close_forward_channel(forward_channels: &ForwardChannels, channel_id: u32) {
+    // Removed from the map first so nothing can be queued behind the close, but the close itself is
+    // handed to the writer task so it lands *after* the data already queued ahead of it. Closing the
+    // write half here directly would truncate whatever was still in flight.
+    let handle = forward_channels.lock().await.remove(&channel_id);
+    if let Some(handle) = handle {
+        let _ = handle.writes.send(ForwardWrite::Close);
+    }
+}
+
+async fn close_all_forward_channels(forward_channels: &ForwardChannels) {
+    let handles = {
         let mut channels = forward_channels.lock().await;
         channels
             .drain()
-            .map(|(_, writer)| writer)
+            .map(|(_, handle)| handle)
             .collect::<Vec<_>>()
     };
 
-    for writer in writers {
-        let _ = writer.close().await;
+    let mut writer_tasks = Vec::with_capacity(handles.len());
+    for handle in handles {
+        let _ = handle.writes.send(ForwardWrite::Close);
+        writer_tasks.push(handle.writer_task);
     }
+
+    // Give the writer tasks a bounded chance to flush their close. Bounded because a task blocked
+    // writing to a remote that has stopped reading would otherwise hang session teardown, which is
+    // reached from nova_ssh_close and must not block the .NET finalizer thread (#155).
+    let drain = async {
+        for writer_task in writer_tasks {
+            let _ = writer_task.await;
+        }
+    };
+    let _ = tokio::time::timeout(FORWARD_CHANNEL_DRAIN_TIMEOUT, drain).await;
 }
 
 async fn authenticate(
@@ -4737,5 +4786,158 @@ mod connect_arg_encoding_tests {
 
         assert!(config.identity_file.is_none());
         assert_eq!("xterm-256color", config.term);
+    }
+}
+
+/// Forward-channel write queueing (#173 item 2).
+///
+/// These exercise the queue in front of a forward channel's writer task, which is the part that keeps
+/// a stalled forward off the session worker's select loop. The writer task itself owns a russh
+/// `ChannelWriteHalf` that cannot be fabricated without a live server, so the tests stand in their own
+/// task behind an identical sender — the queueing, ordering and teardown rules are what they pin.
+#[cfg(test)]
+mod forward_channel_queue_tests {
+    use super::*;
+
+    /// A forward channel whose "writer task" just records what it received, in order.
+    fn recording_channel() -> (
+        ForwardChannelHandle,
+        Arc<Mutex<Vec<&'static str>>>,
+        Arc<tokio::sync::Notify>,
+    ) {
+        let (writes, mut write_rx) = mpsc::unbounded_channel::<ForwardWrite>();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let finished = Arc::new(tokio::sync::Notify::new());
+
+        let task_seen = seen.clone();
+        let task_finished = finished.clone();
+        let writer_task = tokio::spawn(async move {
+            while let Some(write) = write_rx.recv().await {
+                let label = match write {
+                    ForwardWrite::Data(_) => "data",
+                    ForwardWrite::Eof => "eof",
+                    ForwardWrite::Close => "close",
+                };
+                task_seen.lock().unwrap().push(label);
+                if label == "close" {
+                    break;
+                }
+            }
+            task_finished.notify_waiters();
+        });
+
+        (
+            ForwardChannelHandle {
+                writes,
+                writer_task,
+            },
+            seen,
+            finished,
+        )
+    }
+
+    async fn channels_with(channel_id: u32, handle: ForwardChannelHandle) -> ForwardChannels {
+        let channels: ForwardChannels = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        channels.lock().await.insert(channel_id, handle);
+        channels
+    }
+
+    #[tokio::test]
+    async fn writes_eof_and_close_reach_the_writer_in_order() {
+        let (handle, seen, finished) = recording_channel();
+        let channels = channels_with(7, handle).await;
+
+        write_forward_channel(&channels, 7, vec![1, 2, 3]).await;
+        write_forward_channel(&channels, 7, vec![4]).await;
+        send_forward_channel_eof(&channels, 7).await;
+        close_forward_channel(&channels, 7).await;
+
+        finished.notified().await;
+        assert_eq!(vec!["data", "data", "eof", "close"], *seen.lock().unwrap());
+    }
+
+    #[tokio::test]
+    async fn close_removes_the_channel_so_later_writes_are_dropped_not_reordered() {
+        let (handle, seen, finished) = recording_channel();
+        let channels = channels_with(9, handle).await;
+
+        write_forward_channel(&channels, 9, vec![1]).await;
+        close_forward_channel(&channels, 9).await;
+        // Arrives after the close was queued: it must not slip in front of it, and must not resurrect
+        // the channel either.
+        write_forward_channel(&channels, 9, vec![2]).await;
+
+        finished.notified().await;
+        assert_eq!(vec!["data", "close"], *seen.lock().unwrap());
+        assert!(channels.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn writes_to_an_unknown_channel_are_ignored() {
+        let channels: ForwardChannels = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+
+        // No channel 42: the managed side can legitimately still be draining events for a channel the
+        // reader task already removed. Must be a no-op, not a panic.
+        write_forward_channel(&channels, 42, vec![1]).await;
+        send_forward_channel_eof(&channels, 42).await;
+        close_forward_channel(&channels, 42).await;
+
+        assert!(channels.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn dropping_the_handle_still_delivers_what_was_already_queued() {
+        // Removing a channel drops its sender. Anything queued before that must still reach the writer
+        // rather than being discarded mid-stream.
+        let (handle, seen, finished) = recording_channel();
+        let channels = channels_with(11, handle).await;
+
+        write_forward_channel(&channels, 11, vec![1]).await;
+        write_forward_channel(&channels, 11, vec![2]).await;
+        let removed = channels.lock().await.remove(&11).expect("channel present");
+        drop(removed.writes);
+
+        let _ = tokio::time::timeout(Duration::from_secs(5), finished.notified()).await;
+        assert_eq!(vec!["data", "data"], *seen.lock().unwrap());
+    }
+
+    #[tokio::test]
+    async fn close_all_drains_every_channel() {
+        let (first, first_seen, _first_done) = recording_channel();
+        let (second, second_seen, _second_done) = recording_channel();
+        let channels = channels_with(1, first).await;
+        channels.lock().await.insert(2, second);
+
+        close_all_forward_channels(&channels).await;
+
+        assert!(channels.lock().await.is_empty());
+        assert_eq!(vec!["close"], *first_seen.lock().unwrap());
+        assert_eq!(vec!["close"], *second_seen.lock().unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn close_all_gives_up_on_a_writer_that_never_finishes() {
+        // Teardown is reached from nova_ssh_close, so it must not wait on a writer task blocked
+        // against a remote that stopped reading (#155). The map is still emptied.
+        let (writes, mut write_rx) = mpsc::unbounded_channel::<ForwardWrite>();
+        let writer_task = tokio::spawn(async move {
+            // Takes the close but never returns, standing in for a blocked network write.
+            let _ = write_rx.recv().await;
+            std::future::pending::<()>().await;
+        });
+        let channels = channels_with(
+            3,
+            ForwardChannelHandle {
+                writes,
+                writer_task,
+            },
+        )
+        .await;
+
+        // start_paused auto-advances time when nothing is runnable, so the drain timeout elapses
+        // instantly rather than costing two real seconds.
+        close_all_forward_channels(&channels).await;
+
+        assert!(channels.lock().await.is_empty());
     }
 }

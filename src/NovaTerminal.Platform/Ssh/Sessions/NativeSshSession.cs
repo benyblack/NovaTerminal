@@ -63,9 +63,13 @@ public sealed class NativeSshSession : ITerminalSession
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        if (profile.Forwards.Any(forward => forward.Kind is not PortForwardKind.Local and not PortForwardKind.Dynamic))
+        // Single gate for every shape the native backend cannot serve (remote forwards, hop chains).
+        // The editor asks NativeSshCapability the same question at save time, so reaching this throw
+        // means either a profile saved before the check existed or a caller constructing us directly.
+        NativeSshCapabilityResult capability = NativeSshCapability.Evaluate(profile);
+        if (!capability.IsSupported)
         {
-            throw new NotSupportedException("Native SSH backend currently supports local and dynamic port forwards only.");
+            throw new NotSupportedException(capability.Explanation);
         }
 
         _ = diagnosticsLevel;

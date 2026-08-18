@@ -75,6 +75,17 @@ public sealed class SshSessionFactory : ISshSessionFactory
                 "Native SSH is disabled globally. Switch this profile back to OpenSSH or enable ExperimentalNativeSshEnabled.");
         }
 
+        // Two distinct refusals, deliberately distinguishable: the toggle above is a rollout decision
+        // the user can reverse in settings, while this one is a shape the native backend cannot serve
+        // at all. Same no-silent-fallback rule for both — a profile that asked for Native never gets
+        // quietly downgraded to OpenSSH.
+        NativeSshCapabilityResult capability = NativeSshCapability.Evaluate(profile);
+        if (!capability.IsSupported)
+        {
+            log?.Invoke($"[SshSessionFactory] backend=native refused reason={capability.Reason} profile={profile.Name}");
+            throw new NotSupportedException(capability.Explanation);
+        }
+
         string path = profile.JumpHops.Count switch
         {
             0 => "direct",

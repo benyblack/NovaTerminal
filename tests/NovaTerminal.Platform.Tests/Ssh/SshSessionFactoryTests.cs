@@ -75,6 +75,70 @@ public sealed class SshSessionFactoryTests
         Assert.Contains("OpenSSH", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Create_ForNativeProfileWithRemoteForward_RefusesWithCapabilityReasonNotTheToggleMessage()
+    {
+        var profileId = Guid.Parse("3f1e1c02-9a4b-4c1d-8b5e-6d0a2f7c1b44");
+        var store = new InMemorySshProfileStore(new SshProfile
+        {
+            Id = profileId,
+            Name = "native-remote-forward",
+            Host = "native.internal",
+            User = "nova",
+            BackendKind = SshBackendKind.Native,
+            Forwards =
+            [
+                new PortForward
+                {
+                    Kind = PortForwardKind.Remote,
+                    SourcePort = 8080,
+                    DestinationHost = "svc.internal",
+                    DestinationPort = 80
+                }
+            ]
+        });
+        var logs = new List<string>();
+
+        var factory = new SshSessionFactory(store, launcher: null, nativeInterop: new StubNativeSshInterop());
+
+        NotSupportedException ex = Assert.Throws<NotSupportedException>(() => factory.Create(profileId, log: logs.Add));
+
+        // The two refusals must stay distinguishable: this profile is not fixable in settings, so it
+        // must not be reported as "native SSH is disabled globally".
+        Assert.Contains("remote forward", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("disabled globally", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(logs, message => message.Contains("refused reason=RemotePortForward", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Create_ForNativeProfileWithJumpHopChain_RefusesBeforeBuildingASession()
+    {
+        var profileId = Guid.Parse("5c7d9e10-2b3a-4d5e-9f01-7a8b9c0d1e22");
+        var store = new InMemorySshProfileStore(new SshProfile
+        {
+            Id = profileId,
+            Name = "native-multi-hop",
+            Host = "target.internal",
+            User = "nova",
+            BackendKind = SshBackendKind.Native,
+            JumpHops =
+            [
+                new SshJumpHop { Host = "jump-one.internal" },
+                new SshJumpHop { Host = "jump-two.internal" }
+            ]
+        });
+
+        var factory = new SshSessionFactory(store, launcher: null, nativeInterop: new StubNativeSshInterop());
+
+        NotSupportedException ex = Assert.Throws<NotSupportedException>(() => factory.Create(profileId));
+
+        Assert.Contains("Multiple jump hops", ex.Message, StringComparison.Ordinal);
+    }
+
+    // Not covered here: an OpenSSH profile carrying a remote forward. The capability gate sits in the
+    // Native arm of SshSessionFactory.Create, so OpenSSH cannot reach it — and asserting that through
+    // the factory would construct a real OpenSshSession, which compiles an ssh_config to disk.
+
     private sealed class InMemorySshProfileStore : ISshProfileStore
     {
         public InMemorySshProfileStore(SshProfile profile)

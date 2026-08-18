@@ -56,6 +56,15 @@ The following checks still require manual validation against real SSH endpoints.
 - Native SSH remains opt-in through `TerminalSettings.ExperimentalNativeSshEnabled`.
 - `OpenSsh` remains the default backend for new profiles.
 - Native backend refusal is explicit when the global experimental toggle is disabled.
+- Profile shapes the native backend cannot serve (remote forwards, jump-hop chains)
+  are refused by `NativeSshCapability` at profile-save time as well as at connect
+  time, so such a profile can no longer be saved as `Native` and then fail on use.
+  See the rollout guidance in `docs/SSH_ROADMAP.md`.
+- Forward-channel data reaching the local socket is queued per channel and written
+  by a dedicated pump, in both the managed and Rust layers, so a forwarded port
+  whose peer stops reading can no longer stall the session's terminal I/O
+  (issue #173 item 2). A channel that exceeds its 1 MB outbound budget is closed
+  rather than buffered without limit or truncated.
 - Native backend now supports local and direct-host dynamic forwarding.
 - Remote forwarding remains unsupported in the native backend.
 - Dynamic forwarding through one-hop jump hosts remains follow-up work.
