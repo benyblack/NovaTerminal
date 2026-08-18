@@ -114,6 +114,17 @@ pub const NOVA_SSH_RESULT_WOULD_BLOCK: c_int = -8;
 /// NOVA_SSH_RESULT_WOULD_BLOCK rather than growing the queue without limit.
 const MAX_QUEUED_FORWARD_WRITE_BYTES: usize = 1024 * 1024;
 
+/// Ceiling on data-bearing payload bytes (Data, ForwardChannelData) queued toward the managed
+/// poll loop. At the ceiling the channel readers park in `queue_data_event` instead of reading
+/// on; an unread russh channel stops having its window replenished, so SSH flow control makes
+/// the *remote* hold the stream rather than this process buffering it (#173 item 1).
+///
+/// Sized above the SSH channel window (2 MiB in this russh config) so a healthy poll loop can
+/// never trip it — even a full window arriving during one idle poll gap fits — while a stalled
+/// consumer of `cat bigfile` now caps out at this budget plus one in-flight window instead of
+/// accumulating the entire stream. Control events are exempt: see `queue_data_event`.
+const MAX_QUEUED_EVENT_BYTES: usize = 4 * 1024 * 1024;
+
 /// Runs an FFI body, converting any panic into `on_panic` instead of unwinding
 /// across the C boundary (which is undefined behavior). The body is asserted
 /// unwind-safe because FFI bodies operate on raw pointers owned by the caller.
@@ -211,6 +222,12 @@ struct SharedState {
     // "would this block?" without touching the async side. A std Mutex, not tokio's: the reader is
     // an FFI thread with no runtime under it. See forward_write_budget.
     forward_write_budgets: Mutex<HashMap<u32, Arc<AtomicUsize>>>,
+    // Data-bearing payload bytes currently in `events`, kept outside the queue's Mutex so the
+    // async producers can check the budget without contending with the FFI poll thread's lock.
+    queued_data_bytes: AtomicUsize,
+    // Wakes producers parked in `queue_data_event` when the poll loop drains below the budget,
+    // or when the session closes (see mark_closed).
+    event_space_notify: tokio::sync::Notify,
 }
 
 struct QueuedEvent {
@@ -596,6 +613,8 @@ impl SharedState {
             closed: Mutex::new(false),
             closed_notify: tokio::sync::Notify::new(),
             forward_write_budgets: Mutex::new(HashMap::new()),
+            queued_data_bytes: AtomicUsize::new(0),
+            event_space_notify: tokio::sync::Notify::new(),
         }
     }
 
@@ -642,6 +661,12 @@ impl SharedState {
         }
     }
 
+    /// Queues a control event: prompts, Connected, ExitStatus, Error, Closed, forward
+    /// open/EOF/close notices. Never blocks and never counts toward the data budget — those
+    /// events are few and tiny, and a queue full of stalled terminal output must not be able
+    /// to hold back the very events that let the managed side notice and act.
+    ///
+    /// Data-bearing events (Data, ForwardChannelData) go through `queue_data_event` instead.
     fn queue_event(&self, event: QueuedEvent) {
         if *self.closed.lock().unwrap_or_else(|e| e.into_inner()) {
             return;
@@ -651,6 +676,46 @@ impl SharedState {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push_back(event);
+    }
+
+    /// Queues a data-bearing event, parking until the queue is under MAX_QUEUED_EVENT_BYTES
+    /// first. Parking the caller is the whole mechanism, not a stopgap: the callers are channel
+    /// readers, and a reader that stops consuming lets russh's bounded per-channel buffer fill,
+    /// which stalls the session task's socket reads, which stops window replenishment — so SSH
+    /// flow control makes the remote hold the stream instead of this process buffering an
+    /// unbounded backlog (#173 item 1).
+    ///
+    /// The known cost, accepted deliberately: while a producer is parked the session's select
+    /// loop (or a forward reader) is not doing anything else, so writes, resizes and keepalive
+    /// traffic stall with it. That only happens when the managed poll loop has already stopped
+    /// draining for multiple megabytes' worth of output — a consumer that is stalled, not slow —
+    /// and the alternative was growing the queue by the whole remaining stream.
+    ///
+    /// Ordering is preserved per producer: a parked producer emits nothing else until admitted,
+    /// so its later control events (EOF, Closed) still queue after the data they follow.
+    ///
+    /// Returns false if the session closed while parked; the caller should stop reading.
+    async fn queue_data_event(&self, event: QueuedEvent) -> bool {
+        loop {
+            // Create-notified-then-check, like wait_closed: a drain or close that lands between
+            // the check and the await must not be missed.
+            let notified = self.event_space_notify.notified();
+            if self.is_closed() {
+                return false;
+            }
+            // Admit while strictly under budget, even if this event overshoots it. The budget is
+            // a soft cap (same rule as the forward-write budget): any single event can always
+            // make progress once the queue drains, so no payload size can wedge a producer.
+            if self.queued_data_bytes.load(Ordering::Acquire) < MAX_QUEUED_EVENT_BYTES {
+                break;
+            }
+            notified.await;
+        }
+
+        self.queued_data_bytes
+            .fetch_add(event.payload.len(), Ordering::AcqRel);
+        self.queue_event(event);
+        true
     }
 
     /// Removes and returns the head event if its payload fits in `payload_capacity`; otherwise
@@ -687,7 +752,26 @@ impl SharedState {
 
         // Moves the payload out; nothing is duplicated.
         match events.pop_front() {
-            Some(event) => EventRead::Ready(event),
+            Some(event) => {
+                if matches!(
+                    event.kind,
+                    NovaSshEventKind::Data | NovaSshEventKind::ForwardChannelData
+                ) {
+                    // Saturating on purpose: FFI tests (and any future direct caller) can queue a
+                    // data-kind event through queue_event without the budget accounting, and an
+                    // underflow here would wrap the counter to a huge value and park every
+                    // producer forever. Short is safe; wrapped is a wedged session.
+                    let len = event.payload.len();
+                    let _ = self.queued_data_bytes.fetch_update(
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                        |bytes| Some(bytes.saturating_sub(len)),
+                    );
+                    self.event_space_notify.notify_waiters();
+                }
+
+                EventRead::Ready(event)
+            }
             None => EventRead::Empty,
         }
     }
@@ -722,6 +806,9 @@ impl SharedState {
         *self.closed.lock().unwrap_or_else(|e| e.into_inner()) = true;
         self.response_cv.notify_all();
         self.closed_notify.notify_waiters();
+        // A producer parked in queue_data_event must observe the close and bail, or
+        // nova_ssh_close would join a worker that is waiting for a drain that will never come.
+        self.event_space_notify.notify_waiters();
     }
 }
 
@@ -3006,21 +3093,30 @@ fn run_session(
                 }
                 message = channel.wait() => {
                     match message {
+                        // Both data arms park on the byte budget. While parked, this loop reads
+                        // nothing further — including WorkerCommands — which is intended: the
+                        // budget only fills when the managed poll loop has stopped draining, and
+                        // an unread channel is what makes SSH flow control throttle the remote.
+                        // A close still gets through, via queue_data_event's is_closed check.
                         Some(ChannelMsg::Data { data }) => {
-                            shared.queue_event(QueuedEvent {
+                            if !shared.queue_data_event(QueuedEvent {
                                 kind: NovaSshEventKind::Data,
                                 payload: data.to_vec(),
                                 status_code: 0,
                                 flags: NOVA_SSH_EVENT_FLAG_BINARY,
-                            });
+                            }).await {
+                                break;
+                            }
                         }
                         Some(ChannelMsg::ExtendedData { data, .. }) => {
-                            shared.queue_event(QueuedEvent {
+                            if !shared.queue_data_event(QueuedEvent {
                                 kind: NovaSshEventKind::Data,
                                 payload: data.to_vec(),
                                 status_code: 0,
                                 flags: NOVA_SSH_EVENT_FLAG_BINARY,
-                            });
+                            }).await {
+                                break;
+                            }
                         }
                         Some(ChannelMsg::ExitStatus { exit_status }) => {
                             shared.queue_event(QueuedEvent {
@@ -3177,21 +3273,34 @@ async fn open_direct_tcpip_channel(
     tokio::spawn(async move {
         loop {
             match read_half.wait().await {
+                // The data arms share the session-wide byte budget with terminal output. A
+                // parked reader stops consuming this channel only; on a closed session it just
+                // breaks — session teardown owns the map and task cleanup at that point.
                 Some(ChannelMsg::Data { data }) => {
-                    reader_shared.queue_event(QueuedEvent {
-                        kind: NovaSshEventKind::ForwardChannelData,
-                        payload: data.to_vec(),
-                        status_code: channel_id as i32,
-                        flags: NOVA_SSH_EVENT_FLAG_BINARY,
-                    });
+                    if !reader_shared
+                        .queue_data_event(QueuedEvent {
+                            kind: NovaSshEventKind::ForwardChannelData,
+                            payload: data.to_vec(),
+                            status_code: channel_id as i32,
+                            flags: NOVA_SSH_EVENT_FLAG_BINARY,
+                        })
+                        .await
+                    {
+                        break;
+                    }
                 }
                 Some(ChannelMsg::ExtendedData { data, .. }) => {
-                    reader_shared.queue_event(QueuedEvent {
-                        kind: NovaSshEventKind::ForwardChannelData,
-                        payload: data.to_vec(),
-                        status_code: channel_id as i32,
-                        flags: NOVA_SSH_EVENT_FLAG_BINARY,
-                    });
+                    if !reader_shared
+                        .queue_data_event(QueuedEvent {
+                            kind: NovaSshEventKind::ForwardChannelData,
+                            payload: data.to_vec(),
+                            status_code: channel_id as i32,
+                            flags: NOVA_SSH_EVENT_FLAG_BINARY,
+                        })
+                        .await
+                    {
+                        break;
+                    }
                 }
                 Some(ChannelMsg::Eof) => {
                     reader_shared.queue_event(QueuedEvent {
@@ -5267,5 +5376,165 @@ mod forward_write_backpressure_tests {
 
         assert_eq!(NOVA_SSH_RESULT_CLOSED, write(handle, 6, 2048));
         assert_eq!(0, budget.load(Ordering::Acquire));
+    }
+}
+
+/// Event-queue byte budget (#173 item 1).
+///
+/// These pin the SharedState half of the contract: data-bearing events park their producer at the
+/// budget and are released by draining (or by close), while control events are never gated. The
+/// channel-reader half — that a parked reader makes SSH flow control throttle the remote — is
+/// russh's window machinery and needs a live server; the Docker E2E suite exercises that path.
+#[cfg(test)]
+mod event_queue_budget_tests {
+    use super::*;
+
+    fn data_event(len: usize) -> QueuedEvent {
+        QueuedEvent {
+            kind: NovaSshEventKind::Data,
+            payload: vec![0u8; len],
+            status_code: 0,
+            flags: NOVA_SSH_EVENT_FLAG_BINARY,
+        }
+    }
+
+    fn control_event(len: usize) -> QueuedEvent {
+        QueuedEvent {
+            kind: NovaSshEventKind::ExitStatus,
+            payload: vec![0u8; len],
+            status_code: 0,
+            flags: NOVA_SSH_EVENT_FLAG_JSON,
+        }
+    }
+
+    /// Lets the spawned producer make progress on the current-thread test runtime, then reports
+    /// whether it finished. Several yields, not one: admission takes a wake plus a re-check.
+    async fn settle(task: &tokio::task::JoinHandle<bool>) -> bool {
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        task.is_finished()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn under_budget_data_is_admitted_immediately_and_drain_releases_bytes() {
+        let shared = Arc::new(SharedState::new());
+
+        assert!(
+            shared
+                .queue_data_event(data_event(MAX_QUEUED_EVENT_BYTES))
+                .await
+        );
+        assert_eq!(
+            MAX_QUEUED_EVENT_BYTES,
+            shared.queued_data_bytes.load(Ordering::Acquire)
+        );
+
+        match shared.take_event_if_fits(usize::MAX) {
+            EventRead::Ready(event) => assert_eq!(MAX_QUEUED_EVENT_BYTES, event.payload.len()),
+            _ => panic!("the queued data event must pop"),
+        }
+
+        assert_eq!(0, shared.queued_data_bytes.load(Ordering::Acquire));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn over_budget_data_parks_its_producer_until_the_queue_drains() {
+        let shared = Arc::new(SharedState::new());
+
+        // One admitted event may overshoot the budget (soft cap); the *next* one must park.
+        assert!(
+            shared
+                .queue_data_event(data_event(MAX_QUEUED_EVENT_BYTES))
+                .await
+        );
+
+        let parked = tokio::spawn({
+            let shared = shared.clone();
+            async move { shared.queue_data_event(data_event(1)).await }
+        });
+
+        assert!(
+            !settle(&parked).await,
+            "a producer over budget must park, not enqueue"
+        );
+
+        match shared.take_event_if_fits(usize::MAX) {
+            EventRead::Ready(_) => {}
+            _ => panic!("draining must succeed"),
+        }
+
+        assert!(
+            settle(&parked).await,
+            "draining below budget must wake the parked producer"
+        );
+        assert!(parked.await.expect("producer task must not panic"));
+        assert_eq!(1, shared.queued_data_bytes.load(Ordering::Acquire));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn close_wakes_a_parked_producer_and_refuses_its_event() {
+        let shared = Arc::new(SharedState::new());
+
+        assert!(
+            shared
+                .queue_data_event(data_event(MAX_QUEUED_EVENT_BYTES))
+                .await
+        );
+
+        let parked = tokio::spawn({
+            let shared = shared.clone();
+            async move { shared.queue_data_event(data_event(1)).await }
+        });
+        assert!(!settle(&parked).await);
+
+        shared.mark_closed();
+
+        assert!(settle(&parked).await, "close must wake a parked producer");
+        assert!(
+            !parked.await.expect("producer task must not panic"),
+            "an event refused by close must report false so the reader stops"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn control_events_neither_count_toward_nor_wait_on_the_budget() {
+        let shared = Arc::new(SharedState::new());
+
+        // A control payload larger than the whole budget still admits the next data event
+        // immediately: only data-bearing bytes count.
+        shared.queue_event(control_event(MAX_QUEUED_EVENT_BYTES * 2));
+        assert_eq!(0, shared.queued_data_bytes.load(Ordering::Acquire));
+        assert!(shared.queue_data_event(data_event(16)).await);
+
+        // Popping the control event must not touch the data counter either — FIFO order, the
+        // control event is at the head.
+        match shared.take_event_if_fits(usize::MAX) {
+            EventRead::Ready(event) => assert_eq!(NovaSshEventKind::ExitStatus, event.kind),
+            _ => panic!("the control event must pop first"),
+        }
+        assert_eq!(16, shared.queued_data_bytes.load(Ordering::Acquire));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn popping_unaccounted_data_saturates_instead_of_wrapping_the_counter() {
+        let shared = Arc::new(SharedState::new());
+
+        // FFI tests queue data-kind events through queue_event, bypassing the accounting. The
+        // pop-side decrement must saturate at zero for them: a wrapped counter would read as
+        // "gigabytes queued" and park every later producer forever.
+        shared.queue_event(data_event(1024));
+        assert_eq!(0, shared.queued_data_bytes.load(Ordering::Acquire));
+
+        match shared.take_event_if_fits(usize::MAX) {
+            EventRead::Ready(_) => {}
+            _ => panic!("the event must pop"),
+        }
+
+        assert_eq!(0, shared.queued_data_bytes.load(Ordering::Acquire));
+        assert!(
+            shared.queue_data_event(data_event(1)).await,
+            "the counter must still admit producers after the unaccounted pop"
+        );
     }
 }
