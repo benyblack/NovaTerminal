@@ -78,6 +78,10 @@ namespace NovaTerminal
         private readonly SshConnectionService _sshConnectionService;
         private readonly ISshInteractionService _sshInteractionService;
         private readonly SshLegacyProfileMigrationService _sshLegacyMigrationService;
+        // Auto-update (#91). The logic lives in Platform; this is only the UI end of it. On a
+        // portable-zip or dev run the updater reports IsInstalled=false and the service is inert.
+        private readonly NovaTerminal.Platform.Updates.UpdateService _updateService =
+            new(new NovaTerminal.Services.Updates.VelopackUpdater(), TerminalLogger.Log);
         private static readonly TimeSpan BellDebounceWindow = TimeSpan.FromMilliseconds(750);
         internal const double MinimumTabHeaderRightReserve = 440;
         internal const double MacOsTrafficLightReserve = 92;
@@ -1990,6 +1994,26 @@ namespace NovaTerminal
             AgentHost.AgentHostService.Instance.SetActionExecutor(this);
             AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
 
+            // UpdateReadyChanged arrives on whichever thread finished the check, so hop to the
+            // UI thread before touching the button. SetupCommandPalette() is deliberately NOT
+            // re-run here: it is lazy (see its callers) and re-reads UpdateReady every time the
+            // palette opens, so the restart action appears on its own -- and re-running it would
+            // redo a File.Exists sweep over every configured profile for nothing.
+            _updateService.UpdateReadyChanged += () => Dispatcher.UIThread.Post(() =>
+            {
+                var readyButton = this.FindControl<Button>("BtnUpdate");
+                if (readyButton != null)
+                {
+                    readyButton.IsVisible = _updateService.UpdateReady;
+                }
+            });
+
+            var updateButton = this.FindControl<Button>("BtnUpdate");
+            if (updateButton != null)
+            {
+                updateButton.Click += async (_, __) => await _updateService.ApplyAsync();
+            }
+
             // Ensure visual tree is ready for initial tab border
             this.Loaded += (s, e) =>
             {
@@ -2006,6 +2030,9 @@ namespace NovaTerminal
                     InitializeCommandPaletteUI();
                     InitializeTransferCenterUI();
                     _startup.Checkpoint("MainWindow.LoadedPostUiReady");
+                    // Fire and forget by design: CheckAsync never throws, and startup must not
+                    // wait on a network round trip.
+                    _ = _updateService.CheckAsync();
                     _startup.Mark(StartupPhase.DeferredWorkComplete);
                     Dispatcher.UIThread.Post(EnsureWindowIconLoaded, DispatcherPriority.Background);
                 }, DispatcherPriority.Input);
@@ -4449,6 +4476,18 @@ namespace NovaTerminal
 
             // 1. Register Default Commands
             CommandRegistry.Register("New Tab", "General", () => AddTab(), GetEffectiveShortcutBinding("new_tab", "Ctrl+Shift+T"), "new_tab");
+
+            // Only offered once an update is actually staged, so the palette does not advertise
+            // a restart that would do nothing.
+            if (_updateService.UpdateReady)
+            {
+                CommandRegistry.Register(
+                    $"Restart to update to {_updateService.AvailableVersion}",
+                    "General",
+                    () => _ = _updateService.ApplyAsync(),
+                    "",
+                    "restart_to_update");
+            }
 
             // Dynamic Profile Tabs
             if (_settings.Profiles != null)
