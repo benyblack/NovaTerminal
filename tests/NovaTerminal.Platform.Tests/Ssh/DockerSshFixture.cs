@@ -62,6 +62,17 @@ internal sealed class DockerSshFixture : IAsyncDisposable
             await File.WriteAllTextAsync(tempFile, contents).ConfigureAwait(false);
             await RunDockerCommandAsync($"cp \"{tempFile}\" {_containerName}:{path}")
                 .ConfigureAwait(false);
+
+            // `docker cp` writes the file as root and carries the host file's mode across, and
+            // Path.GetTempFileName() creates 0600 on Linux. The result was a remote file the SSH user
+            // could not read, so every SFTP download test failed with "Permission denied" — on Linux
+            // only, which is why it went unnoticed until this suite first ran in CI.
+            //
+            // Fixed here rather than per-test: every caller writes a file it intends the session user
+            // to be able to fetch, and 0644 owned by that user is what such a file looks like.
+            await RunDockerCommandAsync(
+                $"exec {_containerName} sh -c \"chown {UserName}:{UserName} '{path}' && chmod 644 '{path}'\"")
+                .ConfigureAwait(false);
         }
         finally
         {
