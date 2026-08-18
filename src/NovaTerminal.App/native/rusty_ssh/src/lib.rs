@@ -125,6 +125,22 @@ const MAX_QUEUED_FORWARD_WRITE_BYTES: usize = 1024 * 1024;
 /// accumulating the entire stream. Control events are exempt: see `queue_data_event`.
 const MAX_QUEUED_EVENT_BYTES: usize = 4 * 1024 * 1024;
 
+/// Flat surcharge each data-bearing event contributes to the budget on top of its payload
+/// length, approximating what a queued event actually costs (the QueuedEvent struct, its Vec
+/// header, the VecDeque slot). Without it, zero-length Data messages would be free: they consume
+/// no SSH window either — flow control counts data bytes — so a peer spamming empty data frames
+/// would grow the queue's per-event overhead without bound while the byte counter never moved.
+/// With the surcharge the budget caps the queue at ~64K events even if every one is empty,
+/// keeping real memory within the same order as the budget itself.
+const QUEUED_DATA_EVENT_OVERHEAD_BYTES: usize = 64;
+
+/// What one data-bearing event charges against MAX_QUEUED_EVENT_BYTES. Admission and release
+/// must both use this — an event released cheaper than it was admitted leaks budget until the
+/// producers park forever, and the reverse drifts the cap upward.
+fn queued_data_event_cost(payload_len: usize) -> usize {
+    payload_len.saturating_add(QUEUED_DATA_EVENT_OVERHEAD_BYTES)
+}
+
 /// Runs an FFI body, converting any panic into `on_panic` instead of unwinding
 /// across the C boundary (which is undefined behavior). The body is asserted
 /// unwind-safe because FFI bodies operate on raw pointers owned by the caller.
@@ -712,8 +728,10 @@ impl SharedState {
             notified.await;
         }
 
-        self.queued_data_bytes
-            .fetch_add(event.payload.len(), Ordering::AcqRel);
+        self.queued_data_bytes.fetch_add(
+            queued_data_event_cost(event.payload.len()),
+            Ordering::AcqRel,
+        );
         self.queue_event(event);
         true
     }
@@ -761,11 +779,11 @@ impl SharedState {
                     // data-kind event through queue_event without the budget accounting, and an
                     // underflow here would wrap the counter to a huge value and park every
                     // producer forever. Short is safe; wrapped is a wedged session.
-                    let len = event.payload.len();
+                    let cost = queued_data_event_cost(event.payload.len());
                     let _ = self.queued_data_bytes.fetch_update(
                         Ordering::AcqRel,
                         Ordering::Acquire,
-                        |bytes| Some(bytes.saturating_sub(len)),
+                        |bytes| Some(bytes.saturating_sub(cost)),
                     );
                     self.event_space_notify.notify_waiters();
                 }
@@ -5426,7 +5444,7 @@ mod event_queue_budget_tests {
                 .await
         );
         assert_eq!(
-            MAX_QUEUED_EVENT_BYTES,
+            queued_data_event_cost(MAX_QUEUED_EVENT_BYTES),
             shared.queued_data_bytes.load(Ordering::Acquire)
         );
 
@@ -5469,7 +5487,10 @@ mod event_queue_budget_tests {
             "draining below budget must wake the parked producer"
         );
         assert!(parked.await.expect("producer task must not panic"));
-        assert_eq!(1, shared.queued_data_bytes.load(Ordering::Acquire));
+        assert_eq!(
+            queued_data_event_cost(1),
+            shared.queued_data_bytes.load(Ordering::Acquire)
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -5513,7 +5534,50 @@ mod event_queue_budget_tests {
             EventRead::Ready(event) => assert_eq!(NovaSshEventKind::ExitStatus, event.kind),
             _ => panic!("the control event must pop first"),
         }
-        assert_eq!(16, shared.queued_data_bytes.load(Ordering::Acquire));
+        assert_eq!(
+            queued_data_event_cost(16),
+            shared.queued_data_bytes.load(Ordering::Acquire)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn empty_data_events_still_consume_budget_and_eventually_park() {
+        // Codex review finding on this change: zero-length Data frames consume no SSH window
+        // (flow control counts data bytes), so without a per-event surcharge a peer could spam
+        // them forever — never throttled, never counted, queue overhead growing without bound.
+        // The surcharge makes each empty event cost QUEUED_DATA_EVENT_OVERHEAD_BYTES, so the
+        // budget still fills and the producer still parks.
+        let shared = Arc::new(SharedState::new());
+
+        assert!(shared.queue_data_event(data_event(0)).await);
+        assert_eq!(
+            QUEUED_DATA_EVENT_OVERHEAD_BYTES,
+            shared.queued_data_bytes.load(Ordering::Acquire)
+        );
+
+        let empties_to_fill = MAX_QUEUED_EVENT_BYTES / QUEUED_DATA_EVENT_OVERHEAD_BYTES;
+        for _ in 1..empties_to_fill {
+            assert!(shared.queue_data_event(data_event(0)).await);
+        }
+
+        let parked = tokio::spawn({
+            let shared = shared.clone();
+            async move { shared.queue_data_event(data_event(0)).await }
+        });
+        assert!(
+            !settle(&parked).await,
+            "a stream of empty data events must fill the budget and park, not bypass it"
+        );
+
+        match shared.take_event_if_fits(usize::MAX) {
+            EventRead::Ready(_) => {}
+            _ => panic!("draining must succeed"),
+        }
+        assert!(
+            settle(&parked).await,
+            "draining must wake the parked producer"
+        );
+        assert!(parked.await.expect("producer task must not panic"));
     }
 
     #[tokio::test(start_paused = true)]

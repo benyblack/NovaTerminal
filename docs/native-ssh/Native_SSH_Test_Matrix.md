@@ -81,7 +81,10 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
   whose peer stops reading can no longer stall the session's terminal I/O
   (issue #173 item 2).
 - The native event queue itself is bounded (issue #173 item 1): data-bearing
-  events (terminal output, forward-channel data) share a 4 MiB byte budget, and
+  events (terminal output, forward-channel data) share a 4 MiB budget — each
+  event charged its payload plus a flat per-event surcharge, so zero-length
+  data frames (which consume no SSH window and are never throttled by flow
+  control) cannot grow the queue's overhead unbounded either — and
   at the budget the channel readers park instead of reading on — an unread russh
   channel stops having its window replenished, so SSH flow control makes the
   remote hold the stream. A `cat bigfile` against a stalled poll loop now caps
