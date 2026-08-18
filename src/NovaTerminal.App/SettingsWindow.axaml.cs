@@ -1990,6 +1990,8 @@ namespace NovaTerminal
             var commandAssistToggle = this.FindControl<CheckBox>("CommandAssistToggle");
             var agentAccessObserveToggle = this.FindControl<CheckBox>("AgentAccessObserveToggle");
 
+            var nativeSshToggle = this.FindControl<CheckBox>("NativeSshToggle");
+            if (nativeSshToggle != null) nativeSshToggle.IsChecked = _settings.ExperimentalNativeSshEnabled;
             if (agentAccessObserveToggle != null) agentAccessObserveToggle.IsChecked = _settings.AgentAccessObserveEnabled;
             var agentReplayExportToggle = this.FindControl<CheckBox>("AgentReplayExportToggle");
             if (agentReplayExportToggle != null) agentReplayExportToggle.IsChecked = _settings.AgentReplayExportEnabled;
@@ -2242,6 +2244,8 @@ namespace NovaTerminal
             if (commandAssistHistoryToggle != null) _settings.CommandAssistHistoryEnabled = commandAssistHistoryToggle.IsChecked == true;
             var commandAssistShellIntegrationToggle = this.FindControl<CheckBox>("CommandAssistShellIntegrationToggle");
             if (commandAssistShellIntegrationToggle != null) _settings.CommandAssistShellIntegrationEnabled = commandAssistShellIntegrationToggle.IsChecked == true;
+            var nativeSshToggle = this.FindControl<CheckBox>("NativeSshToggle");
+            if (nativeSshToggle != null) _settings.ExperimentalNativeSshEnabled = nativeSshToggle.IsChecked == true;
             var agentAccessObserveToggle = this.FindControl<CheckBox>("AgentAccessObserveToggle");
             if (agentAccessObserveToggle != null) _settings.AgentAccessObserveEnabled = agentAccessObserveToggle.IsChecked == true;
             var agentReplayExportToggle = this.FindControl<CheckBox>("AgentReplayExportToggle");

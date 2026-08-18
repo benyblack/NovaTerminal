@@ -897,6 +897,29 @@
                     </ScrollViewer>
                 </TabItem>
 
+                <!-- ┌──── SSH ────┐ -->
+                <TabItem Header="SSH">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="32,28,32,28" Spacing="0">
+
+                            <StackPanel Margin="0,0,0,24">
+                                <TextBlock Classes="H1" Text="SSH"/>
+                                <TextBlock Classes="Subtitle" Margin="0,4,0,0" Text="Global SSH behavior. Per-connection options (host, auth, jump hosts, forwards) live on each profile."/>
+                            </StackPanel>
+
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Native SSH backend (experimental)"/>
+                                    <TextBlock Classes="RowDesc" Text="Allow profiles set to the Native backend to connect with NovaTerminal's built-in SSH client instead of the system ssh. Applies to new connections only; sessions already open are unaffected. While this is off, a profile explicitly set to Native refuses to connect rather than silently falling back — OpenSSH profiles are unaffected either way."/>
+                                </StackPanel>
+                                <CheckBox Name="NativeSshToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
                 <!-- ┌──── Agent Access ────┐ -->
                 <TabItem Header="Agent Access">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">

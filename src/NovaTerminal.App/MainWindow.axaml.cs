@@ -5333,7 +5333,7 @@ namespace NovaTerminal
                     {
                         await ShowSimpleMessageDialogAsync(
                             "Native SSH disabled",
-                            "This profile was saved with the Native backend, but native SSH is disabled globally. Enable ExperimentalNativeSshEnabled in settings or switch the profile back to OpenSSH.");
+                            "This profile was saved with the Native backend, but native SSH is disabled globally. Turn it on under Settings > SSH or switch the profile back to OpenSSH.");
                         return;
                     }
 
