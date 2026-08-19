@@ -37,6 +37,20 @@ public interface INativeSshInterop
         WriteChannel(sessionHandle, channelId, data);
         return true;
     }
+    /// <summary>
+    /// Asks the server to open a remote-forward listener (a tcpip-forward global request) and
+    /// returns the port it bound. Connections arriving on that listener surface as
+    /// <see cref="NativeSshEventKind.ForwardChannelIncoming"/> events. Blocking FFI/network call —
+    /// it waits for the server's verdict — so callers offload it, never hold a UI thread on it.
+    /// </summary>
+    /// <remarks>
+    /// Default implementation throws: a test double that never expects remote forwards should fail
+    /// a test that reaches for one, and the double that does expect them overrides.
+    /// </remarks>
+    int RequestRemoteForward(NovaSshSafeHandle sessionHandle, string bindAddress, int port) =>
+        throw new NotSupportedException(
+            $"{GetType().Name} does not implement remote forwards.");
+
     void SendChannelEof(NovaSshSafeHandle sessionHandle, int channelId);
     void CloseChannel(NovaSshSafeHandle sessionHandle, int channelId);
     void SubmitResponse(NovaSshSafeHandle sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data);

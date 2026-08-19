@@ -27,6 +27,7 @@ The native SSH initiative is implemented behind conservative rollout controls.
 - Local port forwarding
 - Direct-host dynamic port forwarding (SOCKS5)
 - Jump-host support, single hop or a chain of any length (nested direct-tcpip, as OpenSSH treats `-J`)
+- Remote port forwarding (server-side `tcpip-forward` listeners, as OpenSSH treats `-R`)
 - Rollout controls, backend selector, and stable failure classification
 - Resize coalescing for fullscreen TUIs (vim, htop, tmux)
 - Keepalive honoring user settings
@@ -40,16 +41,13 @@ The native SSH initiative is implemented behind conservative rollout controls.
   the app under Settings > SSH.
 - Native SSH does **not** silently fall back to OpenSSH on failure.
 - Whether native *can* serve a given profile is answered in one place,
-  `NativeSshCapability.Evaluate` — a remote forward is the one shape it refuses
-  (jump-hop chains used to be the other, and are served natively now). The
-  connection editor asks it at save time (so an unusable native profile cannot be
-  saved), `SshSessionFactory` asks it before building a session, and
-  `NativeSshSession` / `NativePortForwardSession` share its wording instead of
-  spelling their own.
-- The two native refusals are deliberately distinguishable: the global toggle is a
-  rollout decision the user can reverse in settings, an unsupported shape is not.
-  Warnings and errors lead with the shape when both apply, so nobody is sent to
-  settings to fix something settings cannot fix.
+  `NativeSshCapability.Evaluate` — which refuses nothing today: remote forwards
+  were the last unsupported shape (jump-hop chains before them), and both are
+  served natively now. The gate and its call sites (editor at save time, factory
+  and session at connect time) stay wired so the next unsupported shape gets one
+  refusal reaching all of them at once.
+- With no unsupported shapes, the only native refusal left is the global
+  experimental toggle — reversible under Settings > SSH.
 - Native SSH file transfers use the built-in native SFTP path.
 - Native SSH transfer dialogs can autocomplete remote paths when an active session for that profile already exists.
 - Native SSH single-file transfers show live byte progress when the total size is known; folder transfers report per-file progress only.
@@ -61,7 +59,10 @@ The native SSH initiative is implemented behind conservative rollout controls.
   (its own host-key verification and authentication) nested over a direct-tcpip
   channel of the previous hop; SFTP transfers and remote browsing take the same
   chain.
-- Remote forwarding is **not** supported in the native backend.
+- Native SSH supports remote forwards: a `tcpip-forward` listener is requested on
+  the server per rule once the session is established, and incoming connections
+  ride the same forward-channel machinery as the outgoing kinds. A request the
+  server refuses is loud but not fatal, matching `ssh -R`.
 
 ### Verification
 

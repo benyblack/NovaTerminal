@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Channels;
 using NovaTerminal.Platform.Ssh.Models;
 
@@ -41,6 +42,10 @@ public sealed class NativePortForwardSession : IDisposable
     private readonly Func<NetworkStream, byte[], CancellationToken, Task> _socksReplyWriter;
     private readonly CancellationTokenSource _lifetimeCts = new();
     private readonly List<TcpListener> _listeners = [];
+
+    // Remote-forward rules, so an incoming forwarded-tcpip channel can be matched back to the
+    // rule whose listener it arrived on. Populated only in the constructor; read from HandleEvent.
+    private readonly List<PortForward> _remoteForwards = [];
     private readonly ConcurrentDictionary<int, ForwardChannelState> _channels = new();
     private int _disposed;
 
@@ -73,20 +78,20 @@ public sealed class NativePortForwardSession : IDisposable
         _log = log ?? (_ => { });
         _socksReplyWriter = socksReplyWriter ?? throw new ArgumentNullException(nameof(socksReplyWriter));
 
-        // Checked up front rather than per-forward inside the loop: an unsupported kind is a property
-        // of the profile, not of a bind, so there is no reason to open listeners we are about to tear
-        // down again. Wording comes from NativeSshCapability so it matches what the editor showed.
-        NativeSshCapabilityResult capability = NativeSshCapability.Evaluate(forwards, jumpHops: null);
-        if (!capability.IsSupported)
-        {
-            throw new NotSupportedException(capability.Explanation);
-        }
-
         try
         {
             foreach (PortForward forward in forwards)
             {
-                StartListener(forward);
+                // Remote forwards have no local listener — the listener lives on the server, and
+                // the request for it can only be made once the session is established.
+                if (forward.Kind == PortForwardKind.Remote)
+                {
+                    StartRemoteForward(forward);
+                }
+                else
+                {
+                    StartListener(forward);
+                }
             }
         }
         catch
@@ -107,6 +112,14 @@ public sealed class NativePortForwardSession : IDisposable
     {
         if (nextEvent == null)
         {
+            return;
+        }
+
+        // Incoming channels are the one event about a channel this map has never seen: the
+        // announcement is what creates the entry, so it must be handled before the lookup.
+        if (nextEvent.Kind == NativeSshEventKind.ForwardChannelIncoming)
+        {
+            HandleIncomingForwardChannel(nextEvent);
             return;
         }
 
@@ -203,9 +216,110 @@ public sealed class NativePortForwardSession : IDisposable
         {
             PortForwardKind.Local => Task.Run(() => AcceptLocalLoopAsync(listener, forward, _lifetimeCts.Token)),
             PortForwardKind.Dynamic => Task.Run(() => AcceptDynamicLoopAsync(listener, forward, _lifetimeCts.Token)),
-            _ => throw new NotSupportedException(
-                NativeSshCapability.Evaluate([forward], jumpHops: null).Explanation)
+            // Remote never reaches this method (the constructor routes it to StartRemoteForward),
+            // so only a kind this code has never heard of lands here.
+            _ => throw new NotSupportedException($"Unsupported port-forward kind '{forward.Kind}'.")
         };
+    }
+
+    private void StartRemoteForward(PortForward forward)
+    {
+        _remoteForwards.Add(forward);
+
+        // Empty bind address means the OpenSSH default for -R: the server's loopback.
+        string bindAddress = string.IsNullOrWhiteSpace(forward.BindAddress)
+            ? "localhost"
+            : forward.BindAddress.Trim();
+
+        // Off the constructor for two reasons: the worker only answers commands once the session
+        // is established (connect and auth can involve prompts), and the interop call blocks until
+        // the server's verdict arrives. A refusal is loud but not fatal — the same behavior ssh
+        // itself has for -R ("Warning: remote port forwarding failed") — so the session survives
+        // and the log names exactly which forward is not listening.
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                int boundPort = _interop.RequestRemoteForward(_sessionHandle, bindAddress, forward.SourcePort);
+                _log($"[NativePortForwardSession] Remote forward listening on {bindAddress}:{boundPort} for {forward}.");
+            }
+            catch (Exception ex)
+            {
+                _log($"[NativePortForwardSession] Remote forward {forward} failed: {ex.Message}");
+            }
+        }, _lifetimeCts.Token);
+    }
+
+    /// <summary>
+    /// A connection arrived on a remote-forward listener. The channel state is registered
+    /// immediately, on the poll loop — its data events may be queued right behind this one, and
+    /// the state's outbound queue is what holds them in order while the local destination is
+    /// still being dialled. The dial itself happens on a background task.
+    /// </summary>
+    private void HandleIncomingForwardChannel(NativeSshEvent nextEvent)
+    {
+        int channelId = nextEvent.StatusCode;
+
+        int connectedPort;
+        try
+        {
+            using JsonDocument payload = JsonDocument.Parse(nextEvent.Payload);
+            connectedPort = payload.RootElement.GetProperty("connectedPort").GetInt32();
+        }
+        catch (Exception ex)
+        {
+            _log($"[NativePortForwardSession] Unreadable incoming forward payload for channel {channelId}: {ex.Message}");
+            TryCloseInteropChannel(channelId);
+            return;
+        }
+
+        PortForward? rule = _remoteForwards.FirstOrDefault(candidate => candidate.SourcePort == connectedPort);
+        if (rule == null)
+        {
+            // Unsolicited: no rule asked for a listener on this port, so there is nowhere this
+            // connection is allowed to go. Refuse it rather than guess a destination.
+            _log($"[NativePortForwardSession] Incoming forward channel {channelId} on port {connectedPort} matches no remote forward rule; closing it.");
+            TryCloseInteropChannel(channelId);
+            return;
+        }
+
+        var state = new ForwardChannelState(channelId);
+        if (!_channels.TryAdd(channelId, state))
+        {
+            TryCloseInteropChannel(channelId);
+            return;
+        }
+
+        _ = Task.Run(() => ConnectIncomingForwardAsync(state, rule, _lifetimeCts.Token), _lifetimeCts.Token);
+    }
+
+    private async Task ConnectIncomingForwardAsync(ForwardChannelState state, PortForward rule, CancellationToken cancellationToken)
+    {
+        var client = new TcpClient();
+        try
+        {
+            await client.ConnectAsync(rule.DestinationHost, rule.DestinationPort, cancellationToken).ConfigureAwait(false);
+            state.AttachTransport(client);
+        }
+        catch (Exception ex)
+        {
+            client.Dispose();
+            _log($"[NativePortForwardSession] Remote forward channel {state.ChannelId} could not reach {rule.DestinationHost}:{rule.DestinationPort}: {ex.Message}");
+            RemoveChannel(state.ChannelId, closeInteropChannel: true);
+            return;
+        }
+
+        // Teardown may have removed the channel while the dial was in flight; its RemoveChannel saw
+        // a transport-less state, so the socket is ours to close. A removal racing past this check
+        // instead lands the pumps on a disposed socket, which they already treat as end-of-channel.
+        if (!_channels.ContainsKey(state.ChannelId))
+        {
+            client.Dispose();
+            return;
+        }
+
+        _ = Task.Run(() => PumpClientToSshAsync(state, cancellationToken), cancellationToken);
+        _ = Task.Run(() => PumpSshToClientAsync(state, cancellationToken), cancellationToken);
     }
 
     private async Task AcceptLocalLoopAsync(TcpListener listener, PortForward forward, CancellationToken cancellationToken)
@@ -505,22 +619,27 @@ public sealed class NativePortForwardSession : IDisposable
 
         if (closeInteropChannel)
         {
-            try
-            {
-                _interop.CloseChannel(_sessionHandle, channelId);
-            }
-            catch (Exception ex)
-            {
-                _log($"[NativePortForwardSession] Failed to close channel {channelId}: {ex.Message}");
-            }
+            TryCloseInteropChannel(channelId);
         }
 
         try
         {
-            channel.Client.Dispose();
+            channel.Client?.Dispose();
         }
         catch
         {
+        }
+    }
+
+    private void TryCloseInteropChannel(int channelId)
+    {
+        try
+        {
+            _interop.CloseChannel(_sessionHandle, channelId);
+        }
+        catch (Exception ex)
+        {
+            _log($"[NativePortForwardSession] Failed to close channel {channelId}: {ex.Message}");
         }
     }
 
@@ -643,11 +762,11 @@ public sealed class NativePortForwardSession : IDisposable
         return addresses.First(address => address.AddressFamily is AddressFamily.InterNetwork or AddressFamily.InterNetworkV6);
     }
 
-    private static void TryShutdown(TcpClient client, SocketShutdown how)
+    private static void TryShutdown(TcpClient? client, SocketShutdown how)
     {
         try
         {
-            client.Client.Shutdown(how);
+            client?.Client.Shutdown(how);
         }
         catch
         {
@@ -680,11 +799,15 @@ public sealed class NativePortForwardSession : IDisposable
     {
         private int _queuedOutboundBytes;
 
-        public ForwardChannelState(int channelId, TcpClient client)
+        /// <summary>
+        /// For incoming (remote-forward) channels, whose local transport does not exist yet: the
+        /// SSH side is live immediately, so the state — above all its outbound queue — must exist
+        /// before the dial to the destination completes. Pumps start only after
+        /// <see cref="AttachTransport"/>, so they never observe the null transport.
+        /// </summary>
+        public ForwardChannelState(int channelId)
         {
             ChannelId = channelId;
-            Client = client;
-            Stream = client.GetStream();
 
             // Unbounded channel with our own byte budget, rather than a bounded channel: the budget
             // has to apply to data only. Eof/Closed markers must always be admittable, or a channel
@@ -701,10 +824,22 @@ public sealed class NativePortForwardSession : IDisposable
             });
         }
 
+        public ForwardChannelState(int channelId, TcpClient client)
+            : this(channelId)
+        {
+            AttachTransport(client);
+        }
+
         public int ChannelId { get; }
-        public TcpClient Client { get; }
-        public NetworkStream Stream { get; }
+        public TcpClient? Client { get; private set; }
+        public NetworkStream Stream { get; private set; } = null!;
         public Channel<ForwardOutbound> Outbound { get; }
+
+        public void AttachTransport(TcpClient client)
+        {
+            Client = client;
+            Stream = client.GetStream();
+        }
 
         public int QueuedOutboundBytes => Volatile.Read(ref _queuedOutboundBytes);
 

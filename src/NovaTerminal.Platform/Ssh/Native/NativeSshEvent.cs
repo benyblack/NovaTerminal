@@ -22,7 +22,15 @@ public enum NativeSshEventKind
     Closed = 9,
     ForwardChannelData = 10,
     ForwardChannelEof = 11,
-    ForwardChannelClosed = 12
+    ForwardChannelClosed = 12,
+
+    /// <summary>
+    /// The server opened a forwarded-tcpip channel for a remote forward this session requested.
+    /// StatusCode carries the channel id; the JSON payload names the listener the connection
+    /// arrived on and its originator, so the forward session can match it to a rule and dial the
+    /// local destination.
+    /// </summary>
+    ForwardChannelIncoming = 13
 }
 
 public enum NativeSshResponseKind
@@ -69,4 +77,7 @@ public sealed class NativeSshEvent
 
     public static NativeSshEvent ForwardChannelClosed(int channelId) =>
         new(NativeSshEventKind.ForwardChannelClosed, Array.Empty<byte>(), channelId, NativeSshEventFlags.Json);
+
+    public static NativeSshEvent ForwardChannelIncoming(int channelId, byte[] payload) =>
+        new(NativeSshEventKind.ForwardChannelIncoming, payload, channelId, NativeSshEventFlags.Json);
 }

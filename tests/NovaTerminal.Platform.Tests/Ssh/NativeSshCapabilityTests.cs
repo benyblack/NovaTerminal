@@ -18,6 +18,7 @@ public sealed class NativeSshCapabilityTests
     [Theory]
     [InlineData(PortForwardKind.Local)]
     [InlineData(PortForwardKind.Dynamic)]
+    [InlineData(PortForwardKind.Remote)]
     public void Evaluate_ForForwardKindsTheNativeBackendImplements_IsSupported(PortForwardKind kind)
     {
         SshProfile profile = CreateProfile();
@@ -27,34 +28,20 @@ public sealed class NativeSshCapabilityTests
     }
 
     [Fact]
-    public void Evaluate_ForRemoteForward_IsUnsupportedAndNamesBothFixes()
+    public void Evaluate_ForEveryForwardKindTogether_IsSupported()
     {
-        SshProfile profile = CreateProfile();
-        profile.Forwards.Add(new PortForward
-        {
-            Kind = PortForwardKind.Remote,
-            SourcePort = 8080,
-            DestinationHost = "svc.internal",
-            DestinationPort = 80
-        });
-
-        NativeSshCapabilityResult result = NativeSshCapability.Evaluate(profile);
-
-        Assert.False(result.IsSupported);
-        Assert.Equal(NativeSshUnsupportedReason.RemotePortForward, result.Reason);
-        Assert.Contains("remote forward", result.Explanation, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("OpenSSH", result.Explanation, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void Evaluate_ForRemoteForwardAmongSupportedOnes_StillReportsUnsupported()
-    {
+        // Remote forwards were the gate's last refusal. With them served natively, a profile
+        // mixing all three kinds — the shape that used to be refused for its remote member —
+        // must evaluate as supported.
         SshProfile profile = CreateProfile();
         profile.Forwards.Add(new PortForward { Kind = PortForwardKind.Local, SourcePort = 15000, DestinationHost = "a", DestinationPort = 1 });
         profile.Forwards.Add(new PortForward { Kind = PortForwardKind.Remote, SourcePort = 15001, DestinationHost = "b", DestinationPort = 2 });
         profile.Forwards.Add(new PortForward { Kind = PortForwardKind.Dynamic, SourcePort = 15002 });
 
-        Assert.Equal(NativeSshUnsupportedReason.RemotePortForward, NativeSshCapability.Evaluate(profile).Reason);
+        NativeSshCapabilityResult result = NativeSshCapability.Evaluate(profile);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(NativeSshUnsupportedReason.None, result.Reason);
     }
 
     [Theory]
@@ -76,16 +63,16 @@ public sealed class NativeSshCapabilityTests
     }
 
     [Fact]
-    public void Evaluate_ForRemoteForwardBehindAJumpChain_StillReportsTheForward()
+    public void Evaluate_ForRemoteForwardBehindAJumpChain_IsSupported()
     {
-        // The chain is no longer a problem, so the remote forward must be what gets reported —
-        // not masked by hops that are now fine.
+        // The two shapes that were each the gate's reason to refuse at some point, combined —
+        // the strongest form of "the gate refuses nothing today".
         SshProfile profile = CreateProfile();
         profile.JumpHops.Add(new SshJumpHop { Host = "jump-one.internal" });
         profile.JumpHops.Add(new SshJumpHop { Host = "jump-two.internal" });
         profile.Forwards.Add(new PortForward { Kind = PortForwardKind.Remote, SourcePort = 8080, DestinationHost = "svc", DestinationPort = 80 });
 
-        Assert.Equal(NativeSshUnsupportedReason.RemotePortForward, NativeSshCapability.Evaluate(profile).Reason);
+        Assert.True(NativeSshCapability.Evaluate(profile).IsSupported);
     }
 
     [Fact]

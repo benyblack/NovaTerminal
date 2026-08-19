@@ -3,17 +3,14 @@ using NovaTerminal.Platform.Ssh.Models;
 namespace NovaTerminal.Platform.Ssh.Native;
 
 /// <summary>
-/// Why the native SSH backend cannot serve a profile, if it cannot.
+/// Why the native SSH backend cannot serve a profile, if it cannot. Currently only
+/// <see cref="None"/>: remote forwards were the last unsupported shape, and they gained native
+/// <c>tcpip-forward</c> support. The enum stays because the gate stays — see
+/// <see cref="NativeSshCapability"/>.
 /// </summary>
 public enum NativeSshUnsupportedReason
 {
-    None = 0,
-
-    /// <summary>
-    /// The profile carries a remote (server-side listener) forward. The native backend has no
-    /// <c>tcpip-forward</c> support, so there is nothing to degrade to.
-    /// </summary>
-    RemotePortForward = 1
+    None = 0
 }
 
 /// <summary>
@@ -63,19 +60,13 @@ public static class NativeSshCapability
         IReadOnlyCollection<PortForward>? forwards,
         IReadOnlyCollection<SshJumpHop>? jumpHops)
     {
-        // Jump hops of any length are supported: the native backend nests one direct-tcpip hop
-        // per entry, the way OpenSSH treats a -J chain. The parameter stays so callers keep
-        // stating the whole shape they are asking about, and so a future hop-shaped limit has
-        // somewhere to live.
+        // Every profile shape is supported today: jump chains of any length (one nested
+        // direct-tcpip hop per entry, as OpenSSH treats -J), and local, dynamic, and remote
+        // forwards alike. The parameters and the gate's call sites stay wired even so — the next
+        // shape the backend cannot serve gets its refusal here, reaching the profile editor,
+        // the factory, and the session in one change, which is the whole reason this type exists.
+        _ = forwards;
         _ = jumpHops;
-
-        if (forwards != null && forwards.Any(forward => forward.Kind is not PortForwardKind.Local and not PortForwardKind.Dynamic))
-        {
-            return NativeSshCapabilityResult.Unsupported(
-                NativeSshUnsupportedReason.RemotePortForward,
-                "The native SSH backend supports local and dynamic port forwards only. "
-                + "Remove the remote forward, or switch this profile to the OpenSSH backend.");
-        }
 
         return NativeSshCapabilityResult.Supported;
     }

@@ -63,9 +63,9 @@ public sealed class NativeSshSession : ITerminalSession
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        // Single gate for every shape the native backend cannot serve (remote forwards).
-        // The editor asks NativeSshCapability the same question at save time, so reaching this throw
-        // means either a profile saved before the check existed or a caller constructing us directly.
+        // Single gate for every shape the native backend cannot serve — none today, with remote
+        // forwards now implemented, but the wiring stays: the next unsupported shape gets its
+        // refusal in NativeSshCapability and is enforced here and at profile-save time at once.
         NativeSshCapabilityResult capability = NativeSshCapability.Evaluate(profile);
         if (!capability.IsSupported)
         {
@@ -413,6 +413,7 @@ public sealed class NativeSshSession : ITerminalSession
                     case NativeSshEventKind.ForwardChannelData:
                     case NativeSshEventKind.ForwardChannelEof:
                     case NativeSshEventKind.ForwardChannelClosed:
+                    case NativeSshEventKind.ForwardChannelIncoming:
                         _portForwardSession?.HandleEvent(nextEvent);
                         break;
                     case NativeSshEventKind.ExitStatus:

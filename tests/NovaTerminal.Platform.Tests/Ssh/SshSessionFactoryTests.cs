@@ -76,8 +76,11 @@ public sealed class SshSessionFactoryTests
     }
 
     [Fact]
-    public void Create_ForNativeProfileWithRemoteForward_RefusesWithCapabilityReasonNotTheToggleMessage()
+    public void Create_ForNativeProfileWithRemoteForward_BuildsASession()
     {
+        // This exact shape used to be the capability gate's last refusal ("supports local and
+        // dynamic port forwards only"). Remote forwards are served natively now, so the factory
+        // must route the profile like any other native one.
         var profileId = Guid.Parse("3f1e1c02-9a4b-4c1d-8b5e-6d0a2f7c1b44");
         var store = new InMemorySshProfileStore(new SshProfile
         {
@@ -100,14 +103,10 @@ public sealed class SshSessionFactoryTests
         var logs = new List<string>();
 
         var factory = new SshSessionFactory(store, launcher: null, nativeInterop: new StubNativeSshInterop());
+        using ITerminalSession session = factory.Create(profileId, log: logs.Add);
 
-        NotSupportedException ex = Assert.Throws<NotSupportedException>(() => factory.Create(profileId, log: logs.Add));
-
-        // The two refusals must stay distinguishable: this profile is not fixable in settings, so it
-        // must not be reported as "native SSH is disabled globally".
-        Assert.Contains("remote forward", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("disabled globally", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(logs, message => message.Contains("refused reason=RemotePortForward", StringComparison.Ordinal));
+        Assert.IsType<NativeSshSession>(session);
+        Assert.DoesNotContain(logs, message => message.Contains("refused", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
