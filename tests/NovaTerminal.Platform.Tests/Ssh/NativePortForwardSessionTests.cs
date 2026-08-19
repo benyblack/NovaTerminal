@@ -489,6 +489,274 @@ public sealed class NativePortForwardSessionTests
     /// Refuses the first <c>refusalsPerWrite</c> attempts of every distinct write, then accepts,
     /// standing in for a native queue that is briefly over budget.
     /// </summary>
+    [Fact]
+    public async Task RemoteForward_RequestsAListenerFromTheServer_OnlyOnceTheSessionIsEstablished()
+    {
+        var interop = new FakeNativeSshInterop();
+
+        using var session = new NativePortForwardSession(
+            FakeHandle(30),
+            [CreateRemoteForward(19000, "127.0.0.1", 9200)],
+            interop);
+
+        // Not at construction: the request blocks its thread until the worker answers, and the
+        // worker only answers once connect and auth are done. Requesting from the constructor
+        // parked one thread-pool worker per rule for the whole handshake (Codex review on #333).
+        await Task.Delay(100);
+        Assert.Empty(interop.RemoteForwardRequests);
+
+        session.NotifySessionEstablished();
+        await WaitUntilAsync(() => interop.RemoteForwardRequests.Count == 1);
+        Assert.Equal(("localhost", 19000), interop.RemoteForwardRequests[0]);
+
+        // Idempotent: the Connected event should only ever fire once, but a second notification
+        // must not re-request the listener either way.
+        session.NotifySessionEstablished();
+        await Task.Delay(100);
+        Assert.Single(interop.RemoteForwardRequests);
+    }
+
+    [Fact]
+    public async Task RemoteForward_WhenTheServerRefuses_WarnsWhereTheUserCanSeeIt()
+    {
+        // A refused -R is loud but not fatal in ssh; the native backend must match both halves.
+        // The warning has to reach the terminal, not only the diagnostic log — a session that
+        // looks healthy while its requested listener silently does not exist is the silent
+        // degradation the backend promises not to have.
+        var interop = new RefusingRemoteForwardInterop();
+        var warnings = new ConcurrentQueue<string>();
+
+        using var session = new NativePortForwardSession(
+            FakeHandle(37),
+            [CreateRemoteForward(19004, "127.0.0.1", 9500)],
+            interop,
+            log: null,
+            warn: warnings.Enqueue);
+
+        session.NotifySessionEstablished();
+
+        await WaitUntilAsync(() => !warnings.IsEmpty);
+        Assert.Contains(warnings, warning => warning.Contains("localhost:19004", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task RemoteForward_DuplicateRules_RequestOneListenerAndWarnAboutTheLoser()
+    {
+        // Two rules asking for the same server listener cannot both be honored — their incoming
+        // connections would be indistinguishable, and traffic could land at the wrong
+        // destination. First rule wins deterministically; the duplicate is named, not raced.
+        var interop = new FakeNativeSshInterop();
+        var warnings = new ConcurrentQueue<string>();
+        int firstDestinationPort = GetFreePort();
+        var firstDestination = new TcpListener(IPAddress.Loopback, firstDestinationPort);
+        firstDestination.Start();
+
+        try
+        {
+            using var session = new NativePortForwardSession(
+                FakeHandle(38),
+                [
+                    CreateRemoteForward(19005, "127.0.0.1", firstDestinationPort),
+                    CreateRemoteForward(19005, "127.0.0.1", 9601)
+                ],
+                interop,
+                log: null,
+                warn: warnings.Enqueue);
+
+            session.NotifySessionEstablished();
+
+            await WaitUntilAsync(() => interop.RemoteForwardRequests.Count == 1);
+            Assert.Contains(warnings, warning => warning.Contains("19005", StringComparison.Ordinal));
+
+            // And an incoming connection on the port lands at the FIRST rule's destination.
+            session.HandleEvent(NativeSshEvent.ForwardChannelIncoming(83, IncomingPayload(19005)));
+            using TcpClient accepted = await firstDestination.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.NotNull(accepted);
+        }
+        finally
+        {
+            firstDestination.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IncomingForwardChannel_DialsTheDestinationAndCarriesBytesBothWays()
+    {
+        var interop = new FakeNativeSshInterop();
+        int destinationPort = GetFreePort();
+        var destination = new TcpListener(IPAddress.Loopback, destinationPort);
+        destination.Start();
+
+        try
+        {
+            using var session = new NativePortForwardSession(
+                FakeHandle(31),
+                [CreateRemoteForward(19001, "127.0.0.1", destinationPort)],
+                interop);
+
+            // The data event is queued immediately behind the announcement, before the dial to the
+            // destination can possibly have completed. Nothing may be lost to that gap: the channel
+            // state (and its ordered outbound queue) must exist from the announcement onward.
+            byte[] payload = Encoding.ASCII.GetBytes("remote-forwarded-request");
+            session.HandleEvent(NativeSshEvent.ForwardChannelIncoming(77, IncomingPayload(19001)));
+            session.HandleEvent(NativeSshEvent.ForwardChannelData(77, payload));
+
+            using TcpClient accepted = await destination.AcceptTcpClientAsync();
+            NetworkStream stream = accepted.GetStream();
+            byte[] received = await ReadExactlyAsync(stream, payload.Length, TimeSpan.FromSeconds(10));
+            Assert.Equal(payload, received);
+
+            // And the reply direction rides the same channel toward the remote.
+            byte[] reply = Encoding.ASCII.GetBytes("remote-forwarded-reply");
+            await stream.WriteAsync(reply);
+            await stream.FlushAsync();
+            await WaitUntilAsync(() => interop.ChannelWrites(77).Length == reply.Length);
+            Assert.Equal(reply, interop.ChannelWrites(77));
+        }
+        finally
+        {
+            destination.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IncomingForwardChannel_WithNoMatchingRule_IsRefused()
+    {
+        var interop = new FakeNativeSshInterop();
+
+        using var session = new NativePortForwardSession(
+            FakeHandle(32),
+            [CreateRemoteForward(19002, "127.0.0.1", 9300)],
+            interop);
+
+        // An announcement for a port no rule asked about has no destination it is allowed to reach.
+        session.HandleEvent(NativeSshEvent.ForwardChannelIncoming(78, IncomingPayload(28000)));
+
+        await WaitUntilAsync(() => interop.ClosedChannelIds.Contains(78));
+    }
+
+    [Fact]
+    public async Task IncomingForwardChannel_WhenTheDestinationRefuses_ClosesTheChannel()
+    {
+        var interop = new FakeNativeSshInterop();
+        // A freshly probed free port with nothing listening: the dial must fail fast.
+        int deadPort = GetFreePort();
+
+        using var session = new NativePortForwardSession(
+            FakeHandle(33),
+            [CreateRemoteForward(19003, "127.0.0.1", deadPort)],
+            interop);
+
+        session.HandleEvent(NativeSshEvent.ForwardChannelIncoming(79, IncomingPayload(19003)));
+
+        await WaitUntilAsync(() => interop.ClosedChannelIds.Contains(79));
+    }
+
+    [Fact]
+    public async Task IncomingForwardChannel_WithTwoRulesOnOnePort_RoutesByBindAddress()
+    {
+        // Two rules can legitimately share a port on different bind addresses, and the listener
+        // requests race — the rule whose listener actually bound may not be the first with the
+        // port. The announcement's address is what decides where the connection is allowed to go.
+        var interop = new FakeNativeSshInterop();
+        int firstDestinationPort = GetFreePort();
+        int secondDestinationPort = GetFreePort();
+        var secondDestination = new TcpListener(IPAddress.Loopback, secondDestinationPort);
+        secondDestination.Start();
+
+        try
+        {
+            PortForward first = CreateRemoteForward(19010, "127.0.0.1", firstDestinationPort);
+            first.BindAddress = "198.51.100.1";
+            PortForward second = CreateRemoteForward(19010, "127.0.0.1", secondDestinationPort);
+            second.BindAddress = "198.51.100.2";
+
+            using var session = new NativePortForwardSession(FakeHandle(34), [first, second], interop);
+
+            session.HandleEvent(NativeSshEvent.ForwardChannelIncoming(80, IncomingPayload(19010, "198.51.100.2")));
+
+            // The connection must land at the SECOND rule's destination — a port-only pick would
+            // have dialled the first.
+            using TcpClient accepted = await secondDestination.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.NotNull(accepted);
+        }
+        finally
+        {
+            secondDestination.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IncomingForwardChannel_WithOneRuleOnThePort_ToleratesServerAddressNormalization()
+    {
+        // A rule bound as "localhost" may be announced back as "127.0.0.1" by a server that
+        // normalizes. With exactly one rule on the port there is nothing to confuse, so the
+        // port-only fallback must accept it.
+        var interop = new FakeNativeSshInterop();
+        int destinationPort = GetFreePort();
+        var destination = new TcpListener(IPAddress.Loopback, destinationPort);
+        destination.Start();
+
+        try
+        {
+            using var session = new NativePortForwardSession(
+                FakeHandle(35),
+                [CreateRemoteForward(19011, "127.0.0.1", destinationPort)],
+                interop);
+
+            session.HandleEvent(NativeSshEvent.ForwardChannelIncoming(81, IncomingPayload(19011, "127.0.0.1")));
+
+            using TcpClient accepted = await destination.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.NotNull(accepted);
+        }
+        finally
+        {
+            destination.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IncomingForwardChannel_WithAmbiguousAddress_IsRefused()
+    {
+        // Two rules on the port, an address matching neither: any pick could be the wrong one,
+        // so the only safe answer is no.
+        var interop = new FakeNativeSshInterop();
+
+        PortForward first = CreateRemoteForward(19012, "127.0.0.1", 9400);
+        first.BindAddress = "198.51.100.1";
+        PortForward second = CreateRemoteForward(19012, "127.0.0.1", 9401);
+        second.BindAddress = "198.51.100.2";
+
+        using var session = new NativePortForwardSession(FakeHandle(36), [first, second], interop);
+
+        session.HandleEvent(NativeSshEvent.ForwardChannelIncoming(82, IncomingPayload(19012, "203.0.113.9")));
+
+        await WaitUntilAsync(() => interop.ClosedChannelIds.Contains(82));
+    }
+
+    private static byte[] IncomingPayload(int connectedPort, string connectedAddress = "localhost") =>
+        Encoding.UTF8.GetBytes(
+            $"{{\"connectedAddress\":\"{connectedAddress}\",\"connectedPort\":{connectedPort},\"originatorAddress\":\"192.0.2.10\",\"originatorPort\":50000}}");
+
+    private static PortForward CreateRemoteForward(int sourcePort, string destinationHost, int destinationPort)
+    {
+        return new PortForward
+        {
+            Kind = PortForwardKind.Remote,
+            SourcePort = sourcePort,
+            DestinationHost = destinationHost,
+            DestinationPort = destinationPort
+        };
+    }
+
+    /// <summary>A server that refuses every tcpip-forward request, the way NativeSshInterop
+    /// surfaces it: a thrown exception naming the listener.</summary>
+    private sealed class RefusingRemoteForwardInterop : FakeNativeSshInterop
+    {
+        public override int RequestRemoteForward(NovaSshSafeHandle sessionHandle, string bindAddress, int port) =>
+            throw new InvalidOperationException($"The server refused the remote forward on {bindAddress}:{port}.");
+    }
+
     private sealed class BackpressuringNativeSshInterop : FakeNativeSshInterop
     {
         private readonly int _refusalsPerWrite;
@@ -679,6 +947,8 @@ public sealed class NativePortForwardSessionTests
         private readonly List<NativePortForwardOpenOptions> _openRequests = [];
         private readonly List<int> _closedChannelIds = [];
         private readonly List<int> _openedChannelIds = [];
+        private readonly List<(string BindAddress, int Port)> _remoteForwardRequests = [];
+        private readonly Dictionary<int, List<byte>> _channelWrites = [];
 
         public IReadOnlyList<NativePortForwardOpenOptions> OpenRequests
         {
@@ -695,6 +965,22 @@ public sealed class NativePortForwardSessionTests
         public IReadOnlyList<int> ClosedChannelIds
         {
             get { lock (_collectionsLock) { return _closedChannelIds.ToArray(); } }
+        }
+
+        public IReadOnlyList<(string BindAddress, int Port)> RemoteForwardRequests
+        {
+            get { lock (_collectionsLock) { return _remoteForwardRequests.ToArray(); } }
+        }
+
+        /// <summary>Everything written toward the remote on one channel, in order.</summary>
+        public byte[] ChannelWrites(int channelId)
+        {
+            lock (_collectionsLock)
+            {
+                return _channelWrites.TryGetValue(channelId, out List<byte>? bytes)
+                    ? bytes.ToArray()
+                    : [];
+            }
         }
 
         public NovaSshSafeHandle Connect(NativeSshConnectionOptions options) => new(new IntPtr(1), ownsHandle: false);
@@ -741,6 +1027,28 @@ public sealed class NativePortForwardSessionTests
 
         public void WriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
         {
+            byte[] copied = data.ToArray();
+            lock (_collectionsLock)
+            {
+                if (!_channelWrites.TryGetValue(channelId, out List<byte>? bytes))
+                {
+                    bytes = [];
+                    _channelWrites[channelId] = bytes;
+                }
+
+                bytes.AddRange(copied);
+            }
+        }
+
+        // Virtual so a derived fake can stand in for a server that refuses the request.
+        public virtual int RequestRemoteForward(NovaSshSafeHandle sessionHandle, string bindAddress, int port)
+        {
+            lock (_collectionsLock)
+            {
+                _remoteForwardRequests.Add((bindAddress, port));
+            }
+
+            return port;
         }
 
         // Declared (rather than left to the interface's default) so a derived fake can override it.
@@ -784,11 +1092,12 @@ public sealed class NativePortForwardSessionTests
                 typeof(IReadOnlyList<PortForward>),
                 typeof(INativeSshInterop),
                 typeof(Action<string>),
+                typeof(Action<string>),
                 typeof(Func<NetworkStream, byte[], CancellationToken, Task>)
             ],
             modifiers: null)
             ?? throw new InvalidOperationException("Could not find NativePortForwardSession private reply-writer constructor.");
 
-        return (NativePortForwardSession)ctor.Invoke([sessionHandle, forwards, interop, null!, replyWriter]);
+        return (NativePortForwardSession)ctor.Invoke([sessionHandle, forwards, interop, null!, null!, replyWriter]);
     }
 }

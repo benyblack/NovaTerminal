@@ -11,7 +11,7 @@ use std::io::Cursor;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Component, Path, PathBuf};
 use std::ptr;
-use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc as std_mpsc};
 use std::thread;
 use std::time::Duration;
@@ -84,6 +84,10 @@ pub enum NovaSshEventKind {
     ForwardChannelData = 10,
     ForwardChannelEof = 11,
     ForwardChannelClosed = 12,
+    /// The server opened a forwarded-tcpip channel for a remote forward this session requested.
+    /// status_code carries the channel id; the JSON payload carries the addresses, so the managed
+    /// side can match the connection to its forward rule and dial the local destination.
+    ForwardChannelIncoming = 13,
 }
 
 #[repr(u32)]
@@ -108,6 +112,12 @@ pub const NOVA_SSH_RESULT_PANIC: c_int = -7;
 /// the caller is expected to retry, which is what applies backpressure to the local socket it is
 /// reading from. Only nova_ssh_channel_write returns this.
 pub const NOVA_SSH_RESULT_WOULD_BLOCK: c_int = -8;
+
+/// The server refused a tcpip-forward request (or the request could not be sent). Distinct from
+/// CHANNEL_OPEN_FAILED because nothing channel-shaped exists yet — the refusal is of the remote
+/// listener itself, and the caller's recovery is to report the forward as unavailable, not to
+/// retry a channel.
+pub const NOVA_SSH_RESULT_REMOTE_FORWARD_FAILED: c_int = -9;
 
 /// Per-forward-channel ceiling on bytes queued toward the remote, mirroring the managed side's
 /// budget for the opposite direction. Reaching it makes nova_ssh_channel_write report
@@ -244,6 +254,10 @@ struct SharedState {
     // Wakes producers parked in `queue_data_event` when the poll loop drains below the budget,
     // or when the session closes (see mark_closed).
     event_space_notify: tokio::sync::Notify,
+    // Whether this session ever sent a tcpip-forward global request. A server may only open
+    // forwarded-tcpip channels for listeners the client asked it for (RFC 4254 §7.2); until the
+    // first request is made, any such open is unsolicited and is refused at the handler.
+    remote_forward_requested: AtomicBool,
 }
 
 struct QueuedEvent {
@@ -306,6 +320,11 @@ enum WorkerCommand {
         port_to_connect: u32,
         originator_address: String,
         originator_port: u32,
+        reply: std_mpsc::Sender<anyhow::Result<u32>>,
+    },
+    RequestRemoteForward {
+        address: String,
+        port: u32,
         reply: std_mpsc::Sender<anyhow::Result<u32>>,
     },
     WriteForwardChannel {
@@ -401,6 +420,21 @@ struct NovaClientHandler {
     shared: Arc<SharedState>,
     host: String,
     port: u16,
+    /// Where an incoming forwarded-tcpip channel gets wired in, present only on the target
+    /// session's handler. Jump hops carry None: only the target session ever requests a remote
+    /// forward, so a hop server opening a forwarded channel is unsolicited and gets refused.
+    forward_channels: Option<ForwardChannels>,
+}
+
+/// Payload of a ForwardChannelIncoming event: which remote listener the connection arrived on
+/// (so the managed side can match it to a forward rule) and who dialled it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ForwardChannelIncomingPayload<'a> {
+    connected_address: &'a str,
+    connected_port: u32,
+    originator_address: &'a str,
+    originator_port: u32,
 }
 
 #[derive(Clone)]
@@ -631,7 +665,18 @@ impl SharedState {
             forward_write_budgets: Mutex::new(HashMap::new()),
             queued_data_bytes: AtomicUsize::new(0),
             event_space_notify: tokio::sync::Notify::new(),
+            remote_forward_requested: AtomicBool::new(false),
         }
+    }
+
+    /// Marked before the tcpip-forward request is sent, not after its reply: a server that opens
+    /// a forwarded-tcpip channel the instant it binds the listener must not race the flag.
+    fn mark_remote_forward_requested(&self) {
+        self.remote_forward_requested.store(true, Ordering::SeqCst);
+    }
+
+    fn has_requested_remote_forward(&self) -> bool {
+        self.remote_forward_requested.load(Ordering::SeqCst)
     }
 
     /// The queued-byte counter for one forward channel, or `None` if the channel is not (or no
@@ -832,6 +877,63 @@ impl SharedState {
 
 impl client::Handler for NovaClientHandler {
     type Error = russh::Error;
+
+    /// The server opened a channel for a connection that arrived on a remote-forward listener.
+    /// Wire it into the forward machinery and announce it; the managed side matches the
+    /// announcement to its forward rule and dials the local destination. Runs on the session
+    /// task, so nothing here may block on anything slower than the channels-map lock.
+    fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        connected_address: &str,
+        connected_port: u32,
+        originator_address: &str,
+        originator_port: u32,
+        _session: &mut client::Session,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        let forward_channels = self.forward_channels.clone();
+        let shared = self.shared.clone();
+        let connected_address = connected_address.to_owned();
+        let originator_address = originator_address.to_owned();
+
+        async move {
+            // No map means this session never requests remote forwards — it is a jump hop, and a
+            // hop server opening a forwarded channel is unsolicited. Refuse it outright rather
+            // than plumbing it through for the managed side to refuse later: an unrequested
+            // channel from an intermediary deserves no processing at all.
+            let Some(forward_channels) = forward_channels else {
+                let _ = channel.close().await;
+                return Ok(());
+            };
+
+            // Same verdict for the target session before its first tcpip-forward request: a
+            // channel nobody asked for gets no registration, no reader task, no event. Without
+            // this, a hostile server could park unbounded open channels on a session whose
+            // profile configured no forwards at all — the managed side would never even see them.
+            if !shared.has_requested_remote_forward() {
+                let _ = channel.close().await;
+                return Ok(());
+            }
+
+            register_forward_channel(channel, forward_channels, shared.clone(), |channel_id| {
+                shared.queue_event(QueuedEvent {
+                    kind: NovaSshEventKind::ForwardChannelIncoming,
+                    payload: serde_json::to_vec(&ForwardChannelIncomingPayload {
+                        connected_address: &connected_address,
+                        connected_port,
+                        originator_address: &originator_address,
+                        originator_port,
+                    })
+                    .unwrap_or_default(),
+                    status_code: channel_id as i32,
+                    flags: NOVA_SSH_EVENT_FLAG_JSON,
+                });
+            })
+            .await;
+
+            Ok(())
+        }
+    }
 
     fn check_server_key(
         &mut self,
@@ -1099,6 +1201,55 @@ pub extern "C" fn nova_ssh_open_direct_tcpip(
         match reply_rx.recv() {
             Ok(Ok(channel_id)) => channel_id as c_int,
             Ok(Err(_)) => NOVA_SSH_RESULT_CHANNEL_OPEN_FAILED,
+            Err(_) => NOVA_SSH_RESULT_CLOSED,
+        }
+    })
+}
+
+/// Asks the server to open a remote-forward listener on `address:port` (a tcpip-forward global
+/// request). Returns the bound port (>= 0) on success — the server may differ from the request
+/// only when asked for port 0 — or a negative NOVA_SSH_RESULT code. Blocks the calling thread
+/// until the server answers, like nova_ssh_open_direct_tcpip; callers should not hold a UI
+/// thread on it. Connections arriving on the listener surface as ForwardChannelIncoming events.
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_request_remote_forward(
+    handle: usize,
+    address: *const c_char,
+    port: u16,
+) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        let address = match read_c_arg(address).required() {
+            Some(value) => value,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        let (reply_tx, reply_rx) = std_mpsc::channel();
+        let command = WorkerCommand::RequestRemoteForward {
+            address,
+            port: port as u32,
+            reply: reply_tx,
+        };
+
+        {
+            let guard = session.command_tx.lock().unwrap_or_else(|p| p.into_inner());
+            match guard.as_ref() {
+                Some(tx) => {
+                    if tx.send(command).is_err() {
+                        return NOVA_SSH_RESULT_CLOSED;
+                    }
+                }
+                None => return NOVA_SSH_RESULT_CLOSED,
+            }
+        }
+
+        match reply_rx.recv() {
+            Ok(Ok(bound_port)) => bound_port as c_int,
+            Ok(Err(_)) => NOVA_SSH_RESULT_REMOTE_FORWARD_FAILED,
             Err(_) => NOVA_SSH_RESULT_CLOSED,
         }
     })
@@ -2921,6 +3072,7 @@ async fn establish_session(
     config: &ConnectConfig,
     shared: &Arc<SharedState>,
     client_config: Arc<client::Config>,
+    forward_channels: ForwardChannels,
 ) -> anyhow::Result<(
     Vec<client::Handle<NovaClientHandler>>,
     client::Handle<NovaClientHandler>,
@@ -2933,6 +3085,7 @@ async fn establish_session(
             shared: shared.clone(),
             host: hop.host.clone(),
             port: hop.port,
+            forward_channels: None,
         };
 
         let mut hop_session = match jump_sessions.last() {
@@ -2962,6 +3115,7 @@ async fn establish_session(
         shared: shared.clone(),
         host: config.host.clone(),
         port: config.port,
+        forward_channels: Some(forward_channels),
     };
 
     let mut session = if let Some(last_jump) = jump_sessions.last() {
@@ -3033,7 +3187,7 @@ fn run_session(
         // on user interaction (host-key and password prompts), and mark_closed already
         // unblocks those via wait_for_response.
         let (jump_sessions, mut session, mut channel) = tokio::select! {
-            result = establish_session(&config, &shared, client_config.clone()) => result?,
+            result = establish_session(&config, &shared, client_config.clone(), forward_channels.clone()) => result?,
             _ = shared.wait_closed() => {
                 // Closed while connecting: exit cleanly; nova_ssh_close is joining us.
                 return Ok(());
@@ -3086,6 +3240,19 @@ fn run_session(
                                 originator_port,
                             )
                             .await;
+                            let _ = reply.send(result);
+                        }
+                        Some(WorkerCommand::RequestRemoteForward { address, port, reply }) => {
+                            // Awaiting the server's reply here briefly holds the select loop, the
+                            // same trade OpenDirectTcpIp already makes: both happen at session
+                            // setup or on user action, and the caller needs the verdict — a
+                            // remote forward that failed must fail loudly, not queue silently.
+                            shared.mark_remote_forward_requested();
+                            let result = session
+                                .tcpip_forward(address, port)
+                                .await
+                                .map(|reported| resolved_remote_forward_port(port, reported))
+                                .map_err(anyhow::Error::from);
                             let _ = reply.send(result);
                         }
                         // These three only queue onto the target channel's writer task. They used to
@@ -3227,6 +3394,33 @@ async fn open_direct_tcpip_channel(
         )
         .await?;
 
+    Ok(register_forward_channel(channel, forward_channels, shared, |_| {}).await)
+}
+
+/// The port a remote-forward listener actually bound. RFC 4254 §7.1 has the server include a
+/// port in REQUEST_SUCCESS only when the request asked for port 0 (server-allocated); for an
+/// explicit port the reply is empty, which russh's `tcpip_forward` surfaces as `Ok(0)`. Taking
+/// that 0 at face value would report every successful explicit-port forward as "listening on
+/// port 0" — success on an explicit port means the server bound exactly the port it was asked.
+fn resolved_remote_forward_port(requested: u32, reported: u32) -> u32 {
+    if reported == 0 { requested } else { reported }
+}
+
+/// Wires an open channel — outgoing direct-tcpip or incoming forwarded-tcpip; the machinery is
+/// direction-agnostic once the channel exists — into the forward plumbing: a writer task with its
+/// write budget, the channels-map entry, and a reader task feeding the event queue.
+///
+/// `before_reader` runs after the channel is reachable through the map but before the reader task
+/// can deliver a single byte. That slot exists for incoming channels: their announcement event
+/// must be queued there, or data events could reach the managed side while the channel id still
+/// means nothing to it — and a channel announced before the map entry existed could be closed
+/// into a void. Outgoing channels pass a no-op; their id travels through the FFI return instead.
+async fn register_forward_channel(
+    channel: russh::Channel<client::Msg>,
+    forward_channels: ForwardChannels,
+    shared: Arc<SharedState>,
+    before_reader: impl FnOnce(u32),
+) -> u32 {
     let channel_id = u32::from(channel.id());
     let (mut read_half, write_half) = channel.split();
 
@@ -3286,6 +3480,8 @@ async fn open_direct_tcpip_channel(
         },
     );
 
+    before_reader(channel_id);
+
     let reader_shared = shared.clone();
     let reader_channels = forward_channels.clone();
     tokio::spawn(async move {
@@ -3343,7 +3539,7 @@ async fn open_direct_tcpip_channel(
         }
     });
 
-    Ok(channel_id)
+    channel_id
 }
 
 /// Queues one item for a forward channel's writer task. Only ever awaits the map lock, never the
@@ -5600,5 +5796,122 @@ mod event_queue_budget_tests {
             shared.queue_data_event(data_event(1)).await,
             "the counter must still admit producers after the unaccounted pop"
         );
+    }
+}
+
+/// nova_ssh_request_remote_forward's FFI contract: argument validation, the round trip through
+/// the worker command, and the mapping of a server refusal onto its own result code. The live
+/// half — a real tcpip-forward against a real sshd, and the forwarded-tcpip channels it produces —
+/// runs in the Docker E2E suite.
+#[cfg(test)]
+mod remote_forward_request_tests {
+    use super::*;
+
+    fn session_with_command_channel() -> (usize, mpsc::UnboundedReceiver<WorkerCommand>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let handle = registry_insert(NovaSshSession {
+            shared: Arc::new(SharedState::new()),
+            command_tx: Mutex::new(Some(tx)),
+            worker: Mutex::new(None),
+        }) as usize;
+        (handle, rx)
+    }
+
+    #[test]
+    fn request_validates_handle_address_and_liveness() {
+        let address = CString::new("127.0.0.1").unwrap();
+
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_request_remote_forward(usize::MAX, address.as_ptr(), 8080),
+            "an unknown handle must be refused"
+        );
+
+        let handle = registry_insert(stub_session()) as usize;
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_request_remote_forward(handle, ptr::null(), 8080),
+            "a null bind address must be refused, not defaulted — the caller is naming a listener"
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_CLOSED,
+            nova_ssh_request_remote_forward(handle, address.as_ptr(), 8080),
+            "a session with no worker command channel is closed, not invalid"
+        );
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
+    }
+
+    #[test]
+    fn request_round_trips_the_bound_port_through_the_worker() {
+        let (handle, mut rx) = session_with_command_channel();
+
+        // Stands in for the worker's select arm: receive the command, answer with the port the
+        // server bound. The FFI call blocks its thread on the reply, hence the second thread.
+        let responder = std::thread::spawn(move || match rx.blocking_recv() {
+            Some(WorkerCommand::RequestRemoteForward {
+                address,
+                port,
+                reply,
+            }) => {
+                assert_eq!("127.0.0.1", address);
+                assert_eq!(9101, port);
+                let _ = reply.send(Ok(9101));
+            }
+            _ => panic!("expected a RequestRemoteForward command"),
+        });
+
+        let address = CString::new("127.0.0.1").unwrap();
+        assert_eq!(
+            9101,
+            nova_ssh_request_remote_forward(handle, address.as_ptr(), 9101)
+        );
+
+        responder.join().expect("responder must not panic");
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
+    }
+
+    /// russh yields `Ok(0)` for the empty REQUEST_SUCCESS a server sends when an explicit port
+    /// was requested (RFC 4254 §7.1 puts a port in the reply only for port-0 requests). The
+    /// worker must report the port that is actually listening, not the encoding artifact.
+    #[test]
+    fn an_explicit_port_request_answered_with_zero_resolves_to_the_requested_port() {
+        assert_eq!(18080, resolved_remote_forward_port(18080, 0));
+        // A server that echoes (or, for port 0, allocates) a port is believed as-is.
+        assert_eq!(18080, resolved_remote_forward_port(18080, 18080));
+        assert_eq!(49152, resolved_remote_forward_port(0, 49152));
+    }
+
+    /// The unsolicited-channel gate: a session starts having asked for nothing, and flips —
+    /// permanently — when the first tcpip-forward request is sent. server_channel_open_forwarded_tcpip
+    /// refuses every open before that flip.
+    #[test]
+    fn a_fresh_session_has_requested_no_remote_forward_until_one_is_marked() {
+        let shared = SharedState::new();
+        assert!(!shared.has_requested_remote_forward());
+
+        shared.mark_remote_forward_requested();
+        assert!(shared.has_requested_remote_forward());
+    }
+
+    #[test]
+    fn a_server_refusal_maps_to_the_remote_forward_result_code() {
+        let (handle, mut rx) = session_with_command_channel();
+
+        let responder = std::thread::spawn(move || match rx.blocking_recv() {
+            Some(WorkerCommand::RequestRemoteForward { reply, .. }) => {
+                let _ = reply.send(Err(anyhow::anyhow!("administratively prohibited")));
+            }
+            _ => panic!("expected a RequestRemoteForward command"),
+        });
+
+        let address = CString::new("127.0.0.1").unwrap();
+        assert_eq!(
+            NOVA_SSH_RESULT_REMOTE_FORWARD_FAILED,
+            nova_ssh_request_remote_forward(handle, address.as_ptr(), 9102),
+            "a refusal is its own outcome — not closed, not a channel-open failure"
+        );
+
+        responder.join().expect("responder must not panic");
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
     }
 }

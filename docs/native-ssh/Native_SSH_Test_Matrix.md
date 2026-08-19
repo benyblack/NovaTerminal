@@ -38,6 +38,8 @@ Verified by automated tests:
 - Dockerized jump-host tunnelling: a one-hop session, a two-hop chain running a live command, and
   dynamic forwarding through a hop — each hop dialling the fixture container back into itself, so
   every hop is a real nested SSH session without a multi-container fixture
+- Dockerized remote forwarding: a tcpip-forward listener on the server, dialled from inside the
+  container by the session's own shell, carrying real bytes to a local destination and back
 
 ## Manual Matrix
 
@@ -58,6 +60,7 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
 | Terminal behavior | Fullscreen/alt-screen TUI | Automated + pending manual | Dockerized native SSH validates alternate-screen recovery and `vim` downward scrolling; still validate against a real host |
 | Forwarding | One local forward | Automated | `LocalForward_CarriesRealBytesToTheEchoService` |
 | Forwarding | One direct-host dynamic forward | Automated | `DynamicForward_CarriesRealBytesThroughSocks5ToTheEchoService` |
+| Forwarding | Remote forward | Automated | `NativeSshDockerRemoteForwardE2eTests.RemoteForward_CarriesRealBytesFromTheServerToALocalDestination`; the reply is transformed by the local destination so the assertion cannot match the echoed command |
 | Forwarding | One-hop jump-host dynamic forward | Automated | `NativeSshDockerJumpChainE2eTests.DynamicForward_ThroughAJumpHop_...`; forward channels ride the target session regardless of how it was reached |
 | Jump host | One-hop jump host | Automated + pending manual | `NativeSshDockerJumpChainE2eTests.JumpHost_OneHop_...` (the hop dials the fixture container back into itself); still validate against a real bastion |
 | Jump host | Multi-hop jump chain | Automated + pending manual | `NativeSshDockerJumpChainE2eTests.JumpChain_TwoHops_...` runs a live command through two nested tunnels; still validate against real distinct bastions |
@@ -73,10 +76,11 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
   toggleable in the app under Settings > SSH.
 - `OpenSsh` remains the default backend for new profiles.
 - Native backend refusal is explicit when the global experimental toggle is disabled.
-- The one profile shape the native backend cannot serve (a remote forward) is
-  refused by `NativeSshCapability` at profile-save time as well as at connect
-  time, so such a profile can no longer be saved as `Native` and then fail on use.
-  See the rollout guidance in `docs/SSH_ROADMAP.md`.
+- `NativeSshCapability` has one refusal today: a remote forward with source port 0
+  (a server-allocated listen port), which the backend cannot yet match back to a
+  rule. The gate and every call site (profile editor at save time, factory and
+  session at connect time) stay wired, so any shape the backend cannot serve gets
+  one refusal reaching all of them at once.
 - Forward-channel data reaching the local socket is queued per channel and written
   by a dedicated pump, in both the managed and Rust layers, so a forwarded port
   whose peer stops reading can no longer stall the session's terminal I/O
@@ -109,4 +113,23 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
   ordered client → target, each hop with its own host-key verification and authentication.
   The chain crosses the FFI as a JSON array (`jump_hops_json` / the SFTP request's `jumpHops`),
   so chain length never renegotiates the ABI.
-- Remote forwarding remains unsupported in the native backend.
+- Remote forwarding is supported natively: the backend sends a `tcpip-forward`
+  global request per remote rule once the session is established (on the
+  Connected event, sequentially on one task — no thread-pool worker waits out
+  the handshake per rule), and each connection arriving on the server's listener
+  rides the same forward-channel machinery (queues, pumps, budgets) as the
+  outgoing kinds — the announcement event registers the channel before its first
+  data event can be seen, so no bytes are lost while the local destination is
+  being dialled. A request the server refuses is loud but not fatal, matching
+  `ssh -R`: the session survives and a warning naming the listener is printed
+  into the terminal, not only the log.
+- Unsolicited `forwarded-tcpip` opens are refused at the Rust handler: until the
+  session has sent at least one `tcpip-forward` request, a server-opened forward
+  channel is closed without being registered, so a hostile server cannot park
+  unbounded channels on a session that configured no forwards. The managed poll
+  loop also closes an announced channel when no forward session exists, as a
+  second line of defense.
+- Duplicate remote rules asking for the same `(bind address, port)` listener are
+  refused deterministically: the first rule wins, the duplicate is named in a
+  terminal warning, and incoming connections are matched by `(address, port)`
+  with a port-only fallback taken only when it cannot choose wrongly.

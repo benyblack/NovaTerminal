@@ -293,8 +293,10 @@ public sealed class NewSshConnectionViewModelTests
     }
 
     [Fact]
-    public void Validate_ForNativeProfileWithRemoteForward_FailsWithAnActionableError()
+    public void Validate_ForNativeProfileWithRemoteForward_Succeeds()
     {
+        // This shape used to be refused at save time as the capability gate's last unsupported
+        // one. Remote forwards are served natively now, so it must save cleanly with no warning.
         var vm = new NewSshConnectionViewModel
         {
             HostName = "native.internal",
@@ -310,11 +312,9 @@ public sealed class NewSshConnectionViewModelTests
             DestinationPort = 80
         });
 
-        bool valid = vm.Validate();
-
-        Assert.False(valid);
-        Assert.Contains("remote forward", vm.ValidationError, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("OpenSSH", vm.ValidationError, StringComparison.OrdinalIgnoreCase);
+        Assert.True(vm.Validate());
+        Assert.Equal(string.Empty, vm.ValidationError);
+        Assert.Equal(string.Empty, vm.BackendWarning);
     }
 
     [Fact]
@@ -379,14 +379,14 @@ public sealed class NewSshConnectionViewModelTests
     }
 
     [Fact]
-    public void BackendWarning_ForUnsupportedShape_NamesTheShapeRatherThanTheGlobalToggle()
+    public void BackendWarning_WithEveryShapeSupported_ReportsOnlyTheGlobalToggle()
     {
+        // With no unsupported shapes left, the only thing the warning can legitimately say about a
+        // native profile — however it is shaped — is that the global toggle is off.
         var vm = new NewSshConnectionViewModel
         {
             HostName = "native.internal",
             BackendKind = SshBackendKind.Native,
-            // Toggle off as well: enabling it would not make this profile connectable, so the warning
-            // must not send the user to settings.
             ExperimentalNativeSshEnabled = false
         };
         vm.Forwards.Add(new PortForward
@@ -397,13 +397,15 @@ public sealed class NewSshConnectionViewModelTests
             DestinationPort = 80
         });
 
-        Assert.Contains("remote forward", vm.BackendWarning, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("disabled globally", vm.BackendWarning, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("disabled globally", vm.BackendWarning, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public void BackendWarning_IsRaisedWhenForwardsChange()
     {
+        // The collection hook must keep re-evaluating the warning even while every shape is
+        // supported: it is what lets a future unsupported shape surface as the user edits,
+        // rather than only at save.
         var vm = new NewSshConnectionViewModel
         {
             HostName = "native.internal",
@@ -423,6 +425,6 @@ public sealed class NewSshConnectionViewModelTests
         });
 
         Assert.Contains(nameof(NewSshConnectionViewModel.BackendWarning), raised);
-        Assert.Contains("remote forward", vm.BackendWarning, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(string.Empty, vm.BackendWarning);
     }
 }

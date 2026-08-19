@@ -27,6 +27,10 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     // from TryWriteChannel, never as an exception: the caller is meant to retry, and that retry is
     // what applies backpressure to the local socket it is reading from.
     private const int ResultWouldBlock = -8;
+
+    // The server refused a tcpip-forward request. Its own code because the remedy differs from a
+    // failed channel open: there is no channel, and the forward should be reported unavailable.
+    private const int ResultRemoteForwardFailed = -9;
     private static readonly NativeSftpTransferProgressCallback SftpTransferProgressCallback = OnNativeSftpTransferProgress;
     private static readonly IntPtr SftpTransferProgressCallbackPointer =
         Marshal.GetFunctionPointerForDelegate(SftpTransferProgressCallback);
@@ -444,6 +448,43 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         {
             FreeUtf8(hostPtr);
             FreeUtf8(originatorPtr);
+        }
+    }
+
+    public int RequestRemoteForward(NovaSshSafeHandle sessionHandle, string bindAddress, int port)
+    {
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed)
+        {
+            throw new InvalidOperationException("Cannot request a remote forward without a session handle.");
+        }
+
+        if (string.IsNullOrWhiteSpace(bindAddress))
+        {
+            throw new ArgumentException("A bind address is required for a remote forward.", nameof(bindAddress));
+        }
+
+        if (port is < 1 or > 65535)
+        {
+            throw new ArgumentOutOfRangeException(nameof(port), "The remote forward port must be between 1 and 65535.");
+        }
+
+        IntPtr addressPtr = IntPtr.Zero;
+        try
+        {
+            addressPtr = Marshal.StringToCoTaskMemUTF8(bindAddress);
+            int boundPort = NativeMethods.nova_ssh_request_remote_forward(sessionHandle, addressPtr, checked((ushort)port));
+            if (boundPort >= 0)
+            {
+                return boundPort;
+            }
+
+            throw new InvalidOperationException(boundPort == ResultRemoteForwardFailed
+                ? $"The server refused the remote forward on {bindAddress}:{port}."
+                : $"Native SSH remote-forward request failed with result {boundPort}.");
+        }
+        finally
+        {
+            FreeUtf8(addressPtr);
         }
     }
 
@@ -1007,6 +1048,9 @@ public sealed partial class NativeSshInterop : INativeSshInterop
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_open_direct_tcpip")]
         public static extern int nova_ssh_open_direct_tcpip(NovaSshSafeHandle session, in NativeDirectTcpIpOpenArgs args);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_request_remote_forward")]
+        public static extern int nova_ssh_request_remote_forward(NovaSshSafeHandle session, IntPtr address, ushort port);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_channel_write")]
         public static extern int nova_ssh_channel_write(NovaSshSafeHandle session, uint channelId, byte[] data, nuint dataLength);
