@@ -830,15 +830,26 @@ public sealed class NativePortForwardSession : IDisposable
             AttachTransport(client);
         }
 
+        private NetworkStream? _stream;
+
         public int ChannelId { get; }
         public TcpClient? Client { get; private set; }
-        public NetworkStream Stream { get; private set; } = null!;
         public Channel<ForwardOutbound> Outbound { get; }
+
+        /// <summary>
+        /// The local transport. Throws rather than null-refs if read before
+        /// <see cref="AttachTransport"/>: the pumps are only ever started after the transport is
+        /// attached, so reaching the throw means that contract was broken — a loud, named failure
+        /// beats a NullReferenceException three calls later.
+        /// </summary>
+        public NetworkStream Stream =>
+            _stream ?? throw new InvalidOperationException(
+                $"Forward channel {ChannelId} has no transport attached yet.");
 
         public void AttachTransport(TcpClient client)
         {
             Client = client;
-            Stream = client.GetStream();
+            _stream = client.GetStream();
         }
 
         public int QueuedOutboundBytes => Volatile.Read(ref _queuedOutboundBytes);
