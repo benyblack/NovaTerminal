@@ -72,7 +72,7 @@ public sealed class SshSessionFactory : ISshSessionFactory
         if (!_nativeSshEnabled)
         {
             throw new InvalidOperationException(
-                "Native SSH is disabled globally. Switch this profile back to OpenSSH or enable ExperimentalNativeSshEnabled.");
+                "Native SSH is disabled globally. Switch this profile back to OpenSSH, or turn on the native SSH backend under Settings > SSH (ExperimentalNativeSshEnabled).");
         }
 
         // Two distinct refusals, deliberately distinguishable: the toggle above is a rollout decision

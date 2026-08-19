@@ -101,15 +101,22 @@ namespace NovaTerminal
             var tabs = this.FindControl<TabControl>("MainTabs");
             if (tabs != null) tabs.SelectedIndex = initialTab;
 
-            // Keep the two sidebar list boxes in sync with the tab control. The previous single
+            // Keep the sidebar list boxes in sync with the tab control. The previous single
             // list box drove selection via a direct SelectedIndex binding; that breaks once the
-            // sidebar is split (InterfaceNav holds tabs 0-2, AssistantNav holds tabs 3-4), so
-            // route everything through this small dispatcher instead.
+            // sidebar is split (InterfaceNav holds tabs 0-2, AssistantNav holds tabs 3-4,
+            // ConnectionNav holds tab 5), so route everything through this small dispatcher
+            // instead. The tab header strip is not the navigation — these lists are — so a new
+            // tab MUST get a sidebar item and a mapping here, or it is unreachable. That is not
+            // hypothetical: the SSH tab initially shipped without one, which silently remapped
+            // the "Agent Access" item onto SSH and stranded the real Agent Access tab
+            // (Codex review finding on #332). New tabs go at the END of the TabControl so the
+            // existing offsets stay true.
             var interfaceNav = this.FindControl<ListBox>("InterfaceNav");
             var assistantNav = this.FindControl<ListBox>("AssistantNav");
-            if (tabs != null && interfaceNav != null && assistantNav != null)
+            var connectionNav = this.FindControl<ListBox>("ConnectionNav");
+            if (tabs != null && interfaceNav != null && assistantNav != null && connectionNav != null)
             {
-                tabs.SelectionChanged += (_, _) => SyncSidebarFromTabs(tabs, interfaceNav, assistantNav);
+                tabs.SelectionChanged += (_, _) => SyncSidebarFromTabs(tabs, interfaceNav, assistantNav, connectionNav);
                 interfaceNav.SelectionChanged += (_, _) =>
                 {
                     if (interfaceNav.SelectedIndex < 0) return;
@@ -120,7 +127,12 @@ namespace NovaTerminal
                     if (assistantNav.SelectedIndex < 0) return;
                     tabs.SelectedIndex = assistantNav.SelectedIndex + 3;
                 };
-                SyncSidebarFromTabs(tabs, interfaceNav, assistantNav);
+                connectionNav.SelectionChanged += (_, _) =>
+                {
+                    if (connectionNav.SelectedIndex < 0) return;
+                    tabs.SelectedIndex = connectionNav.SelectedIndex + 5;
+                };
+                SyncSidebarFromTabs(tabs, interfaceNav, assistantNav, connectionNav);
             }
 
             // Settings editor is local-profiles only; SSH connections are managed in Connection Manager.
@@ -856,18 +868,19 @@ namespace NovaTerminal
         }
 
         /// <summary>
-        /// Mirror the current tab control selection into the two sidebar list boxes.
+        /// Mirror the current tab control selection into the sidebar list boxes.
         /// InterfaceNav owns tabs 0-2 (Appearance / Profiles / Shortcuts), AssistantNav owns
-        /// tabs 3-4 (Command Assist / Agent Access). The exact other list box is cleared so
-        /// only one item ever reads as selected.
+        /// tabs 3-4 (Command Assist / Agent Access), ConnectionNav owns tab 5 (SSH). The other
+        /// list boxes are cleared so only one item ever reads as selected.
         /// </summary>
-        private static void SyncSidebarFromTabs(TabControl tabs, ListBox interfaceNav, ListBox assistantNav)
+        private static void SyncSidebarFromTabs(TabControl tabs, ListBox interfaceNav, ListBox assistantNav, ListBox connectionNav)
         {
             var idx = tabs.SelectedIndex;
             if (idx < 0)
             {
                 interfaceNav.SelectedIndex = -1;
                 assistantNav.SelectedIndex = -1;
+                connectionNav.SelectedIndex = -1;
                 return;
             }
 
@@ -875,11 +888,19 @@ namespace NovaTerminal
             {
                 interfaceNav.SelectedIndex = idx;
                 assistantNav.SelectedIndex = -1;
+                connectionNav.SelectedIndex = -1;
+            }
+            else if (idx < 5)
+            {
+                interfaceNav.SelectedIndex = -1;
+                assistantNav.SelectedIndex = idx - 3;
+                connectionNav.SelectedIndex = -1;
             }
             else
             {
                 interfaceNav.SelectedIndex = -1;
-                assistantNav.SelectedIndex = idx - 3;
+                assistantNav.SelectedIndex = -1;
+                connectionNav.SelectedIndex = idx - 5;
             }
         }
 
@@ -1990,6 +2011,8 @@ namespace NovaTerminal
             var commandAssistToggle = this.FindControl<CheckBox>("CommandAssistToggle");
             var agentAccessObserveToggle = this.FindControl<CheckBox>("AgentAccessObserveToggle");
 
+            var nativeSshToggle = this.FindControl<CheckBox>("NativeSshToggle");
+            if (nativeSshToggle != null) nativeSshToggle.IsChecked = _settings.ExperimentalNativeSshEnabled;
             if (agentAccessObserveToggle != null) agentAccessObserveToggle.IsChecked = _settings.AgentAccessObserveEnabled;
             var agentReplayExportToggle = this.FindControl<CheckBox>("AgentReplayExportToggle");
             if (agentReplayExportToggle != null) agentReplayExportToggle.IsChecked = _settings.AgentReplayExportEnabled;
@@ -2242,6 +2265,8 @@ namespace NovaTerminal
             if (commandAssistHistoryToggle != null) _settings.CommandAssistHistoryEnabled = commandAssistHistoryToggle.IsChecked == true;
             var commandAssistShellIntegrationToggle = this.FindControl<CheckBox>("CommandAssistShellIntegrationToggle");
             if (commandAssistShellIntegrationToggle != null) _settings.CommandAssistShellIntegrationEnabled = commandAssistShellIntegrationToggle.IsChecked == true;
+            var nativeSshToggle = this.FindControl<CheckBox>("NativeSshToggle");
+            if (nativeSshToggle != null) _settings.ExperimentalNativeSshEnabled = nativeSshToggle.IsChecked == true;
             var agentAccessObserveToggle = this.FindControl<CheckBox>("AgentAccessObserveToggle");
             if (agentAccessObserveToggle != null) _settings.AgentAccessObserveEnabled = agentAccessObserveToggle.IsChecked == true;
             var agentReplayExportToggle = this.FindControl<CheckBox>("AgentReplayExportToggle");

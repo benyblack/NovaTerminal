@@ -36,7 +36,8 @@ The native SSH initiative is implemented behind conservative rollout controls.
 ### Rollout guidance
 
 - `OpenSsh` remains the default backend.
-- `Native` is gated by `TerminalSettings.ExperimentalNativeSshEnabled`.
+- `Native` is gated by `TerminalSettings.ExperimentalNativeSshEnabled`, toggleable in
+  the app under Settings > SSH.
 - Native SSH does **not** silently fall back to OpenSSH on failure.
 - Whether native *can* serve a given profile is answered in one place,
   `NativeSshCapability.Evaluate` — a remote forward is the one shape it refuses

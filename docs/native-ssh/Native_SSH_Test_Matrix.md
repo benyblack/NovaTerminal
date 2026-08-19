@@ -69,7 +69,8 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
   Before that job existed the suite was `[DockerFact]`-gated on `NOVATERM_ENABLE_DOCKER_E2E`
   and nothing in CI set it, so it was written and then never executed — the reason auth and
   forwarding rows above stayed "pending manual" while a Dockerized suite sat beside them.
-- Native SSH remains opt-in through `TerminalSettings.ExperimentalNativeSshEnabled`.
+- Native SSH remains opt-in through `TerminalSettings.ExperimentalNativeSshEnabled`,
+  toggleable in the app under Settings > SSH.
 - `OpenSsh` remains the default backend for new profiles.
 - Native backend refusal is explicit when the global experimental toggle is disabled.
 - The one profile shape the native backend cannot serve (a remote forward) is

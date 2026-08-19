@@ -251,7 +251,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
             }
 
             // Capability outranks the global toggle on purpose: if native could not serve this shape
-            // even with the toggle on, "enable ExperimentalNativeSshEnabled" sends the user down a
+            // even with the toggle on, "turn it on under Settings > SSH" sends the user down a
             // dead end. Name the real blocker first.
             NativeSshCapabilityResult capability = NativeSshCapability.Evaluate(Forwards, JumpHops);
             if (!capability.IsSupported)
@@ -261,7 +261,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
 
             return ExperimentalNativeSshEnabled
                 ? string.Empty
-                : "Native SSH is disabled globally. Enable ExperimentalNativeSshEnabled in settings or switch this profile back to OpenSSH.";
+                : "Native SSH is disabled globally. Turn it on under Settings > SSH, or switch this profile back to OpenSSH.";
         }
     }
 
