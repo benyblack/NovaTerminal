@@ -222,14 +222,21 @@ public sealed class NativePortForwardSession : IDisposable
         };
     }
 
+    /// <summary>
+    /// The bind address a remote rule asks the server for. Empty means the OpenSSH default for
+    /// -R: the server's loopback. Also the string incoming announcements are matched against, so
+    /// request and match can never disagree about the default.
+    /// </summary>
+    private static string RemoteBindAddress(PortForward forward) =>
+        string.IsNullOrWhiteSpace(forward.BindAddress)
+            ? "localhost"
+            : forward.BindAddress.Trim();
+
     private void StartRemoteForward(PortForward forward)
     {
         _remoteForwards.Add(forward);
 
-        // Empty bind address means the OpenSSH default for -R: the server's loopback.
-        string bindAddress = string.IsNullOrWhiteSpace(forward.BindAddress)
-            ? "localhost"
-            : forward.BindAddress.Trim();
+        string bindAddress = RemoteBindAddress(forward);
 
         // Off the constructor for two reasons: the worker only answers commands once the session
         // is established (connect and auth can involve prompts), and the interop call blocks until
@@ -260,10 +267,12 @@ public sealed class NativePortForwardSession : IDisposable
     {
         int channelId = nextEvent.StatusCode;
 
+        string connectedAddress;
         int connectedPort;
         try
         {
             using JsonDocument payload = JsonDocument.Parse(nextEvent.Payload);
+            connectedAddress = payload.RootElement.GetProperty("connectedAddress").GetString() ?? string.Empty;
             connectedPort = payload.RootElement.GetProperty("connectedPort").GetInt32();
         }
         catch (Exception ex)
@@ -273,12 +282,12 @@ public sealed class NativePortForwardSession : IDisposable
             return;
         }
 
-        PortForward? rule = _remoteForwards.FirstOrDefault(candidate => candidate.SourcePort == connectedPort);
+        PortForward? rule = MatchRemoteForwardRule(connectedAddress, connectedPort);
         if (rule == null)
         {
-            // Unsolicited: no rule asked for a listener on this port, so there is nowhere this
-            // connection is allowed to go. Refuse it rather than guess a destination.
-            _log($"[NativePortForwardSession] Incoming forward channel {channelId} on port {connectedPort} matches no remote forward rule; closing it.");
+            // Unsolicited or ambiguous: either no rule asked for this listener, or more than one
+            // could have and the address decides nothing. Refuse rather than guess a destination.
+            _log($"[NativePortForwardSession] Incoming forward channel {channelId} from listener {connectedAddress}:{connectedPort} matches no remote forward rule unambiguously; closing it.");
             TryCloseInteropChannel(channelId);
             return;
         }
@@ -291,6 +300,28 @@ public sealed class NativePortForwardSession : IDisposable
         }
 
         _ = Task.Run(() => ConnectIncomingForwardAsync(state, rule, _lifetimeCts.Token), _lifetimeCts.Token);
+    }
+
+    /// <summary>
+    /// Which remote rule an incoming connection belongs to. Exact (address, port) first: rules can
+    /// legitimately share a port across different bind addresses, and the requests race — the rule
+    /// whose listener actually bound may not be the first one with the port, so a port-only pick
+    /// could route traffic to the wrong local service. The port-only fallback exists because some
+    /// servers normalize the address they echo ("localhost" requested, "127.0.0.1" announced), and
+    /// it is taken only while it cannot choose wrongly — exactly one rule on the port.
+    /// </summary>
+    private PortForward? MatchRemoteForwardRule(string connectedAddress, int connectedPort)
+    {
+        PortForward? exact = _remoteForwards.FirstOrDefault(rule =>
+            rule.SourcePort == connectedPort
+            && string.Equals(RemoteBindAddress(rule), connectedAddress, StringComparison.OrdinalIgnoreCase));
+        if (exact != null)
+        {
+            return exact;
+        }
+
+        List<PortForward> byPort = _remoteForwards.Where(rule => rule.SourcePort == connectedPort).ToList();
+        return byPort.Count == 1 ? byPort[0] : null;
     }
 
     private async Task ConnectIncomingForwardAsync(ForwardChannelState state, PortForward rule, CancellationToken cancellationToken)

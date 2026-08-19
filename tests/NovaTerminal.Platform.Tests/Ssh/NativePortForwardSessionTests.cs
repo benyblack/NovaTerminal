@@ -578,9 +578,91 @@ public sealed class NativePortForwardSessionTests
         await WaitUntilAsync(() => interop.ClosedChannelIds.Contains(79));
     }
 
-    private static byte[] IncomingPayload(int connectedPort) =>
+    [Fact]
+    public async Task IncomingForwardChannel_WithTwoRulesOnOnePort_RoutesByBindAddress()
+    {
+        // Two rules can legitimately share a port on different bind addresses, and the listener
+        // requests race — the rule whose listener actually bound may not be the first with the
+        // port. The announcement's address is what decides where the connection is allowed to go.
+        var interop = new FakeNativeSshInterop();
+        int firstDestinationPort = GetFreePort();
+        int secondDestinationPort = GetFreePort();
+        var secondDestination = new TcpListener(IPAddress.Loopback, secondDestinationPort);
+        secondDestination.Start();
+
+        try
+        {
+            PortForward first = CreateRemoteForward(19010, "127.0.0.1", firstDestinationPort);
+            first.BindAddress = "198.51.100.1";
+            PortForward second = CreateRemoteForward(19010, "127.0.0.1", secondDestinationPort);
+            second.BindAddress = "198.51.100.2";
+
+            using var session = new NativePortForwardSession(FakeHandle(34), [first, second], interop);
+
+            session.HandleEvent(NativeSshEvent.ForwardChannelIncoming(80, IncomingPayload(19010, "198.51.100.2")));
+
+            // The connection must land at the SECOND rule's destination — a port-only pick would
+            // have dialled the first.
+            using TcpClient accepted = await secondDestination.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.NotNull(accepted);
+        }
+        finally
+        {
+            secondDestination.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IncomingForwardChannel_WithOneRuleOnThePort_ToleratesServerAddressNormalization()
+    {
+        // A rule bound as "localhost" may be announced back as "127.0.0.1" by a server that
+        // normalizes. With exactly one rule on the port there is nothing to confuse, so the
+        // port-only fallback must accept it.
+        var interop = new FakeNativeSshInterop();
+        int destinationPort = GetFreePort();
+        var destination = new TcpListener(IPAddress.Loopback, destinationPort);
+        destination.Start();
+
+        try
+        {
+            using var session = new NativePortForwardSession(
+                FakeHandle(35),
+                [CreateRemoteForward(19011, "127.0.0.1", destinationPort)],
+                interop);
+
+            session.HandleEvent(NativeSshEvent.ForwardChannelIncoming(81, IncomingPayload(19011, "127.0.0.1")));
+
+            using TcpClient accepted = await destination.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.NotNull(accepted);
+        }
+        finally
+        {
+            destination.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IncomingForwardChannel_WithAmbiguousAddress_IsRefused()
+    {
+        // Two rules on the port, an address matching neither: any pick could be the wrong one,
+        // so the only safe answer is no.
+        var interop = new FakeNativeSshInterop();
+
+        PortForward first = CreateRemoteForward(19012, "127.0.0.1", 9400);
+        first.BindAddress = "198.51.100.1";
+        PortForward second = CreateRemoteForward(19012, "127.0.0.1", 9401);
+        second.BindAddress = "198.51.100.2";
+
+        using var session = new NativePortForwardSession(FakeHandle(36), [first, second], interop);
+
+        session.HandleEvent(NativeSshEvent.ForwardChannelIncoming(82, IncomingPayload(19012, "203.0.113.9")));
+
+        await WaitUntilAsync(() => interop.ClosedChannelIds.Contains(82));
+    }
+
+    private static byte[] IncomingPayload(int connectedPort, string connectedAddress = "localhost") =>
         Encoding.UTF8.GetBytes(
-            $"{{\"connectedAddress\":\"localhost\",\"connectedPort\":{connectedPort},\"originatorAddress\":\"192.0.2.10\",\"originatorPort\":50000}}");
+            $"{{\"connectedAddress\":\"{connectedAddress}\",\"connectedPort\":{connectedPort},\"originatorAddress\":\"192.0.2.10\",\"originatorPort\":50000}}");
 
     private static PortForward CreateRemoteForward(int sourcePort, string destinationHost, int destinationPort)
     {
