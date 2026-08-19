@@ -165,6 +165,18 @@
                     <PathIcon Name="IconRecord" Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" Width="14" Height="14"/>
                 </Button>
 
+                <!-- Hidden until UpdateService stages a newer release (#91). -->
+                <Button Name="BtnUpdate"
+                        IsVisible="False"
+                        Foreground="#FFD25A"
+                        Background="Transparent"
+                        BorderThickness="0" Focusable="False"
+                        Height="32"
+                        Padding="8,4"
+                        CornerRadius="4"
+                        Margin="4,0,0,0"
+                        ToolTip.Tip="An update is ready. Click to restart and apply."
+                        Content="Update ready" />
                 <Button Name="BtnConnections" 
                         Foreground="White"
                         Background="Transparent"

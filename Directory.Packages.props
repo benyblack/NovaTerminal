@@ -42,5 +42,11 @@
     <!-- Sideloaded ConPTY host (#310). Ships conpty.dll + OpenConsole.exe so panes are
          hosted by a known-good console host instead of whatever conhost.exe the OS has. -->
     <PackageVersion Include="Microsoft.Windows.Console.ConPTY" Version="1.24.260710001" />
+
+    <!-- Packaging / auto-update (#91). Must stay in lockstep with the `vpk` CLI version
+         pinned in .github/workflows/release.yml: Velopack's library and its packaging tool
+         negotiate the same on-disk release format, so a mismatch produces packages the
+         installed app cannot read. -->
+    <PackageVersion Include="Velopack" Version="1.2.0" />
   </ItemGroup>
 </Project>

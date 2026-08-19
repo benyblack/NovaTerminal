@@ -33,6 +33,10 @@
          rather than having its item copies race ours when a RID does set PlatformTarget. -->
     <PackageReference Include="Microsoft.Windows.Console.ConPTY" GeneratePathProperty="true"
       ExcludeAssets="all" PrivateAssets="all" />
+    <!-- Velopack installer/auto-update (#91). Only the App references it: the update *logic*
+         lives in NovaTerminal.Platform behind IVelopackUpdater and stays Velopack-free so it
+         can be unit-tested without the package or a network. -->
+    <PackageReference Include="Velopack" />
   </ItemGroup>
 
   <PropertyGroup>

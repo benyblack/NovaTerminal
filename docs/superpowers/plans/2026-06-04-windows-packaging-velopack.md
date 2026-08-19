@@ -687,6 +687,92 @@ Comment on #91 confirming the N→N+1 auto-update works (signed: no, seam presen
 
 ---
 
+## As Built (2026-08-18)
+
+Tasks 0-6 are implemented. This section records where the shipped code deviates from the task
+bodies above; where they disagree, this section is correct.
+
+**Pinned values resolved by the spike.** `vpk` is **1.2.0** (the plan guessed `0.0.xxx`; Velopack
+has since gone 1.x), and the Velopack NuGet package is pinned to the matching 1.2.0. The signing
+flag is `--signTemplate <COMMAND>` with `{{file}}` substitution, exactly as predicted.
+
+**Task 2 moved to Platform.** `IVelopackUpdater` and `UpdateService` live in
+`src/NovaTerminal.Platform/Updates/`, tested from `tests/NovaTerminal.Platform.Tests/Updates/`.
+The plan's placement in App.Tests would have put the only automated coverage of the update path
+in a lane that is non-blocking in `ci.yml` (#81) and **absent entirely** from `release.yml`'s test
+loop — meaning update logic would have had zero coverage on the release path, which is the hole
+#156 was filed to close. Two consequences: the log sink is injected as an `Action<string>` (Platform
+does not reference VT, and this makes "swallowed but recorded" assertable), and the tests use a
+hand-rolled fake rather than Moq, which Platform.Tests does not reference. The real
+`VelopackUpdater` still lives in the App.
+
+**Task 3 corrected against the real API.** `ApplyUpdatesAndRestart` takes a `VelopackAsset`, not an
+`UpdateInfo`; the adapter passes `_pending.TargetFullRelease`. The plan's snippet would not compile.
+
+**Task 4: no `SetupCommandPalette()` call from the update handler.** That method is lazy — it runs
+on palette open and on settings save — so it already re-reads `UpdateReady` at the only moment the
+answer is visible. Re-running it eagerly would repeat a `File.Exists` sweep over every configured
+profile to change nothing. Line numbers in Task 4 are stale by ~150 commits; locate by content.
+
+**Task 5: three bugs fixed, verified against `vpk 1.2.0 --help`.**
+
+| Plan | Reality | Consequence if shipped as drafted |
+|---|---|---|
+| `vpk upload github` without `--outputDir` | marked `(REQ)`, defaults to `Releases` | uploads nothing; pack writes to `artifacts/velopack` |
+| no `--merge` | defaults to `False` | collides with the release `create_release` already made and the zips already attached |
+| `vpk download github` without `--outputDir`/`--token` | needs both | delta base lands where pack will not look; anonymous rate limits |
+
+The signing template is also passed via the step's `env:` rather than interpolated into the pwsh
+body — `${{ }}` substitution happens before PowerShell parses, so a quote in the secret breaks
+parsing and a semicolon executes.
+
+**Spike status.** Steps 1-3 and 6 passed; step 4's install caused the incident below: the NativeAOT self-contained publish packs
+cleanly (`vpk pack` on `-p:PublishAot=true` output produced Setup.exe, RELEASES and the nupkgs),
+Velopack introduced **no new IL2026/IL3050 warnings**, and a second pack at 0.0.2 built a working
+delta (`0001 patched, 0019 unchanged`, 0.11 MB against a 28.7 MB full package). Artifacts are in
+`D:\tmp\nova-velopack-spike\releases`.
+
+Note for anyone reproducing the AOT publish locally: the ILC native link step invokes `vswhere.exe`
+bare, so `C:\Program Files (x86)\Microsoft Visual Studio\Installer` must be on `PATH` or the link
+fails with `MSB3073 ... exited with code 123`. This is a local environment quirk, not a project one;
+CI's `windows-latest` image has it on PATH already.
+
+**INCIDENT: the spike's install destroyed user config on two machines.** Recorded here because
+the cause was a decision in this plan, not a mistake in carrying it out.
+
+Task 0 Step 4 says to pack with `--packId NovaTerminal`. Velopack installs to
+`%LocalAppData%\<packId>` and clears that directory as part of installing. `AppPaths.RootDirectory`
+is `%LocalAppData%\NovaTerminal`. They are the same path, so running the spike's `Setup.exe` aimed
+the installer at the user's own config store and deleted it: `workspaces`, `workspace_templates`,
+`policy` and `recordings` were emptied, and `settings.json`, `themes/` and `ssh/profiles.json` were
+lost and later recreated as defaults. It happened on two machines before anyone noticed, because
+the app silently rebuilds an empty tree on next launch (`AppPaths.EnsureInitialized` only ever
+calls `CreateDirectory`, so nothing surfaced an error).
+
+Fix: pack as `--packId NovaTerminalApp --packTitle NovaTerminal`. The install root becomes
+`%LocalAppData%\NovaTerminalApp` and the config store is untouched; `--packTitle` keeps the
+shortcut and Add/Remove Programs entry reading "NovaTerminal". Changing packId was free because no
+Velopack release had been published, so no update lineage existed to break -- had one existed, this
+would have been a far uglier migration.
+
+Moving `AppPaths.RootDirectory` instead was rejected: every existing portable-zip user has config
+at `%LocalAppData%\NovaTerminal`, so relocating it would orphan all of them. Note also that a
+config *subdirectory* would not have helped -- Velopack clears the whole install root.
+
+`VelopackPackIdTests` (Architecture.Tests, gating in both ci.yml and release.yml) now fails the
+build if packId ever equals the AppPaths directory name again.
+
+**Uninstall is still destructive on any machine that installed the bad spike build**, because for
+those installs the two directories really are the same folder. Do not uninstall there; delete the
+Velopack artifacts (`current/`, `packages/`, `Update.exe`, the stub `NovaTerminal.exe`) by hand
+instead, or the uninstaller will take the config with it.
+
+**Still outstanding:** spike steps 5's actual apply (install Setup.exe, launch, confirm an update is
+detected and applied on restart) and all of Task 7, both of which need a real install and a real
+tag. See the handoff notes on the branch.
+
+---
+
 ## Self-Review Notes
 
 - **Spec coverage:** spike (Task 0), app hook (Task 1), testable service (Task 2), real adapter (Task 3), notify+restart UX/indicator/palette (Task 4), CI pack/upload + signing seam (Task 5), signing docs (Task 6), manual N→N+1 acceptance (Task 7). All spec acceptance criteria mapped.
