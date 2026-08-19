@@ -233,6 +233,73 @@ public sealed class NativeSshSessionTests
         Assert.Contains("PROMPT_COMMAND", interop.LastConnectOptions.BashCwdBootstrap, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task UnsolicitedIncomingForwardChannel_WithNoForwardsConfigured_IsClosedNotLeaked()
+    {
+        // A profile with no forwards has no NativePortForwardSession, so before this fix the
+        // announcement was silently dropped — the channel stayed registered and open on the
+        // native side, and a hostile server could grow that without bound. The event must be
+        // answered with a close, not ignored.
+        var interop = new FakeNativeSshInterop();
+        interop.Enqueue(NativeSshEvent.ForwardChannelIncoming(
+            41,
+            Encoding.UTF8.GetBytes("{\"connectedAddress\":\"localhost\",\"connectedPort\":18080,\"originatorAddress\":\"192.0.2.1\",\"originatorPort\":50000}")));
+
+        using var session = new NativeSshSession(CreateProfile(), interop: interop);
+
+        await WaitUntilAsync(() => interop.ClosedChannelIds.Contains(41));
+    }
+
+    [Fact]
+    public async Task RemoteForward_IsRequestedWhenTheConnectedEventArrives()
+    {
+        var interop = new FakeNativeSshInterop();
+        SshProfile profile = CreateProfile();
+        profile.Forwards.Add(new PortForward
+        {
+            Kind = PortForwardKind.Remote,
+            SourcePort = 18081,
+            DestinationHost = "127.0.0.1",
+            DestinationPort = 9000
+        });
+
+        using var session = new NativeSshSession(profile, interop: interop);
+
+        // Nothing to request until the session exists; the Connected event is what says it does.
+        await Task.Delay(100);
+        Assert.Empty(interop.RemoteForwardRequests);
+
+        interop.Enqueue(new NativeSshEvent(NativeSshEventKind.Connected, []));
+
+        await WaitUntilAsync(() => interop.RemoteForwardRequests.Count == 1);
+        Assert.Equal(("localhost", 18081), interop.RemoteForwardRequests[0]);
+    }
+
+    [Fact]
+    public async Task RemoteForward_ARefusedRequestWarnsInTheTerminal()
+    {
+        // ssh -R prints "Warning: remote port forwarding failed" into the session; the native
+        // backend keeps the session alive the same way, so the warning must be equally visible.
+        var interop = new FakeNativeSshInterop { RefuseRemoteForwards = true };
+        SshProfile profile = CreateProfile();
+        profile.Forwards.Add(new PortForward
+        {
+            Kind = PortForwardKind.Remote,
+            SourcePort = 18082,
+            DestinationHost = "127.0.0.1",
+            DestinationPort = 9001
+        });
+
+        var outputs = new ConcurrentQueue<string>();
+        using var session = new NativeSshSession(profile, interop: interop);
+        session.OnOutputReceived += outputs.Enqueue;
+
+        interop.Enqueue(new NativeSshEvent(NativeSshEventKind.Connected, []));
+
+        await WaitUntilAsync(() => string.Concat(outputs).Contains("localhost:18082", StringComparison.Ordinal));
+        Assert.Contains("Warning", string.Concat(outputs), StringComparison.Ordinal);
+    }
+
     private static SshProfile CreateProfile()
     {
         return new SshProfile
@@ -271,6 +338,15 @@ public sealed class NativeSshSessionTests
         public int CloseCallCount { get; private set; }
         public NativeSshConnectionOptions? LastConnectOptions { get; private set; }
         public Exception? ResizeException { get; set; }
+        public bool RefuseRemoteForwards { get; set; }
+
+        // Written from the poll loop / request task while tests poll them; ConcurrentQueue keeps
+        // the reads safe without a lock.
+        private readonly ConcurrentQueue<int> _closedChannelIds = new();
+        private readonly ConcurrentQueue<(string BindAddress, int Port)> _remoteForwardRequests = new();
+
+        public IReadOnlyList<int> ClosedChannelIds => _closedChannelIds.ToArray();
+        public IReadOnlyList<(string BindAddress, int Port)> RemoteForwardRequests => _remoteForwardRequests.ToArray();
 
         public NovaSshSafeHandle Connect(NativeSshConnectionOptions options)
         {
@@ -331,6 +407,18 @@ public sealed class NativeSshSessionTests
 
         public void CloseChannel(NovaSshSafeHandle sessionHandle, int channelId)
         {
+            _closedChannelIds.Enqueue(channelId);
+        }
+
+        public int RequestRemoteForward(NovaSshSafeHandle sessionHandle, string bindAddress, int port)
+        {
+            if (RefuseRemoteForwards)
+            {
+                throw new InvalidOperationException($"The server refused the remote forward on {bindAddress}:{port}.");
+            }
+
+            _remoteForwardRequests.Enqueue((bindAddress, port));
+            return port;
         }
 
         public void Close(NovaSshSafeHandle sessionHandle)

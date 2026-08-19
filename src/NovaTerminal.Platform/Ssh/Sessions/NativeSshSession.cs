@@ -63,9 +63,9 @@ public sealed class NativeSshSession : ITerminalSession
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        // Single gate for every shape the native backend cannot serve — none today, with remote
-        // forwards now implemented, but the wiring stays: the next unsupported shape gets its
-        // refusal in NativeSshCapability and is enforced here and at profile-save time at once.
+        // Single gate for every shape the native backend cannot serve — today only a remote
+        // forward with a server-allocated port (source port 0). The refusal lives in
+        // NativeSshCapability and is enforced here and at profile-save time at once.
         NativeSshCapabilityResult capability = NativeSshCapability.Evaluate(profile);
         if (!capability.IsSupported)
         {
@@ -93,7 +93,14 @@ public sealed class NativeSshSession : ITerminalSession
         {
             if (profile.Forwards.Count != 0)
             {
-                _portForwardSession = new NativePortForwardSession(_sessionHandle, profile.Forwards, _interop, _log);
+                // warn: forwarding failures the user must see (a refused remote listener, above
+                // all) go to the terminal, ssh-style, not only to the diagnostic log.
+                _portForwardSession = new NativePortForwardSession(
+                    _sessionHandle,
+                    profile.Forwards,
+                    _interop,
+                    _log,
+                    warn: message => EmitText($"{message}\r\n"));
                 foreach (PortForward forward in profile.Forwards)
                 {
                     _metrics.RecordForwardSetup(forward.ToString());
@@ -374,8 +381,14 @@ public sealed class NativeSshSession : ITerminalSession
         DisableFlightRecording();
         _pollCts.Cancel();
         _metrics.MarkDisconnected("Disposed");
-        _portForwardSession?.Dispose();
-        CloseNativeHandle();
+
+        // The poll loop is drained BEFORE the forward session is disposed: it is the only caller
+        // of HandleEvent/NotifySessionEstablished, so waiting here is what guarantees neither runs
+        // against a disposed forward session (whose CancellationTokenSource throws once disposed).
+        // Only a poll loop stuck past the 2s ceiling — e.g. an interaction handler ignoring its
+        // cancellation token — can still race, and then teardown proceeding anyway is the lesser
+        // evil. CloseNativeHandle is last (the loop's own finally usually beats it to the close);
+        // the native close tears down every channel the forward session's best-effort closes miss.
         try
         {
             _pollTask.Wait(TimeSpan.FromSeconds(2));
@@ -383,10 +396,10 @@ public sealed class NativeSshSession : ITerminalSession
         catch (AggregateException ex) when (ex.InnerExceptions.All(inner => inner is TaskCanceledException or OperationCanceledException))
         {
         }
-        finally
-        {
-            _pollCts.Dispose();
-        }
+
+        _portForwardSession?.Dispose();
+        CloseNativeHandle();
+        _pollCts.Dispose();
     }
 
     private async Task PollLoopAsync()
@@ -406,6 +419,9 @@ public sealed class NativeSshSession : ITerminalSession
                 {
                     case NativeSshEventKind.Connected:
                         _metrics.MarkConnected();
+                        // Remote-forward listeners can only be requested of a session that
+                        // exists; this event is what says it does.
+                        _portForwardSession?.NotifySessionEstablished();
                         break;
                     case NativeSshEventKind.Data:
                         EmitOutput(nextEvent.Payload);
@@ -414,7 +430,21 @@ public sealed class NativeSshSession : ITerminalSession
                     case NativeSshEventKind.ForwardChannelEof:
                     case NativeSshEventKind.ForwardChannelClosed:
                     case NativeSshEventKind.ForwardChannelIncoming:
-                        _portForwardSession?.HandleEvent(nextEvent);
+                        if (_portForwardSession != null)
+                        {
+                            _portForwardSession.HandleEvent(nextEvent);
+                        }
+                        else if (nextEvent.Kind == NativeSshEventKind.ForwardChannelIncoming)
+                        {
+                            // The server opened a forwarded-tcpip channel at a session that
+                            // never configured a forward. Unsolicited — refuse it. Merely
+                            // dropping the event would leave the channel registered and open on
+                            // the native side, and a hostile server could grow that without
+                            // bound. (The Rust handler refuses these too; this is the managed
+                            // line of defense.)
+                            RefuseUnsolicitedForwardChannel(nextEvent.StatusCode);
+                        }
+
                         break;
                     case NativeSshEventKind.ExitStatus:
                         TryNotifyExit(nextEvent.StatusCode);
@@ -601,6 +631,23 @@ public sealed class NativeSshSession : ITerminalSession
             // blocks here — e.g. synchronously awaiting a UI-thread response — would
             // stall the poll loop and any new subscriber.
             handler?.Invoke(text);
+        }
+    }
+
+    private void RefuseUnsolicitedForwardChannel(int channelId)
+    {
+        _log($"[NativeSshSession] Closing unsolicited forward channel {channelId}: this session has no forwards configured.");
+        try
+        {
+            NovaSshSafeHandle? handle = _sessionHandle;
+            if (handle != null)
+            {
+                _interop.CloseChannel(handle, channelId);
+            }
+        }
+        catch (Exception ex) when (!IsCriticalException(ex))
+        {
+            _log($"[NativeSshSession] Failed to close unsolicited forward channel {channelId}: {ex.Message}");
         }
     }
 

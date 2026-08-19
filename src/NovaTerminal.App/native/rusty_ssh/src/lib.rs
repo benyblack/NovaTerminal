@@ -11,7 +11,7 @@ use std::io::Cursor;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Component, Path, PathBuf};
 use std::ptr;
-use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc as std_mpsc};
 use std::thread;
 use std::time::Duration;
@@ -254,6 +254,10 @@ struct SharedState {
     // Wakes producers parked in `queue_data_event` when the poll loop drains below the budget,
     // or when the session closes (see mark_closed).
     event_space_notify: tokio::sync::Notify,
+    // Whether this session ever sent a tcpip-forward global request. A server may only open
+    // forwarded-tcpip channels for listeners the client asked it for (RFC 4254 §7.2); until the
+    // first request is made, any such open is unsolicited and is refused at the handler.
+    remote_forward_requested: AtomicBool,
 }
 
 struct QueuedEvent {
@@ -661,7 +665,18 @@ impl SharedState {
             forward_write_budgets: Mutex::new(HashMap::new()),
             queued_data_bytes: AtomicUsize::new(0),
             event_space_notify: tokio::sync::Notify::new(),
+            remote_forward_requested: AtomicBool::new(false),
         }
+    }
+
+    /// Marked before the tcpip-forward request is sent, not after its reply: a server that opens
+    /// a forwarded-tcpip channel the instant it binds the listener must not race the flag.
+    fn mark_remote_forward_requested(&self) {
+        self.remote_forward_requested.store(true, Ordering::SeqCst);
+    }
+
+    fn has_requested_remote_forward(&self) -> bool {
+        self.remote_forward_requested.load(Ordering::SeqCst)
     }
 
     /// The queued-byte counter for one forward channel, or `None` if the channel is not (or no
@@ -890,6 +905,15 @@ impl client::Handler for NovaClientHandler {
                 let _ = channel.close().await;
                 return Ok(());
             };
+
+            // Same verdict for the target session before its first tcpip-forward request: a
+            // channel nobody asked for gets no registration, no reader task, no event. Without
+            // this, a hostile server could park unbounded open channels on a session whose
+            // profile configured no forwards at all — the managed side would never even see them.
+            if !shared.has_requested_remote_forward() {
+                let _ = channel.close().await;
+                return Ok(());
+            }
 
             register_forward_channel(channel, forward_channels, shared.clone(), |channel_id| {
                 shared.queue_event(QueuedEvent {
@@ -3223,9 +3247,11 @@ fn run_session(
                             // same trade OpenDirectTcpIp already makes: both happen at session
                             // setup or on user action, and the caller needs the verdict — a
                             // remote forward that failed must fail loudly, not queue silently.
+                            shared.mark_remote_forward_requested();
                             let result = session
                                 .tcpip_forward(address, port)
                                 .await
+                                .map(|reported| resolved_remote_forward_port(port, reported))
                                 .map_err(anyhow::Error::from);
                             let _ = reply.send(result);
                         }
@@ -3369,6 +3395,15 @@ async fn open_direct_tcpip_channel(
         .await?;
 
     Ok(register_forward_channel(channel, forward_channels, shared, |_| {}).await)
+}
+
+/// The port a remote-forward listener actually bound. RFC 4254 §7.1 has the server include a
+/// port in REQUEST_SUCCESS only when the request asked for port 0 (server-allocated); for an
+/// explicit port the reply is empty, which russh's `tcpip_forward` surfaces as `Ok(0)`. Taking
+/// that 0 at face value would report every successful explicit-port forward as "listening on
+/// port 0" — success on an explicit port means the server bound exactly the port it was asked.
+fn resolved_remote_forward_port(requested: u32, reported: u32) -> u32 {
+    if reported == 0 { requested } else { reported }
 }
 
 /// Wires an open channel — outgoing direct-tcpip or incoming forwarded-tcpip; the machinery is
@@ -5833,6 +5868,29 @@ mod remote_forward_request_tests {
 
         responder.join().expect("responder must not panic");
         assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
+    }
+
+    /// russh yields `Ok(0)` for the empty REQUEST_SUCCESS a server sends when an explicit port
+    /// was requested (RFC 4254 §7.1 puts a port in the reply only for port-0 requests). The
+    /// worker must report the port that is actually listening, not the encoding artifact.
+    #[test]
+    fn an_explicit_port_request_answered_with_zero_resolves_to_the_requested_port() {
+        assert_eq!(18080, resolved_remote_forward_port(18080, 0));
+        // A server that echoes (or, for port 0, allocates) a port is believed as-is.
+        assert_eq!(18080, resolved_remote_forward_port(18080, 18080));
+        assert_eq!(49152, resolved_remote_forward_port(0, 49152));
+    }
+
+    /// The unsolicited-channel gate: a session starts having asked for nothing, and flips —
+    /// permanently — when the first tcpip-forward request is sent. server_channel_open_forwarded_tcpip
+    /// refuses every open before that flip.
+    #[test]
+    fn a_fresh_session_has_requested_no_remote_forward_until_one_is_marked() {
+        let shared = SharedState::new();
+        assert!(!shared.has_requested_remote_forward());
+
+        shared.mark_remote_forward_requested();
+        assert!(shared.has_requested_remote_forward());
     }
 
     #[test]

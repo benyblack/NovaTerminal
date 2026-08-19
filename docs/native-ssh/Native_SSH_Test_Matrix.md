@@ -76,10 +76,11 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
   toggleable in the app under Settings > SSH.
 - `OpenSsh` remains the default backend for new profiles.
 - Native backend refusal is explicit when the global experimental toggle is disabled.
-- `NativeSshCapability` refuses nothing today — remote forwards were its last
-  unsupported shape. The gate and every call site (profile editor at save time,
-  factory and session at connect time) stay wired, so the next shape the backend
-  cannot serve gets one refusal reaching all of them at once.
+- `NativeSshCapability` has one refusal today: a remote forward with source port 0
+  (a server-allocated listen port), which the backend cannot yet match back to a
+  rule. The gate and every call site (profile editor at save time, factory and
+  session at connect time) stay wired, so any shape the backend cannot serve gets
+  one refusal reaching all of them at once.
 - Forward-channel data reaching the local socket is queued per channel and written
   by a dedicated pump, in both the managed and Rust layers, so a forwarded port
   whose peer stops reading can no longer stall the session's terminal I/O
@@ -113,10 +114,22 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
   The chain crosses the FFI as a JSON array (`jump_hops_json` / the SFTP request's `jumpHops`),
   so chain length never renegotiates the ABI.
 - Remote forwarding is supported natively: the backend sends a `tcpip-forward`
-  global request per remote rule once the session is established, and each
-  connection arriving on the server's listener rides the same forward-channel
-  machinery (queues, pumps, budgets) as the outgoing kinds — the announcement
-  event registers the channel before its first data event can be seen, so no
-  bytes are lost while the local destination is being dialled. A request the
-  server refuses is loud but not fatal, matching `ssh -R`: the session survives
-  and the log names the forward that is not listening.
+  global request per remote rule once the session is established (on the
+  Connected event, sequentially on one task — no thread-pool worker waits out
+  the handshake per rule), and each connection arriving on the server's listener
+  rides the same forward-channel machinery (queues, pumps, budgets) as the
+  outgoing kinds — the announcement event registers the channel before its first
+  data event can be seen, so no bytes are lost while the local destination is
+  being dialled. A request the server refuses is loud but not fatal, matching
+  `ssh -R`: the session survives and a warning naming the listener is printed
+  into the terminal, not only the log.
+- Unsolicited `forwarded-tcpip` opens are refused at the Rust handler: until the
+  session has sent at least one `tcpip-forward` request, a server-opened forward
+  channel is closed without being registered, so a hostile server cannot park
+  unbounded channels on a session that configured no forwards. The managed poll
+  loop also closes an announced channel when no forward session exists, as a
+  second line of defense.
+- Duplicate remote rules asking for the same `(bind address, port)` listener are
+  refused deterministically: the first rule wins, the duplicate is named in a
+  terminal warning, and incoming connections are matched by `(address, port)`
+  with a port-only fallback taken only when it cannot choose wrongly.

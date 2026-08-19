@@ -41,12 +41,14 @@ The native SSH initiative is implemented behind conservative rollout controls.
   the app under Settings > SSH.
 - Native SSH does **not** silently fall back to OpenSSH on failure.
 - Whether native *can* serve a given profile is answered in one place,
-  `NativeSshCapability.Evaluate` — which refuses nothing today: remote forwards
-  were the last unsupported shape (jump-hop chains before them), and both are
-  served natively now. The gate and its call sites (editor at save time, factory
-  and session at connect time) stay wired so the next unsupported shape gets one
-  refusal reaching all of them at once.
-- With no unsupported shapes, the only native refusal left is the global
+  `NativeSshCapability.Evaluate`. Its one refusal today is a remote forward with
+  source port 0 (a server-allocated listen port, OpenSSH's `-R 0:`): the native
+  backend matches incoming connections back to their rule by the requested port,
+  so a server-picked port has no rule to land on yet. Everything else — jump-hop
+  chains, local/dynamic/remote forwards — is served natively. The gate's call
+  sites (editor at save time, factory and session at connect time) all enforce
+  the same verdict.
+- Beyond that one shape, the only native refusal left is the global
   experimental toggle — reversible under Settings > SSH.
 - Native SSH file transfers use the built-in native SFTP path.
 - Native SSH transfer dialogs can autocomplete remote paths when an active session for that profile already exists.
@@ -60,9 +62,13 @@ The native SSH initiative is implemented behind conservative rollout controls.
   channel of the previous hop; SFTP transfers and remote browsing take the same
   chain.
 - Native SSH supports remote forwards: a `tcpip-forward` listener is requested on
-  the server per rule once the session is established, and incoming connections
-  ride the same forward-channel machinery as the outgoing kinds. A request the
-  server refuses is loud but not fatal, matching `ssh -R`.
+  the server per rule once the session is established (the Connected event, so no
+  thread waits out the handshake), and incoming connections ride the same
+  forward-channel machinery as the outgoing kinds. A request the server refuses
+  is loud but not fatal, matching `ssh -R`: the warning is printed into the
+  terminal and the session survives. Forwarded-tcpip channels the client never
+  asked for are refused at the Rust handler, so an unsolicited open from a
+  hostile server is never registered.
 
 ### Verification
 
