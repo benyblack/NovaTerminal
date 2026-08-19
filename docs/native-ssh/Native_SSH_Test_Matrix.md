@@ -30,6 +30,10 @@ Verified by automated tests:
 - Dockerized native SSH connect/auth, command execution, alternate-screen recovery, resize-burst recovery, and `vim` downward-scroll behavior
 - Dockerized private-key auth (unencrypted and passphrase-protected) and keyboard-interactive auth
   against a server that refuses every other method for that user
+- Dockerized ssh-agent auth: a real ssh-agent started by the test holds the only copy of the
+  key, and the session must authenticate without a single credential prompt
+- Agent discovery and identity listing against russh's own agent server in-process (Rust unit
+  tests), including the no-agent state resolving to fall-through rather than error
 - Dockerized host-key reporting: the algorithm and fingerprint the backend surfaces are compared
   against what `ssh-keygen` says the server's key is, and a refused key is proven to stop the
   connection before any credential is solicited
@@ -51,6 +55,7 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
 | OpenSSH parity | Existing OpenSSH backend connects exactly as before | Pending manual | No code path fallback was added; validate with a known-good host |
 | Native auth | Password auth | Pending manual | Dialog path is automated, endpoint still needs live verification |
 | Native auth | Private key auth | Automated | `NativeSshDockerAuthE2eTests.PrivateKeyAuth_WithUnencryptedKey_...` |
+| Native auth | SSH agent auth | Automated | `NativeSshDockerAgentAuthE2eTests.AgentAuth_WithTheKeyHeldOnlyByTheAgent_...`; the key is held only by a real ssh-agent the test starts, so a password prompt would fail the assertion |
 | Native auth | Encrypted private key auth | Automated | `NativeSshDockerAuthE2eTests.PrivateKeyAuth_WithEncryptedKey_...` |
 | Native auth | Keyboard-interactive auth | Automated | `NativeSshDockerAuthE2eTests.KeyboardInteractiveAuth_...`; the image's `kbdnova` user refuses password and pubkey |
 | Host keys | First trust flow | Automated + pending manual | `HostKeyPrompt_CarriesTheAlgorithmAndFingerprintTheServerActuallyHas` covers the reported key; dialog copy is still a UI check |

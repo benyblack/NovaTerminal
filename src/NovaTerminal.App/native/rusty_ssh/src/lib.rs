@@ -1,5 +1,7 @@
 use libc::{c_char, c_int, c_void};
 use russh::client::{self, AuthResult, KeyboardInteractiveAuthResponse};
+use russh::keys::agent::AgentIdentity;
+use russh::keys::agent::client::{AgentClient, AgentStream};
 use russh::keys::{PrivateKeyWithHashAlg, load_secret_key, ssh_key};
 use russh::{ChannelMsg, Disconnect};
 use russh_sftp::client::SftpSession;
@@ -57,6 +59,12 @@ pub struct NovaSshConnectArgs {
     pub bash_cwd_bootstrap: *const c_char,
     pub zsh_cwd_bootstrap: *const c_char,
     pub fish_cwd_bootstrap: *const c_char,
+    /// Non-zero: try public-key auth with every identity the user's SSH agent holds, before any
+    /// other method. The agent is discovered the way OpenSSH discovers it — SSH_AUTH_SOCK on
+    /// Unix; the OpenSSH service pipe (or SSH_AUTH_SOCK naming another pipe), then Pageant, on
+    /// Windows. An unreachable or empty agent falls through to the other methods, exactly like
+    /// `ssh` without an agent running.
+    pub use_agent: u32,
 }
 
 #[repr(C)]
@@ -349,6 +357,10 @@ struct ConnectConfig {
     rows: u16,
     term: String,
     identity_file: Option<String>,
+    /// Agent identities are tried first when set; see NovaSshConnectArgs::use_agent. Applies to
+    /// jump hops too — each hop is a full authentication, and OpenSSH offers agent keys to hops
+    /// the same way.
+    use_agent: bool,
     /// Ordered client → target; empty means a direct connection.
     jump_hops: Vec<JumpHostConfig>,
     keepalive_interval_seconds: u32,
@@ -450,6 +462,7 @@ struct TransferAuthConfig {
     /// transfer ends, rather than lingering in the heap until the allocator reuses it.
     password: Option<Zeroizing<String>>,
     identity_file: Option<String>,
+    use_agent: bool,
 }
 
 impl TransferAuthConfig {
@@ -463,6 +476,7 @@ impl TransferAuthConfig {
         Self {
             password: connection.password.take().map(Zeroizing::new),
             identity_file: connection.identity_file_path.clone(),
+            use_agent: connection.use_agent,
         }
     }
 }
@@ -545,6 +559,10 @@ struct SftpConnectionRequest {
     port: u16,
     password: Option<String>,
     identity_file_path: Option<String>,
+    /// Try agent identities before anything else; see NovaSshConnectArgs::use_agent. Defaults
+    /// false so older callers keep their exact behavior.
+    #[serde(default)]
+    use_agent: bool,
     known_hosts_file_path: String,
     /// Ordered client → target; absent or empty means a direct connection.
     #[serde(default)]
@@ -1582,6 +1600,7 @@ impl ConnectConfig {
             rows: if args.rows == 0 { 30 } else { args.rows },
             term,
             identity_file,
+            use_agent: args.use_agent != 0,
             jump_hops,
             keepalive_interval_seconds: if args.keepalive_interval_seconds == 0 {
                 30
@@ -2125,6 +2144,12 @@ async fn authenticate_transfer<H>(
 where
     H: client::Handler + Send + 'static,
 {
+    // Same order as the interactive path: the agent can authenticate without asking anything,
+    // which is doubly valuable here where there is no way to ask.
+    if auth.use_agent && try_agent_auth(user, session).await {
+        return Ok(());
+    }
+
     if let Some(identity_file) = auth.identity_file.as_deref() {
         let key = load_secret_key(Path::new(identity_file), None).map_err(|_| {
             anyhow::anyhow!(
@@ -2160,8 +2185,14 @@ where
         anyhow::bail!("Authentication failed.");
     }
 
+    if auth.use_agent {
+        anyhow::bail!(
+            "SSH agent authentication failed and no password or identity file was available to fall back to. Check that the agent is running and holds a key the server accepts."
+        )
+    }
+
     anyhow::bail!(
-        "Native SFTP transfer requires either a password or an identity file for non-interactive authentication."
+        "Native SFTP transfer requires an SSH agent, a password, or an identity file for non-interactive authentication."
     )
 }
 
@@ -3104,6 +3135,7 @@ async fn establish_session(
         authenticate(
             &hop.user,
             config.identity_file.as_deref(),
+            config.use_agent,
             shared,
             &mut hop_session,
         )
@@ -3131,6 +3163,7 @@ async fn establish_session(
     authenticate(
         &config.user,
         config.identity_file.as_deref(),
+        config.use_agent,
         shared,
         &mut session,
     )
@@ -3610,9 +3643,17 @@ async fn close_all_forward_channels(forward_channels: &ForwardChannels) {
 async fn authenticate(
     user: &str,
     identity_file: Option<&str>,
+    use_agent: bool,
     shared: &Arc<SharedState>,
     session: &mut client::Handle<NovaClientHandler>,
 ) -> anyhow::Result<()> {
+    // Agent first, before anything that could prompt: it is the one method that can succeed
+    // without asking the user anything, which is the reason to prefer it — and the order OpenSSH
+    // uses. Every failure shape (no agent, no keys, all keys refused) falls through.
+    if use_agent && try_agent_auth(user, session).await {
+        return Ok(());
+    }
+
     if let Some(identity_file) = identity_file {
         if let Some(auth_result) = try_public_key_auth(user, shared, session, identity_file).await?
         {
@@ -3643,6 +3684,95 @@ async fn authenticate(
     }
 
     anyhow::bail!("SSH authentication failed")
+}
+
+/// An agent client whose stream type is erased, so Unix sockets, Windows named pipes, and
+/// Pageant all come back as the same type from [`connect_to_agent`].
+type DynAgentClient = AgentClient<Box<dyn AgentStream + Send + Unpin + 'static>>;
+
+/// Connects to the user's SSH agent the way OpenSSH finds it, or `None` if there is none to
+/// find. `None` is not an error — it is the everyday state of a machine with no agent running,
+/// and authentication simply moves on to the next method.
+#[cfg(unix)]
+async fn connect_to_agent() -> Option<DynAgentClient> {
+    AgentClient::connect_env()
+        .await
+        .ok()
+        .map(AgentClient::dynamic)
+}
+
+#[cfg(windows)]
+async fn connect_to_agent() -> Option<DynAgentClient> {
+    // The OpenSSH-for-Windows agent service listens on a fixed pipe; SSH_AUTH_SOCK, when set,
+    // names an alternative pipe. Pageant is the PuTTY ecosystem's agent, last because it is the
+    // least likely to be the one holding OpenSSH-style keys.
+    const OPENSSH_AGENT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
+    let pipe = std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| OPENSSH_AGENT_PIPE.to_owned());
+    if let Ok(client) = AgentClient::connect_named_pipe(&pipe).await {
+        return Some(client.dynamic());
+    }
+
+    AgentClient::connect_pageant()
+        .await
+        .ok()
+        .map(AgentClient::dynamic)
+}
+
+/// The plain public key inside an agent identity, or `None` for the kinds this backend cannot
+/// offer yet (OpenSSH certificates need a different auth request).
+fn agent_identity_public_key(identity: AgentIdentity) -> Option<ssh_key::PublicKey> {
+    match identity {
+        AgentIdentity::PublicKey { key, .. } => Some(key),
+        AgentIdentity::Certificate { .. } => None,
+    }
+}
+
+/// Offers every plain public key the user's agent holds, in the agent's order, with the agent
+/// doing the signing. Returns whether one of them authenticated the session.
+///
+/// Deliberately infallible: no agent, an empty agent, a broken agent, and a server that refuses
+/// every key all end as `false`, and the caller moves on to the next method — the same behavior
+/// `ssh` has when an agent is absent or unhelpful. A transport-level failure also lands on
+/// `false`; the very next auth attempt surfaces it as the real error.
+async fn try_agent_auth<H>(user: &str, session: &mut client::Handle<H>) -> bool
+where
+    H: client::Handler + Send + 'static,
+{
+    let Some(mut agent) = connect_to_agent().await else {
+        return false;
+    };
+
+    let identities = match agent.request_identities().await {
+        Ok(identities) => identities,
+        Err(_) => return false,
+    };
+
+    for key in identities.into_iter().filter_map(agent_identity_public_key) {
+        // RSA keys need the strongest hash the server accepts (rsa-sha2-*, never ssh-rsa/SHA-1
+        // if the server can do better); every other algorithm has exactly one form.
+        let hash_alg = if matches!(key.algorithm(), ssh_key::Algorithm::Rsa { .. }) {
+            match session.best_supported_rsa_hash().await {
+                Ok(hash) => hash.flatten(),
+                Err(_) => return false,
+            }
+        } else {
+            None
+        };
+
+        match session
+            .authenticate_publickey_with(user.to_owned(), key, hash_alg, &mut agent)
+            .await
+        {
+            Ok(result) if result.success() => return true,
+            // The server refused this key; the next one may be the right one.
+            Ok(_) => continue,
+            // The agent (or the session) stopped cooperating mid-attempt. Remaining keys would
+            // hit the same wall, so stop offering them.
+            Err(_) => return false,
+        }
+    }
+
+    false
 }
 
 async fn try_public_key_auth(
@@ -4134,12 +4264,17 @@ mod tests {
             bash_cwd_bootstrap: ptr::null(),
             zsh_cwd_bootstrap: ptr::null(),
             fish_cwd_bootstrap: ptr::null(),
+            use_agent: 1,
         };
 
         let config = ConnectConfig::from_args(&args).expect("config should parse");
 
         assert_eq!(15, config.keepalive_interval_seconds);
         assert_eq!(7, config.keepalive_count_max);
+        assert!(
+            config.use_agent,
+            "a non-zero use_agent must survive the FFI crossing"
+        );
     }
 
     #[test]
@@ -4168,6 +4303,7 @@ mod tests {
             bash_cwd_bootstrap: bash_cwd_bootstrap.as_ptr(),
             zsh_cwd_bootstrap: zsh_cwd_bootstrap.as_ptr(),
             fish_cwd_bootstrap: fish_cwd_bootstrap.as_ptr(),
+            use_agent: 0,
         };
 
         let config = ConnectConfig::from_args(&args).expect("config should parse");
@@ -4216,6 +4352,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
+            use_agent: false,
             jump_hops: Vec::new(),
             keepalive_interval_seconds: 15,
             keepalive_count_max: 7,
@@ -4246,6 +4383,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
+            use_agent: false,
             jump_hops: Vec::new(),
             keepalive_interval_seconds: 30,
             keepalive_count_max: 3,
@@ -4278,6 +4416,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
+            use_agent: false,
             jump_hops: Vec::new(),
             keepalive_interval_seconds: 30,
             keepalive_count_max: 3,
@@ -4306,6 +4445,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
+            use_agent: false,
             jump_hops: Vec::new(),
             keepalive_interval_seconds: 30,
             keepalive_count_max: 3,
@@ -4336,6 +4476,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
+            use_agent: false,
             jump_hops: Vec::new(),
             keepalive_interval_seconds: 30,
             keepalive_count_max: 3,
@@ -5795,6 +5936,94 @@ mod event_queue_budget_tests {
         assert!(
             shared.queue_data_event(data_event(1)).await,
             "the counter must still admit producers after the unaccounted pop"
+        );
+    }
+}
+
+/// The agent side of authentication: discovery honors SSH_AUTH_SOCK, a real (in-process) agent's
+/// identities come back through the same client the auth path uses, and identity shapes the
+/// backend cannot offer are filtered out. The signing round trip against a live sshd is
+/// NativeSshDockerAgentAuthE2eTests' job.
+#[cfg(all(test, unix))]
+mod agent_auth_tests {
+    use super::*;
+    use futures::StreamExt;
+
+    /// Both tests mutate SSH_AUTH_SOCK, which is process-global; serialized so cargo test's
+    /// parallel threads cannot interleave a set with a remove. tokio's mutex, not std's,
+    /// because the guard is held across the tests' await points.
+    static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// Deterministic on purpose: a fixed seed avoids depending on ssh-key's optional rand
+    /// feature, and key uniqueness is irrelevant to what these tests assert.
+    fn test_key() -> ssh_key::PrivateKey {
+        ssh_key::PrivateKey::from(ssh_key::private::Ed25519Keypair::from_seed(&[7u8; 32]))
+    }
+
+    #[tokio::test]
+    async fn discovery_and_identity_listing_work_against_a_real_agent() {
+        let _env = ENV_LOCK.lock().await;
+
+        let dir = std::env::temp_dir().join(format!("rusty-ssh-agent-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir must be creatable");
+        let socket_path = dir.join("agent.sock");
+        let _ = std::fs::remove_file(&socket_path);
+
+        // russh's own agent server, over a Unix socket, seeded through the same protocol a real
+        // ssh-add uses — so the client half being tested talks to something honest.
+        let listener =
+            tokio::net::UnixListener::bind(&socket_path).expect("agent socket must bind");
+        let connections = futures::stream::unfold(listener, |listener| async {
+            let accepted = listener.accept().await.map(|(stream, _)| stream);
+            Some((accepted, listener))
+        })
+        .boxed();
+        let server = tokio::spawn(russh::keys::agent::server::serve(connections, ()));
+
+        let mut seeding_client = AgentClient::connect_uds(&socket_path)
+            .await
+            .expect("the agent socket must accept");
+        seeding_client
+            .add_identity(&test_key(), &[])
+            .await
+            .expect("adding a key must succeed");
+
+        // SAFETY (edition 2024 set_var contract): no other thread reads the environment while
+        // ENV_LOCK is held, and nothing else in this test binary reads SSH_AUTH_SOCK at all.
+        unsafe { std::env::set_var("SSH_AUTH_SOCK", &socket_path) };
+        let discovered = connect_to_agent().await;
+        let identities = match discovered {
+            Some(mut agent) => agent.request_identities().await,
+            None => panic!("connect_to_agent must find the agent SSH_AUTH_SOCK names"),
+        };
+        unsafe { std::env::remove_var("SSH_AUTH_SOCK") };
+        server.abort();
+
+        let keys: Vec<_> = identities
+            .expect("identities must list")
+            .into_iter()
+            .filter_map(agent_identity_public_key)
+            .collect();
+        assert_eq!(1, keys.len());
+        assert_eq!(
+            test_key()
+                .public_key()
+                .to_openssh()
+                .expect("test key must encode"),
+            keys[0].to_openssh().expect("listed key must encode"),
+            "the listed identity must be the key the agent was seeded with"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_machine_without_an_agent_yields_none_not_an_error() {
+        let _env = ENV_LOCK.lock().await;
+
+        // SAFETY: see above — single reader, serialized by ENV_LOCK.
+        unsafe { std::env::remove_var("SSH_AUTH_SOCK") };
+        assert!(
+            connect_to_agent().await.is_none(),
+            "no SSH_AUTH_SOCK is the everyday no-agent state, not an error"
         );
     }
 }
