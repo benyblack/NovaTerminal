@@ -285,6 +285,47 @@ public sealed class NativeSshSessionTests
     }
 
     [Fact]
+    public void Connect_WithMuxEnabled_WarnsInTheTerminalThatNativeIgnoresIt()
+    {
+        // ControlMaster multiplexing drives the OpenSSH client; the native backend has no
+        // equivalent. The setting is ignored, but never silently — the no-silent-degradation
+        // contract — and the warning is buffered, so even a subscriber attaching later sees it.
+        SshProfile profile = CreateProfile();
+        profile.MuxOptions.Enabled = true;
+
+        var outputs = new List<string>();
+        using var session = new NativeSshSession(profile, interop: new FakeNativeSshInterop());
+        session.OnOutputReceived += outputs.Add;
+
+        Assert.Contains(outputs, text => text.Contains("multiplexing", StringComparison.OrdinalIgnoreCase)
+            && text.Contains("ignores", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Connect_WithExtraSshArgs_WarnsInTheTerminalThatNativeIgnoresThem()
+    {
+        SshProfile profile = CreateProfile();
+        profile.ExtraSshArgs = "-o Compression=yes";
+
+        var outputs = new List<string>();
+        using var session = new NativeSshSession(profile, interop: new FakeNativeSshInterop());
+        session.OnOutputReceived += outputs.Add;
+
+        Assert.Contains(outputs, text => text.Contains("extra SSH arguments", StringComparison.OrdinalIgnoreCase)
+            && text.Contains("ignores", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Connect_WithNeitherMuxNorExtraArgs_EmitsNoIgnoredSettingsWarning()
+    {
+        var outputs = new List<string>();
+        using var session = new NativeSshSession(CreateProfile(), interop: new FakeNativeSshInterop());
+        session.OnOutputReceived += outputs.Add;
+
+        Assert.DoesNotContain(outputs, text => text.Contains("ignores", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task UnsolicitedIncomingForwardChannel_WithNoForwardsConfigured_IsClosedNotLeaked()
     {
         // A profile with no forwards has no NativePortForwardSession, so before this fix the

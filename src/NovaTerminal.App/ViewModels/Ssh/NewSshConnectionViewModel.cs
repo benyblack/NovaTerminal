@@ -202,7 +202,15 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
     public bool EnableMux
     {
         get => _enableMux;
-        set => SetField(ref _enableMux, value);
+        set
+        {
+            if (SetField(ref _enableMux, value))
+            {
+                // BackendWarning names mux as OpenSSH-only on native profiles; toggling it must
+                // surface (or clear) that notice immediately, not at save.
+                OnPropertyChanged(nameof(BackendWarning));
+            }
+        }
     }
 
     public int ControlPersistSeconds
@@ -214,7 +222,14 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
     public string ExtraSshArgs
     {
         get => _extraSshArgs;
-        set => SetField(ref _extraSshArgs, value);
+        set
+        {
+            if (SetField(ref _extraSshArgs, value))
+            {
+                // Same as EnableMux: the native backend cannot pass CLI arguments to anything.
+                OnPropertyChanged(nameof(BackendWarning));
+            }
+        }
     }
 
     public bool ConnectAfterSave
@@ -259,9 +274,34 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
                 return capability.Explanation;
             }
 
-            return ExperimentalNativeSshEnabled
-                ? string.Empty
-                : "Native SSH is disabled globally. Turn it on under Settings > SSH, or switch this profile back to OpenSSH.";
+            // Warnings, not refusals, from here down: each of these is a valid profile that will
+            // connect. They compose — a disabled toggle and ignored settings are both worth
+            // knowing about — with the blocking one named first.
+            var warnings = new List<string>();
+            if (!ExperimentalNativeSshEnabled)
+            {
+                warnings.Add("Native SSH is disabled globally. Turn it on under Settings > SSH, or switch this profile back to OpenSSH.");
+            }
+
+            // Deliberately a warning rather than a save-time refusal: these settings stay stored
+            // so switching the profile back to OpenSSH restores them intact — but connecting
+            // natively must not look like they apply when they cannot.
+            bool ignoresMux = EnableMux;
+            bool ignoresExtraArgs = !string.IsNullOrWhiteSpace(ExtraSshArgs);
+            if (ignoresMux && ignoresExtraArgs)
+            {
+                warnings.Add("Multiplexing (ControlMaster) and extra SSH arguments drive the OpenSSH client; the native backend ignores both.");
+            }
+            else if (ignoresMux)
+            {
+                warnings.Add("Multiplexing (ControlMaster) is an OpenSSH client feature; the native backend ignores it.");
+            }
+            else if (ignoresExtraArgs)
+            {
+                warnings.Add("Extra SSH arguments drive the OpenSSH client; the native backend ignores them.");
+            }
+
+            return string.Join(" ", warnings);
         }
     }
 
