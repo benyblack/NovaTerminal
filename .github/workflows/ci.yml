@@ -1006,8 +1006,19 @@ jobs:
       - name: Restore
         run: dotnet restore
 
+      # -p:SkipCliShim=true matches release.yml's Publish AOT step, and is required rather than
+      # tidy. BuildCliShim invokes NovaTerminal.Cli out of band with -p:BuildProjectReferences=false
+      # (that is what breaks the cycle - this project's build is what places the CLI beside it), and
+      # the nested invocation carries no RuntimeIdentifier, so it looks for this project's reference
+      # assembly at the RID-less obj/Release/net10.0/ref/. A self-contained RID publish writes its
+      # intermediates under a win-x64/linux-x64/osx-arm64 subdirectory, so on a clean checkout that
+      # path never exists and the nested build dies on a bare CS0006 naming it. Passing the RID down
+      # does not help: the CLI references this project as an executable and then wants its apphost,
+      # which a self-contained build never writes to obj. The shim is a framework-dependent artifact
+      # and would be the wrong thing to embed here anyway - the AOT binary dispatches the CLI modes
+      # itself (see Program.cs), which is why released bundles skip it too.
       - name: Publish AOT
-        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}
+        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o artifacts/publish/${{ matrix.rid }}
 
       - name: Upload AOT bundle
         if: always()
