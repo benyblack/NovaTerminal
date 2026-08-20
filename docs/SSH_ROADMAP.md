@@ -22,6 +22,16 @@ The native SSH initiative is implemented behind conservative rollout controls.
 - Backend split between OpenSSH and native SSH
 - Native Rust SSH crate with poll-based ABI
 - Avalonia host-key and auth dialogs
+- SSH agent authentication (SSH_AUTH_SOCK on Unix; the OpenSSH service pipe, then
+  Pageant, on Windows) — agent identities are offered after a configured identity
+  file (which keeps first position, so an agent full of unrelated keys cannot
+  exhaust the server's auth tries before the key that used to connect the profile)
+  and before anything that prompts; a profile explicitly pinned to an identity
+  file skips the agent entirely. No agent, an empty agent, and refused keys all
+  fall through, and every agent protocol operation is time-bounded (signing gets
+  a longer allowance for hardware-token touch prompts), so a wedged agent reads
+  as no agent rather than a hung session. Jump hops and SFTP transfers take the
+  same path, including the file-then-agent fallback.
 - App-managed native known-host trust store
 - Native SFTP file and folder upload/download
 - Local port forwarding

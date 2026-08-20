@@ -50,6 +50,7 @@ fn main() {
         bash_cwd_bootstrap: std::ptr::null(),
         zsh_cwd_bootstrap: std::ptr::null(),
         fish_cwd_bootstrap: std::ptr::null(),
+        use_agent: 0,
     };
 
     let session = nova_ssh_connect(&connect_args);

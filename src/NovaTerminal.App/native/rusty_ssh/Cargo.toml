@@ -25,3 +25,6 @@ zeroize = "1.8"
 # test advance past FORWARD_CHANNEL_DRAIN_TIMEOUT instantly instead of sleeping two real seconds.
 # Dev-only: neither feature reaches the cdylib the app loads.
 tokio = { version = "1.48.0", features = ["macros", "rt", "test-util", "time"] }
+# The agent-auth tests run russh's own agent *server* in-process, whose serve() accepts the
+# connection listener as a futures Stream. Already in the tree via russh; dev-only here.
+futures = "0.3"

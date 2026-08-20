@@ -105,7 +105,8 @@ public sealed partial class NativeSshInterop : INativeSshInterop
                     ShellDetectionCommand = shellDetectionCommandPtr,
                     BashCwdBootstrap = bashCwdBootstrapPtr,
                     ZshCwdBootstrap = zshCwdBootstrapPtr,
-                    FishCwdBootstrap = fishCwdBootstrapPtr
+                    FishCwdBootstrap = fishCwdBootstrapPtr,
+                    UseAgent = options.UseAgent ? 1u : 0u
                 };
 
                 NovaSshSafeHandle handle = NativeMethods.nova_ssh_connect(in args);
@@ -892,6 +893,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         public IntPtr BashCwdBootstrap;
         public IntPtr ZshCwdBootstrap;
         public IntPtr FishCwdBootstrap;
+        public uint UseAgent;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -923,6 +925,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
                     connectionOptions.Port,
                     string.IsNullOrWhiteSpace(connectionOptions.Password) ? null : connectionOptions.Password,
                     string.IsNullOrWhiteSpace(connectionOptions.IdentityFilePath) ? null : connectionOptions.IdentityFilePath,
+                    connectionOptions.UseAgent,
                     connectionOptions.KnownHostsFilePath!,
                     connectionOptions.JumpHops.Select(JumpHopRequest.From).ToArray()),
                 new SftpTransferRequestBody(
@@ -939,6 +942,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         int Port,
         string? Password,
         string? IdentityFilePath,
+        bool UseAgent,
         string KnownHostsFilePath,
         IReadOnlyList<JumpHopRequest> JumpHops);
 
@@ -965,6 +969,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
                     connectionOptions.Port,
                     string.IsNullOrWhiteSpace(connectionOptions.Password) ? null : connectionOptions.Password,
                     string.IsNullOrWhiteSpace(connectionOptions.IdentityFilePath) ? null : connectionOptions.IdentityFilePath,
+                    connectionOptions.UseAgent,
                     connectionOptions.KnownHostsFilePath!,
                     connectionOptions.JumpHops.Select(JumpHopRequest.From).ToArray()),
                 remotePath);

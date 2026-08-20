@@ -234,6 +234,57 @@ public sealed class NativeSshSessionTests
     }
 
     [Fact]
+    public async Task Connect_WithAgentAuthMode_RequestsTheAgentAndIgnoresALeftoverIdentityPath()
+    {
+        var interop = new FakeNativeSshInterop();
+        SshProfile profile = CreateProfile();
+        profile.AuthMode = SshAuthMode.Agent;
+        // A stale path from before the user switched the profile to agent auth. The explicit
+        // choice wins: the file must not be offered.
+        profile.IdentityFilePath = "/home/nova/.ssh/id_old";
+
+        using var session = new NativeSshSession(profile, interop: interop);
+        await WaitUntilAsync(() => interop.LastConnectOptions != null);
+
+        Assert.True(interop.LastConnectOptions!.UseAgent);
+        Assert.Null(interop.LastConnectOptions.IdentityFilePath);
+    }
+
+    [Fact]
+    public async Task Connect_WithIdentityFileAuthMode_DisablesTheAgent()
+    {
+        var interop = new FakeNativeSshInterop();
+        SshProfile profile = CreateProfile();
+        profile.AuthMode = SshAuthMode.IdentityFile;
+        profile.IdentityFilePath = "/home/nova/.ssh/id_ed25519";
+
+        using var session = new NativeSshSession(profile, interop: interop);
+        await WaitUntilAsync(() => interop.LastConnectOptions != null);
+
+        // The same contract OpenSSH gives IdentitiesOnly: an explicit identity file means the
+        // agent's keys are not offered.
+        Assert.False(interop.LastConnectOptions!.UseAgent);
+        Assert.Equal("/home/nova/.ssh/id_ed25519", interop.LastConnectOptions.IdentityFilePath);
+    }
+
+    [Fact]
+    public async Task Connect_WithDefaultAuthMode_OffersTheAgentAndTheIdentityFile()
+    {
+        var interop = new FakeNativeSshInterop();
+        SshProfile profile = CreateProfile();
+        profile.IdentityFilePath = "/home/nova/.ssh/id_ed25519";
+
+        using var session = new NativeSshSession(profile, interop: interop);
+        await WaitUntilAsync(() => interop.LastConnectOptions != null);
+
+        // Default expresses no preference, so it gets both: the configured file first (it
+        // predates agent support, so profiles that authenticated via file keep working even
+        // against an agent full of unrelated keys), then the agent.
+        Assert.True(interop.LastConnectOptions!.UseAgent);
+        Assert.Equal("/home/nova/.ssh/id_ed25519", interop.LastConnectOptions.IdentityFilePath);
+    }
+
+    [Fact]
     public async Task UnsolicitedIncomingForwardChannel_WithNoForwardsConfigured_IsClosedNotLeaked()
     {
         // A profile with no forwards has no NativePortForwardSession, so before this fix the

@@ -1,7 +1,9 @@
 use libc::{c_char, c_int, c_void};
 use russh::client::{self, AuthResult, KeyboardInteractiveAuthResponse};
+use russh::keys::agent::AgentIdentity;
+use russh::keys::agent::client::{AgentClient, AgentStream};
 use russh::keys::{PrivateKeyWithHashAlg, load_secret_key, ssh_key};
-use russh::{ChannelMsg, Disconnect};
+use russh::{ChannelMsg, Disconnect, Signer};
 use russh_sftp::client::SftpSession;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -24,6 +26,18 @@ use zeroize::Zeroizing;
 const COPY_BUFFER_SIZE: usize = 64 * 1024;
 const CANCELLATION_CHECK_INTERVAL_BYTES: u64 = 1024 * 1024;
 const SHELL_DETECTION_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Ceiling on the cheap SSH-agent protocol operations (connect, identity listing). An agent
+/// socket that accepts but never answers — a wedged agent, or one that died without closing —
+/// must read as "no agent" so authentication reaches its fallbacks, not hang a session (or a
+/// non-interactive transfer) in front of them forever. Generous for a local IPC round trip.
+const AGENT_PROTOCOL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Ceiling on one agent signing request. Much longer than [`AGENT_PROTOCOL_TIMEOUT`] on
+/// purpose: a signature can legitimately wait on a human — a hardware token's touch, a
+/// confirmation dialog — and cutting that short would break exactly the setups agents exist
+/// for. Still bounded, so a wedged agent cannot park authentication forever.
+const AGENT_SIGN_TIMEOUT: Duration = Duration::from_secs(60);
 const SHELL_DETECTION_MAX_OUTPUT_BYTES: usize = 4096;
 
 #[repr(C)]
@@ -57,6 +71,13 @@ pub struct NovaSshConnectArgs {
     pub bash_cwd_bootstrap: *const c_char,
     pub zsh_cwd_bootstrap: *const c_char,
     pub fish_cwd_bootstrap: *const c_char,
+    /// Non-zero: try public-key auth with every identity the user's SSH agent holds — after a
+    /// configured identity file (which keeps first position so an over-full agent cannot exhaust
+    /// the server's MaxAuthTries before it), before anything that prompts. The agent is
+    /// discovered the way OpenSSH discovers it — SSH_AUTH_SOCK on Unix; the OpenSSH service pipe
+    /// (or SSH_AUTH_SOCK naming another pipe), then Pageant, on Windows. An unreachable or empty
+    /// agent falls through to the other methods, exactly like `ssh` without an agent running.
+    pub use_agent: u32,
 }
 
 #[repr(C)]
@@ -349,6 +370,10 @@ struct ConnectConfig {
     rows: u16,
     term: String,
     identity_file: Option<String>,
+    /// Agent identities are tried first when set; see NovaSshConnectArgs::use_agent. Applies to
+    /// jump hops too — each hop is a full authentication, and OpenSSH offers agent keys to hops
+    /// the same way.
+    use_agent: bool,
     /// Ordered client → target; empty means a direct connection.
     jump_hops: Vec<JumpHostConfig>,
     keepalive_interval_seconds: u32,
@@ -450,6 +475,7 @@ struct TransferAuthConfig {
     /// transfer ends, rather than lingering in the heap until the allocator reuses it.
     password: Option<Zeroizing<String>>,
     identity_file: Option<String>,
+    use_agent: bool,
 }
 
 impl TransferAuthConfig {
@@ -463,6 +489,7 @@ impl TransferAuthConfig {
         Self {
             password: connection.password.take().map(Zeroizing::new),
             identity_file: connection.identity_file_path.clone(),
+            use_agent: connection.use_agent,
         }
     }
 }
@@ -545,6 +572,10 @@ struct SftpConnectionRequest {
     port: u16,
     password: Option<String>,
     identity_file_path: Option<String>,
+    /// Try agent identities when no identity file decides the outcome; see
+    /// NovaSshConnectArgs::use_agent. Defaults false so older callers keep their exact behavior.
+    #[serde(default)]
+    use_agent: bool,
     known_hosts_file_path: String,
     /// Ordered client → target; absent or empty means a direct connection.
     #[serde(default)]
@@ -715,6 +746,12 @@ impl SharedState {
     async fn wait_closed(&self) {
         loop {
             let notified = self.closed_notify.notified();
+            tokio::pin!(notified);
+            // enable() is what makes create-notified-then-check actually sound: a Notified
+            // future only counts as a waiter once polled or enabled, and notify_waiters stores
+            // no permit — so without this, a mark_closed landing between the check below and the
+            // first poll of the await was silently lost.
+            notified.as_mut().enable();
             if self.is_closed() {
                 return;
             }
@@ -758,9 +795,14 @@ impl SharedState {
     /// Returns false if the session closed while parked; the caller should stop reading.
     async fn queue_data_event(&self, event: QueuedEvent) -> bool {
         loop {
-            // Create-notified-then-check, like wait_closed: a drain or close that lands between
-            // the check and the await must not be missed.
+            // Create-notified-then-check, like wait_closed — including the enable(): without it
+            // a drain or close landing between the checks and the first poll of the await was
+            // lost (notify_waiters wakes only registered waiters and stores no permit), and a
+            // producer could park forever on a queue that had already emptied. For the session
+            // select loop that produces terminal output, "forever" meant a frozen terminal.
             let notified = self.event_space_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             if self.is_closed() {
                 return false;
             }
@@ -1582,6 +1624,7 @@ impl ConnectConfig {
             rows: if args.rows == 0 { 30 } else { args.rows },
             term,
             identity_file,
+            use_agent: args.use_agent != 0,
             jump_hops,
             keepalive_interval_seconds: if args.keepalive_interval_seconds == 0 {
                 30
@@ -2125,26 +2168,44 @@ async fn authenticate_transfer<H>(
 where
     H: client::Handler + Send + 'static,
 {
+    // Same first-position rule as the interactive path: a configured identity file is offered
+    // before the agent is consulted. But its failure is only FINAL without use_agent — the
+    // terminal path falls back from a rejected or unreadable file to the agent, and a transfer
+    // for the same profile must reach the same server the same way, not fail where the terminal
+    // connects (Codex review on #334).
     if let Some(identity_file) = auth.identity_file.as_deref() {
-        let key = load_secret_key(Path::new(identity_file), None).map_err(|_| {
-            anyhow::anyhow!(
-                "Failed to load identity file '{}' for non-interactive native SFTP auth. Encrypted keys require interactive passphrase entry, which is not available for transfers.",
-                identity_file
-            )
-        })?;
+        match load_secret_key(Path::new(identity_file), None) {
+            Ok(key) => {
+                let hash_alg = session.best_supported_rsa_hash().await?.flatten();
+                let result = session
+                    .authenticate_publickey(
+                        user.to_owned(),
+                        PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
+                    )
+                    .await?;
+                if result.success() {
+                    return Ok(());
+                }
 
-        let hash_alg = session.best_supported_rsa_hash().await?.flatten();
-        let result = session
-            .authenticate_publickey(
-                user.to_owned(),
-                PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
-            )
-            .await?;
-        if result.success() {
-            return Ok(());
+                if !auth.use_agent {
+                    anyhow::bail!("Authentication failed.");
+                }
+            }
+            Err(_) if auth.use_agent => {
+                // Unreadable (or passphrase-protected) file: the agent may still hold a usable
+                // key, exactly as it does for the interactive path.
+            }
+            Err(_) => {
+                anyhow::bail!(
+                    "Failed to load identity file '{}' for non-interactive native SFTP auth. Encrypted keys require interactive passphrase entry, which is not available for transfers.",
+                    identity_file
+                );
+            }
         }
+    }
 
-        anyhow::bail!("Authentication failed.");
+    if auth.use_agent && try_agent_auth(user, session).await {
+        return Ok(());
     }
 
     if let Some(password) = auth.password.as_deref() {
@@ -2160,8 +2221,14 @@ where
         anyhow::bail!("Authentication failed.");
     }
 
+    if auth.use_agent {
+        anyhow::bail!(
+            "SSH agent authentication failed and no password or identity file was available to fall back to. Check that the agent is running and holds a key the server accepts."
+        )
+    }
+
     anyhow::bail!(
-        "Native SFTP transfer requires either a password or an identity file for non-interactive authentication."
+        "Native SFTP transfer requires an SSH agent, a password, or an identity file for non-interactive authentication."
     )
 }
 
@@ -3104,6 +3171,7 @@ async fn establish_session(
         authenticate(
             &hop.user,
             config.identity_file.as_deref(),
+            config.use_agent,
             shared,
             &mut hop_session,
         )
@@ -3131,6 +3199,7 @@ async fn establish_session(
     authenticate(
         &config.user,
         config.identity_file.as_deref(),
+        config.use_agent,
         shared,
         &mut session,
     )
@@ -3610,9 +3679,14 @@ async fn close_all_forward_channels(forward_channels: &ForwardChannels) {
 async fn authenticate(
     user: &str,
     identity_file: Option<&str>,
+    use_agent: bool,
     shared: &Arc<SharedState>,
     session: &mut client::Handle<NovaClientHandler>,
 ) -> anyhow::Result<()> {
+    // The configured identity file keeps first position. It predates agent support, so it must
+    // stay reachable: an agent stuffed with unrelated keys could otherwise exhaust the server's
+    // MaxAuthTries — closing the transport — before the file that used to connect this profile
+    // was ever offered (Codex review on #334).
     if let Some(identity_file) = identity_file {
         if let Some(auth_result) = try_public_key_auth(user, shared, session, identity_file).await?
         {
@@ -3620,6 +3694,13 @@ async fn authenticate(
                 return Ok(());
             }
         }
+    }
+
+    // Agent identities next, before anything that prompts: the agent is the one method that can
+    // still succeed without asking the user anything. Every failure shape (no agent, no keys,
+    // all keys refused) falls through.
+    if use_agent && try_agent_auth(user, session).await {
+        return Ok(());
     }
 
     let password = prompt_text(
@@ -3643,6 +3724,179 @@ async fn authenticate(
     }
 
     anyhow::bail!("SSH authentication failed")
+}
+
+/// An agent client whose stream type is erased, so Unix sockets, Windows named pipes, and
+/// Pageant all come back as the same type from [`connect_to_agent`].
+type DynAgentClient = AgentClient<Box<dyn AgentStream + Send + Unpin + 'static>>;
+
+/// Every agent worth asking, in preference order — empty if there is none to find, which is not
+/// an error but the everyday state of a machine with no agent running. Unix has one candidate
+/// (SSH_AUTH_SOCK). Windows has up to two — the OpenSSH service pipe (or SSH_AUTH_SOCK naming
+/// another pipe), then Pageant — and both are returned rather than the first that connects: a
+/// pipe that answers but holds no usable key must not shadow a Pageant holding the right one
+/// (Codex review on #334).
+#[cfg(unix)]
+async fn connect_to_agents() -> Vec<DynAgentClient> {
+    match tokio::time::timeout(AGENT_PROTOCOL_TIMEOUT, AgentClient::connect_env()).await {
+        Ok(Ok(client)) => vec![client.dynamic()],
+        _ => Vec::new(),
+    }
+}
+
+#[cfg(windows)]
+async fn connect_to_agents() -> Vec<DynAgentClient> {
+    // The timeouts also bound connect_named_pipe's busy-pipe retry loop, which would otherwise
+    // spin forever.
+    const OPENSSH_AGENT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
+    let pipe = std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| OPENSSH_AGENT_PIPE.to_owned());
+
+    let mut agents = Vec::new();
+    if let Ok(Ok(client)) = tokio::time::timeout(
+        AGENT_PROTOCOL_TIMEOUT,
+        AgentClient::connect_named_pipe(&pipe),
+    )
+    .await
+    {
+        agents.push(client.dynamic());
+    }
+
+    if let Ok(Ok(client)) =
+        tokio::time::timeout(AGENT_PROTOCOL_TIMEOUT, AgentClient::connect_pageant()).await
+    {
+        agents.push(client.dynamic());
+    }
+
+    agents
+}
+
+/// The agent's identity list, with bounded patience: an agent that accepted the connection but
+/// never answers must read as "no agent", not hang authentication in front of the fallbacks it
+/// was supposed to precede (Codex review on #334).
+async fn agent_identities(agent: &mut DynAgentClient) -> Option<Vec<AgentIdentity>> {
+    match tokio::time::timeout(AGENT_PROTOCOL_TIMEOUT, agent.request_identities()).await {
+        Ok(Ok(identities)) => Some(identities),
+        _ => None,
+    }
+}
+
+/// The agent as a mid-authentication signer, with the signing request time-bounded. An error
+/// (including the timeout) makes `authenticate_publickey_with` return `Err`, which
+/// `try_agent_auth` treats as "stop offering agent keys" — the fallback methods then run.
+struct TimeboundAgentSigner {
+    agent: DynAgentClient,
+}
+
+impl Signer for TimeboundAgentSigner {
+    type Error = russh::AgentAuthError;
+
+    fn auth_sign(
+        &mut self,
+        key: &AgentIdentity,
+        hash_alg: Option<ssh_key::HashAlg>,
+        to_sign: Vec<u8>,
+    ) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send {
+        async move {
+            match tokio::time::timeout(
+                AGENT_SIGN_TIMEOUT,
+                self.agent.auth_sign(key, hash_alg, to_sign),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => Err(russh::AgentAuthError::Key(russh::keys::Error::IO(
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "the SSH agent did not answer the signing request in time",
+                    ),
+                ))),
+            }
+        }
+    }
+}
+
+/// The plain public key inside an agent identity, or `None` for the kinds this backend cannot
+/// offer yet (OpenSSH certificates need a different auth request).
+fn agent_identity_public_key(identity: AgentIdentity) -> Option<ssh_key::PublicKey> {
+    match identity {
+        AgentIdentity::PublicKey { key, .. } => Some(key),
+        AgentIdentity::Certificate { .. } => None,
+    }
+}
+
+/// Offers every plain public key the user's agents hold, agent by agent in discovery order,
+/// with the agent doing the signing. Returns whether one of them authenticated the session.
+///
+/// Deliberately infallible: no agent, an empty agent, a broken agent, and a server that refuses
+/// every key all end as `false`, and the caller moves on to the next method — the same behavior
+/// `ssh` has when an agent is absent or unhelpful. A transport-level failure also lands on
+/// `false`; the very next auth attempt surfaces it as the real error.
+async fn try_agent_auth<H>(user: &str, session: &mut client::Handle<H>) -> bool
+where
+    H: client::Handler + Send + 'static,
+{
+    for agent in connect_to_agents().await {
+        if try_one_agent(user, session, agent).await {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// One agent's keys against the session. `false` covers "this agent could not help" in every
+/// shape — no identities, all keys refused, the agent (or session) breaking mid-attempt — so the
+/// caller can move on to the next agent or the next method.
+async fn try_one_agent<H>(
+    user: &str,
+    session: &mut client::Handle<H>,
+    mut agent: DynAgentClient,
+) -> bool
+where
+    H: client::Handler + Send + 'static,
+{
+    let Some(identities) = agent_identities(&mut agent).await else {
+        return false;
+    };
+
+    // RSA keys need the strongest hash the server accepts (rsa-sha2-*, never ssh-rsa/SHA-1 if
+    // the server can do better); every other algorithm has exactly one form. Queried once, on
+    // the first RSA key — the answer comes from the server's ext-info and cannot change
+    // mid-authentication, so an agent full of RSA keys must not repeat the round trip per key.
+    let mut best_rsa_hash: Option<Option<ssh_key::HashAlg>> = None;
+
+    let mut signer = TimeboundAgentSigner { agent };
+    for key in identities.into_iter().filter_map(agent_identity_public_key) {
+        let hash_alg = if matches!(key.algorithm(), ssh_key::Algorithm::Rsa { .. }) {
+            match best_rsa_hash {
+                Some(hash) => hash,
+                None => match session.best_supported_rsa_hash().await {
+                    Ok(hash) => {
+                        let hash = hash.flatten();
+                        best_rsa_hash = Some(hash);
+                        hash
+                    }
+                    Err(_) => return false,
+                },
+            }
+        } else {
+            None
+        };
+
+        match session
+            .authenticate_publickey_with(user.to_owned(), key, hash_alg, &mut signer)
+            .await
+        {
+            Ok(result) if result.success() => return true,
+            // The server refused this key; the next one may be the right one.
+            Ok(_) => continue,
+            // The agent (or the session) stopped cooperating mid-attempt. This agent's remaining
+            // keys would hit the same wall, so stop offering them.
+            Err(_) => return false,
+        }
+    }
+
+    false
 }
 
 async fn try_public_key_auth(
@@ -4134,12 +4388,17 @@ mod tests {
             bash_cwd_bootstrap: ptr::null(),
             zsh_cwd_bootstrap: ptr::null(),
             fish_cwd_bootstrap: ptr::null(),
+            use_agent: 1,
         };
 
         let config = ConnectConfig::from_args(&args).expect("config should parse");
 
         assert_eq!(15, config.keepalive_interval_seconds);
         assert_eq!(7, config.keepalive_count_max);
+        assert!(
+            config.use_agent,
+            "a non-zero use_agent must survive the FFI crossing"
+        );
     }
 
     #[test]
@@ -4168,6 +4427,7 @@ mod tests {
             bash_cwd_bootstrap: bash_cwd_bootstrap.as_ptr(),
             zsh_cwd_bootstrap: zsh_cwd_bootstrap.as_ptr(),
             fish_cwd_bootstrap: fish_cwd_bootstrap.as_ptr(),
+            use_agent: 0,
         };
 
         let config = ConnectConfig::from_args(&args).expect("config should parse");
@@ -4216,6 +4476,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
+            use_agent: false,
             jump_hops: Vec::new(),
             keepalive_interval_seconds: 15,
             keepalive_count_max: 7,
@@ -4246,6 +4507,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
+            use_agent: false,
             jump_hops: Vec::new(),
             keepalive_interval_seconds: 30,
             keepalive_count_max: 3,
@@ -4278,6 +4540,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
+            use_agent: false,
             jump_hops: Vec::new(),
             keepalive_interval_seconds: 30,
             keepalive_count_max: 3,
@@ -4306,6 +4569,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
+            use_agent: false,
             jump_hops: Vec::new(),
             keepalive_interval_seconds: 30,
             keepalive_count_max: 3,
@@ -4336,6 +4600,7 @@ mod tests {
             rows: 30,
             term: "xterm-256color".to_owned(),
             identity_file: None,
+            use_agent: false,
             jump_hops: Vec::new(),
             keepalive_interval_seconds: 30,
             keepalive_count_max: 3,
@@ -5795,6 +6060,126 @@ mod event_queue_budget_tests {
         assert!(
             shared.queue_data_event(data_event(1)).await,
             "the counter must still admit producers after the unaccounted pop"
+        );
+    }
+}
+
+/// The agent side of authentication: discovery honors SSH_AUTH_SOCK, a real (in-process) agent's
+/// identities come back through the same client the auth path uses, and identity shapes the
+/// backend cannot offer are filtered out. The signing round trip against a live sshd is
+/// NativeSshDockerAgentAuthE2eTests' job.
+#[cfg(all(test, unix))]
+mod agent_auth_tests {
+    use super::*;
+    use futures::StreamExt;
+
+    /// Both tests mutate SSH_AUTH_SOCK, which is process-global; serialized so cargo test's
+    /// parallel threads cannot interleave a set with a remove. tokio's mutex, not std's,
+    /// because the guard is held across the tests' await points.
+    static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// Deterministic on purpose: a fixed seed avoids depending on ssh-key's optional rand
+    /// feature, and key uniqueness is irrelevant to what these tests assert.
+    fn test_key() -> ssh_key::PrivateKey {
+        ssh_key::PrivateKey::from(ssh_key::private::Ed25519Keypair::from_seed(&[7u8; 32]))
+    }
+
+    #[tokio::test]
+    async fn discovery_and_identity_listing_work_against_a_real_agent() {
+        let _env = ENV_LOCK.lock().await;
+
+        let dir = std::env::temp_dir().join(format!("rusty-ssh-agent-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir must be creatable");
+        let socket_path = dir.join("agent.sock");
+        let _ = std::fs::remove_file(&socket_path);
+
+        // russh's own agent server, over a Unix socket, seeded through the same protocol a real
+        // ssh-add uses — so the client half being tested talks to something honest.
+        let listener =
+            tokio::net::UnixListener::bind(&socket_path).expect("agent socket must bind");
+        let connections = futures::stream::unfold(listener, |listener| async {
+            let accepted = listener.accept().await.map(|(stream, _)| stream);
+            Some((accepted, listener))
+        })
+        .boxed();
+        let server = tokio::spawn(russh::keys::agent::server::serve(connections, ()));
+
+        let mut seeding_client = AgentClient::connect_uds(&socket_path)
+            .await
+            .expect("the agent socket must accept");
+        seeding_client
+            .add_identity(&test_key(), &[])
+            .await
+            .expect("adding a key must succeed");
+
+        // SAFETY (edition 2024 set_var contract): no other thread reads the environment while
+        // ENV_LOCK is held, and nothing else in this test binary reads SSH_AUTH_SOCK at all.
+        unsafe { std::env::set_var("SSH_AUTH_SOCK", &socket_path) };
+        let mut discovered = connect_to_agents().await;
+        let identities = match discovered.first_mut() {
+            Some(agent) => agent.request_identities().await,
+            None => panic!("connect_to_agents must find the agent SSH_AUTH_SOCK names"),
+        };
+        unsafe { std::env::remove_var("SSH_AUTH_SOCK") };
+        server.abort();
+
+        let keys: Vec<_> = identities
+            .expect("identities must list")
+            .into_iter()
+            .filter_map(agent_identity_public_key)
+            .collect();
+        assert_eq!(1, keys.len());
+        assert_eq!(
+            test_key()
+                .public_key()
+                .to_openssh()
+                .expect("test key must encode"),
+            keys[0].to_openssh().expect("listed key must encode"),
+            "the listed identity must be the key the agent was seeded with"
+        );
+    }
+
+    /// start_paused: the socket never becomes readable, so tokio auto-advances the clock to the
+    /// protocol deadline and the test finishes in wall-clock milliseconds, not five seconds.
+    #[tokio::test(start_paused = true)]
+    async fn a_wedged_agent_times_out_instead_of_hanging_authentication() {
+        let dir =
+            std::env::temp_dir().join(format!("rusty-ssh-agent-wedged-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir must be creatable");
+        let socket_path = dir.join("agent.sock");
+        let _ = std::fs::remove_file(&socket_path);
+
+        // Accepts the connection and then never answers — healthy at the socket level, dead at
+        // the protocol level, so only the bounded timeout can save the caller. The accepted
+        // stream is held open deliberately: closing it would end the test via EOF, not timeout.
+        let listener =
+            tokio::net::UnixListener::bind(&socket_path).expect("agent socket must bind");
+        let hold = tokio::spawn(async move {
+            let _held = listener.accept().await;
+            std::future::pending::<()>().await;
+        });
+
+        let mut agent = AgentClient::connect_uds(&socket_path)
+            .await
+            .expect("the wedged agent's socket still accepts connections")
+            .dynamic();
+
+        assert!(
+            agent_identities(&mut agent).await.is_none(),
+            "a wedged agent must read as no agent, so authentication reaches its fallbacks"
+        );
+        hold.abort();
+    }
+
+    #[tokio::test]
+    async fn a_machine_without_an_agent_yields_none_not_an_error() {
+        let _env = ENV_LOCK.lock().await;
+
+        // SAFETY: see above — single reader, serialized by ENV_LOCK.
+        unsafe { std::env::remove_var("SSH_AUTH_SOCK") };
+        assert!(
+            connect_to_agents().await.is_empty(),
+            "no SSH_AUTH_SOCK is the everyday no-agent state, not an error"
         );
     }
 }

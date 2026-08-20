@@ -29,9 +29,8 @@ public sealed class NativeJumpHostConnector
             KeepAliveCountMax = profile.ServerAliveCountMax > 0
                 ? profile.ServerAliveCountMax
                 : 3,
-            IdentityFilePath = string.IsNullOrWhiteSpace(profile.IdentityFilePath)
-                ? null
-                : profile.IdentityFilePath,
+            IdentityFilePath = NativeSshConnectionOptions.ResolveIdentityFilePath(profile),
+            UseAgent = NativeSshConnectionOptions.ResolveUseAgent(profile),
             JumpHops = plan.JumpHops
                 .Select(hop => new SshJumpHop
                 {

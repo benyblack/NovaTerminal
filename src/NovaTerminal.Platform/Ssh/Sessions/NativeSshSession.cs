@@ -341,6 +341,7 @@ public sealed class NativeSshSession : ITerminalSession
             Term = baseOptions.Term,
             Password = baseOptions.Password,
             IdentityFilePath = baseOptions.IdentityFilePath,
+            UseAgent = baseOptions.UseAgent,
             KnownHostsFilePath = baseOptions.KnownHostsFilePath,
             JumpHops = baseOptions.JumpHops,
             KeepAliveIntervalSeconds = baseOptions.KeepAliveIntervalSeconds,
