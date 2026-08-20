@@ -2353,6 +2353,13 @@ public sealed class CommandAssistLayoutTests
         // beyond this is template drift, which is the thing this test exists to catch.
         const double unexplainedSlackTolerance = 8;
 
+        // The most a single line box may fall short of the height the constants budget for it before
+        // the difference stops being a font and starts being the template. The ubuntu runners come in
+        // 2 px short, so this leaves a pixel of headroom for another font stack while still catching a
+        // row that lost 4 px of padding. Raising it past the smallest real template change it has to
+        // catch would defeat the row assertion below.
+        const double maxLineBoxDrift = 3;
+
         CommandAssistPopupViewModel BuildViewModel(int rows, bool empty, bool attribution)
         {
             var suggestions = new ObservableCollection<CommandAssistSuggestionItemViewModel>();
@@ -2403,11 +2410,24 @@ public sealed class CommandAssistLayoutTests
         // three rather than two and one because the one-row estimate sits on the floor, where a future
         // floor change would quietly flatten the subtraction - both of these are above the floor and
         // under the ceiling.
-        double lineBoxDrift = Math.Max(
-            0,
-            (Estimate(4, false, false) - Estimate(3, false, false))
-                - (MeasureNaturalPopupHeight(BuildViewModel(4, false, false), popupWidth)
-                    - MeasureNaturalPopupHeight(BuildViewModel(3, false, false), popupWidth)));
+        double estimatedRowHeight = Estimate(4, false, false) - Estimate(3, false, false);
+        double measuredRowHeight =
+            MeasureNaturalPopupHeight(BuildViewModel(4, false, false), popupWidth)
+            - MeasureNaturalPopupHeight(BuildViewModel(3, false, false), popupWidth);
+        double lineBoxDrift = Math.Max(0, estimatedRowHeight - measuredRowHeight);
+
+        // The drift is measured off the row, so a row that has genuinely shrunk in the template
+        // inflates it - and the budget below multiplies it by the row count, which would absorb
+        // exactly the regression this test exists to catch. A shorter outer padding cancels in the
+        // subtraction above and still shows up as unexplained slack, but a shorter row does not, so
+        // the row is pinned here on its own.
+        Assert.True(
+            lineBoxDrift <= maxLineBoxDrift,
+            $"One row measured {measuredRowHeight:F1} px against the {estimatedRowHeight:F1} px the " +
+            $"row constant budgets, a {lineBoxDrift:F1} px shortfall - more than a difference in font " +
+            $"metrics explains ({maxLineBoxDrift:F0} px). The row in CommandAssistPopupView.axaml has " +
+            "changed height: re-derive CommandAssistPopupRowHeight in TerminalPane from the template " +
+            "rather than raising this bound.");
 
         // Counted off the template: one line box per row - or the empty state's single body line in
         // their place - plus the header line and the footer line, plus the attribution credit when

@@ -219,6 +219,45 @@
       Condition="'@(CliShimPublishArtifacts)' != ''" />
   </Target>
 
+  <!-- The Delete tasks that clear stale NovaTerminal.Cli* live inside the two shim targets, so
+       gating those targets gated the cleanup with them. That matters because `dotnet publish` never
+       clears its output directory: publishing a self-contained bundle over a directory that already
+       held a framework-dependent shim would keep the shim, shipping the exact artifact the gate
+       exists to exclude. These run the same deletions whenever the shim is deliberately absent.
+
+       Their condition is broader than WarnCliShimNotEmbedded's on purpose. An explicit
+       -p:SkipCliShim=true means "do not embed the shim", which has to also mean "and do not leave an
+       old one lying in the output" - so the cleanup fires for deliberate opt-outs, while the warning
+       does not. One is about the artifact, the other about signal.
+
+       Scoped to $(OutDir)/$(PublishDir), which for a RID build are the RID-specific subdirectories,
+       so a RID publish never reaches into the RID-less bin that a framework-dependent build owns. -->
+  <Target Name="RemoveStaleCliShimFromBuildOutput"
+    AfterTargets="Build"
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and ('$(SkipCliShim)' == 'true' or '$(RuntimeIdentifier)' != '' or '$(SelfContained)' == 'true')">
+    <ItemGroup>
+      <StaleCliShimBuildArtifacts Include="$(OutDir)NovaTerminal.Cli*" />
+      <StaleLegacyGuiBuildArtifacts Include="$(OutDir)NovaTerminal.Gui*" />
+    </ItemGroup>
+
+    <Delete Files="@(StaleCliShimBuildArtifacts)" Condition="'@(StaleCliShimBuildArtifacts)' != ''" />
+    <Delete Files="@(StaleLegacyGuiBuildArtifacts)" Condition="'@(StaleLegacyGuiBuildArtifacts)' != ''" />
+  </Target>
+
+  <!-- The publish half of RemoveStaleCliShimFromBuildOutput - see the comment there. Separate
+       because it hooks Publish and clears $(PublishDir), which is a different directory. -->
+  <Target Name="RemoveStaleCliShimFromPublishOutput"
+    AfterTargets="Publish"
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and ('$(SkipCliShim)' == 'true' or '$(RuntimeIdentifier)' != '' or '$(SelfContained)' == 'true')">
+    <ItemGroup>
+      <StaleCliShimPublishArtifacts Include="$(PublishDir)NovaTerminal.Cli*" />
+      <StaleLegacyGuiPublishArtifacts Include="$(PublishDir)NovaTerminal.Gui*" />
+    </ItemGroup>
+
+    <Delete Files="@(StaleCliShimPublishArtifacts)" Condition="'@(StaleCliShimPublishArtifacts)' != ''" />
+    <Delete Files="@(StaleLegacyGuiPublishArtifacts)" Condition="'@(StaleLegacyGuiPublishArtifacts)' != ''" />
+  </Target>
+
   <!-- A bundle that quietly lost its CLI would be found by a user, not by CI, so an implicit skip
        announces itself. Deliberate opt-outs (-p:SkipCliShim=true) are excluded: they are already a
        statement of intent, and warning at them would train everyone to ignore this. Attached to
