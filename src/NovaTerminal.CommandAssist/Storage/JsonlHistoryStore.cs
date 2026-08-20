@@ -495,7 +495,7 @@ public sealed class JsonlHistoryStore : IHistoryStore
         {
             try
             {
-                RetireLegacyFileUnsafe();
+                RetireLegacyFileUnsafe(_legacyFilePath);
             }
             catch
             {
@@ -532,7 +532,7 @@ public sealed class JsonlHistoryStore : IHistoryStore
                     .Reverse(),
                 cancellationToken);
 
-            RetireLegacyFileUnsafe();
+            RetireLegacyFileUnsafe(_legacyFilePath);
             return true;
         }
         catch
@@ -545,15 +545,20 @@ public sealed class JsonlHistoryStore : IHistoryStore
     /// Renames the pre-JSONL <c>history.json</c> to <c>history.json.bak</c>, replacing any earlier
     /// backup.
     /// </summary>
-    private void RetireLegacyFileUnsafe()
+    /// <remarks>
+    /// Takes the path rather than reading <see cref="_legacyFilePath"/>, so that "there is a legacy
+    /// path" is a precondition the signature states and the callers' own null check discharges -
+    /// rather than an assertion this method makes about a field it cannot see checked.
+    /// </remarks>
+    private static void RetireLegacyFileUnsafe(string legacyFilePath)
     {
-        string backupPath = _legacyFilePath + ".bak";
+        string backupPath = legacyFilePath + ".bak";
         if (File.Exists(backupPath))
         {
             File.Delete(backupPath);
         }
 
-        File.Move(_legacyFilePath!, backupPath);
+        File.Move(legacyFilePath, backupPath);
     }
 
     /// <summary>
