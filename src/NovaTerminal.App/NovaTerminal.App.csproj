@@ -123,9 +123,42 @@
       Text="[RustNative] Rust SSH build complete." />
   </Target>
 
+  <!-- The shim is a framework-dependent artifact, and only a RID-less framework-dependent build
+       can produce it. Two independent reasons, both load-bearing:
+
+         * How it is built. Both shim targets invoke the CLI out of band with
+           -p:BuildProjectReferences=false, which is what breaks the cycle - this project's build
+           is what places the CLI's binaries beside it. That nested invocation carries no
+           RuntimeIdentifier, so it resolves this project's reference assembly at the RID-less
+           obj\$(Configuration)\$(TargetFramework)\ref\ path. A RID-specific build writes its
+           intermediates under a $(RuntimeIdentifier) subdirectory instead, and
+           BuildProjectReferences=false means the nested build cannot produce the RID-less copy
+           either - so CSC fails with a bare CS0006 naming a path nothing asked for. It only ever
+           appeared to work when an earlier RID-less build had left that file behind, which is why
+           no local flow caught it and only the dispatch-only AOT lane in ci.yml ever failed.
+           Propagating the RID downward does not rescue it: the CLI references this project as an
+           executable and then wants its apphost, which a self-contained build never writes to obj.
+
+         * What it would produce. Even built, a framework-dependent NovaTerminal.Cli.dll and
+           deps.json sitting in a self-contained or AOT bundle name a shared runtime that the
+           bundle deliberately does not carry. The artifact would be wrong, not merely awkward to
+           build - which is why release.yml skips it and lets the AOT binary dispatch the CLI modes
+           itself (see Program.cs).
+
+       So those builds skip the shim, and WarnCliShimNotEmbedded says so rather than leaving the
+       omission silent. Callers that already opt out explicitly with -p:SkipCliShim=true (ci.yml,
+       release.yml) skip quietly, because they have said what they meant.
+
+       The test lives in the target conditions rather than in a property beside CliProjectPath
+       above, and that placement is load-bearing: -r sets RuntimeIdentifier as a global property,
+       but a plain `dotnet publish` of this project has the SDK infer one - PublishAot is set
+       unconditionally at the top of this file - and that inference happens in Sdk.targets, after
+       the project body has been evaluated. A property declared in the body would read empty and
+       miss exactly that case. Target conditions are evaluated when the target is scheduled, so
+       they see the final value either way. -->
   <Target Name="BuildCliShim"
     AfterTargets="Build"
-    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(SkipCliShim)' != 'true'">
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(SkipCliShim)' != 'true' and '$(RuntimeIdentifier)' == '' and '$(SelfContained)' != 'true'">
 
     <!-- -nodeReuse:false and -p:UseSharedCompilation=false prevent the nested dotnet build
          from spawning daemons (MSBuild worker nodes and VBCSCompiler) that inherit pipe handles
@@ -157,9 +190,10 @@
       Condition="'@(CliShimBuildArtifacts)' != ''" />
   </Target>
 
+  <!-- Gated identically to BuildCliShim - see the comment there for why. -->
   <Target Name="PublishCliShim"
     AfterTargets="Publish"
-    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(SkipCliShim)' != 'true'">
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(SkipCliShim)' != 'true' and '$(RuntimeIdentifier)' == '' and '$(SelfContained)' != 'true'">
 
     <MakeDir Directories="$(CliPublishOutputDir)" />
     <Exec Command="dotnet publish &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -nodeReuse:false -p:BuildProjectReferences=false -p:UseSharedCompilation=false -o &quot;$(CliPublishOutputDir)&quot;" />
@@ -183,6 +217,17 @@
       DestinationFolder="$(PublishDir)"
       SkipUnchangedFiles="true"
       Condition="'@(CliShimPublishArtifacts)' != ''" />
+  </Target>
+
+  <!-- A bundle that quietly lost its CLI would be found by a user, not by CI, so an implicit skip
+       announces itself. Deliberate opt-outs (-p:SkipCliShim=true) are excluded: they are already a
+       statement of intent, and warning at them would train everyone to ignore this. Attached to
+       Build rather than Publish because Publish depends on Build, so either flow warns once. -->
+  <Target Name="WarnCliShimNotEmbedded"
+    AfterTargets="Build"
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(SkipCliShim)' != 'true' and ('$(RuntimeIdentifier)' != '' or '$(SelfContained)' == 'true')">
+    <Warning
+      Text="NovaTerminal.Cli was not embedded beside this build. The CLI shim needs a RID-less, framework-dependent build to produce it, and this one has RuntimeIdentifier='$(RuntimeIdentifier)' SelfContained='$(SelfContained)'; see the comment on BuildCliShim in NovaTerminal.App.csproj. This is the supported shape for a self-contained or AOT bundle - the published binary dispatches the CLI modes itself - so pass -p:SkipCliShim=true to say so and silence this." />
   </Target>
 
   <!-- Native Rust libraries (rusty_pty / rusty_ssh) are produced during the build by
