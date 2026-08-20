@@ -388,7 +388,10 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         return new SshProfile
         {
             Id = id,
-            BackendKind = BackendKind ?? SshBackendKind.OpenSsh,
+            // Unset means "the caller never primed a backend" (the dialog primes it from the
+            // global toggle before showing). The fallback follows the same rule, so a VM used
+            // without the priming can never default to a backend the toggle would refuse.
+            BackendKind = BackendKind ?? (ExperimentalNativeSshEnabled ? SshBackendKind.Native : SshBackendKind.OpenSsh),
             Name = name,
             GroupPath = NormalizeGroup(Group),
             Notes = Notes?.Trim() ?? string.Empty,

@@ -5308,7 +5308,14 @@ namespace NovaTerminal
         private async Task ShowNewSshConnectionDialogAsync(TerminalProfile? existingProfile)
         {
             var vm = _sshConnectionService.CreateEditorViewModel(existingProfile);
-            vm.BackendKind ??= NovaTerminal.Platform.Ssh.Models.SshBackendKind.OpenSsh;
+            // The default backend for a NEW profile follows the global toggle: native where it is
+            // enabled, OpenSSH where it is not — so the default can never point at a backend that
+            // would refuse to connect. Existing profiles arrive with their stored kind and are
+            // never re-defaulted. Model-level defaults stay OpenSsh on purpose (old stores whose
+            // JSON predates the field must not silently migrate); this is the creation surface.
+            vm.BackendKind ??= _settings.ExperimentalNativeSshEnabled
+                ? NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native
+                : NovaTerminal.Platform.Ssh.Models.SshBackendKind.OpenSsh;
             vm.ExperimentalNativeSshEnabled = _settings.ExperimentalNativeSshEnabled;
             var dialog = new NewSshConnectionView(vm);
             ApplyThemeToDialogWindow(dialog);
