@@ -25,6 +25,14 @@ public sealed class NativeSshDockerAgentAuthE2eTests
     [Trait("Target", "NativeSsh")]
     public async Task AgentAuth_WithTheKeyHeldOnlyByTheAgent_AuthenticatesWithoutAskingForAnything()
     {
+        // The agent plumbing here is Unix-shaped: libc setenv, Unix file modes, ssh-agent over a
+        // Unix socket. A Windows machine with Docker can run the rest of the E2E suite; this
+        // test steps aside there rather than failing on the first P/Invoke.
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
         await using var fixture = await DockerSshFixture.StartAsync();
 
         string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-agent-{Guid.NewGuid():N}");

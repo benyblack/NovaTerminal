@@ -366,7 +366,22 @@ public sealed class NativePortForwardSession : IDisposable
             return;
         }
 
-        _ = Task.Run(() => ConnectIncomingForwardAsync(state, rule, _lifetimeCts.Token), _lifetimeCts.Token);
+        // Same disposal-race guard as NotifySessionEstablished: HandleEvent's _disposed check can
+        // be overtaken by a Dispose that finishes (including the CTS disposal) before this line —
+        // the acknowledged tail of NativeSshSession.Dispose's bounded wait. A disposed CTS here
+        // must tear the just-registered channel down, not throw out of the poll loop.
+        CancellationToken lifetimeToken;
+        try
+        {
+            lifetimeToken = _lifetimeCts.Token;
+        }
+        catch (ObjectDisposedException)
+        {
+            RemoveChannel(channelId, closeInteropChannel: true);
+            return;
+        }
+
+        _ = Task.Run(() => ConnectIncomingForwardAsync(state, rule, lifetimeToken), lifetimeToken);
     }
 
     /// <summary>

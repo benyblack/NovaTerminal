@@ -746,6 +746,12 @@ impl SharedState {
     async fn wait_closed(&self) {
         loop {
             let notified = self.closed_notify.notified();
+            tokio::pin!(notified);
+            // enable() is what makes create-notified-then-check actually sound: a Notified
+            // future only counts as a waiter once polled or enabled, and notify_waiters stores
+            // no permit — so without this, a mark_closed landing between the check below and the
+            // first poll of the await was silently lost.
+            notified.as_mut().enable();
             if self.is_closed() {
                 return;
             }
@@ -789,9 +795,14 @@ impl SharedState {
     /// Returns false if the session closed while parked; the caller should stop reading.
     async fn queue_data_event(&self, event: QueuedEvent) -> bool {
         loop {
-            // Create-notified-then-check, like wait_closed: a drain or close that lands between
-            // the check and the await must not be missed.
+            // Create-notified-then-check, like wait_closed — including the enable(): without it
+            // a drain or close landing between the checks and the first poll of the await was
+            // lost (notify_waiters wakes only registered waiters and stores no permit), and a
+            // producer could park forever on a queue that had already emptied. For the session
+            // select loop that produces terminal output, "forever" meant a frozen terminal.
             let notified = self.event_space_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             if self.is_closed() {
                 return false;
             }
@@ -3719,38 +3730,44 @@ async fn authenticate(
 /// Pageant all come back as the same type from [`connect_to_agent`].
 type DynAgentClient = AgentClient<Box<dyn AgentStream + Send + Unpin + 'static>>;
 
-/// Connects to the user's SSH agent the way OpenSSH finds it, or `None` if there is none to
-/// find. `None` is not an error — it is the everyday state of a machine with no agent running,
-/// and authentication simply moves on to the next method.
+/// Every agent worth asking, in preference order — empty if there is none to find, which is not
+/// an error but the everyday state of a machine with no agent running. Unix has one candidate
+/// (SSH_AUTH_SOCK). Windows has up to two — the OpenSSH service pipe (or SSH_AUTH_SOCK naming
+/// another pipe), then Pageant — and both are returned rather than the first that connects: a
+/// pipe that answers but holds no usable key must not shadow a Pageant holding the right one
+/// (Codex review on #334).
 #[cfg(unix)]
-async fn connect_to_agent() -> Option<DynAgentClient> {
+async fn connect_to_agents() -> Vec<DynAgentClient> {
     match tokio::time::timeout(AGENT_PROTOCOL_TIMEOUT, AgentClient::connect_env()).await {
-        Ok(Ok(client)) => Some(client.dynamic()),
-        _ => None,
+        Ok(Ok(client)) => vec![client.dynamic()],
+        _ => Vec::new(),
     }
 }
 
 #[cfg(windows)]
-async fn connect_to_agent() -> Option<DynAgentClient> {
-    // The OpenSSH-for-Windows agent service listens on a fixed pipe; SSH_AUTH_SOCK, when set,
-    // names an alternative pipe. Pageant is the PuTTY ecosystem's agent, last because it is the
-    // least likely to be the one holding OpenSSH-style keys. The timeout also bounds
-    // connect_named_pipe's busy-pipe retry loop, which would otherwise spin forever.
+async fn connect_to_agents() -> Vec<DynAgentClient> {
+    // The timeouts also bound connect_named_pipe's busy-pipe retry loop, which would otherwise
+    // spin forever.
     const OPENSSH_AGENT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
     let pipe = std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| OPENSSH_AGENT_PIPE.to_owned());
+
+    let mut agents = Vec::new();
     if let Ok(Ok(client)) = tokio::time::timeout(
         AGENT_PROTOCOL_TIMEOUT,
         AgentClient::connect_named_pipe(&pipe),
     )
     .await
     {
-        return Some(client.dynamic());
+        agents.push(client.dynamic());
     }
 
-    match tokio::time::timeout(AGENT_PROTOCOL_TIMEOUT, AgentClient::connect_pageant()).await {
-        Ok(Ok(client)) => Some(client.dynamic()),
-        _ => None,
+    if let Ok(Ok(client)) =
+        tokio::time::timeout(AGENT_PROTOCOL_TIMEOUT, AgentClient::connect_pageant()).await
+    {
+        agents.push(client.dynamic());
     }
+
+    agents
 }
 
 /// The agent's identity list, with bounded patience: an agent that accepted the connection but
@@ -3807,8 +3824,8 @@ fn agent_identity_public_key(identity: AgentIdentity) -> Option<ssh_key::PublicK
     }
 }
 
-/// Offers every plain public key the user's agent holds, in the agent's order, with the agent
-/// doing the signing. Returns whether one of them authenticated the session.
+/// Offers every plain public key the user's agents hold, agent by agent in discovery order,
+/// with the agent doing the signing. Returns whether one of them authenticated the session.
 ///
 /// Deliberately infallible: no agent, an empty agent, a broken agent, and a server that refuses
 /// every key all end as `false`, and the caller moves on to the next method — the same behavior
@@ -3818,22 +3835,49 @@ async fn try_agent_auth<H>(user: &str, session: &mut client::Handle<H>) -> bool
 where
     H: client::Handler + Send + 'static,
 {
-    let Some(mut agent) = connect_to_agent().await else {
-        return false;
-    };
+    for agent in connect_to_agents().await {
+        if try_one_agent(user, session, agent).await {
+            return true;
+        }
+    }
 
+    false
+}
+
+/// One agent's keys against the session. `false` covers "this agent could not help" in every
+/// shape — no identities, all keys refused, the agent (or session) breaking mid-attempt — so the
+/// caller can move on to the next agent or the next method.
+async fn try_one_agent<H>(
+    user: &str,
+    session: &mut client::Handle<H>,
+    mut agent: DynAgentClient,
+) -> bool
+where
+    H: client::Handler + Send + 'static,
+{
     let Some(identities) = agent_identities(&mut agent).await else {
         return false;
     };
 
+    // RSA keys need the strongest hash the server accepts (rsa-sha2-*, never ssh-rsa/SHA-1 if
+    // the server can do better); every other algorithm has exactly one form. Queried once, on
+    // the first RSA key — the answer comes from the server's ext-info and cannot change
+    // mid-authentication, so an agent full of RSA keys must not repeat the round trip per key.
+    let mut best_rsa_hash: Option<Option<ssh_key::HashAlg>> = None;
+
     let mut signer = TimeboundAgentSigner { agent };
     for key in identities.into_iter().filter_map(agent_identity_public_key) {
-        // RSA keys need the strongest hash the server accepts (rsa-sha2-*, never ssh-rsa/SHA-1
-        // if the server can do better); every other algorithm has exactly one form.
         let hash_alg = if matches!(key.algorithm(), ssh_key::Algorithm::Rsa { .. }) {
-            match session.best_supported_rsa_hash().await {
-                Ok(hash) => hash.flatten(),
-                Err(_) => return false,
+            match best_rsa_hash {
+                Some(hash) => hash,
+                None => match session.best_supported_rsa_hash().await {
+                    Ok(hash) => {
+                        let hash = hash.flatten();
+                        best_rsa_hash = Some(hash);
+                        hash
+                    }
+                    Err(_) => return false,
+                },
             }
         } else {
             None
@@ -3846,8 +3890,8 @@ where
             Ok(result) if result.success() => return true,
             // The server refused this key; the next one may be the right one.
             Ok(_) => continue,
-            // The agent (or the session) stopped cooperating mid-attempt. Remaining keys would
-            // hit the same wall, so stop offering them.
+            // The agent (or the session) stopped cooperating mid-attempt. This agent's remaining
+            // keys would hit the same wall, so stop offering them.
             Err(_) => return false,
         }
     }
@@ -6071,10 +6115,10 @@ mod agent_auth_tests {
         // SAFETY (edition 2024 set_var contract): no other thread reads the environment while
         // ENV_LOCK is held, and nothing else in this test binary reads SSH_AUTH_SOCK at all.
         unsafe { std::env::set_var("SSH_AUTH_SOCK", &socket_path) };
-        let discovered = connect_to_agent().await;
-        let identities = match discovered {
-            Some(mut agent) => agent.request_identities().await,
-            None => panic!("connect_to_agent must find the agent SSH_AUTH_SOCK names"),
+        let mut discovered = connect_to_agents().await;
+        let identities = match discovered.first_mut() {
+            Some(agent) => agent.request_identities().await,
+            None => panic!("connect_to_agents must find the agent SSH_AUTH_SOCK names"),
         };
         unsafe { std::env::remove_var("SSH_AUTH_SOCK") };
         server.abort();
@@ -6134,7 +6178,7 @@ mod agent_auth_tests {
         // SAFETY: see above — single reader, serialized by ENV_LOCK.
         unsafe { std::env::remove_var("SSH_AUTH_SOCK") };
         assert!(
-            connect_to_agent().await.is_none(),
+            connect_to_agents().await.is_empty(),
             "no SSH_AUTH_SOCK is the everyday no-agent state, not an error"
         );
     }
