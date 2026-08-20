@@ -59,11 +59,12 @@ pub struct NovaSshConnectArgs {
     pub bash_cwd_bootstrap: *const c_char,
     pub zsh_cwd_bootstrap: *const c_char,
     pub fish_cwd_bootstrap: *const c_char,
-    /// Non-zero: try public-key auth with every identity the user's SSH agent holds, before any
-    /// other method. The agent is discovered the way OpenSSH discovers it — SSH_AUTH_SOCK on
-    /// Unix; the OpenSSH service pipe (or SSH_AUTH_SOCK naming another pipe), then Pageant, on
-    /// Windows. An unreachable or empty agent falls through to the other methods, exactly like
-    /// `ssh` without an agent running.
+    /// Non-zero: try public-key auth with every identity the user's SSH agent holds — after a
+    /// configured identity file (which keeps first position so an over-full agent cannot exhaust
+    /// the server's MaxAuthTries before it), before anything that prompts. The agent is
+    /// discovered the way OpenSSH discovers it — SSH_AUTH_SOCK on Unix; the OpenSSH service pipe
+    /// (or SSH_AUTH_SOCK naming another pipe), then Pageant, on Windows. An unreachable or empty
+    /// agent falls through to the other methods, exactly like `ssh` without an agent running.
     pub use_agent: u32,
 }
 
@@ -559,8 +560,8 @@ struct SftpConnectionRequest {
     port: u16,
     password: Option<String>,
     identity_file_path: Option<String>,
-    /// Try agent identities before anything else; see NovaSshConnectArgs::use_agent. Defaults
-    /// false so older callers keep their exact behavior.
+    /// Try agent identities when no identity file decides the outcome; see
+    /// NovaSshConnectArgs::use_agent. Defaults false so older callers keep their exact behavior.
     #[serde(default)]
     use_agent: bool,
     known_hosts_file_path: String,
@@ -2144,12 +2145,6 @@ async fn authenticate_transfer<H>(
 where
     H: client::Handler + Send + 'static,
 {
-    // Same order as the interactive path: the agent can authenticate without asking anything,
-    // which is doubly valuable here where there is no way to ask.
-    if auth.use_agent && try_agent_auth(user, session).await {
-        return Ok(());
-    }
-
     if let Some(identity_file) = auth.identity_file.as_deref() {
         let key = load_secret_key(Path::new(identity_file), None).map_err(|_| {
             anyhow::anyhow!(
@@ -2170,6 +2165,14 @@ where
         }
 
         anyhow::bail!("Authentication failed.");
+    }
+
+    // Same first-position rule as the interactive path: a configured identity file is offered
+    // (and, above, decides the outcome) before the agent is consulted. Reached only with no
+    // file, where the agent is the one method that can authenticate a non-interactive transfer
+    // without a stored secret.
+    if auth.use_agent && try_agent_auth(user, session).await {
+        return Ok(());
     }
 
     if let Some(password) = auth.password.as_deref() {
@@ -3647,13 +3650,10 @@ async fn authenticate(
     shared: &Arc<SharedState>,
     session: &mut client::Handle<NovaClientHandler>,
 ) -> anyhow::Result<()> {
-    // Agent first, before anything that could prompt: it is the one method that can succeed
-    // without asking the user anything, which is the reason to prefer it — and the order OpenSSH
-    // uses. Every failure shape (no agent, no keys, all keys refused) falls through.
-    if use_agent && try_agent_auth(user, session).await {
-        return Ok(());
-    }
-
+    // The configured identity file keeps first position. It predates agent support, so it must
+    // stay reachable: an agent stuffed with unrelated keys could otherwise exhaust the server's
+    // MaxAuthTries — closing the transport — before the file that used to connect this profile
+    // was ever offered (Codex review on #334).
     if let Some(identity_file) = identity_file {
         if let Some(auth_result) = try_public_key_auth(user, shared, session, identity_file).await?
         {
@@ -3661,6 +3661,13 @@ async fn authenticate(
                 return Ok(());
             }
         }
+    }
+
+    // Agent identities next, before anything that prompts: the agent is the one method that can
+    // still succeed without asking the user anything. Every failure shape (no agent, no keys,
+    // all keys refused) falls through.
+    if use_agent && try_agent_auth(user, session).await {
+        return Ok(());
     }
 
     let password = prompt_text(

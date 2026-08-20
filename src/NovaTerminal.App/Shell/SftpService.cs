@@ -637,6 +637,7 @@ namespace NovaTerminal.Shell
                 Term = baseOptions.Term,
                 Password = string.IsNullOrWhiteSpace(resolvedPassword) ? null : resolvedPassword,
                 IdentityFilePath = baseOptions.IdentityFilePath,
+                UseAgent = baseOptions.UseAgent,
                 KnownHostsFilePath = effectiveKnownHostsPath,
                 JumpHops = baseOptions.JumpHops
                     .Select(hop => new NovaTerminal.Platform.Ssh.Models.SshJumpHop

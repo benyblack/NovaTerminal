@@ -17,10 +17,11 @@ public sealed class NativeSshConnectionOptions
     public string? IdentityFilePath { get; init; }
 
     /// <summary>
-    /// Try public-key auth with every identity the user's SSH agent holds, before any other
-    /// method — discovered the way OpenSSH discovers it (SSH_AUTH_SOCK on Unix; the OpenSSH
-    /// service pipe, then Pageant, on Windows). No agent, an empty agent, and refused keys all
-    /// fall through to the other methods. Applies to jump hops too.
+    /// Try public-key auth with every identity the user's SSH agent holds — after a configured
+    /// identity file (which keeps first position so an over-full agent cannot exhaust the
+    /// server's auth tries before it), before anything that prompts. Discovered the way OpenSSH
+    /// discovers it (SSH_AUTH_SOCK on Unix; the OpenSSH service pipe, then Pageant, on Windows).
+    /// No agent, an empty agent, and refused keys all fall through. Applies to jump hops too.
     /// </summary>
     public bool UseAgent { get; init; }
     public string? KnownHostsFilePath { get; init; }
@@ -60,8 +61,8 @@ public sealed class NativeSshConnectionOptions
 
     /// <summary>
     /// Agent identities are offered unless the profile explicitly chose an identity file —
-    /// the order OpenSSH uses, where only IdentitiesOnly turns the agent off. Default mode
-    /// gets both: agent first, then the file if one is set.
+    /// the contract OpenSSH's IdentitiesOnly expresses. Default mode gets both: the configured
+    /// file first (it predates agent support and must stay reachable), then the agent.
     /// </summary>
     public static bool ResolveUseAgent(SshProfile profile)
     {

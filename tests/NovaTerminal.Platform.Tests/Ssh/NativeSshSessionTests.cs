@@ -277,9 +277,9 @@ public sealed class NativeSshSessionTests
         using var session = new NativeSshSession(profile, interop: interop);
         await WaitUntilAsync(() => interop.LastConnectOptions != null);
 
-        // Default expresses no preference, so it gets OpenSSH's default order: agent first,
-        // then the configured file. Profiles that authenticated via file before agent support
-        // existed keep working unchanged.
+        // Default expresses no preference, so it gets both: the configured file first (it
+        // predates agent support, so profiles that authenticated via file keep working even
+        // against an agent full of unrelated keys), then the agent.
         Assert.True(interop.LastConnectOptions!.UseAgent);
         Assert.Equal("/home/nova/.ssh/id_ed25519", interop.LastConnectOptions.IdentityFilePath);
     }

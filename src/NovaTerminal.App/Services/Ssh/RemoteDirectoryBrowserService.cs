@@ -147,6 +147,7 @@ public sealed class RemoteDirectoryBrowserService : IRemoteDirectoryBrowserServi
                 KeepAliveCountMax = baseOptions.KeepAliveCountMax,
                 Password = string.IsNullOrWhiteSpace(resolvedPassword) ? null : resolvedPassword,
                 IdentityFilePath = baseOptions.IdentityFilePath,
+                UseAgent = baseOptions.UseAgent,
                 KnownHostsFilePath = string.IsNullOrWhiteSpace(baseOptions.KnownHostsFilePath)
                     ? AppPaths.NativeKnownHostsFilePath
                     : baseOptions.KnownHostsFilePath,
