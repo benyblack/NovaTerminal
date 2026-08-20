@@ -233,8 +233,9 @@ public sealed class JsonlHistoryStoreTests : IDisposable
     /// </summary>
     /// <remarks>
     /// Reachable because <c>ClearAsync</c> does not load: clearing before anything has read the store
-    /// writes an empty <c>history.jsonl</c>, which then permanently suppresses the migration guard -
-    /// so without this the entries would survive both the clear and every later read, invisible.
+    /// writes an empty <c>history.jsonl</c> beside an untouched V1 file, and the next load retires that
+    /// file to <c>.bak</c> rather than deleting it - so without this the entries the user asked to erase
+    /// would sit there through the clear and every later read, invisible.
     /// </remarks>
     [Fact]
     public async Task ClearAsync_BeforeAnyRead_AlsoDeletesTheUnmigratedLegacyFile()
@@ -465,17 +466,92 @@ public sealed class JsonlHistoryStoreTests : IDisposable
         Assert.Equal("command-9", entries[0].CommandText);
     }
 
+    /// <summary>
+    /// A <c>history.json</c> stranded beside a live <c>history.jsonl</c> is retired to <c>.bak</c> on
+    /// the next load, and its records are not replayed into the log.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The migration guard used to skip the legacy file outright once <c>history.jsonl</c> existed, so
+    /// this pairing - reachable when the migration wrote the JSONL and then failed at the rename, or
+    /// when a pre-V2 build ran again afterwards - left the V1 file sitting there for good, retired by
+    /// nothing except the user pressing Clear history. That is the file that can hold a password
+    /// verbatim (see the remarks on <c>ClearAsync</c>), so "the V1 file does not survive a load" has to
+    /// hold whether or not there was anywhere to migrate it into.
+    /// </para>
+    /// <para>
+    /// Retired, not imported: V1 ids carry into the JSONL unchanged, so replaying those records would
+    /// overwrite live entries with their pre-patch selves and drop every exit code and typo flag
+    /// collected since.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task Load_WhenJsonlAlreadyExists_LeavesLegacyFileAlone()
+    public async Task Load_WhenJsonlAlreadyExists_RetiresTheStrandedLegacyFileWithoutImportingIt()
     {
-        await File.WriteAllTextAsync(_legacyPath, "[]");
+        await File.WriteAllTextAsync(
+            _legacyPath,
+            JsonSerializer.Serialize(
+                new List<CommandHistoryEntry> { CreateEntry("hunter2") },
+                CommandAssistJsonContext.Default.ListCommandHistoryEntry));
         await File.WriteAllLinesAsync(_historyPath, new[] { Serialize(CreateEntry("git status")) });
 
         IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
 
-        Assert.Single(entries);
+        Assert.Equal("git status", Assert.Single(entries).CommandText);
+        Assert.False(File.Exists(_legacyPath));
+        Assert.True(File.Exists(_legacyPath + ".bak"));
+    }
+
+    /// <summary>
+    /// The stranded case can arrive with a <c>.bak</c> already on disk - a migration that succeeded,
+    /// then a pre-V2 build that wrote <c>history.json</c> again - and it is the newer file that has to
+    /// end up retired.
+    /// </summary>
+    [Fact]
+    public async Task Load_WhenAStrandedLegacyFileAndAnOlderBackupBothExist_RetiresTheStrandedOne()
+    {
+        await File.WriteAllTextAsync(_legacyPath + ".bak", "[]");
+        await File.WriteAllTextAsync(
+            _legacyPath,
+            JsonSerializer.Serialize(
+                new List<CommandHistoryEntry> { CreateEntry("hunter2") },
+                CommandAssistJsonContext.Default.ListCommandHistoryEntry));
+        await File.WriteAllLinesAsync(_historyPath, new[] { Serialize(CreateEntry("git status")) });
+
+        Assert.Equal("git status", Assert.Single(await CreateStore().GetRecentAsync(10)).CommandText);
+
+        Assert.False(File.Exists(_legacyPath));
+        Assert.Contains("hunter2", await File.ReadAllTextAsync(_legacyPath + ".bak"), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Retiring the stranded legacy file is housekeeping, so a rename that cannot happen - a legacy
+    /// file held open by a backup agent, a read-only volume - costs the rename and nothing else. The
+    /// next launch retries it.
+    /// </summary>
+    /// <remarks>
+    /// The failure is provoked with a directory parked on the backup path rather than an open handle,
+    /// because that fails the same way on every platform: POSIX <c>rename</c> ignores the advisory lock
+    /// that <c>FileShare.None</c> takes, so the Windows-only trick would quietly succeed on the Linux
+    /// leg of the matrix and assert nothing.
+    /// </remarks>
+    [Fact]
+    public async Task Load_WhenTheStrandedLegacyFileCannotBeRetired_StillReturnsHistory()
+    {
+        await File.WriteAllTextAsync(_legacyPath, "[]");
+        await File.WriteAllLinesAsync(_historyPath, new[] { Serialize(CreateEntry("git status")) });
+
+        string blocked = _legacyPath + ".bak";
+        Directory.CreateDirectory(blocked);
+        await File.WriteAllTextAsync(Path.Combine(blocked, "in-the-way.txt"), "x");
+
+        Assert.Equal("git status", Assert.Single(await CreateStore().GetRecentAsync(10)).CommandText);
         Assert.True(File.Exists(_legacyPath));
-        Assert.False(File.Exists(_legacyPath + ".bak"));
+
+        Directory.Delete(blocked, recursive: true);
+
+        Assert.Equal("git status", Assert.Single(await CreateStore().GetRecentAsync(10)).CommandText);
+        Assert.False(File.Exists(_legacyPath));
     }
 
     [Fact]

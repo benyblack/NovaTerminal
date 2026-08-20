@@ -209,10 +209,11 @@ public sealed class JsonlHistoryStore : IHistoryStore
     /// and it has to be true.
     /// </para>
     /// <para>
-    /// Deleting the un-migrated <c>history.json</c> matters for a second reason: without it, a
-    /// <c>ClearAsync</c> that runs before the first read (which is a legal order - it does not load)
-    /// would leave the legacy file to be migrated in on the next launch, re-materialising everything
-    /// the user just cleared.
+    /// Deleting the un-migrated <c>history.json</c> is the other half. <c>ClearAsync</c> does not load,
+    /// so clearing before the first read is a legal order and leaves an empty <c>history.jsonl</c>
+    /// beside an untouched V1 file - which the next load would then retire to <c>.bak</c> rather than
+    /// delete (see <see cref="TryMigrateLegacyFileUnsafeAsync"/>), quietly preserving the very entries
+    /// the user asked to erase.
     /// </para>
     /// <para>
     /// Deletion failures are swallowed. A locked backup file must not turn "clear my history" into
@@ -459,15 +460,50 @@ public sealed class JsonlHistoryStore : IHistoryStore
     }
 
     /// <summary>
-    /// One-time conversion of the pre-JSONL <c>history.json</c>. The legacy file is renamed to
-    /// <c>.bak</c> rather than deleted: it is user data, and a bad conversion should be recoverable.
+    /// One-time conversion of the pre-JSONL <c>history.json</c>, returning whether this call is the
+    /// one that wrote the log. Either way the legacy file does not survive: it is renamed to
+    /// <c>.bak</c> rather than deleted, because it is user data and a bad conversion should be
+    /// recoverable.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A legacy file stranded beside an existing <c>history.jsonl</c> is retired without being
+    /// read.</b> This used to be the guard's do-nothing case - <c>File.Exists(_filePath)</c> meant
+    /// "migration already happened, leave the disk alone" - which left the V1 file there for the rest
+    /// of the machine's life, retired by nothing but the user pressing Clear history. It is reachable:
+    /// a migration whose <c>WriteAll</c> succeeded and whose rename failed lands exactly here, as does
+    /// a pre-V2 build run again afterwards. And it is the file that can hold a password verbatim (see
+    /// the remarks on <see cref="ClearAsync"/>), so the invariant has to be "no <c>history.json</c>
+    /// survives a load", not "no <c>history.json</c> survives a migration".
+    /// </para>
+    /// <para>
+    /// <b>Retired, not imported.</b> V1 ids carry into the JSONL unchanged, so replaying those records
+    /// over a live log would overwrite entries with their pre-patch selves and drop the exit codes and
+    /// typo flags collected since - and in the case that gets here, the log was written from this very
+    /// file already. The recoverable copy is the answer for the remainder: an operator who wants those
+    /// commands back has <c>history.json.bak</c>.
+    /// </para>
+    /// </remarks>
     private async Task<bool> TryMigrateLegacyFileUnsafeAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_legacyFilePath) ||
-            File.Exists(_filePath) ||
-            !File.Exists(_legacyFilePath))
+        if (string.IsNullOrWhiteSpace(_legacyFilePath) || !File.Exists(_legacyFilePath))
         {
+            return false;
+        }
+
+        if (File.Exists(_filePath))
+        {
+            try
+            {
+                RetireLegacyFileUnsafe();
+            }
+            catch
+            {
+                // Housekeeping, not a read. A rename that cannot happen - a legacy file held open by
+                // something else, a read-only volume - must not turn every history read into an error.
+                // The next launch retries it.
+            }
+
             return false;
         }
 
@@ -496,19 +532,28 @@ public sealed class JsonlHistoryStore : IHistoryStore
                     .Reverse(),
                 cancellationToken);
 
-            string backupPath = _legacyFilePath + ".bak";
-            if (File.Exists(backupPath))
-            {
-                File.Delete(backupPath);
-            }
-
-            File.Move(_legacyFilePath, backupPath);
+            RetireLegacyFileUnsafe();
             return true;
         }
         catch
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Renames the pre-JSONL <c>history.json</c> to <c>history.json.bak</c>, replacing any earlier
+    /// backup.
+    /// </summary>
+    private void RetireLegacyFileUnsafe()
+    {
+        string backupPath = _legacyFilePath + ".bak";
+        if (File.Exists(backupPath))
+        {
+            File.Delete(backupPath);
+        }
+
+        File.Move(_legacyFilePath!, backupPath);
     }
 
     /// <summary>

@@ -171,6 +171,17 @@ suspected a secret in their history and pressed the only button offered still ha
 backup, under a confirmation prompt that said "this deletes every recorded command". `ClearAsync` now
 removes `history.jsonl`, `history.json` and `history.json.bak`; the confirmation copy says so.
 
+**And no `history.json` survives a load, migrated or not.** The migration guard used to skip the legacy
+file entirely once `history.jsonl` existed, so a `history.json` stranded beside a live log — what you get
+when the migration wrote the JSONL and then failed at the rename, or when a pre-V2 build ran again
+afterwards — stayed on disk for the life of the machine, retired by nothing but Clear history. That is
+the file that can hold a password verbatim, so `JsonlHistoryStore` now renames it to
+`history.json.bak` on the next load even when there is nothing to migrate it into. It is retired
+without being read back in: V1 ids carry into the JSONL unchanged, so replaying those records would
+overwrite live entries with their pre-patch selves and drop every exit code and typo flag collected
+since. Anyone who wants those commands back has the `.bak`; anyone who wants them gone has Clear
+history.
+
 If you ran a Nova build from before PR #286 (V2 Phase 1c, 2026-08-02), assume anything you typed at a
 hidden prompt in a `cmd.exe` or un-instrumented SSH pane may be in your history, and clear it. Builds
 from #286 onward cannot capture it: see the echo gate below.
