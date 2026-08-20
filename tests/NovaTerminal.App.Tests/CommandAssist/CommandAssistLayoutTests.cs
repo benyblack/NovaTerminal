@@ -2307,6 +2307,19 @@ public sealed class CommandAssistLayoutTests
     /// tolerance.
     /// </para>
     /// <para>
+    /// <strong>Why the slack budget is measured rather than a flat number.</strong> The constants
+    /// budget a fixed height per text line, and on the machine they were derived from the estimate is
+    /// exact - every row case measures to the pixel. A platform whose fonts resolve differently draws
+    /// a shorter line box, and the estimate then carries that difference once per line: the CI Linux
+    /// runners come in 2 px short per line, which is 6 px of slack for one row and 12 px for four.
+    /// A flat tolerance either fails there for a reason that is not a template change, or is loosened
+    /// until it stops catching the template changes it exists for. So the drift is measured off the
+    /// same template - two adjacent row counts give the row the platform actually draws against the
+    /// row the constants assume - and the budget is that drift times the number of text lines the
+    /// case puts on screen, plus a small allowance for anything it does not explain. Unexplained
+    /// slack is held to the same few pixels everywhere.
+    /// </para>
+    /// <para>
     /// Row counts stop at four because five rows plus chrome exceeds the 220 px ceiling, where the
     /// estimate is supposed to stop tracking the content and the list is supposed to scroll. The
     /// clamp itself is pinned separately, in
@@ -2336,44 +2349,94 @@ public sealed class CommandAssistLayoutTests
         bool hasAttribution,
         double popupWidth)
     {
-        const double tolerance = 8;
+        // Slack the estimate may carry that the platform's own text metrics do not explain. Anything
+        // beyond this is template drift, which is the thing this test exists to catch.
+        const double unexplainedSlackTolerance = 8;
 
-        var suggestions = new ObservableCollection<CommandAssistSuggestionItemViewModel>();
-        for (int i = 0; i < rowCount; i++)
+        // The most a single line box may fall short of the height the constants budget for it before
+        // the difference stops being a font and starts being the template. The ubuntu runners come in
+        // 2 px short, so this leaves a pixel of headroom for another font stack while still catching a
+        // row that lost 4 px of padding. Raising it past the smallest real template change it has to
+        // catch would defeat the row assertion below.
+        const double maxLineBoxDrift = 3;
+
+        CommandAssistPopupViewModel BuildViewModel(int rows, bool empty, bool attribution)
         {
-            suggestions.Add(new CommandAssistSuggestionItemViewModel(
-                displayText: $"git commit --message \"row {i}\"",
-                descriptionText: string.Empty,
-                badgesText: string.Empty,
-                metadataText: string.Empty,
-                isSelected: i == 0,
-                type: AssistSuggestionType.History));
+            var suggestions = new ObservableCollection<CommandAssistSuggestionItemViewModel>();
+            for (int i = 0; i < rows; i++)
+            {
+                suggestions.Add(new CommandAssistSuggestionItemViewModel(
+                    displayText: $"git commit --message \"row {i}\"",
+                    descriptionText: string.Empty,
+                    badgesText: string.Empty,
+                    metadataText: string.Empty,
+                    isSelected: i == 0,
+                    type: AssistSuggestionType.History));
+            }
+
+            return new CommandAssistPopupViewModel(suggestions)
+            {
+                IsVisible = true,
+                ModeLabel = "History",
+                QueryText = "git",
+                SelectedFooterText = @"C:\repo  |  2 min ago  |  Exit 0",
+                ShortcutHintText = CommandAssistBarViewModel.BrowseHintText,
+                AttributionText = attribution ? "Command examples from tldr-pages, CC-BY-SA 4.0." : string.Empty,
+
+                // The longest shipped empty-state string, so this measures the worst case the product
+                // can currently produce rather than a convenient short one.
+                EmptyStateText = empty ? AssistEmptyStates.NoHistoryMatch : string.Empty,
+                ShowEmptyState = empty,
+                HasSuggestions = !empty
+            };
         }
 
-        var vm = new CommandAssistPopupViewModel(suggestions)
-        {
-            IsVisible = true,
-            ModeLabel = "History",
-            QueryText = "git",
-            SelectedFooterText = @"C:\repo  |  2 min ago  |  Exit 0",
-            ShortcutHintText = CommandAssistBarViewModel.BrowseHintText,
-            AttributionText = hasAttribution ? "Command examples from tldr-pages, CC-BY-SA 4.0." : string.Empty,
-
-            // The longest shipped empty-state string, so this measures the worst case the product can
-            // currently produce rather than a convenient short one.
-            EmptyStateText = showEmptyState ? AssistEmptyStates.NoHistoryMatch : string.Empty,
-            ShowEmptyState = showEmptyState,
-            HasSuggestions = !showEmptyState
-        };
+        static double Estimate(int rows, bool empty, bool attribution) =>
+            TerminalPane.EstimateCommandAssistPopupHeight(
+                new TerminalPane.CommandAssistPopupContentSize(rows, empty, attribution),
+                paneHeight: 2000);
 
         string what = showEmptyState
             ? $"the empty state at {popupWidth:F0} px"
             : $"{rowCount} row(s)";
 
-        double measured = MeasureNaturalPopupHeight(vm, popupWidth);
-        double estimated = TerminalPane.EstimateCommandAssistPopupHeight(
-            new TerminalPane.CommandAssistPopupContentSize(rowCount, showEmptyState, hasAttribution),
-            paneHeight: 2000);
+        double measured = MeasureNaturalPopupHeight(BuildViewModel(rowCount, showEmptyState, hasAttribution), popupWidth);
+        double estimated = Estimate(rowCount, showEmptyState, hasAttribution);
+
+        // How much shorter one text line box really is than the constants budget for it, measured on
+        // the platform running the test rather than assumed. Two adjacent row counts differ by exactly
+        // one row, so the gap between their estimates is the row constant and the gap between their
+        // measurements is the row the platform actually draws; the difference is the drift. Four and
+        // three rather than two and one because the one-row estimate sits on the floor, where a future
+        // floor change would quietly flatten the subtraction - both of these are above the floor and
+        // under the ceiling.
+        double estimatedRowHeight = Estimate(4, false, false) - Estimate(3, false, false);
+        double measuredRowHeight =
+            MeasureNaturalPopupHeight(BuildViewModel(4, false, false), popupWidth)
+            - MeasureNaturalPopupHeight(BuildViewModel(3, false, false), popupWidth);
+        double lineBoxDrift = Math.Max(0, estimatedRowHeight - measuredRowHeight);
+
+        // The drift is measured off the row, so a row that has genuinely shrunk in the template
+        // inflates it - and the budget below multiplies it by the row count, which would absorb
+        // exactly the regression this test exists to catch. A shorter outer padding cancels in the
+        // subtraction above and still shows up as unexplained slack, but a shorter row does not, so
+        // the row is pinned here on its own.
+        Assert.True(
+            lineBoxDrift <= maxLineBoxDrift,
+            $"One row measured {measuredRowHeight:F1} px against the {estimatedRowHeight:F1} px the " +
+            $"row constant budgets, a {lineBoxDrift:F1} px shortfall - more than a difference in font " +
+            $"metrics explains ({maxLineBoxDrift:F0} px). The row in CommandAssistPopupView.axaml has " +
+            "changed height: re-derive CommandAssistPopupRowHeight in TerminalPane from the template " +
+            "rather than raising this bound.");
+
+        // Counted off the template: one line box per row - or the empty state's single body line in
+        // their place - plus the header line and the footer line, plus the attribution credit when
+        // there is one.
+        int textLineBoxes = 2
+            + (showEmptyState ? 1 : rowCount)
+            + (hasAttribution ? 1 : 0);
+
+        double tolerance = unexplainedSlackTolerance + (textLineBoxes * lineBoxDrift);
 
         Assert.True(
             estimated >= measured,
@@ -2384,8 +2447,11 @@ public sealed class CommandAssistLayoutTests
         Assert.True(
             estimated - measured <= tolerance,
             $"The estimate for {what} was {estimated:F1} px against a measured {measured:F1} px, " +
-            $"which is {estimated - measured:F1} px of empty card under the content " +
-            $"(tolerance {tolerance:F0}).");
+            $"which is {estimated - measured:F1} px of empty card under the content - more than the " +
+            $"{tolerance:F1} px budget ({unexplainedSlackTolerance:F0} px of unexplained slack plus " +
+            $"{textLineBoxes} text line(s) at {lineBoxDrift:F1} px of measured font drift each). " +
+            "Re-derive the chrome and row constants in TerminalPane from CommandAssistPopupView.axaml " +
+            "rather than widening the tolerance.");
     }
 
     /// <summary>
