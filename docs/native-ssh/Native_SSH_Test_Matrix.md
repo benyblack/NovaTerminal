@@ -79,6 +79,10 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
   forwarding rows above stayed "pending manual" while a Dockerized suite sat beside them.
 - Native SSH remains opt-in through `TerminalSettings.ExperimentalNativeSshEnabled`,
   toggleable in the app under Settings > SSH.
+- Multiplexing (ControlMaster) options and extra SSH arguments are OpenSSH-client
+  settings the native backend cannot honor. They are warned about in the profile
+  editor and in the terminal at connect time — never silently dropped — and stay
+  stored for a switch back to OpenSSH.
 - `OpenSsh` remains the default backend for new profiles.
 - Native backend refusal is explicit when the global experimental toggle is disabled.
 - `NativeSshCapability` has one refusal today: a remote forward with source port 0

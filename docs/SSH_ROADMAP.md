@@ -50,6 +50,12 @@ The native SSH initiative is implemented behind conservative rollout controls.
 - `Native` is gated by `TerminalSettings.ExperimentalNativeSshEnabled`, toggleable in
   the app under Settings > SSH.
 - Native SSH does **not** silently fall back to OpenSSH on failure.
+- Settings the native backend cannot honor are warned about, not silently
+  dropped: a native profile with multiplexing (ControlMaster) options or extra
+  SSH arguments — both of which drive the OpenSSH client and have no native
+  equivalent — gets a notice in the profile editor and a warning line in the
+  terminal at connect time. The settings stay stored, so switching the profile
+  back to OpenSSH restores them intact.
 - Whether native *can* serve a given profile is answered in one place,
   `NativeSshCapability.Evaluate`. Its one refusal today is a remote forward with
   source port 0 (a server-allocated listen port, OpenSSH's `-R 0:`): the native

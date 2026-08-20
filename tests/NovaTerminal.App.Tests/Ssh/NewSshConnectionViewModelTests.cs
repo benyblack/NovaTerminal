@@ -401,6 +401,93 @@ public sealed class NewSshConnectionViewModelTests
     }
 
     [Fact]
+    public void BackendWarning_ForNativeProfileWithMux_NamesTheIgnoredSetting()
+    {
+        // Mux (ControlMaster) drives the OpenSSH client; the native backend has no equivalent.
+        // A warning, not a refusal: the setting stays stored so switching back to OpenSSH
+        // restores it — but the user must know it will not apply.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true,
+            EnableMux = true
+        };
+
+        Assert.Contains("Multiplexing", vm.BackendWarning, StringComparison.Ordinal);
+        Assert.Contains("ignores", vm.BackendWarning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BackendWarning_ForNativeProfileWithExtraArgs_NamesTheIgnoredSetting()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true,
+            ExtraSshArgs = "-o Compression=yes"
+        };
+
+        Assert.Contains("Extra SSH arguments", vm.BackendWarning, StringComparison.Ordinal);
+        Assert.Contains("ignores", vm.BackendWarning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BackendWarning_ComposesTheGlobalToggleAndIgnoredSettings()
+    {
+        // Both facts matter at once — the blocking one (toggle) first, the ignored settings
+        // still named rather than swallowed by it.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = false,
+            EnableMux = true,
+            ExtraSshArgs = "-vv"
+        };
+
+        Assert.Contains("disabled globally", vm.BackendWarning, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ignores both", vm.BackendWarning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BackendWarning_ForOpenSshProfileWithMuxAndExtraArgs_IsEmpty()
+    {
+        // The settings apply on OpenSSH; there is nothing to warn about.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "host.internal",
+            BackendKind = SshBackendKind.OpenSsh,
+            EnableMux = true,
+            ExtraSshArgs = "-4"
+        };
+
+        Assert.Equal(string.Empty, vm.BackendWarning);
+    }
+
+    [Fact]
+    public void BackendWarning_IsRaisedWhenMuxOrExtraArgsChange()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true
+        };
+
+        var raised = new List<string>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        vm.EnableMux = true;
+        vm.ExtraSshArgs = "-o Compression=yes";
+
+        Assert.True(
+            raised.Count(name => name == nameof(NewSshConnectionViewModel.BackendWarning)) >= 2,
+            "Toggling mux and editing extra args must each re-evaluate the warning immediately, not at save.");
+    }
+
+    [Fact]
     public void BackendWarning_IsRaisedWhenForwardsChange()
     {
         // The collection hook must keep re-evaluating the warning even while every shape is

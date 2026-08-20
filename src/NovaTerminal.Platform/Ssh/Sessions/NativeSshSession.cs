@@ -73,6 +73,8 @@ public sealed class NativeSshSession : ITerminalSession
         }
 
         _ = diagnosticsLevel;
+        // The parsed CLI arguments the factory passes derive from profile.ExtraSshArgs, which the
+        // warning below names in the terminal — discarded here, but never silently.
         _ = extraArgs;
         _cols = cols;
         _rows = rows;
@@ -84,6 +86,22 @@ public sealed class NativeSshSession : ITerminalSession
         _profileUser = profile.User;
         _profileHost = profile.Host;
         _allowVaultPasswordReuse = profile.Id != Guid.Empty;
+
+        // Settings this backend cannot honor are named in the terminal, not silently dropped —
+        // the no-silent-degradation contract. Both drive the OpenSSH client (a ControlMaster
+        // socket, CLI arguments) and have no native equivalent; they stay stored so switching
+        // the profile back to OpenSSH restores them. Emitted before the first output, and
+        // buffered for the first subscriber, so they are never scrolled away by the banner.
+        if (profile.MuxOptions?.Enabled == true)
+        {
+            EmitText("Warning: multiplexing (ControlMaster) is an OpenSSH client feature; the native backend ignores this profile's mux options.\r\n");
+        }
+
+        if (!string.IsNullOrWhiteSpace(profile.ExtraSshArgs))
+        {
+            EmitText("Warning: extra SSH arguments drive the OpenSSH client; the native backend ignores this profile's extra arguments.\r\n");
+        }
+
         JumpHostConnectPlan connectPlan = JumpHostConnectPlan.Create(profile);
         NativeSshConnectionOptions connectionOptions = CreateConnectionOptions(connectPlan, profile, cols, rows);
         _log($"[NativeSshSession] backend=native path={_jumpHostConnector.DescribePath(connectPlan)} target={connectionOptions.User}@{connectionOptions.Host}:{connectionOptions.Port}");
