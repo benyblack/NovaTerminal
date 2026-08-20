@@ -71,11 +71,6 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     /// RemoteShellIntegrationInstallerTests; and the real PTY path is still covered by
     /// <see cref="AfterInstalling_ANewInteractiveShell_EmitsTheLifecycle"/>.
     /// </remarks>
-    /// <param name="pathOverride">
-    /// Replaces <c>PATH</c> for the child. On real Linux bash this alone hides <c>base64</c> and
-    /// <c>gzip</c>; kept for that platform even though it is not sufficient on Git Bash - see
-    /// <paramref name="shadowDecodeTools"/>.
-    /// </param>
     /// <param name="shadowDecodeTools">
     /// Prepends bash functions named <c>base64</c> and <c>gzip</c> that both fail, shadowing the
     /// real commands regardless of <c>PATH</c>. Needed because Git Bash's MSYS runtime injects
@@ -84,9 +79,11 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     /// <c>/mingw64/bin:/usr/bin:...</c> first - so an empty-directory <c>PATH</c> override alone
     /// never hides <c>base64</c>/<c>gzip</c> on this platform and the installer always "succeeds".
     /// A bash function takes precedence over a <c>PATH</c> lookup for a simple command, which is
-    /// what lets this actually exercise the failure branch on Windows.
+    /// what lets this exercise the failure branch on every platform - and, unlike a <c>PATH</c>
+    /// override, hides the two tools under test without also hiding the ones the installer needs to
+    /// reach them.
     /// </param>
-    private string RunInstaller(string? pathOverride = null, bool shadowDecodeTools = false)
+    private string RunInstaller(bool shadowDecodeTools = false)
     {
         string? bash = ShellHarness.FindBash();
         if (bash is null)
@@ -112,10 +109,6 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         };
         startInfo.ArgumentList.Add(pastePath.Replace('\\', '/'));
         startInfo.Environment["HOME"] = HomeForShell;
-        if (pathOverride is not null)
-        {
-            startInfo.Environment["PATH"] = pathOverride;
-        }
 
         using Process process = Process.Start(startInfo)!;
         string stdout = process.StandardOutput.ReadToEnd();
@@ -391,22 +384,26 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     /// cannot diagnose.
     /// </summary>
     /// <remarks>
-    /// An empty-directory <c>PATH</c> override is not enough here: Git Bash's MSYS runtime
-    /// unconditionally prepends <c>/mingw64/bin:/usr/bin</c> to <c>PATH</c> before the script sees
-    /// it (still true with <c>--noprofile --norc</c>, so it is not a sourced file), which means
-    /// <c>base64</c>/<c>gzip</c> are always found there regardless of what this test passes as
-    /// <c>PATH</c> - the installer "succeeds" and this test's whole premise silently fails to hold.
-    /// <see cref="RunInstaller"/>'s <c>shadowDecodeTools</c> additionally defines bash functions
-    /// named <c>base64</c>/<c>gzip</c> that fail, which take precedence over any <c>PATH</c> lookup
-    /// and so reach the failure branch on every platform.
+    /// <para>
+    /// The two tools are hidden with bash functions named <c>base64</c> and <c>gzip</c> that fail,
+    /// not by emptying <c>PATH</c>. A function beats a <c>PATH</c> lookup for a simple command, so
+    /// this reaches the decode's failure branch on every platform - which a <c>PATH</c> override does
+    /// not: Git Bash's MSYS runtime unconditionally prepends <c>/mingw64/bin:/usr/bin</c> before the
+    /// script sees it (still true with <c>--noprofile --norc</c>, so it is not a sourced file), so
+    /// the real <c>base64</c>/<c>gzip</c> are always found and the installer "succeeds".
+    /// </para>
+    /// <para>
+    /// The override used to be passed as well, belt-and-braces for Linux where it does hide the two
+    /// tools. On Linux it also hid <c>mktemp</c>, and the one-liner needs a temp file <em>before</em>
+    /// it decodes anything - so the installer failed at "mktemp could not create a temp file" and
+    /// this test's own branch was never reached on the platform the override was there for. Hiding
+    /// exactly the two tools under test, and nothing else the installer depends on, is the point.
+    /// </para>
     /// </remarks>
     [Fact]
     public void Installer_WithoutBase64OrGzip_ReportsFailureAndWritesNothing()
     {
-        string emptyDir = Path.Combine(_home, "empty-path");
-        Directory.CreateDirectory(emptyDir);
-
-        string output = RunInstaller(pathOverride: emptyDir.Replace('\\', '/'), shadowDecodeTools: true);
+        string output = RunInstaller(shadowDecodeTools: true);
 
         Assert.Contains("nova: install failed", output, StringComparison.Ordinal);
         Assert.Contains("base64", output, StringComparison.Ordinal);
