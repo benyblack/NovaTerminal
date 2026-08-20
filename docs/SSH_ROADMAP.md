@@ -4,10 +4,10 @@ _Last reviewed: 2026-04-27._
 
 NovaTerminal supports two SSH backends:
 
-- **OpenSSH** (default, production) — drives `ssh` in a PTY with a
+- **OpenSSH** (production) — drives `ssh` in a PTY with a
   NovaTerminal-generated config file.
-- **Native SSH** (experimental, opt-in) — an in-process Rust SSH crate with a
-  poll-based ABI, bypassing external `ssh` entirely.
+- **Native SSH** (default for new profiles) — an in-process Rust SSH crate with
+  a poll-based ABI, bypassing external `ssh` entirely.
 
 ---
 
@@ -46,9 +46,14 @@ The native SSH initiative is implemented behind conservative rollout controls.
 
 ### Rollout guidance
 
-- `OpenSsh` remains the default backend.
-- `Native` is gated by `TerminalSettings.ExperimentalNativeSshEnabled`, toggleable in
-  the app under Settings > SSH.
+- `Native` is the default backend for NEW profiles, wherever the global native
+  toggle (`TerminalSettings.ExperimentalNativeSshEnabled`, on by default,
+  Settings > SSH) is enabled; with the toggle off, new profiles default to
+  `OpenSsh`, so the default can never point at a backend that refuses to
+  connect. Existing profiles keep their stored backend, and the model-level
+  defaults stay `OpenSsh` on purpose: a profile store whose JSON predates the
+  backend field must load as the backend it was actually using, never silently
+  migrate.
 - Native SSH does **not** silently fall back to OpenSSH on failure.
 - Settings the native backend cannot honor are warned about, not silently
   dropped: a native profile with multiplexing (ControlMaster) options or extra
