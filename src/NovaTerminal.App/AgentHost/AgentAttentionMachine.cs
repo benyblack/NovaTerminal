@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace NovaTerminal.AgentHost
 {
@@ -36,9 +37,11 @@ namespace NovaTerminal.AgentHost
     /// <see cref="NoteWrote"/>), its timer thread (<see cref="Tick"/>), and the
     /// UI thread (<see cref="NoteFocusChanged"/>). All state is guarded by one
     /// lock; <see cref="Snapshot"/> is safe from any thread and
-    /// <see cref="Changed"/> is raised outside the lock. The clock is injectable
-    /// so every threshold is deterministic in tests, matching
-    /// <see cref="AgentSessionStatusMachine"/>.
+    /// <see cref="Changed"/> is raised outside the lock, in generation order.
+    /// Events are enqueued under the gate and drained by exactly one thread at
+    /// a time, preserving global order without invoking handlers while holding
+    /// the gate. The clock is injectable so every threshold is deterministic in
+    /// tests, matching <see cref="AgentSessionStatusMachine"/>.
     /// </summary>
     public sealed class AgentAttentionMachine
     {
@@ -57,6 +60,15 @@ namespace NovaTerminal.AgentHost
         private bool _writeAcknowledged;
         private bool _isFocused;
         private AgentAttentionTier _tier = AgentAttentionTier.Idle;
+
+        // Pending events plus a single-drainer flag: signals arrive from the
+        // IPC thread, timer thread, and UI thread, so releasing the gate before
+        // invoking handlers could deliver events out of the order they were
+        // generated. Events are enqueued under the gate and drained by exactly
+        // one thread at a time, preserving global order without ever invoking
+        // handlers while holding the gate.
+        private readonly Queue<AgentAttentionSnapshot> _pendingEvents = new();
+        private bool _draining;
 
         /// <summary>Raised outside the lock whenever the tier changes.</summary>
         public event Action<AgentAttentionSnapshot>? Changed;
@@ -93,7 +105,6 @@ namespace NovaTerminal.AgentHost
 
         private void RunUnderGate(Action<DateTimeOffset> mutate)
         {
-            AgentAttentionSnapshot? changed = null;
             lock (_gate)
             {
                 var now = _now();
@@ -114,13 +125,43 @@ namespace NovaTerminal.AgentHost
                 if (after != _tier)
                 {
                     _tier = after;
-                    changed = MakeSnapshot(after);
+                    _pendingEvents.Enqueue(MakeSnapshot(after));
                 }
+
+                if (_draining || _pendingEvents.Count == 0)
+                {
+                    return; // another thread is already delivering, or nothing to deliver
+                }
+                _draining = true;
             }
 
-            if (changed.HasValue)
+            DrainPendingEvents();
+        }
+
+        private void DrainPendingEvents()
+        {
+            while (true)
             {
-                Changed?.Invoke(changed.Value);
+                AgentAttentionSnapshot next;
+                lock (_gate)
+                {
+                    if (_pendingEvents.Count == 0)
+                    {
+                        _draining = false;
+                        return;
+                    }
+                    next = _pendingEvents.Dequeue();
+                }
+
+                try
+                {
+                    Changed?.Invoke(next);
+                }
+                catch
+                {
+                    lock (_gate) { _draining = false; }
+                    throw;
+                }
             }
         }
 

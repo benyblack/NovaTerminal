@@ -176,4 +176,36 @@ public class AgentAttentionMachineTests
         Assert.Equal(AgentAttentionTier.Idle, snapshot.Tier);
         Assert.Equal(writeAt, snapshot.LastWriteUtc);
     }
+
+    [Fact]
+    public void Changed_events_are_delivered_in_generation_order_across_reentrant_calls()
+    {
+        // A handler that re-enters the machine must not cause events to be
+        // delivered out of order. The drainer ensures exactly one thread
+        // delivers events at a time, preserving global ordering even when
+        // signals arrive from multiple threads (IPC, timer, UI).
+        var (machine, _, changes) = Make();
+        var readyToCapture = false;
+
+        // Install a handler that re-enters the machine during event delivery
+        machine.Changed += snapshot =>
+        {
+            if (readyToCapture && snapshot.Tier == AgentAttentionTier.Watched)
+            {
+                // Re-enter: while delivering the Watched event, trigger a transition to Wrote
+                machine.NoteWrote("sendInput");
+            }
+        };
+
+        readyToCapture = true;
+        machine.NoteRead();
+
+        // We should see exactly 2 events in order: Watched then Wrote.
+        // Re-entrancy is safe because the handler runs outside the lock,
+        // and the drainer's queue preserves the order.
+        Assert.Equal(2, changes.Count);
+        Assert.Equal(AgentAttentionTier.Watched, changes[0].Tier);
+        Assert.Equal(AgentAttentionTier.Wrote, changes[1].Tier);
+        Assert.Equal("sendInput", changes[1].LastWriteMethod);
+    }
 }
