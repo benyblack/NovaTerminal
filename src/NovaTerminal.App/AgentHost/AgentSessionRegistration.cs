@@ -48,6 +48,7 @@ namespace NovaTerminal.AgentHost
         private string _kind;
         private bool _isActive;
         private Guid? _profileId;
+        private bool _isAgentActable;
 
         public AgentSessionRegistration(
             Guid paneId,
@@ -68,6 +69,8 @@ namespace NovaTerminal.AgentHost
             _isActive = isActive;
             _profileId = profileId;
             StatusMachine = new AgentSessionStatusMachine(nowProvider);
+            AttentionMachine = new AgentAttentionMachine(nowProvider);
+            AttentionMachine.NoteFocusChanged(isActive);
         }
 
         /// <summary>
@@ -75,6 +78,26 @@ namespace NovaTerminal.AgentHost
         /// pane on the UI thread; snapshots are safe from any thread.
         /// </summary>
         public AgentSessionStatusMachine StatusMachine { get; }
+
+        /// <summary>
+        /// Per-pane agent attention tiers (read / wrote). Signals come from the
+        /// endpoint on its IPC and timer threads and from the pane on the UI
+        /// thread; the machine is internally locked.
+        /// </summary>
+        public AgentAttentionMachine AttentionMachine { get; }
+
+        /// <summary>
+        /// Whether an agent may currently act on this pane: the global act
+        /// toggle plus, for SSH panes, the per-profile allowlist. Published by
+        /// <see cref="AgentHostService"/> rather than derived here — the
+        /// registration does not know the settings or the allowlist. Drives
+        /// whether the pane shows its agent status segment at all.
+        /// </summary>
+        public bool IsAgentActable
+        {
+            get { lock (_gate) { return _isAgentActable; } }
+            internal set { lock (_gate) { _isAgentActable = value; } }
+        }
 
         // The PTY session behind this registration, published by the pane on the
         // UI thread whenever the session is created, swapped, or torn down —
@@ -426,6 +449,10 @@ namespace NovaTerminal.AgentHost
                 _isActive = isActive;
                 _profileId = profileId;
             }
+
+            // Focus feeds the write-acknowledgement rule. Pushed after the gate
+            // is released: the machine locks internally and raises Changed.
+            AttentionMachine.NoteFocusChanged(isActive);
         }
     }
 }
