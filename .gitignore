@@ -518,3 +518,6 @@ src/NovaTerminal.App/native/rusty_ssh/target/
 
 # local research scratch
 .research/
+
+# brainstorming visual companion scratch
+.superpowers/
