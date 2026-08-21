@@ -162,6 +162,49 @@ namespace NovaTerminal.AgentHost
             }
         }
 
+        /// <summary>
+        /// Notes a read on <paramref name="registration"/>'s attention machine,
+        /// swallowing any subscriber exception. <see cref="AgentAttentionMachine.Changed"/>
+        /// handlers run synchronously inside <c>NoteRead</c>'s drain loop and a
+        /// throw there rethrows out of <c>NoteRead</c> itself; since every read
+        /// handler calls this after the read already succeeded, an unguarded
+        /// throw would turn a successful read into an Internal error response
+        /// for something that already happened. Same containment pattern as
+        /// <see cref="SweepStatuses"/>'s guard around <see cref="RefreshActability"/>.
+        /// </summary>
+        private static void TryNoteRead(AgentSessionRegistration registration)
+        {
+            try
+            {
+                registration.AttentionMachine.NoteRead();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AgentHost] attention NoteRead failed for {registration.PaneId}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Notes a successful write on <paramref name="registration"/>'s attention
+        /// machine, swallowing any subscriber exception for the same reason as
+        /// <see cref="TryNoteRead"/>: every call site here runs after the write
+        /// (input sent, session closed, pane spawned) has already happened, so an
+        /// unguarded throw would misreport a real success as an Internal error and
+        /// — for the acting methods — skip the <see cref="Journaled"/> record of an
+        /// attempt that genuinely occurred.
+        /// </summary>
+        private static void TryNoteWrote(AgentSessionRegistration registration, string method)
+        {
+            try
+            {
+                registration.AttentionMachine.NoteWrote(method);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AgentHost] attention NoteWrote failed for {registration.PaneId}: {ex.Message}");
+            }
+        }
+
         // Per-profile SSH allowlist probe, published by MainWindow (reads the
         // SSH profile store). Null (no probe wired) denies every SSH profile —
         // fail closed. Volatile: published from the UI thread, read on IPC.
@@ -474,11 +517,23 @@ namespace NovaTerminal.AgentHost
                 try
                 {
                     registration.StatusMachine.Sweep(registration.ProbeHasActiveChildProcesses());
-                    registration.AttentionMachine.Tick();
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"[AgentHost] status sweep failed for {registration.PaneId}: {ex.Message}");
+                }
+
+                // Separate try/catch: a registration whose child-process probe
+                // throws on every sweep must not also skip its attention Tick —
+                // otherwise a sticky Wrote tier could never retire past the
+                // write floor for that pane.
+                try
+                {
+                    registration.AttentionMachine.Tick();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[AgentHost] attention tick failed for {registration.PaneId}: {ex.Message}");
                 }
             }
 
@@ -743,7 +798,7 @@ namespace NovaTerminal.AgentHost
                 return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'.");
             }
 
-            registration.AttentionMachine.NoteRead();
+            TryNoteRead(registration);
             var dto = registration.StatusMachine.Snapshot().ToDto(registration.PaneId);
             return Ok(request.Id, JsonSerializer.SerializeToElement(dto, AgentHostJsonContext.Default.SessionStatusDto));
         }
@@ -767,13 +822,20 @@ namespace NovaTerminal.AgentHost
 
             // WaitForEventsParams names no pane (only sinceSeq/timeoutMs), so this
             // drives the window-level observe indicator (a later task's chrome),
-            // never any pane's attention tier.
-            if (Interlocked.Increment(ref _inFlightPolls) == 1)
-            {
-                ObserveActivityChanged?.Invoke();
-            }
+            // never any pane's attention tier. Increment happens before the try so
+            // the finally below is guaranteed to run and pair it with a decrement
+            // even if something between here and the finally throws; the
+            // subscriber invoke itself is routed through RaiseObserveActivityChanged
+            // so a throwing subscriber can neither escape as an Internal error nor
+            // skip the decrement and leak the count.
+            var afterIncrement = Interlocked.Increment(ref _inFlightPolls);
             try
             {
+                if (afterIncrement == 1)
+                {
+                    RaiseObserveActivityChanged();
+                }
+
                 var result = await ring.WaitSinceAsync(sinceSeq, timeout, cancellationToken).ConfigureAwait(false);
                 return Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.WaitForEventsResult));
             }
@@ -781,8 +843,28 @@ namespace NovaTerminal.AgentHost
             {
                 if (Interlocked.Decrement(ref _inFlightPolls) == 0)
                 {
-                    ObserveActivityChanged?.Invoke();
+                    RaiseObserveActivityChanged();
                 }
+            }
+        }
+
+        /// <summary>
+        /// Invokes <see cref="ObserveActivityChanged"/> with subscriber exceptions
+        /// contained: no subscriber exists yet (Task 7 adds the first one), but a
+        /// throw here must never escape into <see cref="HandleWaitForEventsAsync"/>
+        /// — that would turn a successful long poll into an Internal error and,
+        /// were it to happen on the increment side outside a try/finally, leak
+        /// <see cref="InFlightPollCount"/> forever.
+        /// </summary>
+        private void RaiseObserveActivityChanged()
+        {
+            try
+            {
+                ObserveActivityChanged?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AgentHost] ObserveActivityChanged subscriber failed: {ex.Message}");
             }
         }
 
@@ -881,7 +963,7 @@ namespace NovaTerminal.AgentHost
                     Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'."));
             }
 
-            registration.AttentionMachine.NoteRead();
+            TryNoteRead(registration);
 
             if (!registration.TryCapturePng(Math.Max(0, p.MaxWidth), out var capture, out var captureError))
             {
@@ -1007,7 +1089,7 @@ namespace NovaTerminal.AgentHost
                         "The session is not accepting input (its process has exited or is being torn down)."));
             }
 
-            registration.AttentionMachine.NoteWrote(AgentHostProtocol.Methods.SendInput);
+            TryNoteWrote(registration, AgentHostProtocol.Methods.SendInput);
 
             var result = new SendInputResult { BytesSent = byteCount };
             return Journaled(request, AgentHostProtocol.Methods.SendInput, p.PaneId, registration.ProfileName,
@@ -1064,7 +1146,7 @@ namespace NovaTerminal.AgentHost
             // nothing to mark until the executor created and registered it.
             if (_registry.TryGet(spawn.PaneId, out var spawned))
             {
-                spawned.AttentionMachine.NoteWrote(AgentHostProtocol.Methods.SpawnSession);
+                TryNoteWrote(spawned, AgentHostProtocol.Methods.SpawnSession);
             }
 
             var dto = new SpawnSessionResult
@@ -1131,7 +1213,7 @@ namespace NovaTerminal.AgentHost
             // Use the registration captured above, not a fresh TryGet: the
             // executor may already have unregistered the pane, and the write
             // still happened to it.
-            registration.AttentionMachine.NoteWrote(AgentHostProtocol.Methods.CloseSession);
+            TryNoteWrote(registration, AgentHostProtocol.Methods.CloseSession);
 
             var dto = new CloseSessionResult { Closed = true };
             return Journaled(request, AgentHostProtocol.Methods.CloseSession, p.PaneId, "session",
@@ -1169,7 +1251,7 @@ namespace NovaTerminal.AgentHost
                 return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'.");
             }
 
-            registration.AttentionMachine.NoteRead();
+            TryNoteRead(registration);
             var buffer = registration.Buffer;
             BufferSnapshot snapshot;
             bool cursorVisible;
@@ -1212,7 +1294,7 @@ namespace NovaTerminal.AgentHost
                 return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'.");
             }
 
-            registration.AttentionMachine.NoteRead();
+            TryNoteRead(registration);
             var buffer = registration.Buffer;
             string[] lines;
             int effectiveStart;

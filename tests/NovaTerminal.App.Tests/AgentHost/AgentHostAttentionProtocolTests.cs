@@ -29,33 +29,7 @@ public class AgentHostAttentionProtocolTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private sealed class InputStubSession : NovaTerminal.Pty.ITerminalSession
-    {
-        private readonly bool _running;
-        public InputStubSession(bool running = true) => _running = running;
-
-        public readonly System.Collections.Generic.List<string> Inputs = new();
-
-        public void SendInput(string input) => Inputs.Add(input);
-        public bool IsProcessRunning => _running;
-
-        public Guid Id { get; } = Guid.NewGuid();
-        public string ShellCommand => "stub";
-        public string? ShellArguments => null;
-        public bool HasActiveChildProcesses => false;
-        public int? ExitCode => null;
-        public bool IsRecording => false;
-        public event Action<string>? OnOutputReceived { add { } remove { } }
-        public event Action<int>? OnExit { add { } remove { } }
-        public void Resize(int cols, int rows) { }
-        public void StartRecording(string filePath) { }
-        public void StopRecording() { }
-        public bool IsFlightRecording => false;
-        public void EnableFlightRecording(long maxTotalBytes) { }
-        public void DisableFlightRecording() { }
-        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info) { info = default; return false; }
-        public void Dispose() { }
-    }
+    // InputStubSession now lives in InputStubSession.cs, shared with the act tests.
 
     private AgentHostService NewRunningService(AgentSessionRegistry registry, bool act)
     {
@@ -321,5 +295,54 @@ public class AgentHostAttentionProtocolTests : IDisposable
         await HandleAsync(service, "waitForEvents", "{\"sinceSeq\":0,\"timeoutMs\":300}");
 
         Assert.Equal(2, Volatile.Read(ref transitions));
+    }
+
+    [Fact]
+    public async Task A_throwing_observe_subscriber_does_not_leak_the_poll_count_or_fail_the_response()
+    {
+        // Regression pin for the finding: the increment and its 0->1 invoke used
+        // to sit outside the try/finally that decrements. A subscriber throwing
+        // on that edge left _inFlightPolls stuck non-zero forever and turned the
+        // waitForEvents call into an Internal error. No subscriber exists on this
+        // path in production yet (Task 7 adds the first one), which is exactly
+        // why this must be pinned before one shows up.
+        var registry = new AgentSessionRegistry();
+        using var service = NewRunningService(registry, act: false);
+        service.ObserveActivityChanged += () => throw new InvalidOperationException("boom");
+
+        var response = await HandleAsync(service, "waitForEvents", "{\"sinceSeq\":0,\"timeoutMs\":300}");
+
+        Assert.Null(response.Error);
+        Assert.Equal(0, service.InFlightPollCount);
+    }
+
+    [Fact]
+    public async Task A_throwing_attention_subscriber_does_not_fail_or_unjournal_a_successful_write()
+    {
+        // Regression pin: AgentAttentionMachine.DrainPendingEvents deliberately
+        // rethrows subscriber exceptions out of NoteWrote/NoteRead. The input
+        // has already gone to the PTY by the time sendInput calls NoteWrote, so
+        // an unguarded throw there must not convert a real success into an
+        // Internal error, and must not skip the Journaled(...) record of the
+        // attempt that genuinely happened.
+        var registry = new AgentSessionRegistry();
+        var journal = new AgentActivityJournal();
+        var endpoint = OperatingSystem.IsWindows()
+            ? "novaterminal-agent-attention-test-" + Guid.NewGuid().ToString("N")
+            : Path.Combine(_tempDir, Guid.NewGuid().ToString("N")[..8] + ".sock");
+        using var service = new AgentHostService(registry, endpoint, _tempDir, journal: journal);
+        service.ActEnabled = true;
+        service.Start();
+        Assert.True(service.IsRunning);
+        var registration = RegisterWithSession(registry, new InputStubSession());
+        registration.AttentionMachine.Changed += _ => throw new InvalidOperationException("boom");
+
+        var response = await HandleAsync(
+            service, "sendInput", $"{{\"paneId\":\"{registration.PaneId}\",\"text\":\"ls\"}}");
+
+        Assert.Null(response.Error);
+        Assert.Contains(
+            journal.Snapshot(),
+            e => e.Method == AgentHostProtocol.Methods.SendInput && e.PaneId == registration.PaneId && e.Outcome == "ok");
     }
 }
