@@ -22,7 +22,7 @@ This design adds three signals, each carrying exactly one meaning:
 |---|---|---|
 | Observe indicator | Window chrome, near the tab strip | Agent access is on for this app |
 | Pane agent segment | Pane `StatusBar`, on **actable panes only** | An agent can type into this pane; colour and text carry live activity |
-| Tab rollup badge | Tab header | An agent **wrote** to a pane in this tab (optionally: also read) |
+| Tab label marker | Tab header | An agent **wrote** to a pane in this tab (optionally: also read) |
 
 ## Background — what already exists
 
@@ -45,6 +45,10 @@ This design adds three signals, each carrying exactly one meaning:
   `captureScreen` only (`AgentHostService.cs:1064`). `readScreen`, `readScrollback`,
   `getSessionStatus`, and `waitForEvents` leave no trace anywhere. This is the one
   genuinely new piece of plumbing this design requires.
+- **`waitForEvents` is not pane-scoped.** `WaitForEventsParams` carries only
+  `sinceSeq` and `timeoutMs` (`src/NovaTerminal.AgentHost.Contracts/StatusContracts.cs:83`)
+  and reads one app-wide `AgentEventRing`. There is no pane to attribute a
+  subscription to, so it cannot drive a per-pane tier.
 
 ## Design rationale
 
@@ -83,11 +87,19 @@ One application-level indicator, since observe-reachability is uniform: a small 
 in the window chrome beside the existing `TabOverflowBadge`
 (`MainWindow.axaml:150`), visible exactly while `AgentAccessObserveEnabled` is on.
 
-It reflects permission, not activity — it does not pulse, and it does not aggregate
-the per-pane tiers, with one exception: in observe-only mode (act off, so no pane
-carries a bar) it takes on the `Watched` tier's styling while any pane is being read,
-because it is then the only surface that can say reading is happening at all. Its
-tooltip names the enabled permissions; clicking it opens the Agent Activity window.
+It is primarily a permission light, with two activity states layered on because it is
+the only surface at the right scope for them:
+
+- **Polling.** While at least one `waitForEvents` long poll is in flight, the indicator
+  shows a "watching" state. The subscription is app-scoped, so this is the only correct
+  place for it — see the note in Background. `AgentHostService` tracks it as a counter
+  incremented for the duration of each in-flight `HandleWaitForEventsAsync` call.
+- **Observe-only reads.** With act off no pane carries a bar, so the indicator also
+  takes on the `Watched` styling while any pane is being read. Otherwise reads would be
+  invisible everywhere in that mode.
+
+It does not otherwise aggregate the per-pane tiers. Its tooltip names the enabled
+permissions; clicking it opens the Agent Activity window.
 
 ## The state machine
 
@@ -103,15 +115,16 @@ readonly record struct AgentAttentionSnapshot(
     string? LastWriteMethod);
 ```
 
-Signals, all pushed by the endpoint: `NoteRead(now)`, `NoteWatchStarted()`,
-`NoteWatchEnded()`, `NoteWrote(method, now)`, `NoteFocused(now)`, `Tick(now)`.
+Signals: `NoteRead()`, `NoteWrote(method)` and `Tick()` pushed by the endpoint;
+`NoteFocusChanged(bool)` pushed by the pane. Focus is a stored flag rather than a
+one-shot event, because a write can land on a pane that is *already* focused — the
+floor then has to be retired by the tick, not by a focus change that never comes.
 
 Rules:
 
-- **Watched** while either a read landed within the last **3 s**, or an open
-  `waitForEvents` subscription exists for the pane. A long poll is continuous
-  observation, not a series of blips, so the subscription holds the tier lit for its
-  whole duration.
+- **Watched** while a pane-addressed read landed within the last **3 s** — that is
+  `readScreen`, `readScrollback`, `getSessionStatus`, or `captureScreen`. Long polls
+  are excluded because they name no pane; they drive the app-level indicator instead.
 - **Wrote** on `sendInput`, `spawnSession`, or `closeSession`. Sticky: it clears when
   the pane gains focus, but never sooner than **10 s** after the write. Without the
   floor, an agent typing into the pane you are already looking at would clear the
@@ -188,13 +201,19 @@ rather than a hardcoded choice:
 - Surfaced as a dropdown in the **Agent access** section of `SettingsWindow.axaml`,
   beside the permission toggles it reports on.
 
-Tab headers are already constructed in code — `CreateTabHeaderHost` returns a `Border`
-wrapping a `TextBlock` (`MainWindow.axaml.cs:463`) — so the badge is a contained
-change: the `Child` becomes a small horizontal panel holding badge and text.
+The app already has this exact mechanism and the rollup follows it rather than inventing
+a parallel one: `TabRuntimeState` carries `HasBell` / `HasActivity`
+(`MainWindow.axaml.cs:111`), and those are rendered as **glyph suffixes appended to the
+tab label** in `BuildTabDisplayLabels` (`:924`), mirrored as prefixes in
+`GetTabMenuLabel` (`:612`) and as words in the automation label (`:3142`). The rollup
+adds an `AgentTier` to that state and one more suffix. `UpdateTabVisuals` rewrites every
+label on each pass, so there is no new visual element, no header restructuring, and
+nothing to re-apply after a rename.
 
-**Gotcha:** a rename recreates the header through `CreateTabHeaderHost`
-(`MainWindow.axaml.cs:488`), so badge state must be re-applied on header construction
-rather than set once at creation.
+One consequence: the label is a single `TextBlock` whose `Foreground` is set wholesale by
+`UpdateTabVisuals`, so the tab rollup separates the tiers by **glyph**, not colour — a
+keyboard for a write, an eye for a read. That is also the colourblind-safe choice.
+Colour stays in the pane segment, which has its own control to tint.
 
 There is no "off" value. An indicator the user can silence is not a safety surface;
 the way to have no indicator is to turn agent access off.
@@ -215,7 +234,9 @@ the way to have no indicator is to turn agent access off.
 
 Pure logic, `[Fact]`:
 
-- 3 s read decay; watch held across `NoteWatchStarted`/`NoteWatchEnded`.
+- 3 s read decay from `NoteRead`.
+- The in-flight `waitForEvents` counter drives the observe indicator's polling state
+  and returns to zero when the poll completes, times out, or is cancelled.
 - Write stickiness; the 10 s floor when the pane is already focused; clearing on focus
   after the floor.
 - `Wrote` outranking `Watched`.
@@ -226,7 +247,7 @@ Control-level, `[AvaloniaFact]`:
 - The agent segment survives an SSH port-forward refresh.
 - `UpdateStatusBarVisibility` ORs correctly: SSH-only, agent-only, both, neither.
 - Tab rollup under both setting values.
-- Badge state survives a tab rename.
+- The marker survives an `UpdateTabVisuals` label rebuild.
 
 `NovaTerminal.App.Tests` also runs on ubuntu, so tests must avoid `FileShare.None`
 semantics and font-metric assumptions.
