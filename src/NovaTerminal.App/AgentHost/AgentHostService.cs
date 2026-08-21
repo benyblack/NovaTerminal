@@ -120,7 +120,46 @@ namespace NovaTerminal.AgentHost
         public bool ActEnabled
         {
             get => _actEnabled;
-            set => _actEnabled = value;
+            set
+            {
+                _actEnabled = value;
+                RefreshActability();
+            }
+        }
+
+        private int _inFlightPolls;
+
+        /// <summary>
+        /// How many <c>waitForEvents</c> long polls are parked right now. The
+        /// subscription names no pane (WaitForEventsParams carries only
+        /// sinceSeq/timeoutMs), so it drives the window-level observe indicator
+        /// rather than any pane's tier.
+        /// </summary>
+        public int InFlightPollCount => Volatile.Read(ref _inFlightPolls);
+
+        /// <summary>Raised when <see cref="InFlightPollCount"/> transitions between zero and non-zero.</summary>
+        public event Action? ObserveActivityChanged;
+
+        /// <summary>
+        /// Recomputes and publishes act-reachability onto every registration:
+        /// the global act toggle, plus the per-profile allowlist for SSH panes.
+        /// Called from the 1 s sweep and immediately whenever the act toggle
+        /// flips, so the pane chrome cannot lag a permission change.
+        /// </summary>
+        internal void RefreshActability()
+        {
+            bool act = ActEnabled;
+            foreach (var registration in _registry.GetRegistrations())
+            {
+                bool actable = act;
+                if (actable && string.Equals(registration.Kind, "ssh", StringComparison.Ordinal))
+                {
+                    var profileId = registration.ProfileId;
+                    var probe = _sshProfileAllowlist;
+                    actable = profileId.HasValue && probe != null && probe(profileId.Value);
+                }
+                registration.IsAgentActable = actable;
+            }
         }
 
         // Per-profile SSH allowlist probe, published by MainWindow (reads the
@@ -435,11 +474,21 @@ namespace NovaTerminal.AgentHost
                 try
                 {
                     registration.StatusMachine.Sweep(registration.ProbeHasActiveChildProcesses());
+                    registration.AttentionMachine.Tick();
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"[AgentHost] status sweep failed for {registration.PaneId}: {ex.Message}");
                 }
+            }
+
+            try
+            {
+                RefreshActability();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AgentHost] actability refresh failed: {ex.Message}");
             }
         }
 
@@ -694,6 +743,7 @@ namespace NovaTerminal.AgentHost
                 return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'.");
             }
 
+            registration.AttentionMachine.NoteRead();
             var dto = registration.StatusMachine.Snapshot().ToDto(registration.PaneId);
             return Ok(request.Id, JsonSerializer.SerializeToElement(dto, AgentHostJsonContext.Default.SessionStatusDto));
         }
@@ -714,8 +764,26 @@ namespace NovaTerminal.AgentHost
 
             var sinceSeq = Math.Max(0, p.SinceSeq);
             var timeout = TimeSpan.FromMilliseconds(Math.Clamp(p.TimeoutMs, 0, AgentHostProtocol.MaxWaitForEventsTimeoutMs));
-            var result = await ring.WaitSinceAsync(sinceSeq, timeout, cancellationToken).ConfigureAwait(false);
-            return Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.WaitForEventsResult));
+
+            // WaitForEventsParams names no pane (only sinceSeq/timeoutMs), so this
+            // drives the window-level observe indicator (a later task's chrome),
+            // never any pane's attention tier.
+            if (Interlocked.Increment(ref _inFlightPolls) == 1)
+            {
+                ObserveActivityChanged?.Invoke();
+            }
+            try
+            {
+                var result = await ring.WaitSinceAsync(sinceSeq, timeout, cancellationToken).ConfigureAwait(false);
+                return Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.WaitForEventsResult));
+            }
+            finally
+            {
+                if (Interlocked.Decrement(ref _inFlightPolls) == 0)
+                {
+                    ObserveActivityChanged?.Invoke();
+                }
+            }
         }
 
         private AgentHostResponse HandleExportReplay(AgentHostRequest request)
@@ -812,6 +880,8 @@ namespace NovaTerminal.AgentHost
                 return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, p.PaneId, "screen",
                     Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'."));
             }
+
+            registration.AttentionMachine.NoteRead();
 
             if (!registration.TryCapturePng(Math.Max(0, p.MaxWidth), out var capture, out var captureError))
             {
@@ -937,6 +1007,8 @@ namespace NovaTerminal.AgentHost
                         "The session is not accepting input (its process has exited or is being torn down)."));
             }
 
+            registration.AttentionMachine.NoteWrote(AgentHostProtocol.Methods.SendInput);
+
             var result = new SendInputResult { BytesSent = byteCount };
             return Journaled(request, AgentHostProtocol.Methods.SendInput, p.PaneId, registration.ProfileName,
                 Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.SendInputResult)));
@@ -988,6 +1060,13 @@ namespace NovaTerminal.AgentHost
                     Error(request.Id, code, message));
             }
 
+            // The pane did not exist when this call started, so there was
+            // nothing to mark until the executor created and registered it.
+            if (_registry.TryGet(spawn.PaneId, out var spawned))
+            {
+                spawned.AttentionMachine.NoteWrote(AgentHostProtocol.Methods.SpawnSession);
+            }
+
             var dto = new SpawnSessionResult
             {
                 PaneId = spawn.PaneId,
@@ -1026,7 +1105,9 @@ namespace NovaTerminal.AgentHost
             // Close is deliberately not SSH-allowlist-gated: it ends a session the
             // user can see disappear and is journaled; it cannot exfiltrate or run
             // anything. It still requires a live registration, so unknown panes 404.
-            if (!_registry.TryGet(p.PaneId, out _))
+            // Looked up now, before the executor tears the pane down below, so
+            // there is still something to mark once the close succeeds.
+            if (!_registry.TryGet(p.PaneId, out var registration))
             {
                 return Journaled(request, AgentHostProtocol.Methods.CloseSession, p.PaneId, "session",
                     Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'."));
@@ -1046,6 +1127,11 @@ namespace NovaTerminal.AgentHost
                 return Journaled(request, AgentHostProtocol.Methods.CloseSession, p.PaneId, "session",
                     Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live pane with paneId '{p.PaneId}' to close."));
             }
+
+            // Use the registration captured above, not a fresh TryGet: the
+            // executor may already have unregistered the pane, and the write
+            // still happened to it.
+            registration.AttentionMachine.NoteWrote(AgentHostProtocol.Methods.CloseSession);
 
             var dto = new CloseSessionResult { Closed = true };
             return Journaled(request, AgentHostProtocol.Methods.CloseSession, p.PaneId, "session",
@@ -1083,6 +1169,7 @@ namespace NovaTerminal.AgentHost
                 return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'.");
             }
 
+            registration.AttentionMachine.NoteRead();
             var buffer = registration.Buffer;
             BufferSnapshot snapshot;
             bool cursorVisible;
@@ -1125,6 +1212,7 @@ namespace NovaTerminal.AgentHost
                 return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'.");
             }
 
+            registration.AttentionMachine.NoteRead();
             var buffer = registration.Buffer;
             string[] lines;
             int effectiveStart;

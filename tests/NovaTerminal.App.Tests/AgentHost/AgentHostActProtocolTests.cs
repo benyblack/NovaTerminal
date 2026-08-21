@@ -319,29 +319,7 @@ public class AgentHostActProtocolTests
     }
 
     // ── spawnSession / closeSession ──────────────────────────────────────────
-
-    private sealed class StubExecutor : IAgentActionExecutor
-    {
-        public Func<string?, (AgentSpawnResult?, AgentSpawnError?)>? OnSpawn;
-        public Func<Guid, bool>? OnClose;
-        public string? LastSpawnProfile;
-        public Guid? LastClosePane;
-        public int SpawnCalls;
-
-        public Task<(AgentSpawnResult? Result, AgentSpawnError? Error)> SpawnAsync(string? profileName)
-        {
-            SpawnCalls++;
-            LastSpawnProfile = profileName;
-            var r = OnSpawn?.Invoke(profileName) ?? (null, AgentSpawnError.SpawnFailed);
-            return Task.FromResult(r);
-        }
-
-        public Task<bool> ClosePaneAsync(Guid paneId)
-        {
-            LastClosePane = paneId;
-            return Task.FromResult(OnClose?.Invoke(paneId) ?? false);
-        }
-    }
+    // StubExecutor now lives in StubExecutor.cs, shared with the attention tests.
 
     private static string SpawnLine(string? profile, long id = 1)
     {
