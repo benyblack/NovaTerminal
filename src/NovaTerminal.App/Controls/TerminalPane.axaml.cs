@@ -121,6 +121,9 @@ namespace NovaTerminal.Controls
         private bool _isUpdatingScroll = false;
         private bool _disposed;
         private NovaTerminal.AgentHost.AgentSessionRegistration? _agentRegistration;
+        private bool _agentActable;
+        private NovaTerminal.AgentHost.AgentAttentionSnapshot _agentAttention =
+            new(NovaTerminal.AgentHost.AgentAttentionTier.Idle, null, null);
         private DateTimeOffset? _lastCommandStartedAtUtc;
         private Action<int, int>? _onTermViewResize;
         private Action<float, float>? _onTermViewMetricsChanged;
@@ -576,6 +579,7 @@ namespace NovaTerminal.Controls
             // A3 act: an agent typing into this pane is text the keyboard path never saw.
             _agentRegistration.InputInjected = NotifyExternalInputSent;
             NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(_agentRegistration);
+            _agentRegistration.AttentionMachine.Changed += OnAgentAttentionChanged;
             TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
             WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();
 
@@ -3870,6 +3874,10 @@ namespace NovaTerminal.Controls
             _disposed = true;
 
             NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Unregister(PaneId);
+            if (_agentRegistration != null)
+            {
+                _agentRegistration.AttentionMachine.Changed -= OnAgentAttentionChanged;
+            }
 
             CloseRemoteFilesSidebar();
 
@@ -3984,11 +3992,90 @@ namespace NovaTerminal.Controls
             };
         }
 
+        /// <summary>
+        /// Single owner of StatusBar visibility. Two independent features want
+        /// the bar (SSH port forwards, agent access), so neither writes
+        /// IsVisible directly. Only persistent conditions appear here: the bar
+        /// appearing or disappearing resizes the terminal, so agent *activity*
+        /// must never reach this.
+        /// </summary>
+        internal void UpdateStatusBarVisibility()
+        {
+            bool sshForwards = Profile != null && Profile.Forwards.Count > 0;
+            StatusBar.IsVisible = sshForwards || _agentActable;
+            AgentStatusSegment.IsVisible = _agentActable;
+        }
+
+        /// <summary>
+        /// Renders the pane's agent attention tier. Called on the UI thread from
+        /// the registration's Changed event and whenever act-reachability is
+        /// republished.
+        /// </summary>
+        internal void ApplyAgentAttention(NovaTerminal.AgentHost.AgentAttentionSnapshot snapshot, bool isActable)
+        {
+            _agentAttention = snapshot;
+            _agentActable = isActable;
+            UpdateStatusBarVisibility();
+
+            if (!_agentActable) return;
+
+            switch (snapshot.Tier)
+            {
+                case NovaTerminal.AgentHost.AgentAttentionTier.Wrote:
+                    AgentStatusDot.Fill = new SolidColorBrush(Color.Parse("#E8A33D"));
+                    AgentStatusText.Text = "agent typed";
+                    AgentStatusText.Foreground = new SolidColorBrush(Color.Parse("#F0C07A"));
+                    break;
+                case NovaTerminal.AgentHost.AgentAttentionTier.Watched:
+                    AgentStatusDot.Fill = new SolidColorBrush(Color.Parse("#4FB0D4"));
+                    AgentStatusText.Text = "agent reading";
+                    AgentStatusText.Foreground = new SolidColorBrush(Color.Parse("#7FC3DC"));
+                    break;
+                default:
+                    AgentStatusDot.Fill = new SolidColorBrush(Color.Parse("#6B737F"));
+                    AgentStatusText.Text = "agent access";
+                    AgentStatusText.Foreground = new SolidColorBrush(Color.Parse("#AAAAAA"));
+                    break;
+            }
+        }
+
+        // Raised on the endpoint's IPC or timer thread; Avalonia controls are
+        // UI-thread only, so hop before touching the status bar. The handler
+        // body stays a bare Dispatcher.UIThread.Post with no logic in it:
+        // AgentAttentionMachine.DrainPendingEvents rethrows subscriber
+        // exceptions on the calling thread, and that thread is serving a live
+        // agent-host request. Guard the Post itself too — during teardown the
+        // dispatcher can be gone while the endpoint is still serving requests.
+        private void OnAgentAttentionChanged(NovaTerminal.AgentHost.AgentAttentionSnapshot snapshot)
+        {
+            var registration = _agentRegistration;
+            if (registration == null) return;
+            try
+            {
+                Dispatcher.UIThread.Post(() => ApplyAgentAttention(snapshot, registration.IsAgentActable));
+            }
+            catch (Exception)
+            {
+                // Dispatcher unavailable during app teardown; nothing to render to.
+                // Never let this escape: it runs on the endpoint's IPC/timer
+                // thread, and AgentAttentionMachine.Changed rethrows subscriber
+                // exceptions on that same thread.
+            }
+        }
+
+        /// <summary>
+        /// Test-only trigger for the SSH forwarding refresh that normally runs off
+        /// <see cref="_statusTimer"/>'s 2-second tick. Tests construct a pane with
+        /// forwards but never wait out a real timer, so without this hook the SSH
+        /// half of the status bar (label, per-rule rows) never renders.
+        /// </summary>
+        internal void UpdateForwardingStatusForTesting() => UpdateForwardingStatus();
+
         private void UpdateForwardingStatus()
         {
             if (Profile == null || Profile.Forwards.Count == 0)
             {
-                StatusBar.IsVisible = false;
+                UpdateStatusBarVisibility();
                 return;
             }
 
@@ -4080,7 +4167,7 @@ namespace NovaTerminal.Controls
         private void UpdateStatusBarUI()
         {
             if (Profile == null) return;
-            StatusBar.IsVisible = true;
+            UpdateStatusBarVisibility();
             StatusBarLabel.Text = $"SSH ▸ {Profile.Name} ▸";
             StatusBarRules.Children.Clear();
 
