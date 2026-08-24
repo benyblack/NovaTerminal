@@ -1,6 +1,9 @@
 using System;
+using System.Globalization;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Threading;
 using NovaTerminal.AgentHost;
 using NovaTerminal.Controls;
@@ -97,15 +100,99 @@ public class PaneAgentStatusBarTests
     {
         // UpdateStatusBarUI clears StatusBarRules wholesale; the agent segment
         // lives in its own container precisely so it survives that.
-        using var pane = new TerminalPane("cmd.exe");
+        //
+        // This has to be an SSH pane with forwards, driven through
+        // UpdateForwardingStatus. The earlier version of this test built a local
+        // pane and called UpdateStatusBarVisibility(), which never touches
+        // StatusBarRules at all — UpdateStatusBarUI was never reached, so it
+        // would have passed even with the segment nested back inside
+        // StatusBarRules, the exact regression it exists to prevent.
+        using var pane = MakeSshPaneWithForward();
         pane.ApplyAgentAttention(
             new AgentAttentionSnapshot(AgentAttentionTier.Wrote, DateTimeOffset.UtcNow, "sendInput"),
             isActable: true);
+        Assert.True(GetAgentSegment(pane).IsVisible);
 
-        pane.UpdateStatusBarVisibility();
+        // UpdateForwardingStatus only rebuilds the bar when a rule's status
+        // actually changed or the bar was hidden, and here the bar is already
+        // up. Degraded is a status the recompute never produces (it yields
+        // Active/Starting/Stopped only), so the change — and therefore the
+        // UpdateStatusBarUI call — is guaranteed, whatever is listening locally.
+        pane.Profile!.Forwards[0].Status = ForwardingStatus.Degraded;
+        pane.UpdateForwardingStatusForTesting();
+
+        // Proof the wholesale-clearing path really ran: UpdateStatusBarUI is the
+        // only thing that populates StatusBarRules.
+        Assert.Single(GetStatusBarRules(pane).Children);
 
         Assert.True(GetAgentSegment(pane).IsVisible);
         Assert.Contains("typed", GetAgentSegmentText(pane), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(Color.Parse("#F0C07A"), GetAgentSegmentTextColor(pane));
+    }
+
+    [AvaloniaFact]
+    public void The_agent_segment_is_a_clickable_button()
+    {
+        // The design promises "clicking the agent segment opens the existing
+        // Agent Activity window". The pane segment is the surface the user
+        // actually looks at, so leaving it inert while the window-level light is
+        // actionable is backwards. Its visibility is still owned solely by
+        // UpdateStatusBarVisibility, alongside the panel inside it.
+        using var pane = new TerminalPane("cmd.exe");
+        pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: false);
+        Assert.False(GetAgentButton(pane).IsVisible);
+
+        pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: true);
+
+        var button = GetAgentButton(pane);
+        Assert.True(button.IsVisible);
+        Assert.Same(GetAgentSegment(pane), button.Content);
+        // Never steal keyboard focus from the terminal.
+        Assert.False(button.Focusable);
+    }
+
+    [AvaloniaFact]
+    public void Clicking_the_segment_outside_a_window_is_harmless()
+    {
+        // The handler resolves VisualRoot as MainWindow; a pane that is not
+        // attached to one (every unit test, and any pane mid-construction) must
+        // no-op rather than throw.
+        using var pane = new TerminalPane("cmd.exe");
+        pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: true);
+
+        GetAgentButton(pane).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.True(GetAgentButton(pane).IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void The_tooltip_names_the_tier()
+    {
+        using var pane = new TerminalPane("cmd.exe");
+
+        pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: true);
+        Assert.Contains("can read", GetAgentTooltip(pane), StringComparison.OrdinalIgnoreCase);
+
+        pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Watched, null, null), isActable: true);
+        Assert.Contains("is reading", GetAgentTooltip(pane), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [AvaloniaFact]
+    public void The_wrote_tooltip_names_the_write_time_and_method()
+    {
+        // "agent typed" is sticky for at least ten seconds, so the two-word
+        // label alone cannot distinguish a write from a moment ago from one the
+        // user already saw. The tooltip carries the clock time and the method.
+        using var pane = new TerminalPane("cmd.exe");
+        var writtenAt = DateTimeOffset.UtcNow;
+
+        pane.ApplyAgentAttention(
+            new AgentAttentionSnapshot(AgentAttentionTier.Wrote, writtenAt, "closeSession"),
+            isActable: true);
+
+        string tip = GetAgentTooltip(pane);
+        Assert.Contains(writtenAt.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture), tip, StringComparison.Ordinal);
+        Assert.Contains("closeSession", tip, StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -166,6 +253,19 @@ public class PaneAgentStatusBarTests
 
     private static string GetAgentSegmentText(TerminalPane pane)
         => Assert.IsType<TextBlock>(pane.FindControl<TextBlock>("AgentStatusText")).Text ?? string.Empty;
+
+    private static Color GetAgentSegmentTextColor(TerminalPane pane)
+        => Assert.IsType<SolidColorBrush>(
+            Assert.IsType<TextBlock>(pane.FindControl<TextBlock>("AgentStatusText")).Foreground).Color;
+
+    private static Button GetAgentButton(TerminalPane pane)
+        => Assert.IsType<Button>(pane.FindControl<Button>("AgentStatusButton"));
+
+    private static string GetAgentTooltip(TerminalPane pane)
+        => ToolTip.GetTip(GetAgentButton(pane)) as string ?? string.Empty;
+
+    private static StackPanel GetStatusBarRules(TerminalPane pane)
+        => Assert.IsType<StackPanel>(pane.FindControl<StackPanel>("StatusBarRules"));
 
     private static string GetStatusBarLabel(TerminalPane pane)
         => Assert.IsType<TextBlock>(pane.FindControl<TextBlock>("StatusBarLabel")).Text ?? string.Empty;

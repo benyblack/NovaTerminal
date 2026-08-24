@@ -5618,7 +5618,7 @@ namespace NovaTerminal
         // snapshot of recent acting attempts (allowed and denied), newest first,
         // with a Refresh button. The journal data layer lives in
         // AgentActivityJournal; this is its window.
-        private async Task ShowAgentActivityJournalAsync()
+        internal async Task ShowAgentActivityJournalAsync()
         {
             var dialog = CreateThemedDialogWindow("Agent activity", 720, 460, canResize: true);
 

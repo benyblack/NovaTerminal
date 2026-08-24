@@ -697,6 +697,20 @@ namespace NovaTerminal.Controls
             AutomationProperties.SetName(TermView, "Terminal Pane");
             AutomationProperties.SetName(this, "Terminal Pane");
 
+            // The pane segment is the agent surface the user actually looks at,
+            // so it opens the Agent Activity journal exactly the way the
+            // window-level AgentObserveIndicator does (MainWindow.axaml.cs's
+            // agentObserveIndicator.Click). Null-safe on VisualRoot: the pane is
+            // constructed before it is attached, and unit tests never attach it
+            // to a window at all.
+            AgentStatusButton.Click += async (_, _) =>
+            {
+                if (VisualRoot is MainWindow mainWindow)
+                {
+                    await mainWindow.ShowAgentActivityJournalAsync();
+                }
+            };
+
             // Smart Paste Action setup
             TermView.TextFileDropped += (s, args) =>
             {
@@ -4000,11 +4014,16 @@ namespace NovaTerminal.Controls
         /// IsVisible directly. Only persistent conditions appear here: the bar
         /// appearing or disappearing resizes the terminal, so agent *activity*
         /// must never reach this.
+        ///
+        /// It owns the agent segment's own visibility too — both the clickable
+        /// wrapper and the panel inside it, so an invisible segment leaves no
+        /// button padding behind in the bar.
         /// </summary>
         internal void UpdateStatusBarVisibility()
         {
             bool sshForwards = Profile != null && Profile.Forwards.Count > 0;
             StatusBar.IsVisible = sshForwards || _agentActable;
+            AgentStatusButton.IsVisible = _agentActable;
             AgentStatusSegment.IsVisible = _agentActable;
         }
 
@@ -4040,6 +4059,36 @@ namespace NovaTerminal.Controls
                     AgentStatusText.Text = "agent access";
                     AgentStatusText.Foreground = new SolidColorBrush(Color.Parse("#AAAAAA"));
                     break;
+            }
+
+            ToolTip.SetTip(AgentStatusButton, BuildAgentSegmentTooltip(snapshot));
+        }
+
+        /// <summary>
+        /// The segment's hover text. The two-word label in the bar cannot say
+        /// *when* an agent typed, and the write tier is sticky for at least ten
+        /// seconds, so "agent typed" alone leaves the user unable to tell a
+        /// write from a moment ago from one they already saw. Names the method
+        /// too, since sendInput and closeSession are very different events.
+        /// </summary>
+        private static string BuildAgentSegmentTooltip(NovaTerminal.AgentHost.AgentAttentionSnapshot snapshot)
+        {
+            const string Suffix = " Click to open the agent activity journal.";
+            switch (snapshot.Tier)
+            {
+                case NovaTerminal.AgentHost.AgentAttentionTier.Wrote:
+                    string when = snapshot.LastWriteUtc.HasValue
+                        ? snapshot.LastWriteUtc.Value.ToLocalTime().ToString(
+                            "HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
+                        : "just now";
+                    string method = string.IsNullOrEmpty(snapshot.LastWriteMethod)
+                        ? "an agent"
+                        : snapshot.LastWriteMethod;
+                    return $"An agent typed into this pane at {when} ({method})." + Suffix;
+                case NovaTerminal.AgentHost.AgentAttentionTier.Watched:
+                    return "An agent is reading this pane." + Suffix;
+                default:
+                    return "An agent can read this pane and type into it." + Suffix;
             }
         }
 
