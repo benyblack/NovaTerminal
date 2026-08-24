@@ -171,7 +171,7 @@ namespace NovaTerminal.Pty
 
             try
             {
-                if (Native.pty_try_get_exit_code(_handle, out int code) != 1)
+                if (_tryGetExitCode(_handle, out int code) != 1)
                 {
                     return false;
                 }
@@ -184,6 +184,28 @@ namespace NovaTerminal.Pty
             catch (ObjectDisposedException)
             {
                 return false; // handle released under us — Dispose owns the teardown
+            }
+            catch (Exception ex)
+            {
+                // An interop failure is a status we could not learn, not a session failure -
+                // exactly what a native -1 already means here, and already handled as such
+                // downstream. Letting it escape cost far more than the status, because this is
+                // called from three places: the exit watcher, the read loop's EOF/error
+                // branches, and ResolveExitCodeForNotification - whose call site in ProcessLoop
+                // sits *outside* that loop's try/catch. So a single throw killed the watcher on
+                // its first tick (silently reverting the session to the EOF-only detection #313
+                // exists to replace) and then took the exit notification with it as an unhandled
+                // exception on a dedicated thread, which a test host reports as a catastrophic
+                // failure of the entire run rather than as anything to do with this session.
+                //
+                // The failure that prompted this: a stale rusty_pty build in a test output
+                // directory, exporting every other pty_* function but predating
+                // pty_try_get_exit_code, throws EntryPointNotFoundException from this call. A
+                // session cannot repair its own native library; it can say so and carry on with
+                // the status unknown.
+                PtyLogger.Error(
+                    $"[RustPtySession] Child status probe failed; treating the child's exit status as unknown: {ex}");
+                return false;
             }
         }
 
@@ -606,6 +628,16 @@ namespace NovaTerminal.Pty
 
         private readonly PtyReadDelegate _readFromPty;
 
+        /// The native child-status probe, injectable for the same reason as
+        /// <see cref="PtyReadDelegate"/>: `pty_try_get_exit_code` is a static P/Invoke, so
+        /// without a seam here the interop-failure handling in
+        /// <see cref="TryCaptureChildExit"/> is unreachable from a test. Returns 1 with
+        /// `exitCode` set once the child has gone, 0 while it is running, and -1 when the
+        /// status cannot be determined.
+        internal delegate int PtyTryGetExitCodeDelegate(PtySafeHandle handle, out int exitCode);
+
+        private readonly PtyTryGetExitCodeDelegate _tryGetExitCode;
+
         public RustPtySession(
             string shellCommand,
             int cols = 120,
@@ -622,15 +654,18 @@ namespace NovaTerminal.Pty
                 cwd,
                 skipPowerShellPostLaunchInit,
                 environmentOverrides,
-                readFromPty: null)
+                readFromPty: null,
+                tryGetExitCode: null)
         {
         }
 
-        /// Test-facing constructor. Identical to the public one except that the PTY read
-        /// call can be substituted: `Native.pty_read` is a static P/Invoke, so without a
-        /// seam here the read loop's error handling (bounded retry, teardown, failure exit
-        /// code) is unreachable from a test. The session still spawns a real shell, so the
-        /// teardown path is exercised against a real handle and a real child process.
+        /// Test-facing constructor. Identical to the public one except that the two native
+        /// calls the background loops depend on can be substituted: `Native.pty_read` and
+        /// `Native.pty_try_get_exit_code` are static P/Invokes, so without a seam here the
+        /// read loop's error handling (bounded retry, teardown, failure exit code) and the
+        /// child-status probe's interop-failure handling are unreachable from a test. The
+        /// session still spawns a real shell, so the teardown path is exercised against a
+        /// real handle and a real child process.
         internal RustPtySession(
             string shellCommand,
             int cols,
@@ -639,7 +674,8 @@ namespace NovaTerminal.Pty
             string? cwd,
             bool skipPowerShellPostLaunchInit,
             IReadOnlyDictionary<string, string>? environmentOverrides,
-            PtyReadDelegate? readFromPty)
+            PtyReadDelegate? readFromPty,
+            PtyTryGetExitCodeDelegate? tryGetExitCode = null)
         {
             // Validate before anything else: everything below either marshals these strings
             // to the native layer or derives from them. A bad value must fail here with a
@@ -657,6 +693,7 @@ namespace NovaTerminal.Pty
             }
 
             _readFromPty = readFromPty ?? Native.pty_read;
+            _tryGetExitCode = tryGetExitCode ?? Native.pty_try_get_exit_code;
             ShellCommand = shellCommand;
             ShellArguments = args;
             _cols = cols;
