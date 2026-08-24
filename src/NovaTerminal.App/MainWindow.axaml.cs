@@ -3596,6 +3596,18 @@ namespace NovaTerminal
             return false;
         }
 
+        /// <summary>
+        /// Whether an attention tier is loud enough for the tab strip under the
+        /// given rollup policy. A write always shows: the setting only governs
+        /// whether reads do.
+        /// </summary>
+        internal static bool ShouldShowTierInTabStrip(string? rollupPolicy, AgentHost.AgentAttentionTier tier)
+        {
+            if (tier == AgentHost.AgentAttentionTier.Wrote) return true;
+            if (tier == AgentHost.AgentAttentionTier.Idle) return false;
+            return string.Equals(rollupPolicy, "All", StringComparison.Ordinal);
+        }
+
         internal static bool ShouldAutoAcceptRunningPaneClose(
             bool isProcessRunning,
             bool hasActiveChildProcesses,
