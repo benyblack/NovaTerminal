@@ -683,7 +683,7 @@ namespace NovaTerminal
             var badge = this.FindControl<TextBlock>("TabOverflowBadge");
             // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
             // layout, in which case this button does not exist and the indicator stays quiet.
-            var button = FindTitleBarButton("open_tab_list");
+            var button = FindTitleBarButton(TitleBarCatalog.OpenTabListId);
             var scrollViewer = FindTabHeaderScrollViewer();
             if (tabs == null || badge == null || button == null || scrollViewer == null) return;
 
@@ -762,7 +762,7 @@ namespace NovaTerminal
         {
             // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
             // layout, in which case this button does not exist and populating its menu is moot.
-            var button = FindTitleBarButton("open_tab_list");
+            var button = FindTitleBarButton(TitleBarCatalog.OpenTabListId);
             var tabs = this.FindControl<TabControl>("Tabs");
             if (button == null || tabs == null) return;
 
@@ -840,7 +840,7 @@ namespace NovaTerminal
                 }
             }
 
-            if (showFlyout && button != null)
+            if (showFlyout)
             {
                 flyout.ShowAt(button);
             }
@@ -2049,7 +2049,7 @@ namespace NovaTerminal
             };
 
             var tabs = this.FindControl<TabControl>("Tabs");
-            var btnNew = this.FindControl<Button>("BtnNewTab");
+            var btnNew = this.FindControl<Button>(TitleBarViewFactory.NewTabButtonName);
             var titleBar = this.FindControl<Grid>("TitleBar");
             var dragBorder = this.FindControl<Border>("DragBorder");
 
@@ -2406,9 +2406,9 @@ namespace NovaTerminal
                         return;
                     }
                 }
-                if (IsShortcut(e, "open_tab_list", "Ctrl+Shift+O"))
+                if (IsShortcut(e, TitleBarCatalog.OpenTabListId, "Ctrl+Shift+O"))
                 {
-                    RecordCommandUsage("open_tab_list");
+                    RecordCommandUsage(TitleBarCatalog.OpenTabListId);
                     PopulateTabListMenu(showFlyout: true);
                     e.Handled = true;
                     return;
@@ -4082,7 +4082,7 @@ namespace NovaTerminal
 
         private void PopulateNewTabMenu()
         {
-            var btnNewTab = this.FindControl<Button>("BtnNewTab");
+            var btnNewTab = this.FindControl<Button>(TitleBarViewFactory.NewTabButtonName);
             var flyout = btnNewTab?.Flyout as MenuFlyout;
             if (flyout == null) return;
 
@@ -4401,8 +4401,8 @@ namespace NovaTerminal
             this.Foreground = contrastForeground;
 
             // Apply to Title Bar Buttons
-            var btnNew = this.FindControl<Button>("BtnNewTab");
-            var btnTabList = FindTitleBarButton("open_tab_list");
+            var btnNew = this.FindControl<Button>(TitleBarViewFactory.NewTabButtonName);
+            var btnTabList = FindTitleBarButton(TitleBarCatalog.OpenTabListId);
             var iconTabList = btnTabList?.Content as PathIcon;
             var btnRecord = FindTitleBarButton("toggle_recording");
             var btnConns = FindTitleBarButton("connections");
@@ -4524,7 +4524,7 @@ namespace NovaTerminal
             CommandRegistry.Register("Close Pane", "General", () => CloseActivePane(), GetEffectiveShortcutBinding("close_pane", "Ctrl+Shift+W"), "close_pane");
             CommandRegistry.Register("Tab: Next (MRU)", "General", () => SwitchTabByMru(reverse: false), GetEffectiveShortcutBinding("next_tab", "Ctrl+Tab"), "next_tab");
             CommandRegistry.Register("Tab: Previous (MRU)", "General", () => SwitchTabByMru(reverse: true), GetEffectiveShortcutBinding("prev_tab", "Ctrl+Shift+Tab"), "prev_tab");
-            CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), GetEffectiveShortcutBinding("open_tab_list", "Ctrl+Shift+O"), "open_tab_list");
+            CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), GetEffectiveShortcutBinding(TitleBarCatalog.OpenTabListId, "Ctrl+Shift+O"), TitleBarCatalog.OpenTabListId);
             CommandRegistry.Register("Tab: Rename Current", "General", () => _ = RenameSelectedTabAsync(), "");
             CommandRegistry.Register("Tab: Copy Current Title", "General", () => _ = CopySelectedTabTitleAsync(), "");
             CommandRegistry.Register("Tab: Close Others", "General", () => _ = CloseOtherTabsAsync(), "");
@@ -6120,7 +6120,7 @@ namespace NovaTerminal
             return new Dictionary<string, Action>(StringComparer.OrdinalIgnoreCase)
             {
                 ["new_tab"] = () => AddTab(),
-                ["open_tab_list"] = () => PopulateTabListMenu(showFlyout: true),
+                [TitleBarCatalog.OpenTabListId] = () => PopulateTabListMenu(showFlyout: true),
                 ["connections"] = () => ToggleConnections(),
                 ["settings"] = () => _ = OpenSettings(0),
                 ["toggle_recording"] = () => _currentPane?.ToggleRecording(),
@@ -6171,7 +6171,7 @@ namespace NovaTerminal
                 layout,
                 _settings.Keybindings,
                 BuildTitleBarHandlers(),
-                this.FindControl<Button>("BtnNewTab"),
+                this.FindControl<Button>(TitleBarViewFactory.NewTabButtonName),
                 id => AppLogger.Log($"[TitleBar] no handler wired for catalog id '{id}'; skipping"));
 
             // The record button is recreated by every rebuild, so its active colouring has to be

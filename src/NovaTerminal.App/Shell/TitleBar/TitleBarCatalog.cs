@@ -59,10 +59,16 @@ public static class TitleBarCatalog
     /// <summary>The id of the New Tab entry, which is locked and renders its XAML-declared flyout.</summary>
     public const string NewTabId = "new_tab";
 
+    /// <summary>
+    /// The id of the Tab List entry. Also a persisted settings key and a
+    /// <see cref="Shortcuts.ShortcutCatalog"/> command id, so the string value must not change.
+    /// </summary>
+    public const string OpenTabListId = "open_tab_list";
+
     private static readonly IReadOnlyList<TitleBarCatalogEntry> Entries =
     [
         new(NewTabId, "New Tab", GeometryPlus, 16, "new_tab", TitleBarItemState.Pinned, IsLocked: true, IsToggle: false),
-        new("open_tab_list", "Tab List", GeometryTabList, 16, "open_tab_list", TitleBarItemState.Pinned, IsLocked: false, IsToggle: false),
+        new(OpenTabListId, "Tab List", GeometryTabList, 16, OpenTabListId, TitleBarItemState.Pinned, IsLocked: false, IsToggle: false),
         new("connections", "Connections", GeometryConnections, 16, "connections", TitleBarItemState.Pinned, IsLocked: false, IsToggle: false),
         new("settings", "Settings", GeometrySettings, 16, "settings", TitleBarItemState.Pinned, IsLocked: false, IsToggle: false),
         new("toggle_recording", "Record Session", GeometryRecord, 14, "toggle_recording", TitleBarItemState.Overflow, IsLocked: false, IsToggle: true),

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using NovaTerminal.Shell.TitleBar;
 
 namespace NovaTerminal.Shell.Shortcuts;
 
@@ -14,7 +15,7 @@ public static class ShortcutCatalog
         new("close_tab", "Close Tab", "General", ShortcutScope.App, "Ctrl+W"),
         new("next_tab", "Tab: Next (MRU)", "General", ShortcutScope.App, "Ctrl+Tab"),
         new("prev_tab", "Tab: Previous (MRU)", "General", ShortcutScope.App, "Ctrl+Shift+Tab"),
-        new("open_tab_list", "Tab: Open Tab List", "General", ShortcutScope.App, "Ctrl+Shift+O"),
+        new(TitleBarCatalog.OpenTabListId, "Tab: Open Tab List", "General", ShortcutScope.App, "Ctrl+Shift+O"),
         new("font_increase", "Font: Increase", "View", ShortcutScope.App, "Ctrl+OemPlus"),
         new("font_increase_alt", "Font: Increase (Alt)", "View", ShortcutScope.App, "Ctrl+Add"),
         new("font_decrease", "Font: Decrease", "View", ShortcutScope.App, "Ctrl+OemMinus"),
