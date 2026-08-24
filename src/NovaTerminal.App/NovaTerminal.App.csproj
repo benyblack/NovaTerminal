@@ -61,6 +61,22 @@
 
   <PropertyGroup>
     <NativeProjectDir>$(MSBuildProjectDirectory)\native\</NativeProjectDir>
+
+    <!-- What a release cargo build actually writes for rusty_pty, per platform. -->
+    <RustPtyNativeCargoOutput Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">$(NativeProjectDir)target\release\rusty_pty.dll</RustPtyNativeCargoOutput>
+    <RustPtyNativeCargoOutput Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">$(NativeProjectDir)target\release\librusty_pty.so</RustPtyNativeCargoOutput>
+    <RustPtyNativeCargoOutput Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))">$(NativeProjectDir)target\release\librusty_pty.dylib</RustPtyNativeCargoOutput>
+
+    <!-- Linux only: the Content items below consume the .so from target_linux\release, not from
+         cargo's own target\release. CI stages it with an explicit `cp`; BuildRustNative now does
+         the same, so a local Linux build produces a usable output at all - without it
+         target_linux stays empty, the Content item is dropped, and the app ships with no PTY. -->
+    <RustPtyNativeStagedOutput Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">$(NativeProjectDir)target_linux\release\librusty_pty.so</RustPtyNativeStagedOutput>
+
+    <!-- Records the hash of the inputs the current binary was built from. Lives inside
+         target\release because that directory is both gitignored and part of CI's
+         native-binary cache, so a cache hit restores the stamp along with the binary. -->
+    <RustPtyNativeStamp>$(NativeProjectDir)target\release\.nova-rust-inputs.sha256</RustPtyNativeStamp>
     <RustSshNativeProjectDir>$(NativeProjectDir)rusty_ssh\</RustSshNativeProjectDir>
     <RustSshNativeOutput Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">$(RustSshNativeProjectDir)target\release\rusty_ssh.dll</RustSshNativeOutput>
     <RustSshNativeOutput Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">$(RustSshNativeProjectDir)target\release\librusty_ssh.so</RustSshNativeOutput>
@@ -68,23 +84,74 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <RustPtyNativeInputs Include="$(NativeProjectDir)Cargo.toml" />
+    <RustPtyNativeInputs Include="$(NativeProjectDir)Cargo.lock" />
+    <RustPtyNativeInputs Include="$(NativeProjectDir)src\**\*.rs" />
+
     <RustSshNativeInputs Include="$(RustSshNativeProjectDir)Cargo.toml" />
     <RustSshNativeInputs Include="$(RustSshNativeProjectDir)Cargo.lock" />
     <RustSshNativeInputs Include="$(RustSshNativeProjectDir)src\**\*.rs" />
   </ItemGroup>
 
-  <Target Name="BuildRustNative"
-    BeforeTargets="PrepareForBuild"
-    Condition="'$(DesignTimeBuild)' != 'true'
-      and '$(IsCrossTargetingBuild)' != 'true'
-      and '$(SKIP_RUST_NATIVE_BUILD)' != '1'
-      and (
-        ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows))) and !Exists('$(NativeProjectDir)target\release\rusty_pty.dll'))
-        or
-        ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux))) and !Exists('$(NativeProjectDir)target_linux\release\librusty_pty.so'))
-        or
-        ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX))) and !Exists('$(NativeProjectDir)target\release\librusty_pty.dylib'))
-      )">
+  <!-- Decides whether rusty_pty needs rebuilding, by content rather than by existence.
+
+       This target used to be conditioned on `!Exists(<the native library>)`, so it ran exactly
+       once - the first build in a fresh tree - and never again. Editing native\src\lib.rs
+       therefore did not rebuild the library, and `PreserveNewest` then faithfully copied the
+       unchanged binary onward, so every bin\ directory in the tree kept a stale rusty_pty for
+       as long as the file existed. That is how a build predating the `pty_try_get_exit_code`
+       export survived in tests\NovaTerminal.App.Tests\bin and threw EntryPointNotFoundException
+       at runtime - a failure that looks nothing like a stale-artifact problem from the test
+       output, and whose collateral damage landed on unrelated tests.
+
+       Why a hash stamp rather than MSBuild's Inputs/Outputs, which is what the sibling
+       BuildRustSshNative target uses: Inputs/Outputs compares timestamps, and `actions/checkout`
+       gives every source file a fresh mtime while `actions/cache` restores the binary with its
+       original one. On a CI cache hit - the common case - a timestamp check would therefore call
+       a content-identical binary stale and recompile all 36 crates on a runner whose cargo
+       registry cache was skipped precisely because the binary was already cached, on the same
+       dep-fetch path that already flakes. Hashing the inputs instead agrees with what CI's cache
+       key already asserts (it is keyed on hashFiles of these same files), so a cache hit stays
+       free while a real source edit still rebuilds. -->
+  <Target Name="CheckRustNativeUpToDate" Condition="'$(RustPtyNativeCargoOutput)' != ''">
+
+    <GetFileHash Files="@(RustPtyNativeInputs)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_RustPtyNativeHashedInputs" />
+    </GetFileHash>
+
+    <ReadLinesFromFile File="$(RustPtyNativeStamp)" Condition="Exists('$(RustPtyNativeStamp)')">
+      <Output TaskParameter="Lines" ItemName="_RustPtyNativeStampLines" />
+    </ReadLinesFromFile>
+
+    <PropertyGroup>
+      <!-- Keyed on names relative to the crate, not absolute paths, so the stamp survives being
+           cached on one machine and restored at another path (CI caches, git worktrees). Naming
+           each file also catches an added or deleted source, which a single combined hash of the
+           contents alone would not. -->
+      <RustPtyNativeInputsHash>@(_RustPtyNativeHashedInputs->'%(RecursiveDir)%(Filename)%(Extension)=%(FileHash)', ';')</RustPtyNativeInputsHash>
+      <RustPtyNativeStampHash>@(_RustPtyNativeStampLines)</RustPtyNativeStampHash>
+
+      <RustPtyNativeUpToDate>false</RustPtyNativeUpToDate>
+      <RustPtyNativeUpToDate Condition="Exists('$(RustPtyNativeCargoOutput)')
+        and '$(RustPtyNativeStampHash)' != ''
+        and '$(RustPtyNativeStampHash)' == '$(RustPtyNativeInputsHash)'">true</RustPtyNativeUpToDate>
+      <!-- Linux consumes the staged copy, so a missing one is out of date even when cargo's own
+           output is current - the shape a cache that restored target\release but not
+           target_linux\release leaves behind. -->
+      <RustPtyNativeUpToDate Condition="'$(RustPtyNativeStagedOutput)' != ''
+        and !Exists('$(RustPtyNativeStagedOutput)')">false</RustPtyNativeUpToDate>
+    </PropertyGroup>
+  </Target>
+
+  <!-- The cargo invocation, split out from BuildRustNative so the up-to-date property can
+       actually gate it. MSBuild evaluates a target's Condition *before* building that target's
+       DependsOnTargets, so a property a dependency computes cannot appear in the condition of
+       the target depending on it - and the result is a check that silently never fires rather
+       than an error. Ordering it as the second dependency fixes that: by the time this target's
+       own Condition is evaluated, CheckRustNativeUpToDate has already run. -->
+  <Target Name="RunCargoBuildRustNative"
+    Condition="'$(RustPtyNativeCargoOutput)' != ''
+      and '$(RustPtyNativeUpToDate)' != 'true'">
 
     <Message Importance="high"
       Text="[RustNative] Building Rust native library in: $(NativeProjectDir)" />
@@ -96,9 +163,33 @@
       StandardOutputImportance="High"
       StandardErrorImportance="High" />
 
+    <Copy Condition="'$(RustPtyNativeStagedOutput)' != ''"
+      SourceFiles="$(RustPtyNativeCargoOutput)"
+      DestinationFiles="$(RustPtyNativeStagedOutput)"
+      SkipUnchangedFiles="true" />
+
+    <!-- Written only after cargo succeeds, so a failed build leaves the tree out of date and the
+         next build retries instead of trusting a binary that was never produced. -->
+    <WriteLinesToFile File="$(RustPtyNativeStamp)"
+      Lines="$(RustPtyNativeInputsHash)"
+      Overwrite="true"
+      WriteOnlyWhenDifferent="true" />
+
     <Message Importance="high"
       Text="[RustNative] Build complete." />
   </Target>
+
+  <!-- Kept under the original name: PrepareForBuild hooks here, and
+       IncludeNativeLibrariesInOutput below depends on it. The environment guards live here so
+       that a design-time build or SKIP_RUST_NATIVE_BUILD=1 skips the hashing too, not just the
+       cargo call. -->
+  <Target Name="BuildRustNative"
+    BeforeTargets="PrepareForBuild"
+    DependsOnTargets="CheckRustNativeUpToDate;RunCargoBuildRustNative"
+    Condition="'$(DesignTimeBuild)' != 'true'
+      and '$(IsCrossTargetingBuild)' != 'true'
+      and '$(SKIP_RUST_NATIVE_BUILD)' != '1'
+      and '$(RustPtyNativeCargoOutput)' != ''" />
 
   <Target Name="BuildRustSshNative"
     BeforeTargets="PrepareForBuild"
