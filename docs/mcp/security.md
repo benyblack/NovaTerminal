@@ -35,13 +35,22 @@ macOS/Linux). They are gated by opt-ins in the app's settings:
   Every acting call — allowed or denied — is recorded in an in-app **activity journal**.
 - **Visibility while it happens.** Panes an agent may act on carry an agent segment in
   their status bar; the segment turns blue and reads "agent reading" on any agent read
-  (readScreen, readScrollback, getSessionStatus, captureScreen), and turns amber and reads
-  "agent typed" when an agent writes into that pane (sendInput, spawnSession, closeSession).
+  (readScreen, readScrollback, getSessionStatus, captureScreen, exportReplay — an export
+  writes out the pane's retained flight recording, more of its output than a single
+  `read_screen`, so it counts as a read of that pane), and turns
+  amber and reads "agent typed" when an agent writes into that pane (sendInput,
+  spawnSession, closeSession).
   The amber state persists for at least 10 seconds even if you look at the pane immediately
   — so an agent typing into a pane you are already watching cannot flash past you — and
-  then clears. Tab headers carry a keyboard badge for writes (eye badge for reads too, if
+  then clears. Clicking the segment opens the activity journal. Tab headers carry a
+  keyboard badge for writes (eye badge for reads too, if
   **Settings → Agent Access → Tab indicator** is set to `All`), and a window-level light
-  shows whenever agent access is enabled. The activity journal remains the retrospective
+  shows whenever agent access is enabled, brightening while an agent holds a `waitForEvents`
+  long poll open or while a pane that carries no segment of its own is being read. That
+  second condition is what covers the panes you deliberately left off the act allowlist:
+  they show no status-bar segment, and under the default `WritesOnly` tab setting no badge
+  either, so without it a read of exactly those panes would be visible nowhere.
+  The activity journal remains the retrospective
   record; these are the live ones. There is no way to silence them — the way to have no
   indicator is to turn agent access off.
 - With both toggles off, **no endpoint exists** and the live-session tools return guidance, not data.
