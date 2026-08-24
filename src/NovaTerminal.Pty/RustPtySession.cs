@@ -1056,7 +1056,7 @@ namespace NovaTerminal.Pty
                     // The cost of this ordering is that subscribers observe the exit a few
                     // microseconds before the handle is released. That is the lesser evil: a
                     // brief window versus a permanently wrong exit code.
-                    TryNotifyExit(ReadFailureExitCode);
+                    TryNotifyExitSafely(() => ReadFailureExitCode);
 
                     // Then tear down. Reporting the exit alone would leave the UI recording
                     // a terminated session while the child process, the writer thread and
@@ -1182,7 +1182,9 @@ namespace NovaTerminal.Pty
                 PtyLogger.Error($"[RustPtySession] ProcessLoop terminated by unhandled exception: {ex}");
             }
             // The child's real status, waited for briefly if EOF got here first (#313, #323).
-            TryNotifyExit(ResolveExitCodeForNotification());
+            // Guarded: this line runs after the catch-alls above, so it is the one place in this
+            // loop where a throw would escape the thread. See TryNotifyExitSafely.
+            TryNotifyExitSafely(ResolveExitCodeForNotification);
         }
 
         public void SendInput(string input)
@@ -1340,7 +1342,7 @@ namespace NovaTerminal.Pty
             // No bounded wait here, unlike ProcessLoop (#323): reaching this line means the pane
             // is being torn down, so the user is closing a tab and a snappy close matters more
             // than an exit code nobody will look at.
-            TryNotifyExit(ChildExitObserved ? Volatile.Read(ref _childExitCode) : 0);
+            TryNotifyExitSafely(() => ChildExitObserved ? Volatile.Read(ref _childExitCode) : 0);
         }
 
         /// Observes the injection task's outcome and removes its script if the shell
@@ -1392,6 +1394,35 @@ namespace NovaTerminal.Pty
             {
                 // Best effort: a leftover temp script must never fail a disposal.
                 PtyLogger.Warning($"[RustPtySession] PS init script cleanup failed: {ex.Message}");
+            }
+        }
+
+        /// Resolves and notifies the exit without letting the attempt escape the caller.
+        ///
+        /// Both halves can throw for reasons the session does not control: the resolver polls the
+        /// native layer, and TryNotifyExit raises OnExit, which is arbitrary subscriber code. This
+        /// class deliberately does not guard event invocation itself - OnOutputReceived is raised
+        /// bare too - because the background loops' catch-alls are where subscriber exceptions are
+        /// contained. The exit notification was the one call sitting outside that protection, and
+        /// the cost differed by caller:
+        ///
+        ///   * ProcessLoop calls it after its try/catch, so a throw escaped a dedicated thread -
+        ///     terminating the process rather than the session.
+        ///   * ReadLoop calls it from its `finally` on the read-failure path, ahead of the
+        ///     teardown that cancels the token and completes the output queue. A throw escaped the
+        ///     whole try statement and took that teardown with it, leaving the session half-alive
+        ///     with ProcessLoop parked on a queue nobody would complete.
+        ///   * Dispose calls it last, where nothing is skipped - but a throwing handler still has
+        ///     no business making `using (session)` throw.
+        private void TryNotifyExitSafely(Func<int> resolveCode)
+        {
+            try
+            {
+                TryNotifyExit(resolveCode());
+            }
+            catch (Exception ex)
+            {
+                PtyLogger.Error($"[RustPtySession] Exit notification failed: {ex}");
             }
         }
 
