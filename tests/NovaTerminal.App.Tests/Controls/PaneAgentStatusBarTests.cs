@@ -1,6 +1,7 @@
 using System;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
 using NovaTerminal.AgentHost;
 using NovaTerminal.Controls;
 using NovaTerminal.Platform.Ssh.Launch;
@@ -105,6 +106,53 @@ public class PaneAgentStatusBarTests
 
         Assert.True(GetAgentSegment(pane).IsVisible);
         Assert.Contains("typed", GetAgentSegmentText(pane), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [AvaloniaFact]
+    public void An_actability_flip_with_no_tier_transition_surfaces_the_bar()
+    {
+        // The gap this fixes: AgentHostService.RefreshActability writes
+        // IsAgentActable directly (global act toggle flipped, or an SSH
+        // profile added to the allowlist) with no tier transition alongside
+        // it. Before the fix, nothing told an already-open idle pane to
+        // re-render, so the bar never appeared. No NoteRead/NoteWrote/tier
+        // change anywhere in this test — only the actability flip.
+        using var pane = new TerminalPane("cmd.exe");
+        pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: false);
+        Assert.False(GetStatusBar(pane).IsVisible);
+
+        var registration = pane.AgentRegistrationForTesting;
+        Assert.NotNull(registration);
+        registration!.IsAgentActable = true; // the exact setter RefreshActability writes through
+        Dispatcher.UIThread.RunJobs(); // flush the Dispatcher.UIThread.Post the event handler queues
+
+        Assert.True(GetStatusBar(pane).IsVisible);
+        Assert.True(GetAgentSegment(pane).IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void Repeated_identical_actability_writes_raise_the_event_once()
+    {
+        // The storm guard: AgentHostService.RefreshActability runs from a 1 s
+        // sweep and writes IsAgentActable unconditionally on every tick, for
+        // every registration. If the setter raised on every write rather than
+        // only on an actual change, this would become a perpetual
+        // once-per-second Dispatcher.UIThread.Post per pane.
+        using var pane = new TerminalPane("cmd.exe");
+        var registration = pane.AgentRegistrationForTesting;
+        Assert.NotNull(registration);
+
+        int raiseCount = 0;
+        registration!.ActabilityChanged += _ => raiseCount++;
+
+        registration.IsAgentActable = true;
+        registration.IsAgentActable = true; // same value, as a sweep tick would write
+        registration.IsAgentActable = true;
+
+        Assert.Equal(1, raiseCount);
+
+        registration.IsAgentActable = false; // an actual change still raises
+        Assert.Equal(2, raiseCount);
     }
 
     // Neighbouring pane tests reach controls with FindControl<T> (see

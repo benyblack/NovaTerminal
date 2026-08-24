@@ -580,6 +580,7 @@ namespace NovaTerminal.Controls
             _agentRegistration.InputInjected = NotifyExternalInputSent;
             NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(_agentRegistration);
             _agentRegistration.AttentionMachine.Changed += OnAgentAttentionChanged;
+            _agentRegistration.ActabilityChanged += OnAgentActabilityChanged;
             TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
             WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();
 
@@ -3877,6 +3878,7 @@ namespace NovaTerminal.Controls
             if (_agentRegistration != null)
             {
                 _agentRegistration.AttentionMachine.Changed -= OnAgentAttentionChanged;
+                _agentRegistration.ActabilityChanged -= OnAgentActabilityChanged;
             }
 
             CloseRemoteFilesSidebar();
@@ -4008,8 +4010,10 @@ namespace NovaTerminal.Controls
 
         /// <summary>
         /// Renders the pane's agent attention tier. Called on the UI thread from
-        /// the registration's Changed event and whenever act-reachability is
-        /// republished.
+        /// the registration's <c>AttentionMachine.Changed</c> event (a tier
+        /// transition) and from its <c>ActabilityChanged</c> event (act-reachability
+        /// republished with no tier transition — the global act toggle, or an
+        /// SSH allowlist edit, on an otherwise-idle pane).
         /// </summary>
         internal void ApplyAgentAttention(NovaTerminal.AgentHost.AgentAttentionSnapshot snapshot, bool isActable)
         {
@@ -4063,6 +4067,29 @@ namespace NovaTerminal.Controls
             }
         }
 
+        // Raised on AgentSessionRegistration.IsAgentActable's setter thread —
+        // AgentHostService.RefreshActability runs it from the 1 s sweep and
+        // from the act-toggle setter, neither of which is the UI thread — so
+        // hop the same way OnAgentAttentionChanged does. Kept to a bare guarded
+        // Dispatcher.UIThread.Post with no logic in the body for the same
+        // reason: a throw here must never propagate back into whatever caller
+        // flipped actability (the endpoint's request handling, in the toggle
+        // case). The registration only raises this on an actual value change,
+        // so this cannot become a once-per-second post storm from the sweep.
+        private void OnAgentActabilityChanged(bool isActable)
+        {
+            var registration = _agentRegistration;
+            if (registration == null) return;
+            try
+            {
+                Dispatcher.UIThread.Post(() => ApplyAgentAttention(registration.AttentionMachine.Snapshot(), isActable));
+            }
+            catch (Exception)
+            {
+                // Dispatcher unavailable during app teardown; nothing to render to.
+            }
+        }
+
         /// <summary>
         /// Test-only trigger for the SSH forwarding refresh that normally runs off
         /// <see cref="_statusTimer"/>'s 2-second tick. Tests construct a pane with
@@ -4070,6 +4097,14 @@ namespace NovaTerminal.Controls
         /// half of the status bar (label, per-rule rows) never renders.
         /// </summary>
         internal void UpdateForwardingStatusForTesting() => UpdateForwardingStatus();
+
+        /// <summary>
+        /// Test-only access to the pane's agent-host registration, so tests can
+        /// flip <see cref="NovaTerminal.AgentHost.AgentSessionRegistration.IsAgentActable"/>
+        /// through the exact setter <c>AgentHostService.RefreshActability</c>
+        /// uses, without a live endpoint or settings service.
+        /// </summary>
+        internal NovaTerminal.AgentHost.AgentSessionRegistration? AgentRegistrationForTesting => _agentRegistration;
 
         private void UpdateForwardingStatus()
         {

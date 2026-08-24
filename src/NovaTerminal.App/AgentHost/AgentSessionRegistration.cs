@@ -96,8 +96,40 @@ namespace NovaTerminal.AgentHost
         public bool IsAgentActable
         {
             get { lock (_gate) { return _isAgentActable; } }
-            internal set { lock (_gate) { _isAgentActable = value; } }
+            internal set
+            {
+                // AgentHostService.RefreshActability writes this unconditionally
+                // from a 1 s sweep on every registration. Raising on every write
+                // would turn that into a perpetual once-per-second UI-post storm
+                // per pane, so the event fires only on an actual value change.
+                bool changed;
+                lock (_gate)
+                {
+                    changed = _isAgentActable != value;
+                    _isAgentActable = value;
+                }
+
+                // Raised outside the gate, same rule UpdateSnapshot follows for
+                // AttentionMachine.NoteFocusChanged: invoking a subscriber while
+                // holding this registration's lock is a deadlock hazard (a
+                // subscriber that calls back into this registration would
+                // re-enter the lock on the same thread's call stack, or block
+                // forever against another thread that already holds it).
+                if (changed)
+                {
+                    ActabilityChanged?.Invoke(value);
+                }
+            }
         }
+
+        /// <summary>
+        /// Raised outside <see cref="_gate"/> whenever <see cref="IsAgentActable"/>
+        /// actually changes value (never on a same-value rewrite — see the
+        /// setter). The owning pane uses this to re-render its status bar
+        /// segment when act-reachability is republished with no attention-tier
+        /// transition alongside it (global act toggle, allowlist edit).
+        /// </summary>
+        public event Action<bool>? ActabilityChanged;
 
         // The PTY session behind this registration, published by the pane on the
         // UI thread whenever the session is created, swapped, or torn down —
