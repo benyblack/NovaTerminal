@@ -1987,6 +1987,14 @@ Every geometry constant in Task 1 is a literal path string, and a malformed one 
 
 1. The title bar shows five buttons: `+`, Tab List, Connections, **gear**, `⋯`. Each icon is a recognizable glyph, not a blank gap.
 2. Hover each one: the tooltip names the action and its shortcut — "Settings (Ctrl+,)".
+2a. **Tab List works.** Click it: the flyout opens and lists the open tabs. `PopulateTabListMenu`
+   get-or-creates the `MenuFlyout` on the generated button, and only a real window proves that
+   round-trip — the headless tests cannot reach it.
+2b. **Tab overflow badge.** Open enough tabs to overflow the header. The `+N` badge appears, and
+   check *where*: it moved from inline in the button `StackPanel` to a `HorizontalAlignment="Left"`
+   direct child of the `TitleBar` `Grid`, so confirm it sits beside the button cluster rather than
+   detached toward the window's left edge or overlapping the `+`. If it looks wrong, the fix is in
+   `MainWindow.axaml`'s badge placement, not in the rebuild logic.
 3. Click the gear. Settings opens on Appearance. The `TITLE BAR` section lists all 12 actions.
 4. Open `⋯`. It lists Record Session, Command Palette, Find in Terminal, Split Vertical, Split Horizontal, Remote Files, Transfers — each with its icon.
 5. Right-click an empty part of the title bar → "Customize Title Bar…" → Settings opens on Appearance.
