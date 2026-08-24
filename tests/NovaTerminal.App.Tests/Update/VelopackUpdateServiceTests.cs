@@ -39,11 +39,19 @@ public class VelopackUpdateServiceTests
     }
 
     [Fact]
-    public void Apply_is_a_no_op_when_unsupported()
+    public void Apply_does_nothing_when_no_update_has_been_downloaded()
     {
-        var service = new VelopackUpdateService(VelopackUpdateService.DefaultRepoUrl, _ => { });
+        var log = new List<string>();
+        var service = new VelopackUpdateService(VelopackUpdateService.DefaultRepoUrl, log.Add);
 
         // Must not throw, and must certainly not restart the test host.
         service.ApplyAndRestart();
+
+        // Named for what it actually pins: ApplyAndRestart branches on whether a download
+        // completed, not on IsSupported, and nothing has been downloaded here. The empty log is
+        // the observable proof that it returned early instead of reaching Velopack's
+        // apply-and-restart path — which would have logged "Applying update and restarting."
+        // first, and then terminated this test host.
+        Assert.Empty(log);
     }
 }

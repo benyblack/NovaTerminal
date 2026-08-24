@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Velopack;
@@ -17,6 +18,14 @@ namespace NovaTerminal.Update
     /// </remarks>
     public sealed class VelopackUpdateService : IUpdateService
     {
+        // S1075 flags hardcoded URIs because they usually belong in configuration. This one is
+        // the opposite: it is the identity of the repository whose releases this build trusts for
+        // updates, and making it configurable would turn "where does my terminal download and
+        // execute new code from" into a user- or file-controlled value. Compiling it in is the
+        // security property, not an oversight. Splitting it into concatenated parts would satisfy
+        // the analyzer while making the code worse, so suppress it here with the reason attached.
+        [SuppressMessage("Minor Code Smell", "S1075:URIs should not be hardcoded",
+            Justification = "The update feed's origin is a trust anchor and must not be configurable.")]
         public const string DefaultRepoUrl = "https://github.com/benyblack/NovaTerminal";
 
         private readonly Action<string> _log;

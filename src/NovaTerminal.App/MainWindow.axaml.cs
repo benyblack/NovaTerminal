@@ -184,14 +184,18 @@ namespace NovaTerminal
                 // The coordinator itself is NOT constructed here - see EnsureUpdateCoordinator's
                 // doc comment for why building it belongs off this measured startup path. Only
                 // the one-shot timer is armed; its tick is what actually builds the coordinator.
-                _updateCheckTimer.Tick += (_, __) =>
+                // async void by way of an async event handler, which is safe here precisely
+                // because RunAutomaticCheckSafeAsync catches and logs everything itself: there is
+                // no exception left to escape into the void. Awaiting it rather than discarding
+                // the task with `_ =` also keeps the continuation on the UI thread.
+                _updateCheckTimer.Tick += async (_, __) =>
                 {
                     // Once per launch, not every 10 seconds.
                     _updateCheckTimer.Stop();
                     EnsureUpdateCoordinator();
                     if (_updateCoordinator != null)
                     {
-                        _ = RunAutomaticCheckSafeAsync();
+                        await RunAutomaticCheckSafeAsync();
                     }
                 };
                 _updateCheckTimer.Start();
