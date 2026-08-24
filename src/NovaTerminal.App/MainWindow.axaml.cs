@@ -2002,6 +2002,8 @@ namespace NovaTerminal
             AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
             AgentHost.AgentHostService.Instance.SetActionExecutor(this);
             AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
+            AgentHost.AgentHostService.Instance.ObserveActivityChanged += OnAgentObserveActivityChanged;
+            RefreshAgentObserveIndicator();
 
             // Ensure visual tree is ready for initial tab border
             this.Loaded += (s, e) =>
@@ -2144,6 +2146,12 @@ namespace NovaTerminal
             {
                 await ShowAgentActivityJournalAsync();
             };
+
+            var agentObserveIndicator = this.FindControl<Button>("AgentObserveIndicator");
+            if (agentObserveIndicator != null)
+            {
+                agentObserveIndicator.Click += async (_, _) => await ShowAgentActivityJournalAsync();
+            }
 
             var btnRecord = this.FindControl<Button>("BtnRecord");
             if (btnRecord != null)
@@ -3607,6 +3615,49 @@ namespace NovaTerminal
             if (tier == AgentHost.AgentAttentionTier.Idle) return false;
             return string.Equals(rollupPolicy, "All", StringComparison.Ordinal);
         }
+
+        /// <summary>
+        /// Decides the application-level agent light from its four inputs. Pure
+        /// so it can be tested without a window and without touching the
+        /// process-wide <see cref="AgentHost.AgentHostService.Instance"/>.
+        ///
+        /// Visible exactly while observe is enabled. "Active" (the watched
+        /// styling) covers the two cases this is the only correctly-scoped
+        /// surface for: an in-flight waitForEvents long poll, which names no
+        /// pane; and, when act is off so no pane carries a status bar, a pane
+        /// being read. With act on, pane reads are already shown on the pane
+        /// itself, so they deliberately do not light this too.
+        /// </summary>
+        internal static (bool Visible, bool Active) ComputeObserveIndicatorState(
+            bool observeRunning, bool actEnabled, bool polling, bool anyPaneWatched)
+        {
+            if (!observeRunning) return (false, false);
+            return (true, polling || (!actEnabled && anyPaneWatched));
+        }
+
+        /// <summary>Applies <see cref="ComputeObserveIndicatorState"/> to the chrome. UI thread.</summary>
+        internal void RefreshAgentObserveIndicator()
+        {
+            var indicator = this.FindControl<Button>("AgentObserveIndicator");
+            var dot = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("AgentObserveIndicatorDot");
+            if (indicator == null || dot == null) return;
+
+            var service = AgentHost.AgentHostService.Instance;
+            bool anyPaneWatched = AgentHost.AgentSessionRegistry.Instance.GetRegistrations()
+                .Any(r => r.AttentionMachine.Snapshot().Tier == AgentHost.AgentAttentionTier.Watched);
+
+            var (visible, active) = ComputeObserveIndicatorState(
+                service.IsRunning, _settings.AgentAccessActEnabled, service.InFlightPollCount > 0, anyPaneWatched);
+
+            indicator.IsVisible = visible;
+            if (!visible) return;
+            dot.Fill = new SolidColorBrush(Color.Parse(active ? "#4FB0D4" : "#6B737F"));
+        }
+
+        // Raised on an IPC thread when the in-flight poll count leaves or
+        // returns to zero.
+        private void OnAgentObserveActivityChanged()
+            => Dispatcher.UIThread.Post(RefreshAgentObserveIndicator);
 
         internal static bool ShouldAutoAcceptRunningPaneClose(
             bool isProcessRunning,
@@ -5293,6 +5344,7 @@ namespace NovaTerminal
                 AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
                 AgentHost.AgentHostService.Instance.SetActionExecutor(this);
                 AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
+                RefreshAgentObserveIndicator();
 
                 // Refresh Connection Manager if open (or just always update it)
                 _connectionManagerControl?.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
@@ -5762,6 +5814,7 @@ namespace NovaTerminal
             }
             _recordingToastTimer.Stop();
             _globalHotkey?.Dispose();
+            AgentHost.AgentHostService.Instance.ObserveActivityChanged -= OnAgentObserveActivityChanged;
             AgentHost.AgentHostService.Instance.Stop();
         }
 

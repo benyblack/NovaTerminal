@@ -153,6 +153,16 @@
                            FontSize="11"
                            VerticalAlignment="Center"
                            Margin="2,0,0,0"/>
+                <Button Name="AgentObserveIndicator"
+                        IsVisible="False"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="6,0"
+                        Focusable="False"
+                        VerticalAlignment="Center"
+                        ToolTip.Tip="Agent access is enabled. Click to open the agent activity journal.">
+                    <Ellipse Name="AgentObserveIndicatorDot" Width="7" Height="7" Fill="#6B737F"/>
+                </Button>
                 <Button Name="BtnRecord"
                         Foreground="#CCCCCC"
                         Background="Transparent"
