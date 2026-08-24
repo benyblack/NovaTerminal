@@ -138,7 +138,17 @@ namespace NovaTerminal
             // Settings editor is local-profiles only; SSH connections are managed in Connection Manager.
             _profilesList = BuildLocalProfilesForEditor(_settings.Profiles);
             _settings.DefaultProfileId = ResolveDefaultLocalProfileId(_settings.DefaultProfileId, _profilesList);
-            _shortcutDraftBindings = new Dictionary<string, string>(_settings.Keybindings, StringComparer.OrdinalIgnoreCase);
+            // Assignment loop, not the `new Dictionary(source, comparer)` copy constructor: that
+            // constructor adds under the *new* comparer and throws ArgumentException when two
+            // source keys collapse. `_settings.Keybindings` comes straight out of settings.json
+            // with the default ordinal comparer, so a hand-edited pair like "Ctrl+A"/"ctrl+a"
+            // survives deserialization and would collapse here -- unguarded, in this constructor,
+            // that means the Settings window fails to open at all. Last one wins instead.
+            _shortcutDraftBindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> binding in _settings.Keybindings)
+            {
+                _shortcutDraftBindings[binding.Key] = binding.Value;
+            }
 
             PopulateFonts();
             PopulateThemes();
