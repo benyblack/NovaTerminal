@@ -905,7 +905,18 @@ namespace NovaTerminal
             return ResolveTabPrimaryTitle(state.UserTitle, pane?.GetBaseTabTitle(), GetTabHeaderText(tab));
         }
 
-        private string BuildFullTabLabel(TabItem tab)
+        /// <summary>
+        /// The tab label without its trailing attention marker (bell, activity,
+        /// or agent tier): primary title, forwarding badge, and the pinned/
+        /// protected prefixes. Split out from <see cref="BuildFullTabLabel"/>
+        /// so <see cref="BuildTabDisplayLabels"/> can truncate this part alone
+        /// and append the marker afterwards — the marker must never land in
+        /// the truncated region, or it silently disappears from a long tab's
+        /// visible header (it would still show in the tooltip, since that
+        /// reads the untruncated <see cref="BuildFullTabLabel"/> result, but
+        /// the always-visible header text is the surface that matters).
+        /// </summary>
+        private string BuildBaseTabLabel(TabItem tab)
         {
             var state = GetOrCreateTabState(tab);
             var pane = ResolvePaneForTab(tab);
@@ -930,24 +941,6 @@ namespace NovaTerminal
                 }
             }
 
-            if (state.HasBell)
-            {
-                label += " 🔔";
-            }
-            else if (state.HasActivity)
-            {
-                label += " •";
-            }
-
-            if (state.AgentTier == AgentHost.AgentAttentionTier.Wrote)
-            {
-                label += " " + AgentWroteGlyph;
-            }
-            else if (state.AgentTier == AgentHost.AgentAttentionTier.Watched)
-            {
-                label += " " + AgentWatchedGlyph;
-            }
-
             if (state.IsPinned)
             {
                 label = "📌 " + label;
@@ -960,10 +953,70 @@ namespace NovaTerminal
             return label;
         }
 
+        /// <summary>
+        /// The trailing attention-marker suffix for a tab: bell and activity
+        /// are mutually exclusive (a bell always wins over mere activity), and
+        /// the agent tier is independent of both and can accompany either —
+        /// preserving exactly the precedence and combination rules the old,
+        /// inline version of this logic had in <c>BuildFullTabLabel</c>.
+        /// </summary>
+        private static string GetAttentionMarkerSuffix(TabRuntimeState state)
+        {
+            string suffix = string.Empty;
+
+            if (state.HasBell)
+            {
+                suffix += " 🔔";
+            }
+            else if (state.HasActivity)
+            {
+                suffix += " •";
+            }
+
+            if (state.AgentTier == AgentHost.AgentAttentionTier.Wrote)
+            {
+                suffix += " " + AgentWroteGlyph;
+            }
+            else if (state.AgentTier == AgentHost.AgentAttentionTier.Watched)
+            {
+                suffix += " " + AgentWatchedGlyph;
+            }
+
+            return suffix;
+        }
+
+        private string BuildFullTabLabel(TabItem tab)
+        {
+            var state = GetOrCreateTabState(tab);
+            return BuildBaseTabLabel(tab) + GetAttentionMarkerSuffix(state);
+        }
+
+        /// <summary>
+        /// Truncates every tab's label to <paramref name="maxLength"/> for the
+        /// visible header, keeping the attention marker (bell/activity/agent)
+        /// out of the truncated region by treating it as a suffix reserved
+        /// ahead of time — the same mechanism <see cref="TruncateTabLabelWithSuffix"/>
+        /// already used for the collision-disambiguation hint below, just
+        /// applied unconditionally instead of only once tabs collide.
+        ///
+        /// When a truncated label collides with another tab's, the
+        /// disambiguation hint is appended *after* the marker rather than
+        /// before it: the marker is content about the tab's own live state
+        /// (matches its position in the untruncated <see cref="BuildFullTabLabel"/>,
+        /// immediately after the title), while the hint is a synthetic
+        /// disambiguator bolted on only when two tabs would otherwise render
+        /// identically. Putting the hint last also means the one case that
+        /// forces both to compete for space (an extremely small maxLength)
+        /// degrades by dropping hint characters before marker characters —
+        /// <see cref="TruncateTabLabelWithSuffix"/>'s degenerate-case branch
+        /// returns the front of the combined suffix, and the marker occupies
+        /// the front.
+        /// </summary>
         private Dictionary<TabItem, string> BuildTabDisplayLabels(IReadOnlyList<TabItem> tabs, int maxLength)
         {
-            var fullLabels = tabs.ToDictionary(t => t, BuildFullTabLabel);
-            var truncated = tabs.ToDictionary(t => t, t => TruncateTabLabel(fullLabels[t], maxLength));
+            var baseLabels = tabs.ToDictionary(t => t, BuildBaseTabLabel);
+            var markers = tabs.ToDictionary(t => t, t => GetAttentionMarkerSuffix(GetOrCreateTabState(t)));
+            var truncated = tabs.ToDictionary(t => t, t => TruncateTabLabelWithSuffix(baseLabels[t], maxLength, markers[t]));
 
             var collisions = tabs
                 .GroupBy(t => truncated[t], StringComparer.Ordinal)
@@ -974,7 +1027,7 @@ namespace NovaTerminal
                 foreach (var tab in group)
                 {
                     string hint = "~" + GetTabId(tab).ToString("N").Substring(0, 4);
-                    truncated[tab] = TruncateTabLabelWithSuffix(fullLabels[tab], maxLength, hint);
+                    truncated[tab] = TruncateTabLabelWithSuffix(baseLabels[tab], maxLength, markers[tab] + hint);
                 }
             }
 

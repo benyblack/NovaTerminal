@@ -121,16 +121,14 @@ public sealed class AgentIndicatorTabRollupTests
         });
     }
 
-    // Step 4b finding: BuildTabDisplayLabels truncates the full label (which
-    // already carries the agent suffix, appended in BuildFullTabLabel) to 44
-    // characters with no room reserved for it — the same exposure the
-    // pre-existing bell/activity suffixes have. A long enough tab title drops
-    // the marker from the visible header. This is a documented failing
-    // expectation, not a bug fixed by this task: see task-6-report.md for the
-    // measured label string and the reasoning for leaving the truncation path
-    // alone.
-    [AvaloniaFact(Skip = "Step 4b finding: label truncation (BuildTabDisplayLabels -> TruncateTabLabel) drops the agent suffix on a long tab title. Documented as a failing expectation per task-6-brief.md Step 4b; see task-6-report.md.")]
-    public void A_long_tab_title_does_not_lose_the_marker_to_truncation()
+    // Step 4b originally found this marker dropped by truncation (see
+    // task-6-report.md's "Step 4b" section for the measured evidence: a
+    // 60-char title truncated to "xxx...x…" with the glyph gone). The fix
+    // round restructured BuildTabDisplayLabels to reserve room for the
+    // marker ahead of truncation, so this now passes for real. No longer
+    // skipped.
+    [AvaloniaFact]
+    public void A_long_tab_title_does_not_lose_the_write_marker_to_truncation()
     {
         RunIsolated((window, registration) =>
         {
@@ -141,7 +139,133 @@ public sealed class AgentIndicatorTabRollupTests
             registration.AttentionMachine.NoteWrote("sendInput");
             window.RefreshTabAgentAttention();
 
-            Assert.Contains(MainWindow.AgentWroteGlyph, FirstTabLabel(window));
+            string label = FirstTabLabel(window);
+            Assert.Contains(MainWindow.AgentWroteGlyph, label);
+            Assert.True(label.Length <= 44, $"expected label within the 44-char budget, got {label.Length}: \"{label}\"");
+        });
+    }
+
+    [AvaloniaFact]
+    public void A_long_tab_title_does_not_lose_the_bell_marker_to_truncation()
+    {
+        RunIsolated((window, _) =>
+        {
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            var tab = tabs.Items.Cast<TabItem>().First();
+            SetTabUserTitle(window, tab, new string('x', 60));
+            SetTabBell(window, tab, true);
+
+            window.UpdateTabVisuals();
+
+            string label = FirstTabLabel(window);
+            Assert.Contains("🔔", label);
+            Assert.True(label.Length <= 44, $"expected label within the 44-char budget, got {label.Length}: \"{label}\"");
+        });
+    }
+
+    [AvaloniaFact]
+    public void A_long_tab_title_does_not_lose_the_activity_marker_to_truncation()
+    {
+        RunIsolated((window, _) =>
+        {
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            var tab = tabs.Items.Cast<TabItem>().First();
+            SetTabUserTitle(window, tab, new string('x', 60));
+            SetTabActivity(window, tab, true);
+
+            window.UpdateTabVisuals();
+
+            string label = FirstTabLabel(window);
+            Assert.Contains("•", label);
+            Assert.True(label.Length <= 44, $"expected label within the 44-char budget, got {label.Length}: \"{label}\"");
+        });
+    }
+
+    [AvaloniaFact]
+    public void A_long_tab_title_with_a_bell_and_a_write_retains_both_markers_in_order()
+    {
+        // Bell/activity are mutually exclusive, but the agent tier is
+        // independent of both and can accompany either — this pins that
+        // combination surviving truncation together, in the same order
+        // (bell, then agent) that BuildFullTabLabel has always produced.
+        RunIsolated((window, registration) =>
+        {
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            var tab = tabs.Items.Cast<TabItem>().First();
+            SetTabUserTitle(window, tab, new string('x', 60));
+            SetTabBell(window, tab, true);
+
+            registration.AttentionMachine.NoteWrote("sendInput");
+            window.RefreshTabAgentAttention();
+
+            string label = FirstTabLabel(window);
+            int bellIndex = label.IndexOf("🔔", StringComparison.Ordinal);
+            int agentIndex = label.IndexOf(MainWindow.AgentWroteGlyph, StringComparison.Ordinal);
+            Assert.True(bellIndex >= 0, $"expected a bell marker in \"{label}\"");
+            Assert.True(agentIndex >= 0, $"expected a write marker in \"{label}\"");
+            Assert.True(bellIndex < agentIndex, $"expected the bell marker before the write marker in \"{label}\"");
+            Assert.True(label.Length <= 44, $"expected label within the 44-char budget, got {label.Length}: \"{label}\"");
+        });
+    }
+
+    [AvaloniaFact]
+    public void Colliding_long_titles_with_a_marker_keep_both_the_hint_and_the_marker()
+    {
+        // Both tabs share the same long title and the same marker (a bell),
+        // so their truncated base+marker strings collide and the
+        // disambiguation hint kicks in for both. The marker must stay
+        // adjacent to the title (as it is when nothing collides), with the
+        // hint appended after it — never the other way around.
+        RunIsolated((window, _) =>
+        {
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            var firstTab = tabs.Items.Cast<TabItem>().First();
+            string longTitle = new string('x', 60);
+            SetTabUserTitle(window, firstTab, longTitle);
+            SetTabBell(window, firstTab, true);
+
+            var secondTab = AddBareTab(window, longTitle);
+            SetTabUserTitle(window, secondTab, longTitle);
+            SetTabBell(window, secondTab, true);
+
+            window.UpdateTabVisuals();
+
+            var labels = tabs.Items.Cast<TabItem>()
+                .Select(t => ((TextBlock)((Border)t.Header!).Child!).Text ?? string.Empty)
+                .ToArray();
+            Assert.Equal(2, labels.Length);
+            Assert.NotEqual(labels[0], labels[1]);
+
+            foreach (var label in labels)
+            {
+                int bellIndex = label.IndexOf("🔔", StringComparison.Ordinal);
+                int hintIndex = label.IndexOf('~');
+                Assert.True(bellIndex >= 0, $"expected a bell marker in \"{label}\"");
+                Assert.True(hintIndex >= 0, $"expected a disambiguation hint in \"{label}\"");
+                Assert.True(bellIndex < hintIndex, $"expected the marker before the hint in \"{label}\"");
+                Assert.True(label.Length <= 44, $"expected label within the 44-char budget, got {label.Length}: \"{label}\"");
+            }
+        });
+    }
+
+    [AvaloniaFact]
+    public void A_short_tab_title_with_a_marker_is_unaffected_by_the_refactor()
+    {
+        // No truncation is ever warranted here, so the marker-reserving
+        // budget math must be a no-op: same output as before this fix round.
+        RunIsolated((window, registration) =>
+        {
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            var tab = tabs.Items.Cast<TabItem>().First();
+            SetTabUserTitle(window, tab, "Short");
+
+            registration.AttentionMachine.NoteWrote("sendInput");
+            window.RefreshTabAgentAttention();
+
+            string label = FirstTabLabel(window);
+            Assert.Contains(MainWindow.AgentWroteGlyph, label);
+            Assert.DoesNotContain("…", label);
+            Assert.Equal($"Short {MainWindow.AgentWroteGlyph}", label);
         });
     }
 
@@ -188,10 +312,39 @@ public sealed class AgentIndicatorTabRollupTests
     }
 
     private static void SetTabUserTitle(MainWindow window, TabItem tab, string title)
+        => SetTabStateProperty(window, tab, "UserTitle", title);
+
+    private static void SetTabBell(MainWindow window, TabItem tab, bool hasBell)
+        => SetTabStateProperty(window, tab, "HasBell", hasBell);
+
+    private static void SetTabActivity(MainWindow window, TabItem tab, bool hasActivity)
+        => SetTabStateProperty(window, tab, "HasActivity", hasActivity);
+
+    private static void SetTabStateProperty(MainWindow window, TabItem tab, string property, object value)
     {
         var getOrCreateTabState = typeof(MainWindow)
             .GetMethod("GetOrCreateTabState", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var state = getOrCreateTabState.Invoke(window, new object[] { tab })!;
-        state.GetType().GetProperty("UserTitle")!.SetValue(state, title);
+        state.GetType().GetProperty(property)!.SetValue(state, value);
+    }
+
+    /// <summary>
+    /// A second TabItem with no backing pane, wired only well enough for
+    /// BuildTabDisplayLabels/UpdateTabVisuals to render it: a header built by
+    /// the real ConfigureTabHeader (so it has the Border/TextBlock structure
+    /// FirstTabLabel reads) and added to the live TabControl. Used only for
+    /// the collision test, where a second colliding label is all that is
+    /// needed — no real terminal session behind it.
+    /// </summary>
+    private static TabItem AddBareTab(MainWindow window, string title)
+    {
+        var tab = new TabItem();
+        typeof(MainWindow)
+            .GetMethod("ConfigureTabHeader", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(window, new object[] { tab, title });
+
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        tabs.Items.Add(tab);
+        return tab;
     }
 }
