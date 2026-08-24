@@ -35,6 +35,7 @@ using NovaTerminal.Models;
 using NovaTerminal.ViewModels.Ssh;
 using NovaTerminal.Views.Ssh;
 using NovaTerminal.Pty;
+using NovaTerminal.Shell.TitleBar;
 
 namespace NovaTerminal
 {
@@ -73,6 +74,10 @@ namespace NovaTerminal
         private bool _tabVisualRefreshScheduled;
         private TerminalSettings _settings;
         private GlobalHotkey? _globalHotkey;
+        // Ids of stateful title bar toggles that are currently ON. An overflowed toggle in this set
+        // is auto-surfaced into the bar by TitleBarLayoutResolver, which is how Record stays visible
+        // while recording without being permanently pinned.
+        private readonly HashSet<string> _activeTitleBarToggles = new(StringComparer.OrdinalIgnoreCase);
         private bool _closePaneInProgress;
         private bool _closeTabInProgress;
         private readonly SshConnectionService _sshConnectionService;
@@ -2033,14 +2038,8 @@ namespace NovaTerminal
 
             var tabs = this.FindControl<TabControl>("Tabs");
             var btnNew = this.FindControl<Button>("BtnNewTab");
-            var btnTabList = this.FindControl<Button>("BtnTabList");
             var titleBar = this.FindControl<Grid>("TitleBar");
             var dragBorder = this.FindControl<Border>("DragBorder");
-
-            if (btnTabList != null)
-            {
-                btnTabList.Click += (s, e) => PopulateTabListMenu();
-            }
 
             if (dragBorder != null)
             {
@@ -2071,10 +2070,8 @@ namespace NovaTerminal
             }
 
 
-            var btnConnections = this.FindControl<Button>("BtnConnections");
             var btnCloseConn = this.FindControl<Button>("BtnCloseConnections");
 
-            if (btnConnections != null) btnConnections.Click += (s, e) => ToggleConnections();
             if (btnCloseConn != null) btnCloseConn.Click += (s, e) => ToggleConnections();
 
             if (tabs != null)
@@ -2144,12 +2141,6 @@ namespace NovaTerminal
             {
                 await ShowAgentActivityJournalAsync();
             };
-
-            var btnRecord = this.FindControl<Button>("BtnRecord");
-            if (btnRecord != null)
-            {
-                btnRecord.Click += (s, e) => _currentPane?.ToggleRecording();
-            }
 
             var recordingToastClose = this.FindControl<Button>("RecordingToastClose");
             if (recordingToastClose != null)
@@ -2456,6 +2447,11 @@ namespace NovaTerminal
             {
                 System.Diagnostics.Debug.WriteLine($"[Vault] Init failed: {ex.Message}");
             }
+
+            // Built here rather than from SetupCommandPalette(), which is lazy and does not run at
+            // startup: the initial window's title bar has to exist before the user opens anything.
+            RebuildTitleBar();
+
             _startup.Checkpoint("MainWindow.CtorComplete");
         }
 
@@ -5271,6 +5267,7 @@ namespace NovaTerminal
                 RefreshProfileUIs();
                 ApplyThemeToUI();
                 ApplySettingsToAllTabs();
+                RebuildTitleBar();
                 UpdateTransparencyHints();
                 // Live-apply the agent-host observe endpoint (no restart needed),
                 // including the A4 replay-export and A5 screenshot sub-gates and
@@ -6077,6 +6074,56 @@ namespace NovaTerminal
             ToolTip.SetTip(btnRecord, isRecording
                 ? $"Stop Recording ({recordingShortcut})"
                 : $"Record Session ({recordingShortcut})");
+        }
+
+        /// <summary>
+        /// Catalog id to action. Deliberately not sourced from CommandRegistry: SetupCommandPalette()
+        /// is lazy — it runs on palette-open and settings-save, never at startup (see the comment
+        /// near line 2207) — so a title bar reading the registry would come up dead on a cold start.
+        /// </summary>
+        private IReadOnlyDictionary<string, Action> BuildTitleBarHandlers()
+        {
+            return new Dictionary<string, Action>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["new_tab"] = () => AddTab(),
+                ["open_tab_list"] = () => PopulateTabListMenu(showFlyout: true),
+                ["connections"] = () => ToggleConnections(),
+                ["settings"] = () => _ = OpenSettings(0),
+                ["toggle_recording"] = () => _currentPane?.ToggleRecording(),
+                ["command_palette"] = () => ToggleCommandPalette(),
+                ["find"] = () => _currentPane?.ToggleSearch(),
+                ["split_vertical"] = () => SplitPane(Avalonia.Layout.Orientation.Horizontal),
+                ["split_horizontal"] = () => SplitPane(Avalonia.Layout.Orientation.Vertical),
+                ["sftp_remote_files"] = () => _currentPane?.ToggleRemoteFilesSidebar(),
+                ["sftp_transfers"] = () => ToggleTransferCenter(),
+                ["agent_activity"] = () => _ = ShowAgentActivityJournalAsync(),
+            };
+        }
+
+        private void RebuildTitleBar()
+        {
+            var host = this.FindControl<StackPanel>("TitleBarItemsHost");
+            if (host == null)
+            {
+                return;
+            }
+
+            var layout = TitleBarLayoutResolver.Resolve(
+                _settings.TitleBarItems,
+                _settings.TitleBarOrder,
+                _activeTitleBarToggles);
+
+            TitleBarViewFactory.Populate(
+                host,
+                layout,
+                _settings.Keybindings,
+                BuildTitleBarHandlers(),
+                this.FindControl<Button>("BtnNewTab"),
+                id => AppLogger.Log($"[TitleBar] no handler wired for catalog id '{id}'; skipping"));
+
+            // The record button is recreated by every rebuild, so its active colouring has to be
+            // reapplied against the new instance.
+            SyncRecordingButtonState();
         }
     }
 }
