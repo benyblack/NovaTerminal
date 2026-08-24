@@ -99,6 +99,10 @@ namespace NovaTerminal.Pty
         private int _childExitObserved;
         private int _childExitCode;
 
+        // Set the first time the child-status probe fails, so the condition is reported once
+        // per session instead of once per poll. See the catch in TryCaptureChildExit.
+        private int _probeFailureLogged;
+
         /// True once the child shell has been observed to have exited. The read loop uses
         /// this to stop counting read failures: once the shell is gone, a failing read is
         /// the expected consequence of cancelling it, not a session failure worth reporting
@@ -203,8 +207,25 @@ namespace NovaTerminal.Pty
                 // pty_try_get_exit_code, throws EntryPointNotFoundException from this call. A
                 // session cannot repair its own native library; it can say so and carry on with
                 // the status unknown.
-                PtyLogger.Error(
-                    $"[RustPtySession] Child status probe failed; treating the child's exit status as unknown: {ex}");
+                // Logged once per session, not once per call. A missing export does not heal, and
+                // the watcher polls every ChildExitPollIntervalMs for the life of the pane (the EOF
+                // resolver adds one every ChildStatusPollMs on top), so formatting the full
+                // exception every time turned graceful degradation into roughly five error records
+                // a second, indefinitely, for a single idle affected pane - a flood that buries the
+                // rest of the log precisely while the session is coping (Codex review on #341).
+                //
+                // Suppressing rather than demoting to Debug: the sink's minimum level is the host's
+                // choice, so a Debug line is still a flood wherever debug logging is on. The first
+                // message says that further failures are silent, so the log does not imply the
+                // condition healed.
+                if (Interlocked.Exchange(ref _probeFailureLogged, 1) == 0)
+                {
+                    PtyLogger.Error(
+                        "[RustPtySession] Child status probe failed; treating the child's exit status as"
+                        + " unknown. Further probe failures on this session are not logged: "
+                        + ex);
+                }
+
                 return false;
             }
         }

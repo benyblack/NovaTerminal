@@ -94,8 +94,8 @@ jobs:
       # Cache both target/release and target_linux/release: the Linux csproj
       # consumes the .so from target_linux/release, so it must be part of the
       # cache or a cache hit leaves the staged path empty and the Build step
-      # below is skipped. Key bumped to v2 to invalidate caches that only
-      # contained target/release.
+      # below is skipped. The v2 bump invalidated older caches that contained only
+      # target/release; the v3 bump on the key itself is explained there.
       - name: Cache native binary
         id: native-bin-cache
         uses: actions/cache@v4
@@ -103,7 +103,14 @@ jobs:
           path: |
             src/NovaTerminal.App/native/target/release
             src/NovaTerminal.App/native/target_linux/release
-          key: native-bin-v2-${{ matrix.os }}-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
+          # Key version bumped to v3 for the rusty_pty input-hash stamp
+          # (native/target/release/.nova-rust-inputs.sha256). A v2 payload predates the stamp,
+          # so restoring one would make BuildRustNative call the binary stale and invoke cargo -
+          # on a runner where this same cache hit skipped the toolchain install and the cargo
+          # registry cache. Worse, actions/cache does not re-save on an exact key hit, so the
+          # stamp would never enter the v2 payload and every hit would pay that rebuild forever.
+          # Bumping forces one miss, whose save captures the stamp.
+          key: native-bin-v3-${{ matrix.os }}-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
 
       - name: Install Rust
         if: steps.native-bin-cache.outputs.cache-hit != 'true'

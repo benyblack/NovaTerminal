@@ -42,7 +42,14 @@ jobs:
           path: |
             src/NovaTerminal.App/native/target/release
             src/NovaTerminal.App/native/target_linux/release
-          key: native-bin-v2-ubuntu-latest-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
+          # Key version bumped to v3 for the rusty_pty input-hash stamp
+          # (native/target/release/.nova-rust-inputs.sha256). A v2 payload predates the stamp,
+          # so restoring one would make BuildRustNative call the binary stale and invoke cargo -
+          # on a runner where this same cache hit skipped the toolchain install and the cargo
+          # registry cache. Worse, actions/cache does not re-save on an exact key hit, so the
+          # stamp would never enter the v2 payload and every hit would pay that rebuild forever.
+          # Bumping forces one miss, whose save captures the stamp.
+          key: native-bin-v3-ubuntu-latest-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
 
       - name: Install Rust
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
@@ -171,7 +178,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src/NovaTerminal.App/native/target/release
-          key: native-bin-${{ matrix.os }}-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
+          # Key version bumped to v3 for the rusty_pty input-hash stamp
+          # (native/target/release/.nova-rust-inputs.sha256). A v2 payload predates the stamp,
+          # so restoring one would make BuildRustNative call the binary stale and invoke cargo -
+          # on a runner where this same cache hit skipped the toolchain install and the cargo
+          # registry cache. Worse, actions/cache does not re-save on an exact key hit, so the
+          # stamp would never enter the v2 payload and every hit would pay that rebuild forever.
+          # Bumping forces one miss, whose save captures the stamp.
+          # Kept in its own namespace: this job caches only target/release, and sharing a
+          # key with ci.yml's fuller payload is what the v2 bump existed to undo.
+          key: native-bin-target-only-v3-${{ matrix.os }}-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
 
       - name: Install Rust
         if: steps.native-bin-cache.outputs.cache-hit != 'true'

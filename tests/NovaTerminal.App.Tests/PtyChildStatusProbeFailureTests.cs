@@ -72,6 +72,32 @@ namespace NovaTerminal.Tests
 
         [Fact]
         [Trait("Category", "PtySmoke")]
+        public async Task ARepeatedInteropFailureIsLoggedOnceNotOnEveryPoll()
+        {
+            // A missing export does not heal. The watcher polls every ChildExitPollIntervalMs
+            // for the life of the pane, so formatting the full exception on each call turns
+            // graceful degradation into ~5 error records a second, indefinitely, for one idle
+            // affected pane - and the EOF resolver adds one every ChildStatusPollMs on top.
+            // Report the condition once and let the watch carry on quietly.
+            using var log = PtyLogCapture.Attach();
+
+            int probes = 0;
+            using var session = NewSession(
+                readFromPty: HealthyRead,
+                tryGetExitCode: FailingProbe(() => Interlocked.Increment(ref probes)));
+
+            await WaitUntilAsync(() => Volatile.Read(ref probes) >= 5, TimeSpan.FromSeconds(15));
+
+            int observedProbes = Volatile.Read(ref probes);
+            Assert.True(
+                observedProbes >= 5,
+                $"only {observedProbes} probe(s) happened; the watcher must poll repeatedly for this to mean anything");
+
+            Assert.Equal(1, CountOccurrences(log.ToString(), "Child status probe failed"));
+        }
+
+        [Fact]
+        [Trait("Category", "PtySmoke")]
         public async Task AnInteropFailureIsLoggedAndTheEndOfStreamStillReportsAnExit()
         {
             // The other half: the status resolver polls the same probe on its way to
@@ -142,6 +168,19 @@ namespace NovaTerminal.Tests
                 environmentOverrides: null,
                 readFromPty: readFromPty,
                 tryGetExitCode: tryGetExitCode);
+        }
+
+        private static int CountOccurrences(string haystack, string needle)
+        {
+            int count = 0;
+            for (int i = haystack.IndexOf(needle, StringComparison.Ordinal);
+                 i >= 0;
+                 i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+            {
+                count++;
+            }
+
+            return count;
         }
 
         private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
