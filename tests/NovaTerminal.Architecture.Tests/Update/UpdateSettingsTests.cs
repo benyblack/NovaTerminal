@@ -1,8 +1,17 @@
 using System.Text.Json;
 using NovaTerminal.Shell;
 
-namespace NovaTerminal.AppTests.Update;
+namespace NovaTerminal.Architecture.Tests;
 
+/// <summary>
+/// In the Architecture project rather than beside the rest of the app tests for the same reason
+/// as <see cref="UpdateCoordinatorTests"/>: this project is in the gating unit loop that
+/// <c>ci.yml</c> and <c>release.yml</c> run, and <c>App.Tests</c> is not (CI marks it green via
+/// <c>continue-on-error</c>). These are pure serialization assertions with no Avalonia, Windows
+/// or network dependency, and the regression they pin - an existing user's settings file
+/// silently opting them out of update checks - is precisely the kind that must not be able to
+/// ship on a green build.
+/// </summary>
 public class UpdateSettingsTests
 {
     [Fact]

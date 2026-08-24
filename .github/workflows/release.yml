@@ -68,6 +68,19 @@ jobs:
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           generate_release_notes: true
+          # A SemVer tag's only legal use of '-' is the prerelease separator, so
+          # contains('-') is a sound test for "v0.5.0-beta.1 is not a stable release".
+          #
+          # This flag is load-bearing for the update feed, not cosmetic. Velopack's
+          # GithubSource(repoUrl, token, prerelease: false) filters on GitHub's own
+          # `prerelease` FLAG (GetReleases does `.Where(x => includePrereleases ||
+          # !x.Prerelease)`) - it never inspects the SemVer suffix. And
+          # UpdateManager.CheckForUpdatesAsync does no prerelease filtering of its own
+          # either: it is a bare `feed.Where(Full).MaxBy(x => x.Version)`. So without
+          # this line a beta tag publishes as a NORMAL release, 0.5.0-beta.1 sorts above
+          # 0.4.0, and every installed stable user gets pulled onto the beta. Same story
+          # for `vpk download github`, which filters on the identical flag.
+          prerelease: ${{ contains(needs.release_metadata.outputs.release_tag, '-') }}
 
   build_native:
     name: Build Native (${{ matrix.os }})
@@ -267,6 +280,30 @@ jobs:
         run: |
           $ver = "${{ needs.release_metadata.outputs.release_version }}"
           $tag = "${{ needs.release_metadata.outputs.release_tag }}"
+
+          # Record whether the download step actually brought back a PREVIOUS-version full
+          # package, before anything below mutates the directory. This is the only moment the
+          # answer is knowable: the cleanup immediately after removes this version's own
+          # nupkgs, and `vpk pack` then adds more.
+          $priorFulls = @(Get-ChildItem artifacts/velopack -Filter "NovaTerminal-*-full.nupkg" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne "NovaTerminal-$ver-full.nupkg" })
+          $expectDelta = $priorFulls.Count -gt 0
+          if ($expectDelta) {
+            Write-Host "Prior full package(s) present, so a delta is expected: $($priorFulls.Name -join ', ')"
+          } else {
+            Write-Host "No prior full package present; full-only output is the correct result."
+          }
+
+          # Make a re-run idempotent. `vpk download github` picks the max-version full out of
+          # the union feed; for an already-published tag that is the tag's OWN
+          # NovaTerminal-$ver-full.nupkg, and `vpk pack` then hard-fails with
+          # "[FTL] There is a release in channel win which is equal or greater to the current
+          # version $ver". Because the portable zips upload in an earlier step, that leaves a
+          # half-published release behind a red job. This workflow supports workflow_dispatch
+          # re-runs by design, so dropping this version's own artifacts first is required, not
+          # defensive.
+          Get-ChildItem artifacts/velopack -Filter "NovaTerminal-$ver-*.nupkg" -ErrorAction SilentlyContinue | Remove-Item -Force
+
           vpk pack `
             --packId NovaTerminal `
             --packVersion $ver `
@@ -290,6 +327,36 @@ jobs:
           Write-Host "Velopack output:"
           Get-ChildItem artifacts/velopack | Select-Object Name, Length | Format-Table
 
+          # Assert here rather than at the upload step. The download step is
+          # continue-on-error (correct - the first release has no prior to fetch) and the
+          # upload leaves fail_on_unmatched_files at its permissive default (also required -
+          # the first release legitimately produces no delta). Together those two mean a
+          # FAILED download would otherwise publish a permanent full-only release with a green
+          # job and no signal anywhere. Flipping fail_on_unmatched_files would break the
+          # legitimate first release instead, so the signal belongs here.
+          if (-not (Test-Path "artifacts/velopack/NovaTerminal-$ver-full.nupkg")) {
+            throw "vpk pack produced no NovaTerminal-$ver-full.nupkg - the update feed would be unusable."
+          }
+          if ($expectDelta -and -not (Test-Path "artifacts/velopack/NovaTerminal-$ver-delta.nupkg")) {
+            throw "A prior full package was present but vpk pack produced no NovaTerminal-$ver-delta.nupkg - delta generation silently failed."
+          }
+
+      # Known and benign: the uploaded releases.win.json lists the PREVIOUS release's full
+      # nupkg too, which is not an asset on THIS release. `vpk pack` re-indexes the whole
+      # output directory, and the previous full is in there because the download step put it
+      # there for delta generation. Deleting it before packing would not help - by the time
+      # the feed exists the entry is already inside it.
+      #
+      # Harmless because nothing on the happy path ever selects that entry:
+      # CheckForUpdatesAsync takes the MAX version, so only a downgrade would reach a
+      # non-latest full, and AllowVersionDowngrade is off. If something did select it,
+      # GitBase.DownloadReleaseEntry resolves assets by name within the release the feed came
+      # from and would throw "Could not find asset called '...' in GitHub Release '<tag>'" -
+      # and that same asset resolves fine through its own release's feed, which is what
+      # clients on the previous version are actually reading.
+      #
+      # The version-scoped globs below are what keep stale nupkgs from being re-UPLOADED onto
+      # this release; do not broaden them to `NovaTerminal-*.nupkg`.
       - name: Upload Windows installer and update feed
         if: matrix.rid == 'win-x64'
         uses: softprops/action-gh-release@v2

@@ -59,7 +59,9 @@ all three OSes before any bundle is published.
 
 - **Installer** — download `NovaTerminal-Setup-win-x64-<tag>.exe` from the
   [latest release](https://github.com/benyblack/NovaTerminal/releases/latest). Installs per-user
-  (no admin prompt), adds a Start Menu entry, and updates itself in the background.
+  (no admin prompt), adds Start Menu and Desktop shortcuts, and checks for updates in the
+  background — a new version downloads quietly and is applied when you accept the prompt and
+  restart. Never a surprise restart. Automatic checks can be turned off in Settings.
 - **Portable** — download `NovaTerminal-win-x64-<tag>.zip` and extract it anywhere. No updater.
 - **winget** — `winget install benyblack.NovaTerminal` (portable package).
 

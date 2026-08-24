@@ -54,7 +54,7 @@ file associations.
 | Packaging tool | Velopack (`vpk`) | Wraps the existing `dotnet publish` output rather than replacing it; brings installer, delta updates, Start Menu entry and Add/Remove Programs in one step. Matches #91. |
 | Update UX | Background check → download → apply on restart | No modal, no surprise restart, nothing on the cold-start path. |
 | Asset layout | Keep today's zip, add installer + feed | Zero churn for `packaging/winget/` and for existing download URLs. |
-| Update channel | Stable tags only (`prerelease: false`) | Prerelease tags must not push users onto unfinished builds. |
+| Update channel | Stable tags only (`prerelease: false`) | Prerelease tags must not push users onto unfinished builds. Requires `create_release` to set GitHub's `prerelease` flag from the tag's SemVer suffix — `GithubSource` and `vpk download github` filter on that flag alone, and `CheckForUpdatesAsync` does no suffix filtering at all, so without it a beta tag pulls every stable user onto the beta. |
 | Install scope | Velopack default (per-user, `%LocalAppData%`) | No elevation, no UAC prompt, no certificate needed. |
 | Signing | Deferred | Left on #91; an unsigned installer does not worsen the status quo (the zip's exe is unsigned today). |
 
@@ -111,6 +111,17 @@ testable without a window and without network:
 - `Task<UpdateCheckResult> CheckAsync(CancellationToken)` — wraps `UpdateManager` over
   `GithubSource(repoUrl, accessToken: null, prerelease: false)`, then
   `CheckForUpdatesAsync` and, when something is found, `DownloadUpdatesAsync`.
+  **Pass the locator explicitly** — `new UpdateManager(source, null, locator)` where
+  `locator` is `VelopackLocator.Current` when `VelopackLocator.IsCurrentSet` and
+  `VelopackLocator.CreateDefaultForPlatform(null, null)` otherwise. An earlier draft of
+  this section showed `new UpdateManager(new GithubSource(...))`, which *throws
+  `InvalidOperationException` from the constructor* in any host that never ran
+  `VelopackApp.Build().Run()`: `UpdateManager`'s ctor is
+  `Locator = locator ?? VelopackLocator.Current`, and `VelopackLocator.Current` throws
+  when unset. That is every host that matters for the negative path — the portable zip,
+  the winget portable package, a dev run, and the unit tests — so the implicit form
+  crashes *before* `IsInstalled` gets a chance to say "not supported". The explicit
+  fallback keeps construction inert there, and `IsInstalled` still resolves to `false`.
 - `void ApplyAndRestart()` — `ApplyUpdatesAndRestart`, which hands off to the bundled
   `Update.exe`.
 - **Disabled when the app is not a Velopack install** (`UpdateManager.IsInstalled` is
@@ -123,6 +134,25 @@ testable without a window and without network:
   are recorded — 10 seconds after first window activation, once per process launch.
   Nothing about updates may touch the cold-start path; `StartupPerformanceTracker`
   exists because that path is measured.
+
+  **`OnOpened` does not run once.** Quake mode is on by default and calls
+  `Hide()`/`Show()`; Avalonia clears the window's shown flag on `Hide` and `ShowCore`
+  raises `Opened` again, so an unguarded `OnOpened` body would re-arm the timer,
+  double-subscribe the toast buttons, and replace a coordinator that may be holding a
+  staged update. The shipped design is therefore: a `_updateChecksStarted` once-guard
+  around the whole `OnOpened` update block, which arms a one-shot `DispatcherTimer`
+  and nothing else; the coordinator itself is built lazily by
+  `EnsureUpdateCoordinator()` — from the timer tick (after the measured interval has
+  closed) or from the palette's manual check — so neither the assembly load nor the
+  Velopack filesystem probe lands on the startup path. `EnsureUpdateCoordinator()` is
+  itself idempotent and catches its own construction failure.
+
+  The check is additionally wrapped in `Task.Run`. The timer tick and the palette click
+  both arrive on the UI thread, and `UpdateManager.CheckForUpdatesAsync` does real
+  synchronous work before its first await — `EnsureInstalled()`,
+  `GetOrCreateStagedUserId()` (file read plus write), and
+  `GetLatestLocalFullPackage()`, which parses the nuspec inside every local `.nupkg`.
+  "Runs on a background task" has to mean the prologue too, not just the network call.
 - On a downloaded update: a **persistent** toast — "NovaTerminal vX.Y.Z is ready" with
   a **Restart now** action and a close button. This is a *new* control modeled on
   `RecordingToast`, not a reuse of that named panel: the two notices can be live at the
@@ -164,8 +194,8 @@ Fallbacks, in order:
 
 ## Testing
 
-**Unit** (in `App.Tests`, against a fake update source through the `UpdateService`
-interface):
+**Unit** (against a fake update source through the `UpdateService` interface; see the
+note below on which project each file lands in):
 
 | Case | Expectation |
 |---|---|
@@ -180,12 +210,32 @@ Velopack install — the seam exists partly for that reason.
 
 Worth knowing where these land: `App.Tests` is *not* in the gating unit loop that
 `release.yml` and `ci.yml` run (`VT`, `Rendering`, `Architecture`, `Platform`,
-`McpServer`), so a regression here will not block a release on its own. `UpdateService`
-lives in `NovaTerminal.App` and only `App.Tests` can reach it, so this is the correct
-home regardless — but the release safety net for this feature is the manual end-to-end
-check below, not CI.
+`McpServer`), and CI marks it green via `continue-on-error`, so a regression there will
+not block a release on its own.
 
-**Architecture:** a test pinning the `Velopack` reference to `NovaTerminal.App`.
+An earlier draft claimed that did not matter because "`UpdateService` lives in
+`NovaTerminal.App` and only `App.Tests` can reach it". **That is wrong**:
+`NovaTerminal.Architecture.Tests` already carries a `ProjectReference` to
+`NovaTerminal.App`, and *it* is in the gating loop. So the split as shipped is:
+
+- `UpdateCoordinatorTests` and `UpdateSettingsTests` — pure policy and pure
+  serialization, no Avalonia, no Windows, no network — live in
+  `tests/NovaTerminal.Architecture.Tests/Update/`, where a regression actually fails a
+  gating job. `UpdateSettingsTests` in particular pins the one regression that must
+  never ship: an existing user's settings file silently opting them out of update
+  checks.
+- `VelopackUpdateServiceTests` stays in `App.Tests`; it is about the Velopack-backed
+  implementation and belongs with the app tests.
+
+Both projects also run on ubuntu in CI, so none of these may require Windows or a real
+Velopack install — the seam exists partly for that reason. The release safety net for
+the *packaging* half remains the manual end-to-end check below.
+
+**Architecture:** a test pinning the `Velopack` reference to `NovaTerminal.App`, plus one
+asserting that the `Velopack` `PackageVersion` in `Directory.Packages.props` equals the
+`--version` passed to `dotnet tool install -g vpk` in `release.yml`. `vpk` writes the
+package format and the feed that the in-app SDK reads, so the two must not drift; a
+comment in `Directory.Packages.props` cannot stop a one-sided bump, a gating test can.
 
 No new test project, so `ci.yml`'s build-artifact path list and unit loop are untouched.
 
@@ -199,14 +249,23 @@ confirm the toast appears, restart, confirm the running version bumped and the d
 tag must drive both `vpk --packVersion` and the publish's `Version` properties, and they
 must agree.
 
-Being precise about why, because an earlier draft of this section overstated it:
-Velopack compares against the version recorded by its own install metadata, not against
-`AssemblyInformationalVersion`, so drift does not by itself produce a permanent
-false "update available". What it does corrupt is everything the app reports about
-itself — `DescribeBuild()`, the debug log's `Build:` line, the Windows file properties —
-which is exactly the information anyone diagnosing an update problem will read first.
-Stamping the publish is cheap and removes the ambiguity; the spike (implementation
-Task 1) confirms which source `UpdateManager.CurrentVersion` actually reads.
+Being precise about why, because two earlier drafts of this section overstated it in
+different directions:
+
+- Velopack compares against the version recorded by its own install metadata, not
+  against `AssemblyInformationalVersion`, so drift does not by itself produce a
+  permanent false "update available".
+- Nor does it corrupt what the app reports about itself in the log. `DescribeBuild()`
+  reports the stamped git SHA, `Environment.ProcessPath`, and the binary's on-disk
+  write time — **no version at all** — so the `Build:` line is unaffected either way.
+
+What stamping the publish actually buys is the *Windows file properties* of the shipped
+executable and the version recorded in the Add/Remove Programs entry, which is what a
+user (or a maintainer reading a bug report screenshot) checks to answer "which build am
+I running". `-p:Version=` / `-p:InformationalVersion=` is one line and removes that
+ambiguity, so it stays — but it is a nice-to-have, not the load-bearing invariant an
+earlier draft implied. The one thing that genuinely must agree is `vpk --packVersion`
+with the tag, because that is what the feed advertises.
 
 `AssemblyVersion` and `FileVersion` are deliberately left at their `Directory.Build.props`
 values: they must be four-part numerics, and a prerelease tag such as `v0.5.0-beta.1`

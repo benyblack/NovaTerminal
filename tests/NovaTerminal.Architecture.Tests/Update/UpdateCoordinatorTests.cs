@@ -4,10 +4,31 @@ using System.Threading;
 using System.Threading.Tasks;
 using NovaTerminal.Update;
 
-namespace NovaTerminal.AppTests.Update;
+namespace NovaTerminal.Architecture.Tests;
 
+/// <summary>
+/// These tests live in the Architecture project, not beside the rest of the app tests, because
+/// this project is in the gating unit loop that <c>ci.yml</c> and <c>release.yml</c> run
+/// (VT, Rendering, Architecture, Platform, McpServer) while <c>App.Tests</c> is not - CI marks
+/// that job green via <c>continue-on-error</c>. <see cref="UpdateCoordinator"/> is pure policy
+/// (no Avalonia, no Windows, no network), and this project already has a ProjectReference to
+/// <c>NovaTerminal.App</c>, so nothing is given up by putting the update rules somewhere a
+/// regression actually blocks a release. The Velopack-backed implementation's tests stay in
+/// <c>App.Tests</c>.
+/// </summary>
 public class UpdateCoordinatorTests
 {
+    // Hoisted out of the Assert.Equal calls below: this project is built with
+    // TreatWarningsAsErrors, which promotes CA1861 (constant array arguments are re-allocated
+    // on every call) to an error. Matches ProjectFileLayeringTests' existing style.
+    private static readonly string[] Version050Only = ["0.5.0"];
+
+    // Same CA1861 reasoning as Version050Only above.
+    private static readonly string[] Version120Only = ["1.2.0"];
+
+    // Every check below passes TestContext.Current.CancellationToken rather than relying on the
+    // coordinator's default. Also a TreatWarningsAsErrors consequence: xUnit1051 is an error in
+    // this project, where in App.Tests it was only advisory.
     private sealed class FakeUpdateService : IUpdateService
     {
         public bool IsSupported { get; set; } = true;
@@ -46,7 +67,7 @@ public class UpdateCoordinatorTests
         var harness = new Harness();
         harness.Service.IsSupported = false;
 
-        var outcome = await harness.Build().RunAutomaticCheckAsync();
+        var outcome = await harness.Build().RunAutomaticCheckAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(UpdateCheckOutcome.Unsupported, outcome);
         Assert.Equal(0, harness.Service.CheckCount);
@@ -58,7 +79,7 @@ public class UpdateCoordinatorTests
     {
         var harness = new Harness { AutomaticChecksEnabled = false };
 
-        var outcome = await harness.Build().RunAutomaticCheckAsync();
+        var outcome = await harness.Build().RunAutomaticCheckAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(UpdateCheckOutcome.Disabled, outcome);
         Assert.Equal(0, harness.Service.CheckCount);
@@ -69,7 +90,7 @@ public class UpdateCoordinatorTests
     {
         var harness = new Harness { AutomaticChecksEnabled = false };
 
-        var outcome = await harness.Build().RunManualCheckAsync();
+        var outcome = await harness.Build().RunManualCheckAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(UpdateCheckOutcome.UpToDate, outcome);
         Assert.Equal(1, harness.Service.CheckCount);
@@ -82,7 +103,7 @@ public class UpdateCoordinatorTests
         harness.Service.Result = new UpdateAvailability(false, null);
 
         var coordinator = harness.Build();
-        var outcome = await coordinator.RunAutomaticCheckAsync();
+        var outcome = await coordinator.RunAutomaticCheckAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(UpdateCheckOutcome.UpToDate, outcome);
         Assert.Empty(harness.Ready);
@@ -96,7 +117,7 @@ public class UpdateCoordinatorTests
         harness.Service.Throw = new InvalidOperationException("github is down");
 
         var coordinator = harness.Build();
-        var outcome = await coordinator.RunAutomaticCheckAsync();
+        var outcome = await coordinator.RunAutomaticCheckAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(UpdateCheckOutcome.Failed, outcome);
         Assert.Empty(harness.Ready);
@@ -111,12 +132,12 @@ public class UpdateCoordinatorTests
         harness.Service.Result = new UpdateAvailability(true, "0.5.0");
 
         var coordinator = harness.Build();
-        var outcome = await coordinator.RunAutomaticCheckAsync();
+        var outcome = await coordinator.RunAutomaticCheckAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(UpdateCheckOutcome.UpdateReady, outcome);
         Assert.True(coordinator.IsUpdateStaged);
         Assert.Equal("0.5.0", coordinator.StagedVersion);
-        Assert.Equal(["0.5.0"], harness.Ready);
+        Assert.Equal(Version050Only, harness.Ready);
     }
 
     [Fact]
@@ -126,11 +147,11 @@ public class UpdateCoordinatorTests
         harness.Service.Result = new UpdateAvailability(true, "0.5.0");
         var coordinator = harness.Build();
 
-        await coordinator.RunAutomaticCheckAsync();
-        var second = await coordinator.RunAutomaticCheckAsync();
+        await coordinator.RunAutomaticCheckAsync(TestContext.Current.CancellationToken);
+        var second = await coordinator.RunAutomaticCheckAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(UpdateCheckOutcome.UpdateReady, second);
-        Assert.Equal(["0.5.0"], harness.Ready);
+        Assert.Equal(Version050Only, harness.Ready);
     }
 
     [Fact]
@@ -139,7 +160,7 @@ public class UpdateCoordinatorTests
         var harness = new Harness();
         harness.Service.Result = new UpdateAvailability(true, "0.5.0");
         var coordinator = harness.Build();
-        await coordinator.RunAutomaticCheckAsync();
+        await coordinator.RunAutomaticCheckAsync(TestContext.Current.CancellationToken);
 
         coordinator.ApplyStagedUpdate();
 
@@ -173,14 +194,14 @@ public class UpdateCoordinatorTests
         var harness = new Harness();
         harness.Service.Result = new UpdateAvailability(true, "1.2.0");
         var coordinator = harness.Build();
-        await coordinator.RunAutomaticCheckAsync();
+        await coordinator.RunAutomaticCheckAsync(TestContext.Current.CancellationToken);
         Assert.Equal("1.2.0", coordinator.StagedVersion);
 
         harness.Service.Result = new UpdateAvailability(true, null);
-        var outcome = await coordinator.RunManualCheckAsync();
+        var outcome = await coordinator.RunManualCheckAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(UpdateCheckOutcome.Failed, outcome);
-        Assert.Equal(["1.2.0"], harness.Ready);
+        Assert.Equal(Version120Only, harness.Ready);
         Assert.True(coordinator.IsUpdateStaged);
         Assert.Equal("1.2.0", coordinator.StagedVersion);
         Assert.Contains(harness.Log, m => m.Contains("contract", StringComparison.Ordinal));

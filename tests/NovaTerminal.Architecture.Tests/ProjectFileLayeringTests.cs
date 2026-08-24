@@ -1,6 +1,7 @@
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
+using System.Text.RegularExpressions;
 
 namespace NovaTerminal.Architecture.Tests;
 
@@ -228,5 +229,32 @@ public class ProjectFileLayeringTests
             .ToArray();
 
         Assert.Empty(offenders);
+    }
+
+    /// <summary>
+    /// The Velopack NuGet package and the <c>vpk</c> CLI must be the same version. <c>vpk pack</c>
+    /// writes the package format and the <c>releases.win.json</c> feed that the in-app SDK then
+    /// reads, so a mismatch is a compatibility question nobody wants to answer at release time.
+    /// Until this test existed the coupling was enforced only by a comment in
+    /// <c>Directory.Packages.props</c> - which a version bump of either side would sail straight
+    /// past. Now bumping one without the other fails a gating test instead of shipping.
+    /// </summary>
+    [Fact]
+    public void Velopack_package_and_vpk_cli_versions_agree()
+    {
+        var props = XDocument.Load(Path.Combine(RepoRoot(), "Directory.Packages.props"));
+        var packageVersion = props.Descendants("PackageVersion")
+            .Where(e => string.Equals((string?)e.Attribute("Include"), "Velopack", StringComparison.OrdinalIgnoreCase))
+            .Select(e => (string?)e.Attribute("Version"))
+            .SingleOrDefault();
+        Assert.False(string.IsNullOrWhiteSpace(packageVersion),
+            "Directory.Packages.props declares no Velopack PackageVersion.");
+
+        var workflow = File.ReadAllText(Path.Combine(RepoRoot(), ".github/workflows/release.yml"));
+        var match = Regex.Match(workflow, @"dotnet\s+tool\s+install\s+-g\s+vpk\s+--version\s+(?<ver>[0-9][^\s""']*)");
+        Assert.True(match.Success,
+            "release.yml no longer contains a version-pinned 'dotnet tool install -g vpk --version <ver>' step.");
+
+        Assert.Equal(packageVersion, match.Groups["ver"].Value);
     }
 }

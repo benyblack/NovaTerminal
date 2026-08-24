@@ -4509,7 +4509,7 @@ namespace NovaTerminal
 
             CommandRegistry.Register("Update: Check for updates", "Application", () =>
             {
-                _ = CheckForUpdatesInteractiveAsync();
+                _ = RunManualCheckSafeAsync();
             }, "");
 
             // Dynamic Profile Tabs
@@ -6213,7 +6213,18 @@ namespace NovaTerminal
             _updateCheckInFlight = true;
             try
             {
-                await _updateCoordinator.RunAutomaticCheckAsync();
+                // Task.Run, deliberately: this method is reached from a DispatcherTimer tick,
+                // so everything up to the first real await would otherwise run on the UI
+                // thread - and Velopack's prologue is not cheap. UpdateManager
+                // .CheckForUpdatesAsync synchronously calls EnsureInstalled(),
+                // Locator.GetOrCreateStagedUserId() (a file read plus write) and
+                // GetLatestLocalFullPackage() -> GetLocalPackages(), which enumerates the
+                // packages directory and parses the nuspec inside every .nupkg - i.e. inside a
+                // ~150 MB self-contained bundle. On a cold disk, or with AV in the path, that
+                // is a visible hitch ~10 s after launch. Do not "simplify" this back to a bare
+                // await; the continuation still resumes on the UI thread, which is what the
+                // outcome handling (ShowRecordingToast / ShowUpdateToast) needs.
+                await Task.Run(() => _updateCoordinator.RunAutomaticCheckAsync());
             }
             catch (Exception ex)
             {
@@ -6226,12 +6237,43 @@ namespace NovaTerminal
         }
 
         /// <summary>
+        /// The manual check's fire-and-forget entry point, for the same reason
+        /// <see cref="RunAutomaticCheckSafeAsync"/> exists: <c>ExecuteCommand</c> invokes the
+        /// palette action synchronously, so a bare <c>_ = CheckForUpdatesInteractiveAsync()</c>
+        /// would leave any throw past the first await faulting an unobserved task - invisible
+        /// even in the log. <see cref="CheckForUpdatesInteractiveAsync"/> handles every outcome
+        /// the coordinator reports; this only catches what the coordinator cannot (a throwing
+        /// <c>IsSupported</c>, a throwing toast) and makes sure the user still hears something.
+        /// </summary>
+        private async System.Threading.Tasks.Task RunManualCheckSafeAsync()
+        {
+            try
+            {
+                await CheckForUpdatesInteractiveAsync();
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Log("Manual update check failed unexpectedly: " + ex);
+                ShowRecordingToast("Update check failed", "Could not check for updates. See the debug log for details.", null, null, autoHide: true);
+            }
+        }
+
+        /// <summary>
         /// Runs the shared app-teardown (session save, timers, global hotkey, agent host) before
         /// handing off to the coordinator. The underlying restart terminates this process itself,
         /// so <see cref="OnClosing"/> never runs for it - without doing the same teardown here
         /// first, "taking the update" would silently drop the session, which is worse than just
         /// quitting and relaunching by hand.
         /// </summary>
+        /// <remarks>
+        /// The try/catch lives here rather than at the call sites so that BOTH entry points get
+        /// it: the toast's Restart button (a raw Click handler - an escaping exception there is
+        /// an unhandled exception on the UI thread, which kills the app with no explanation) and
+        /// the palette entry (whose <c>ExecuteCommand</c> try/catch would otherwise swallow the
+        /// failure without telling the user anything). <c>ApplyUpdatesAndRestart</c> can throw
+        /// for real reasons: a missing or locked <c>Update.exe</c>, or the update lock already
+        /// held by another instance.
+        /// </remarks>
         private void ApplyStagedUpdate()
         {
             if (_updateCoordinator is not { IsUpdateStaged: true })
@@ -6240,7 +6282,25 @@ namespace NovaTerminal
             }
 
             PerformAppTeardown();
-            _updateCoordinator.ApplyStagedUpdate();
+
+            try
+            {
+                _updateCoordinator.ApplyStagedUpdate();
+            }
+            catch (Exception ex)
+            {
+                // Teardown already ran by this point, so the window is still up but the session
+                // has been saved and the agent host and global hotkey are stopped - the app is
+                // degraded, not healthy. The message has to say "restart manually" rather than
+                // "try again", because carrying on in this state is not a supported outcome.
+                TerminalLogger.Log("Applying the staged update failed: " + ex);
+                ShowRecordingToast(
+                    "Update could not be applied",
+                    "The update was downloaded but could not be applied. Close NovaTerminal and start it again to finish updating.",
+                    null,
+                    null,
+                    autoHide: false);
+            }
         }
 
         /// <summary>
@@ -6264,7 +6324,16 @@ namespace NovaTerminal
             if (_updateCheckInFlight)
             {
                 // A check (automatic, or an earlier manual one) is already running; let it finish
-                // rather than racing a second download into the same staging directory.
+                // rather than racing a second download into the same staging directory. Say so,
+                // though: returning silently here contradicts this method's whole contract, and
+                // the startup check runs 10 s in, so a user who opens the palette promptly is
+                // exactly who hits this.
+                ShowRecordingToast(
+                    "Checking for updates",
+                    "A check is already running. The result will appear when it finishes.",
+                    null,
+                    null,
+                    autoHide: true);
                 return;
             }
 
@@ -6272,7 +6341,12 @@ namespace NovaTerminal
             NovaTerminal.Update.UpdateCheckOutcome outcome;
             try
             {
-                outcome = await _updateCoordinator.RunManualCheckAsync();
+                // Task.Run for the same reason as RunAutomaticCheckSafeAsync above: Velopack's
+                // check does synchronous file I/O (staged-user-id read/write, nuspec parse of
+                // every local .nupkg) before its first await, and this runs from a palette
+                // click on the UI thread. The continuation resumes on the UI thread, which the
+                // ShowRecordingToast calls below require.
+                outcome = await Task.Run(() => _updateCoordinator.RunManualCheckAsync());
             }
             finally
             {
