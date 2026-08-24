@@ -58,7 +58,11 @@ public static class TitleBarViewFactory
             return;
         }
 
-        host.Children.Add(CreateOverflowButton(layout, keybindings, handlers, logMissingHandler));
+        var overflowButton = CreateOverflowButton(layout, keybindings, handlers, logMissingHandler);
+        if (overflowButton is not null)
+        {
+            host.Children.Add(overflowButton);
+        }
     }
 
     private static Button CreateItemButton(
@@ -95,7 +99,7 @@ public static class TitleBarViewFactory
         return button;
     }
 
-    private static Button CreateOverflowButton(
+    private static Button? CreateOverflowButton(
         TitleBarLayout layout,
         IReadOnlyDictionary<string, string>? keybindings,
         IReadOnlyDictionary<string, Action> handlers,
@@ -127,6 +131,15 @@ public static class TitleBarViewFactory
                     Height = entry.IconSize,
                 },
             });
+        }
+
+        // layout.ShowOverflowButton only knows the layout (whether anything is *assigned* to
+        // Overflow), not the handler wiring. If every overflow entry's handler is missing — a
+        // wiring bug — the loop above leaves the flyout empty. A button that opens an empty menu
+        // is worse than no button, so treat an empty item list as a second, defensive gate.
+        if (flyout.Items.Count == 0)
+        {
+            return null;
         }
 
         var button = new Button

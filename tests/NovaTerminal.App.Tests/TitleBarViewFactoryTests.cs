@@ -130,6 +130,22 @@ namespace NovaTerminal.Tests
         }
 
         [AvaloniaFact]
+        public void Populate_ReusesTheSameNewTabButton_AcrossRepeatedCalls_WithoutThrowing()
+        {
+            var host = new StackPanel();
+            var newTab = new Button { Name = "BtnNewTab", Content = "+" };
+            var layout = TitleBarLayoutResolver.Resolve(null, null, null);
+
+            // Mirrors Task 5's real usage: a settings change re-populates the same host with the
+            // same XAML-declared newTabButton reference passed again. Populate must remove it from
+            // its previous parent before re-adding, or Avalonia throws on the second call.
+            TitleBarViewFactory.Populate(host, layout, null, AllHandlers(), newTab, _ => { });
+            TitleBarViewFactory.Populate(host, layout, null, AllHandlers(), newTab, _ => { });
+
+            Assert.Same(newTab, host.Children[0]);
+        }
+
+        [AvaloniaFact]
         public void Populate_ClickingAButton_InvokesItsHandler()
         {
             var host = new StackPanel();
@@ -177,6 +193,50 @@ namespace NovaTerminal.Tests
             var flyout = Assert.IsType<MenuFlyout>(overflowButton.Flyout);
 
             Assert.Equal(layout.Overflow.Count, flyout.Items.Count);
+        }
+
+        [AvaloniaFact]
+        public void Populate_SuppressesTheOverflowButton_WhenEveryOverflowHandlerIsMissing()
+        {
+            var host = new StackPanel();
+            var layout = TitleBarLayoutResolver.Resolve(null, null, null);
+            var overflowIds = layout.Overflow.Select(e => e.Id).ToList();
+            var handlers = AllHandlers()
+                .Where(kv => !overflowIds.Contains(kv.Key))
+                .ToDictionary(kv => kv.Key, kv => kv.Value);
+            var missing = new List<string>();
+
+            // Every overflow entry's handler is missing: this is a wiring bug, and
+            // ShowOverflowButton alone can't see it, since it only knows the layout, not the
+            // handler wiring. The factory must still not render a button that opens an empty menu.
+            TitleBarViewFactory.Populate(host, layout, null, handlers, null, missing.Add);
+
+            Assert.DoesNotContain(
+                TitleBarViewFactory.OverflowButtonName,
+                host.Children.Select(c => (c as Button)?.Name));
+            Assert.Equal(overflowIds, missing);
+        }
+
+        [AvaloniaFact]
+        public void Populate_RendersOverflowButton_WithOnlyTheResolvedEntries_WhenOneHandlerIsMissing()
+        {
+            var host = new StackPanel();
+            var layout = TitleBarLayoutResolver.Resolve(null, null, null);
+            string missingId = layout.Overflow[0].Id;
+            var handlers = AllHandlers()
+                .Where(kv => kv.Key != missingId)
+                .ToDictionary(kv => kv.Key, kv => kv.Value);
+            var missing = new List<string>();
+
+            TitleBarViewFactory.Populate(host, layout, null, handlers, null, missing.Add);
+
+            var overflowButton = host.Children
+                .OfType<Button>()
+                .Single(b => b.Name == TitleBarViewFactory.OverflowButtonName);
+            var flyout = Assert.IsType<MenuFlyout>(overflowButton.Flyout);
+
+            Assert.Equal(layout.Overflow.Count - 1, flyout.Items.Count);
+            Assert.Equal(new[] { missingId }, missing);
         }
 
         [AvaloniaFact]
