@@ -1270,34 +1270,30 @@ namespace NovaTerminal
             _titleBarDraftStates.Clear();
             _titleBarDraftOrder.Clear();
 
-            foreach (var entry in TitleBarCatalog.GetEntries())
-            {
-                // Seed every entry explicitly so the row UI always has a concrete state to show.
-                // Only the ids that differ from their default are written back on save.
-                _titleBarDraftStates[entry.Id] =
-                    entry.IsLocked
-                        ? TitleBarItemState.Pinned
-                        : ReadDraftState(entry);
-            }
-
-            // Resolve once to get the effective pinned order, including catalog-order fallback for
-            // ids the saved order does not name.
+            // Resolve once and derive both the per-entry draft state and the pinned order from
+            // that single result, rather than re-reading _settings.TitleBarItems a second time
+            // with a separate lookup. The resolver is the sole owner of state resolution --
+            // including normalizing settings keys to OrdinalIgnoreCase so a hand-edited
+            // settings.json entry like "Find" still matches the catalog id "find" -- and a
+            // second, independent reader here would inevitably drift from it and silently
+            // disagree about a case-variant id.
             var layout = TitleBarLayoutResolver.Resolve(
                 _settings.TitleBarItems, _settings.TitleBarOrder, null);
-            _titleBarDraftOrder.AddRange(layout.Pinned.Select(e => e.Id));
-        }
 
-        private TitleBarItemState ReadDraftState(TitleBarCatalogEntry entry)
-        {
-            if (_settings.TitleBarItems is not null &&
-                _settings.TitleBarItems.TryGetValue(entry.Id, out string? raw) &&
-                Enum.TryParse(raw, ignoreCase: true, out TitleBarItemState parsed) &&
-                Enum.IsDefined(parsed))
+            var pinnedIds = new HashSet<string>(
+                layout.Pinned.Select(e => e.Id), StringComparer.OrdinalIgnoreCase);
+            var overflowIds = new HashSet<string>(
+                layout.Overflow.Select(e => e.Id), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entry in TitleBarCatalog.GetEntries())
             {
-                return parsed;
+                _titleBarDraftStates[entry.Id] =
+                    pinnedIds.Contains(entry.Id) ? TitleBarItemState.Pinned :
+                    overflowIds.Contains(entry.Id) ? TitleBarItemState.Overflow :
+                    TitleBarItemState.Hidden;
             }
 
-            return entry.DefaultState;
+            _titleBarDraftOrder.AddRange(layout.Pinned.Select(e => e.Id));
         }
 
         private void RebuildTitleBarRows()
@@ -1325,14 +1321,13 @@ namespace NovaTerminal
 
             for (int i = 0; i < ordered.Count; i++)
             {
-                panel.Children.Add(CreateTitleBarRow(byId[ordered[i]], i, ordered));
+                panel.Children.Add(CreateTitleBarRow(byId[ordered[i]], i));
             }
         }
 
         private Control CreateTitleBarRow(
             TitleBarCatalogEntry entry,
-            int index,
-            List<string> ordered)
+            int index)
         {
             var state = _titleBarDraftStates[entry.Id];
             bool isPinned = state == TitleBarItemState.Pinned;
@@ -1349,8 +1344,8 @@ namespace NovaTerminal
             var icon = new PathIcon
             {
                 Data = Geometry.Parse(entry.IconGeometry),
-                Width = 16,
-                Height = 16,
+                Width = entry.IconSize,
+                Height = entry.IconSize,
                 VerticalAlignment = VerticalAlignment.Center,
             };
 
