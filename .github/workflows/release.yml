@@ -39,6 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_version: ${{ steps.meta.outputs.release_version }}
       checkout_ref: ${{ steps.meta.outputs.checkout_ref }}
     steps:
       - name: Resolve tag and checkout ref
@@ -46,12 +47,16 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "push" ]]; then
-            echo "release_tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            tag="${{ github.ref_name }}"
+            echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
             echo "checkout_ref=${{ github.ref }}" >> "$GITHUB_OUTPUT"
           else
-            echo "release_tag=${{ inputs.tag_name }}" >> "$GITHUB_OUTPUT"
+            tag="${{ inputs.tag_name }}"
+            echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
             echo "checkout_ref=${{ inputs.target_commitish }}" >> "$GITHUB_OUTPUT"
           fi
+          # Velopack versions are SemVer without a leading 'v'; the tag has one.
+          echo "release_version=${tag#v}" >> "$GITHUB_OUTPUT"
 
   create_release:
     name: Create Release
@@ -220,7 +225,7 @@ jobs:
       - name: Publish AOT
         env:
           SKIP_RUST_NATIVE_BUILD: "1"
-        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o artifacts/publish/${{ matrix.rid }}
+        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true -p:Version=${{ needs.release_metadata.outputs.release_version }} -p:InformationalVersion=${{ needs.release_metadata.outputs.release_version }} -o artifacts/publish/${{ matrix.rid }}
 
       - name: Archive bundle
         shell: pwsh
@@ -237,6 +242,64 @@ jobs:
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.zip
+
+      # ---- Windows installer + update feed (#91). win-x64 only; the other two RIDs
+      # ---- keep shipping portable zips exactly as before.
+      - name: Install vpk
+        if: matrix.rid == 'win-x64'
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      - name: Download previous Velopack release (for delta generation)
+        if: matrix.rid == 'win-x64'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/velopack | Out-Null
+          # First release ever, or no prior Velopack assets: nothing to download, and a
+          # full-only release is the correct outcome rather than a failed one.
+          vpk download github --repoUrl https://github.com/benyblack/NovaTerminal --token $env:GH_TOKEN --outputDir artifacts/velopack
+
+      - name: Pack Windows installer (Velopack)
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        run: |
+          $ver = "${{ needs.release_metadata.outputs.release_version }}"
+          $tag = "${{ needs.release_metadata.outputs.release_tag }}"
+          vpk pack `
+            --packId NovaTerminal `
+            --packVersion $ver `
+            --packDir artifacts/publish/win-x64 `
+            --mainExe NovaTerminal.exe `
+            --packTitle NovaTerminal `
+            --packAuthors benyblack `
+            --icon src/NovaTerminal.App/Assets/nova_icon.ico `
+            --outputDir artifacts/velopack `
+            --noPortable
+          # --noPortable: the release already ships NovaTerminal-win-x64-<tag>.zip, and two
+          # near-identical zips on the releases page is a support question waiting to happen.
+
+          # The installer's file name is ours to choose - nothing resolves it by name - so
+          # give it one that reads clearly next to the zips. Matched by glob because vpk
+          # includes the channel in the name it produces.
+          $setup = Get-ChildItem artifacts/velopack -Filter "*Setup.exe" | Select-Object -First 1
+          if (-not $setup) { throw "vpk pack produced no Setup.exe" }
+          Move-Item $setup.FullName "artifacts/velopack/NovaTerminal-Setup-win-x64-$tag.exe"
+
+          Write-Host "Velopack output:"
+          Get-ChildItem artifacts/velopack | Select-Object Name, Length | Format-Table
+
+      - name: Upload Windows installer and update feed
+        if: matrix.rid == 'win-x64'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.release_metadata.outputs.release_tag }}
+          files: |
+            artifacts/velopack/NovaTerminal-Setup-win-x64-${{ needs.release_metadata.outputs.release_tag }}.exe
+            artifacts/velopack/NovaTerminal-${{ needs.release_metadata.outputs.release_version }}-full.nupkg
+            artifacts/velopack/NovaTerminal-${{ needs.release_metadata.outputs.release_version }}-delta.nupkg
+            artifacts/velopack/releases.win.json
 
   # Opens a submission PR to microsoft/winget-pkgs for the just-published Windows
   # zip (portable package; see packaging/winget/). Optional and self-skipping:

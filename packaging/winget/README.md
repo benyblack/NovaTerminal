@@ -3,11 +3,12 @@
 Source-of-truth [winget](https://learn.microsoft.com/windows/package-manager/) manifests for
 NovaTerminal, kept in-repo so each release can regenerate and submit them.
 
-The Windows release ships as a self-contained, AOT-compiled **zip** (see
-`.github/workflows/release.yml`) — there is no signed installer. The manifest therefore packages
-NovaTerminal as a **portable** app extracted from the release zip (`InstallerType: zip`,
-`NestedInstallerType: portable`), which needs **no code-signing certificate**. Once accepted into
-the community repo it installs with:
+The Windows release ships a self-contained, AOT-compiled **zip** *and*, since #91's packaging
+half landed, an unsigned Velopack installer (`NovaTerminal-Setup-win-x64-<tag>.exe`). Neither is
+code-signed. The winget manifest deliberately packages the **zip** as a **portable** app
+(`InstallerType: zip`, `NestedInstallerType: portable`) rather than pointing at the installer:
+that keeps winget's install out of Velopack's updater's way, so the two never both believe they
+own the install. Once accepted into the community repo it installs with:
 
 ```
 winget install benyblack.NovaTerminal
