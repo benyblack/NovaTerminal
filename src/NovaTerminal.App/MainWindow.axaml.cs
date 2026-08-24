@@ -2142,6 +2142,12 @@ namespace NovaTerminal
                 await OpenSettings(1);
             };
 
+            var menuCustomizeTitleBar = this.FindControl<MenuItem>("MenuCustomizeTitleBar");
+            if (menuCustomizeTitleBar != null) menuCustomizeTitleBar.Click += async (s, e) =>
+            {
+                await OpenSettings(0);
+            };
+
             var menuNewSsh = this.FindControl<MenuItem>("MenuNewSshConnection");
             if (menuNewSsh != null) menuNewSsh.Click += async (s, e) =>
             {
