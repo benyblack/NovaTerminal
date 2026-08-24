@@ -33,6 +33,13 @@ macOS/Linux). They are gated by opt-ins in the app's settings:
 - **Act** (`send_input`, `spawn_session`, `close_session`) requires a **separate** **Agent access
   (act)** opt-in *on top of* observe. SSH targets additionally require a **per-profile allowlist**.
   Every acting call — allowed or denied — is recorded in an in-app **activity journal**.
+- **Visibility while it happens.** Panes an agent may act on carry an agent segment in
+  their status bar; it turns amber and names the action when an agent types into, opens,
+  or closes that pane, and stays lit until you have looked at the pane. Tab headers carry
+  a badge for the same event (reads too, if **Settings → Agent Access → Tab indicator**
+  is set to `All`), and a window-level light shows whenever agent access is enabled. The
+  activity journal remains the retrospective record; these are the live ones. There is
+  no way to silence them — the way to have no indicator is to turn agent access off.
 - With both toggles off, **no endpoint exists** and the live-session tools return guidance, not data.
 
 Full analysis of the acting surface: the
