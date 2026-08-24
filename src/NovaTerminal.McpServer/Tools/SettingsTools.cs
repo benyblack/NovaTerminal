@@ -53,6 +53,7 @@ public static class SettingsTools
         | `WheelLinesPerNotch` | number | > 0 (≤ 0 falls back to 3.0). Default 3.0. |
         | `PaneClosePolicy` | string (enum-like) | e.g. "Confirm", "Force". Type-checked only. |
         | `ShellExitPolicy` | string (enum-like) | "Never"/"Graceful"/"Always". Default "Graceful". What happens to a pane when its shell exits: keep it with a banner, close it on a clean exit, or always close it. "Graceful" closes the pane on exit code 0 only, so closing the last pane of the last tab quits the app the way `exit` does in any terminal. SSH panes ignore this and always keep their reconnect banner. Type-checked only; unrecognised values behave as "Never" (a typo must not be more destructive than the default). |
+        | `AgentIndicatorTabRollup` | string (enum-like) | "WritesOnly"/"All". Default "WritesOnly". Which agent attention tiers reach the tab strip. An agent write always shows there, so this only decides whether an agent *read* does too. Type-checked only; unrecognised values behave as "WritesOnly" (a typo must not make the chrome noisier than the default). |
         | `QuakeModeEnabled` | bool | Default true. |
         | `GlobalHotkey` | string | Default "Alt+OemTilde". |
         | `ExperimentalNativeSshEnabled` | bool | Default false. |
@@ -112,6 +113,7 @@ public static class SettingsTools
           "WheelLinesPerNotch": 3.0,
           "PaneClosePolicy": "Confirm",
           "ShellExitPolicy": "Graceful",
+          "AgentIndicatorTabRollup": "WritesOnly",
           "Keybindings": { "Ctrl+Shift+C": "copy" },
           "TabTemplateRules": [],
           "BackgroundImagePath": "",
@@ -159,7 +161,8 @@ public static class SettingsTools
     internal static readonly string[] StringFields =
     {
         "FontFamily", "ThemeName", "BackgroundImagePath", "GlobalHotkey",
-        "BlurEffect", "CursorStyle", "PaneClosePolicy", "ShellExitPolicy", "BackgroundImageStretch",
+        "BlurEffect", "CursorStyle", "PaneClosePolicy", "ShellExitPolicy", "AgentIndicatorTabRollup",
+        "BackgroundImageStretch",
     };
 
     internal static readonly string[] ArrayFields = { "Profiles", "TabTemplateRules" };
@@ -171,7 +174,8 @@ public static class SettingsTools
         "EnableLigatures", "EnableComplexShaping", "CursorStyle", "CursorBlink",
         "BellAudioEnabled", "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection",
         "EnableKittyKeyboardProtocol", "AllowOsc52ClipboardWrite",
-        "WheelLinesPerNotch", "PaneClosePolicy", "ShellExitPolicy", "Keybindings", "TabTemplateRules",
+        "WheelLinesPerNotch", "PaneClosePolicy", "ShellExitPolicy", "AgentIndicatorTabRollup",
+        "Keybindings", "TabTemplateRules",
         "BackgroundImagePath", "BackgroundImageOpacity", "BackgroundImageStretch",
         "QuakeModeEnabled", "GlobalHotkey", "CommandAssistEnabled", "CommandAssistHistoryEnabled",
         "CommandAssistMaxHistoryEntries", "CommandAssistPassiveBubbleEnabled",
