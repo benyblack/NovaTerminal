@@ -469,6 +469,31 @@ namespace NovaTerminal.AgentHost
 
         private void OnSessionRegistered(AgentSessionRegistration registration)
         {
+            // Publish act-reachability onto the brand-new registration now.
+            // AgentSessionRegistration._isAgentActable defaults to false, so
+            // without this a pane created while act is on is laid out with no
+            // status bar and only learns otherwise at the next 1 s sweep tick.
+            // That flips IsAgentActable -> ActabilityChanged ->
+            // ApplyAgentAttention -> UpdateStatusBarVisibility, the 22 px bar
+            // appears, and the terminal row shrinks — reflowing the PTY about a
+            // second after the pane opened, right on top of whatever full-screen
+            // TUI the user just started. The design allows exactly one reflow,
+            // at permission-toggle time, and that is a deliberate user action;
+            // this is not.
+            //
+            // Guarded for the same reason SweepStatuses guards its call: this
+            // runs synchronously inside AgentSessionRegistry.Register, on the UI
+            // thread during TerminalPane construction, and a throw here would
+            // take the pane's constructor down with it.
+            try
+            {
+                RefreshActability();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AgentHost] actability refresh failed for {registration.PaneId}: {ex.Message}");
+            }
+
             AgentEventRing? ring;
             lock (_gate)
             {

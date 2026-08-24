@@ -122,6 +122,9 @@ namespace NovaTerminal.Controls
         private bool _disposed;
         private NovaTerminal.AgentHost.AgentSessionRegistration? _agentRegistration;
         private bool _agentActable;
+        // Whether UpdateStatusBarUI has rendered the SSH forwarding half of the
+        // status bar at least once. See UpdateForwardingStatus.
+        private bool _forwardingStatusUiBuilt;
         private NovaTerminal.AgentHost.AgentAttentionSnapshot _agentAttention =
             new(NovaTerminal.AgentHost.AgentAttentionTier.Idle, null, null);
         private DateTimeOffset? _lastCommandStartedAtUtc;
@@ -579,6 +582,31 @@ namespace NovaTerminal.Controls
             // A3 act: an agent typing into this pane is text the keyboard path never saw.
             _agentRegistration.InputInjected = NotifyExternalInputSent;
             NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(_agentRegistration);
+            // Seed act-reachability from the registration instead of waiting for
+            // the first ActabilityChanged. AgentHostService.OnSessionRegistered
+            // publishes it synchronously inside Register above — i.e. one line
+            // before the subscription below exists, so the event is already gone
+            // by the time we would hear it. Subscribing first would not fix it
+            // either: OnAgentActabilityChanged only *posts* to the dispatcher, so
+            // the bar would still appear a frame after the pane's first layout
+            // and resize the PTY, which is the reflow this is here to remove.
+            // Reading the value is synchronous, so the pane is laid out with its
+            // bar already in place and the terminal row is never re-measured.
+            //
+            // Routed through ApplyAgentAttention rather than assigning
+            // _agentActable directly so the segment is rendered by its one
+            // renderer: a seeded-actable pane shows the idle "agent access"
+            // label immediately instead of a bare dot with empty text until the
+            // first attention event.
+            //
+            // Guarded rather than unconditional: _agentActable already defaults
+            // to false, so a non-actable pane has nothing to seed, and calling
+            // UpdateStatusBarVisibility() for it would only re-assert the SSH
+            // half of the bar's visibility OR earlier than anything expects.
+            if (_agentRegistration.IsAgentActable)
+            {
+                ApplyAgentAttention(_agentRegistration.AttentionMachine.Snapshot(), isActable: true);
+            }
             _agentRegistration.AttentionMachine.Changed += OnAgentAttentionChanged;
             _agentRegistration.ActabilityChanged += OnAgentActabilityChanged;
             TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
@@ -4184,7 +4212,15 @@ namespace NovaTerminal.Controls
                 if (oldStatus != rule.Status) anyChanges = true;
             }
 
-            if (anyChanges || !StatusBar.IsVisible)
+            // "Never rendered yet" used to be inferred from !StatusBar.IsVisible,
+            // on the assumption that the forwards were the only thing that could
+            // have raised the bar. They are not: the agent segment shares it, and
+            // an allowlisted SSH pane can now be born actable (SetupCommon seeds
+            // act-reachability so the bar never reflows the PTY a second later),
+            // which would raise the bar before this ever ran and leave the
+            // forwards half blank until some rule's status happened to change.
+            // Track the render explicitly instead of inferring it.
+            if (anyChanges || !_forwardingStatusUiBuilt)
             {
                 UpdateStatusBarUI();
                 (VisualRoot as MainWindow)?.UpdateTabVisuals();
@@ -4252,6 +4288,7 @@ namespace NovaTerminal.Controls
         {
             if (Profile == null) return;
             UpdateStatusBarVisibility();
+            _forwardingStatusUiBuilt = true;
             StatusBarLabel.Text = $"SSH ▸ {Profile.Name} ▸";
             StatusBarRules.Children.Clear();
 

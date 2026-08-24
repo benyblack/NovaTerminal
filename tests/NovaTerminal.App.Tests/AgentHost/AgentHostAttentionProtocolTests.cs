@@ -334,6 +334,71 @@ public class AgentHostAttentionProtocolTests : IDisposable
     }
 
     [Fact]
+    public void A_newly_registered_pane_is_actable_before_Register_returns()
+    {
+        // The reflow bug: OnSessionRegistered used to do nothing about
+        // actability, and AgentSessionRegistration._isAgentActable defaults to
+        // false. So a pane opened while act was on was laid out with no status
+        // bar, and the 1 s sweep flipped it a moment later — the 22 px bar
+        // appeared, the terminal row shrank, and the PTY reflowed underneath
+        // whatever full-screen TUI had just started. The design allows one
+        // reflow, at permission-toggle time only.
+        //
+        // Synchronously, not "eventually": the pane reads IsAgentActable
+        // straight off the registration on the next line of SetupCommon, so a
+        // value that only lands on a later tick is the same bug.
+        var registry = new AgentSessionRegistry();
+        using var service = NewRunningService(registry, act: true);
+
+        var registration = new AgentSessionRegistration(
+            Guid.NewGuid(), new TerminalBuffer(80, 24), "title", "Profile", "local",
+            isActive: true, profileId: null);
+        Assert.True(registry.Register(registration));
+
+        Assert.True(registration.IsAgentActable);
+    }
+
+    [Fact]
+    public void A_newly_registered_pane_is_not_actable_when_act_is_off()
+    {
+        // The other half — registering must publish the *correct* answer, not
+        // just any answer. A pane created with act off stays bar-less.
+        var registry = new AgentSessionRegistry();
+        using var service = NewRunningService(registry, act: false);
+
+        var registration = new AgentSessionRegistration(
+            Guid.NewGuid(), new TerminalBuffer(80, 24), "title", "Profile", "local",
+            isActive: true, profileId: null);
+        Assert.True(registry.Register(registration));
+
+        Assert.False(registration.IsAgentActable);
+    }
+
+    [Fact]
+    public void A_newly_registered_ssh_pane_off_the_allowlist_is_not_actable()
+    {
+        // Registering must run the full actability rule, allowlist included —
+        // an SSH pane whose profile is not allowlisted must not flash a bar on
+        // creation just because the global act toggle is on.
+        var registry = new AgentSessionRegistry();
+        using var service = NewRunningService(registry, act: true);
+        var allowed = Guid.NewGuid();
+        service.SetSshProfileAllowlist(id => id == allowed);
+
+        var denied = new AgentSessionRegistration(
+            Guid.NewGuid(), new TerminalBuffer(80, 24), "title", "Profile", "ssh",
+            isActive: true, profileId: Guid.NewGuid());
+        Assert.True(registry.Register(denied));
+        Assert.False(denied.IsAgentActable);
+
+        var permitted = new AgentSessionRegistration(
+            Guid.NewGuid(), new TerminalBuffer(80, 24), "title", "Profile", "ssh",
+            isActive: true, profileId: allowed);
+        Assert.True(registry.Register(permitted));
+        Assert.True(permitted.IsAgentActable);
+    }
+
+    [Fact]
     public async Task The_in_flight_poll_count_returns_to_zero()
     {
         var registry = new AgentSessionRegistry();

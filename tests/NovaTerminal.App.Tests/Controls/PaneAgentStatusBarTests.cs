@@ -242,6 +242,78 @@ public class PaneAgentStatusBarTests
         Assert.Equal(2, raiseCount);
     }
 
+    [AvaloniaFact]
+    public void A_pane_born_actable_shows_its_bar_with_no_event_and_no_dispatcher_turn()
+    {
+        // The reflow bug, from the pane's side. AgentHostService.OnSessionRegistered
+        // now publishes actability synchronously inside Register(...) — which
+        // TerminalPane.SetupCommon calls one line *before* it subscribes to
+        // ActabilityChanged, so the pane can never hear that event. And it would
+        // not help if it could: OnAgentActabilityChanged only posts to the
+        // dispatcher, so the bar would still appear a frame after the pane's
+        // first layout and resize the PTY.
+        //
+        // This stands in for AgentHostService by flipping actability from the
+        // registry's SessionRegistered event, which is exactly where the service
+        // hooks in — so the write lands in the same window, before the pane has
+        // subscribed to anything. No Dispatcher.UIThread.RunJobs() anywhere in
+        // this test: the assertion is that the pane was *constructed* with its
+        // bar, not that it acquired one later.
+        void MarkActable(AgentSessionRegistration r) => r.IsAgentActable = true;
+        AgentSessionRegistry.Instance.SessionRegistered += MarkActable;
+        try
+        {
+            using var pane = new TerminalPane("cmd.exe");
+
+            Assert.True(GetStatusBar(pane).IsVisible);
+            Assert.True(GetAgentSegment(pane).IsVisible);
+            // Seeded through ApplyAgentAttention, so the idle segment is fully
+            // rendered rather than a bare dot with empty text.
+            Assert.Contains("agent access", GetAgentSegmentText(pane), StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            AgentSessionRegistry.Instance.SessionRegistered -= MarkActable;
+        }
+    }
+
+    [AvaloniaFact]
+    public void An_ssh_pane_born_actable_still_renders_its_forwarding_half()
+    {
+        // Seeding actability at construction raises the shared bar before
+        // UpdateForwardingStatus first runs. That used to infer "never rendered
+        // yet" from !StatusBar.IsVisible, so it would decide the bar was already
+        // up, skip UpdateStatusBarUI, and leave the SSH label blank inside a
+        // visible bar until some rule's status happened to change.
+        void MarkActable(AgentSessionRegistration r) => r.IsAgentActable = true;
+        AgentSessionRegistry.Instance.SessionRegistered += MarkActable;
+        try
+        {
+            using var pane = MakeSshPaneWithForward();
+            Assert.True(GetStatusBar(pane).IsVisible); // raised by the agent half
+            pane.UpdateForwardingStatusForTesting();
+
+            Assert.False(string.IsNullOrEmpty(GetStatusBarLabel(pane)));
+            Assert.True(GetAgentSegment(pane).IsVisible);
+        }
+        finally
+        {
+            AgentSessionRegistry.Instance.SessionRegistered -= MarkActable;
+        }
+    }
+
+    [AvaloniaFact]
+    public void A_pane_born_non_actable_still_starts_with_no_bar()
+    {
+        // The seeding must copy the registration's real answer, not assume one:
+        // with nothing marking it actable, a fresh local pane has no bar and so
+        // gives up none of the terminal's rows.
+        using var pane = new TerminalPane("cmd.exe");
+
+        Assert.False(GetStatusBar(pane).IsVisible);
+        Assert.False(GetAgentSegment(pane).IsVisible);
+    }
+
     // Neighbouring pane tests reach controls with FindControl<T> (see
     // tests/NovaTerminal.App.Tests/Controls/PaneAssistInsertionTests.cs:850),
     // which is nullable — assert the type rather than dereferencing blind.
