@@ -892,6 +892,14 @@ namespace NovaTerminal.AgentHost
                 return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'.");
             }
 
+            // An export writes the pane's whole flight recording to a file:
+            // strictly more disclosure than readScreen, which marks the pane, and
+            // on the same footing as captureScreen, which marks it too. Placed
+            // after the sub-toggle check (which returns above) for the same
+            // reason captureScreen sequences its own that way: a *denied* export
+            // discloses nothing, so it must mark nothing.
+            TryNoteRead(registration);
+
             var exportDir = _exportDirectoryOverride
                 ?? Path.Combine(NovaTerminal.Shell.AppPaths.RecordingsDirectory, AgentHostProtocol.AgentExportsSubdirectory);
             Directory.CreateDirectory(exportDir);
