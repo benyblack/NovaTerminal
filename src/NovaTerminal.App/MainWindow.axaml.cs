@@ -6332,9 +6332,18 @@ namespace NovaTerminal
                 // though: returning silently here contradicts this method's whole contract, and
                 // the startup check runs 10 s in, so a user who opens the palette promptly is
                 // exactly who hits this.
+                //
+                // The wording is deliberately narrower than "the result will appear". If the
+                // in-flight check is the AUTOMATIC one, it reports nothing unless it finds an
+                // update - UpToDate and Failed are swallowed by design, because a background
+                // check must not interrupt anyone. Promising a result we would not deliver is
+                // worse than promising less. Sharing the in-flight task so a manual request
+                // could adopt its outcome is the fuller answer, but it is a lot of machinery
+                // for a ~10 s window, and it would make a background check's failure suddenly
+                // user-visible depending on timing. (Codex P2 on #340.)
                 ShowRecordingToast(
                     "Checking for updates",
-                    "A check is already running. The result will appear when it finishes.",
+                    "A check is already running in the background. If it finds a new version, you'll get a notification.",
                     null,
                     null,
                     autoHide: true);

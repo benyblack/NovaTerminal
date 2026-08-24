@@ -253,10 +253,18 @@ jobs:
 
       - name: Archive bundle
         shell: pwsh
+        # Same reasoning as the metadata job's env block, for PowerShell: in a double-quoted
+        # string `"$(...)"` is a subexpression PowerShell EXECUTES, so a tag named
+        # `v1.0.0$(whoami)` interpolated into script source runs commands on the runner.
+        # Through env it is only ever data. (Codex P1 on #340.)
+        env:
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
+          RID: ${{ matrix.rid }}
         run: |
-          $rid = "${{ matrix.rid }}"
+          $rid = $env:RID
+          $tag = $env:RELEASE_TAG
           $source = "artifacts/publish/$rid"
-          $dest = "artifacts/release/NovaTerminal-$rid-${{ needs.release_metadata.outputs.release_tag }}.zip"
+          $dest = "artifacts/release/NovaTerminal-$rid-$tag.zip"
           New-Item -ItemType Directory -Force -Path "artifacts/release" | Out-Null
           if (Test-Path $dest) { Remove-Item $dest -Force }
           Compress-Archive -Path "$source/*" -DestinationPath $dest
@@ -274,6 +282,7 @@ jobs:
         run: dotnet tool install -g vpk --version 1.2.0
 
       - name: Download previous Velopack release (for delta generation)
+        id: velopack_download
         if: matrix.rid == 'win-x64'
         continue-on-error: true
         shell: pwsh
@@ -288,21 +297,40 @@ jobs:
       - name: Pack Windows installer (Velopack)
         if: matrix.rid == 'win-x64'
         shell: pwsh
+        # RELEASE_TAG/RELEASE_VERSION come through env, never interpolated into the script:
+        # `"$(...)"` in a PowerShell double-quoted string is an executed subexpression, so a
+        # tag named `v1.0.0$(whoami)` would run commands on the runner. (Codex P1 on #340.)
+        env:
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
+          DOWNLOAD_OUTCOME: ${{ steps.velopack_download.outcome }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $ver = "${{ needs.release_metadata.outputs.release_version }}"
-          $tag = "${{ needs.release_metadata.outputs.release_tag }}"
+          $ver = $env:RELEASE_VERSION
+          $tag = $env:RELEASE_TAG
 
-          # Record whether the download step actually brought back a PREVIOUS-version full
-          # package, before anything below mutates the directory. This is the only moment the
-          # answer is knowable: the cleanup immediately after removes this version's own
-          # nupkgs, and `vpk pack` then adds more.
-          $priorFulls = @(Get-ChildItem artifacts/velopack -Filter "NovaTerminal-*-full.nupkg" -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -ne "NovaTerminal-$ver-full.nupkg" })
-          $expectDelta = $priorFulls.Count -gt 0
+          # Whether a delta is EXPECTED has to be decided from GitHub, not from this
+          # directory. An empty directory means two completely different things: "no prior
+          # Velopack release exists" (legitimate, and the only correct outcome on the first
+          # release) and "the download step failed" (a transient API error). The download step
+          # is continue-on-error because the first case must not fail the release — which means
+          # that without this query, a FAILED download looks exactly like a first release, no
+          # assertion fires, and the release publishes full-only, permanently and silently
+          # dropping delta updates for every client. Ask the releases API which case it is.
+          # (Codex P2 on #340.)
+          $priorFullCount = [int](gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" `
+            --jq '[.[] | select(.tag_name != env.RELEASE_TAG) | .assets[]? | select(.name | endswith("-full.nupkg"))] | length')
+          $expectDelta = $priorFullCount -gt 0
+          Write-Host "Prior full packages on GitHub (excluding $tag): $priorFullCount. Download step outcome: $env:DOWNLOAD_OUTCOME."
+
+          if ($expectDelta -and $env:DOWNLOAD_OUTCOME -ne 'success') {
+            throw "A prior Velopack release exists, but 'vpk download github' did not succeed (outcome: $env:DOWNLOAD_OUTCOME). Packing now would publish a full-only release and silently drop delta updates. Re-run the workflow for this tag once GitHub is reachable."
+          }
+
           if ($expectDelta) {
-            Write-Host "Prior full package(s) present, so a delta is expected: $($priorFulls.Name -join ', ')"
+            Write-Host "A delta is expected and will be asserted after packing."
           } else {
-            Write-Host "No prior full package present; full-only output is the correct result."
+            Write-Host "No prior Velopack release; full-only output is the correct result."
           }
 
           # Make a re-run idempotent. `vpk download github` picks the max-version full out of
@@ -338,18 +366,16 @@ jobs:
           Write-Host "Velopack output:"
           Get-ChildItem artifacts/velopack | Select-Object Name, Length | Format-Table
 
-          # Assert here rather than at the upload step. The download step is
-          # continue-on-error (correct - the first release has no prior to fetch) and the
-          # upload leaves fail_on_unmatched_files at its permissive default (also required -
-          # the first release legitimately produces no delta). Together those two mean a
-          # FAILED download would otherwise publish a permanent full-only release with a green
-          # job and no signal anywhere. Flipping fail_on_unmatched_files would break the
-          # legitimate first release instead, so the signal belongs here.
+          # Assert here rather than at the upload step, which leaves
+          # fail_on_unmatched_files at its permissive default - required, because the first
+          # release legitimately produces no delta, so flipping it would break exactly the
+          # case it is meant to protect. The signal belongs here instead, where "was a delta
+          # expected?" is known from GitHub rather than guessed from an empty directory.
           if (-not (Test-Path "artifacts/velopack/NovaTerminal-$ver-full.nupkg")) {
             throw "vpk pack produced no NovaTerminal-$ver-full.nupkg - the update feed would be unusable."
           }
           if ($expectDelta -and -not (Test-Path "artifacts/velopack/NovaTerminal-$ver-delta.nupkg")) {
-            throw "A prior full package was present but vpk pack produced no NovaTerminal-$ver-delta.nupkg - delta generation silently failed."
+            throw "A prior Velopack release exists but vpk pack produced no NovaTerminal-$ver-delta.nupkg - delta generation silently failed."
           }
 
       # Known and benign: the uploaded releases.win.json lists the PREVIOUS release's full
