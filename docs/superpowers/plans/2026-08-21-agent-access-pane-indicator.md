@@ -438,7 +438,7 @@ Create `tests/NovaTerminal.App.Tests/AgentHost/AgentAttentionRegistrationTests.c
 ```csharp
 using System;
 using NovaTerminal.AgentHost;
-using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.AppTests.AgentHost;
 
@@ -587,7 +587,7 @@ using System.IO;
 using System.Threading.Tasks;
 using NovaTerminal.AgentHost;
 using NovaTerminal.AgentHost.Contracts;
-using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.AppTests.AgentHost;
 
@@ -1036,26 +1036,31 @@ public class PaneAgentStatusBarTests
         Assert.Contains("typed", GetAgentSegmentText(pane), StringComparison.OrdinalIgnoreCase);
     }
 
+    // Neighbouring pane tests reach controls with FindControl<T> (see
+    // tests/NovaTerminal.App.Tests/Controls/PaneAssistInsertionTests.cs:850),
+    // which is nullable — assert the type rather than dereferencing blind.
     private static Border GetStatusBar(TerminalPane pane)
-        => pane.GetControl<Border>("StatusBar");
+        => Assert.IsType<Border>(pane.FindControl<Border>("StatusBar"));
 
     private static StackPanel GetAgentSegment(TerminalPane pane)
-        => pane.GetControl<StackPanel>("AgentStatusSegment");
+        => Assert.IsType<StackPanel>(pane.FindControl<StackPanel>("AgentStatusSegment"));
 
     private static string GetAgentSegmentText(TerminalPane pane)
-        => pane.GetControl<TextBlock>("AgentStatusText").Text ?? string.Empty;
+        => Assert.IsType<TextBlock>(pane.FindControl<TextBlock>("AgentStatusText")).Text ?? string.Empty;
 
     private static string GetStatusBarLabel(TerminalPane pane)
-        => pane.GetControl<TextBlock>("StatusBarLabel").Text ?? string.Empty;
+        => Assert.IsType<TextBlock>(pane.FindControl<TextBlock>("StatusBarLabel")).Text ?? string.Empty;
 
     // An SSH pane with one local forward, so the SSH half of the visibility OR
-    // is exercised. Build the profile the same way the existing SSH pane tests
-    // in tests/NovaTerminal.App.Tests/Ssh/ do; do not spin up a real session.
+    // is exercised. NOTE the type: TerminalPane's profile ctor takes
+    // NovaTerminal.Shell.TerminalProfile — NOT the Platform-layer SshProfile.
+    // TerminalProfile.Forwards is List<ForwardingRule>; SshProfile.Forwards is
+    // List<PortForward> and is a different thing entirely. No real session is
+    // started: the status bar only reads Profile.Forwards.
     private static TerminalPane MakeSshPaneWithForward()
     {
-        var profile = new SshProfile
+        var profile = new TerminalProfile
         {
-            Id = Guid.NewGuid(),
             Name = "host",
             Type = ConnectionType.SSH,
         };
@@ -1069,6 +1074,12 @@ public class PaneAgentStatusBarTests
     }
 }
 ```
+
+Usings that test file needs: `System`, `Avalonia.Controls`, `Avalonia.Headless.XUnit`,
+`NovaTerminal.AgentHost`, `NovaTerminal.Controls`, `NovaTerminal.Shell` (for
+`TerminalProfile`, `ForwardingRule`, `ConnectionType`, `ForwardingType`), and
+`NovaTerminal.Platform` for `SshDiagnosticsLevel` — verify that last namespace against
+`src/NovaTerminal.Platform/Ssh/Launch/SshDiagnosticsLevel.cs` rather than assuming.
 
 If `TerminalPane` has no `GetControl<T>` accessible from tests, use the same lookup the neighbouring pane tests use (check `PaneAssistInsertionTests.cs`) rather than widening the pane's API.
 
@@ -1377,10 +1388,17 @@ Roll each tab's panes up to an indicator on its tab header.
 **Follow the existing pattern here.** This codebase already has per-tab attention state and
 already renders it: `TabRuntimeState` carries `HasBell` / `HasActivity`
 (`MainWindow.axaml.cs:111`), and the indicators are **glyph suffixes appended to the tab label
-text** in `BuildTabDisplayLabels` (`MainWindow.axaml.cs:924`: `label += " BELL";`), mirrored as
-prefixes in `GetTabMenuLabel` (`:612`) and words in the automation label (`:3142`).
+text** in `BuildFullTabLabel` (`MainWindow.axaml.cs:899`, the bell/activity block around `:924`),
+mirrored as prefixes in `GetTabMenuLabel` (`:612`) and words in the automation label (`:3142`).
 `UpdateTabVisuals` rewrites every label on each pass, so this needs no new visual element, no
 header restructuring, and no special handling for renames.
+
+**Note the two-function relationship, which the earlier draft of this plan got wrong.**
+`BuildFullTabLabel(TabItem)` (`:899`) is the single source of label text and is where the
+bell/activity glyphs are appended. `BuildTabDisplayLabels(tabs, maxLength)` (`:945`) calls it per
+tab and then truncates to 44 characters for the visible header, with a collision-disambiguation
+pass. Add the agent glyph in `BuildFullTabLabel` — that one edit reaches the visible header, the
+tooltip, and the collision path. Do **not** add it in `BuildTabDisplayLabels`.
 
 Consequence worth knowing: the label is a single `TextBlock` with one `Foreground` set by
 `UpdateTabVisuals`, so the tab rollup distinguishes the tiers by **glyph**, not colour — which
@@ -1563,7 +1581,7 @@ Add the rollup, beside the other tab-state helpers:
 `AgentAttentionTier` is declared `Idle, Watched, Wrote`, so `tier > current` orders the tiers
 correctly. Keep that declaration order.
 
-In `BuildTabDisplayLabels`, immediately after the existing bell / activity block (`:924`):
+In `BuildFullTabLabel`, immediately after the existing bell / activity block (`:924`):
 
 ```csharp
             if (state.AgentTier == AgentHost.AgentAttentionTier.Wrote)
@@ -1634,6 +1652,24 @@ scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~
 
 Expected: PASS.
 
+- [ ] **Step 4b: Establish whether truncation can eat the marker — report, do not silently fix**
+
+`BuildTabDisplayLabels` truncates the full label to 44 characters (`TruncateTabLabel`), and the
+agent glyph is a **suffix**, so a long tab title may push it past the cut. The existing bell
+glyph has exactly the same exposure, which is why this plan follows the house pattern rather
+than inventing a truncation-immune mechanism.
+
+Determine the actual behaviour and report it. Write a test with a tab title long enough to force
+truncation, set the `Wrote` tier, and assert on the visible label:
+
+- If the marker survives, say so and note why (e.g. `TruncateTabLabel` reserves room, or appends
+  after cutting) — keep the test, it is a useful regression guard.
+- If the marker is dropped, keep the test as a **documented failing expectation**: report it in
+  your report as a finding with the evidence, and mark the test `Skip`ped with a comment naming
+  this step. Do **not** restructure the truncation path to fix it — a safety marker that can
+  vanish is a real problem, but whether to deviate from the established bell pattern is a
+  design decision for the controller and the human, not something to settle inside this task.
+
 - [ ] **Step 5: Check the tab suite for regressions**
 
 ```bash
@@ -1663,54 +1699,74 @@ One app-level light for "agent access is on", picking up the polling and observe
 
 **Interfaces:**
 - Consumes: `AgentHostService.Instance.InFlightPollCount`, `.ObserveActivityChanged` (Task 3); `AgentSessionRegistry`.
-- Produces: on `MainWindow` — `internal void RefreshAgentObserveIndicator()`.
+- Produces: on `MainWindow` — `internal static (bool Visible, bool Active) ComputeObserveIndicatorState(bool observeRunning, bool actEnabled, bool polling, bool anyPaneWatched)` and `internal void RefreshAgentObserveIndicator()`.
 
 - [ ] **Step 1: Write the failing tests**
+
+The decision this indicator makes has four inputs and no need of a window, so it goes in a pure
+function first — the same idiom as `ShouldClosePaneOnExit` and `ShouldShowTierInTabStrip`. This
+matters for testability: the earlier draft of this plan tested the indicator by calling
+`AgentHostService.Instance.Apply(true)`, which starts a **real IPC endpoint on a process-wide
+singleton** inside a unit test sharing a process with ~150 other AgentHost tests. Do not do that.
 
 Create `tests/NovaTerminal.App.Tests/Core/AgentObserveIndicatorTests.cs`:
 
 ```csharp
-using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.AgentHost;
+using Xunit;
 
 namespace NovaTerminal.Tests.Core;
 
 /// <summary>
-/// The window-level observe light. It is a permission indicator first: visible
-/// exactly while observe is enabled, regardless of any pane's activity.
+/// The window-level agent light. It is a permission indicator first — visible
+/// exactly while observe is enabled — with two activity states layered on,
+/// because it is the only surface at the right scope for them: a waitForEvents
+/// long poll names no pane, and in observe-only mode no pane carries a status
+/// bar, so reads would otherwise be invisible everywhere.
 /// </summary>
 public class AgentObserveIndicatorTests
 {
-    [AvaloniaFact]
-    public void Hidden_when_observe_is_disabled()
+    [Theory]
+    // Observe off: invisible, and nothing else matters.
+    [InlineData(false, false, false, false, false, false)]
+    [InlineData(false, true, true, true, false, false)]
+    // Observe on, nothing happening: visible but quiet.
+    [InlineData(true, false, false, false, true, false)]
+    // A long poll is parked: active regardless of the act toggle, because the
+    // subscription names no pane and this is the only surface for it.
+    [InlineData(true, false, true, false, true, true)]
+    [InlineData(true, true, true, false, true, true)]
+    // Observe-only (act off) and some pane is being read: active, because no
+    // pane carries a status bar in that mode.
+    [InlineData(true, false, false, true, true, true)]
+    // Act on, so panes carry their own bars: a pane read does NOT drive the
+    // window light, which would double-report it.
+    [InlineData(true, true, false, true, true, false)]
+    public void Observe_indicator_state(
+        bool observeRunning, bool actEnabled, bool polling, bool anyPaneWatched,
+        bool expectedVisible, bool expectedActive)
     {
-        using var window = new MainWindow();
-        window.Show();
+        var (visible, active) = MainWindow.ComputeObserveIndicatorState(
+            observeRunning, actEnabled, polling, anyPaneWatched);
 
-        AgentHostService.Instance.Apply(false);
-        window.RefreshAgentObserveIndicator();
-
-        Assert.False(GetIndicator(window).IsVisible);
+        Assert.Equal(expectedVisible, visible);
+        Assert.Equal(expectedActive, active);
     }
 
     [AvaloniaFact]
-    public void Visible_when_observe_is_enabled()
+    public void The_indicator_control_exists_and_starts_hidden()
     {
-        using var window = new MainWindow();
+        // Wiring only: the decision itself is covered by the theory above, and
+        // this must not touch AgentHostService.Instance.
+        using var window = TestMainWindowFactory.Create();
         window.Show();
 
-        AgentHostService.Instance.Apply(true);
-        window.RefreshAgentObserveIndicator();
+        var indicator = window.FindControl<Button>("AgentObserveIndicator");
 
-        Assert.True(GetIndicator(window).IsVisible);
-
-        AgentHostService.Instance.Apply(false); // leave global state as found
+        Assert.NotNull(indicator);
+        Assert.False(indicator!.IsVisible);
     }
-
-    private static Button GetIndicator(MainWindow window)
-        => window.GetControl<Button>("AgentObserveIndicator");
 }
 ```
 
@@ -1720,7 +1776,8 @@ public class AgentObserveIndicatorTests
 scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentObserveIndicatorTests"
 ```
 
-Expected: compile failure — `RefreshAgentObserveIndicator` does not exist.
+Expected: compile failure — `ComputeObserveIndicatorState` and the `AgentObserveIndicator` control
+do not exist.
 
 - [ ] **Step 3: Add the control**
 
@@ -1743,29 +1800,41 @@ In `MainWindow.axaml`, immediately after the `TabOverflowBadge` `TextBlock`:
 
 ```csharp
         /// <summary>
-        /// The application-level agent light. Visible exactly while observe is
-        /// enabled. It also carries two activity states, because it is the only
-        /// surface at the right scope for them: an in-flight waitForEvents long
-        /// poll names no pane, and in observe-only mode no pane carries a status
-        /// bar, so reads would otherwise be invisible everywhere.
+        /// Decides the application-level agent light from its four inputs. Pure
+        /// so it can be tested without a window and without touching the
+        /// process-wide <see cref="AgentHost.AgentHostService.Instance"/>.
+        ///
+        /// Visible exactly while observe is enabled. "Active" (the watched
+        /// styling) covers the two cases this is the only correctly-scoped
+        /// surface for: an in-flight waitForEvents long poll, which names no
+        /// pane; and, when act is off so no pane carries a status bar, a pane
+        /// being read. With act on, pane reads are already shown on the pane
+        /// itself, so they deliberately do not light this too.
         /// </summary>
+        internal static (bool Visible, bool Active) ComputeObserveIndicatorState(
+            bool observeRunning, bool actEnabled, bool polling, bool anyPaneWatched)
+        {
+            if (!observeRunning) return (false, false);
+            return (true, polling || (!actEnabled && anyPaneWatched));
+        }
+
+        /// <summary>Applies <see cref="ComputeObserveIndicatorState"/> to the chrome. UI thread.</summary>
         internal void RefreshAgentObserveIndicator()
         {
             var indicator = this.FindControl<Button>("AgentObserveIndicator");
             var dot = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("AgentObserveIndicatorDot");
             if (indicator == null || dot == null) return;
 
-            bool observing = AgentHost.AgentHostService.Instance.IsRunning;
-            indicator.IsVisible = observing;
-            if (!observing) return;
+            var service = AgentHost.AgentHostService.Instance;
+            bool anyPaneWatched = AgentHost.AgentSessionRegistry.Instance.GetRegistrations()
+                .Any(r => r.AttentionMachine.Snapshot().Tier == AgentHost.AgentAttentionTier.Watched);
 
-            bool polling = AgentHost.AgentHostService.Instance.InFlightPollCount > 0;
-            bool readingSomewhere = !_settings.AgentAccessActEnabled
-                && AgentHost.AgentSessionRegistry.Instance.GetRegistrations()
-                    .Any(r => r.AttentionMachine.Snapshot().Tier == AgentHost.AgentAttentionTier.Watched);
+            var (visible, active) = ComputeObserveIndicatorState(
+                service.IsRunning, _settings.AgentAccessActEnabled, service.InFlightPollCount > 0, anyPaneWatched);
 
-            dot.Fill = new SolidColorBrush(Color.Parse(
-                polling || readingSomewhere ? "#4FB0D4" : "#6B737F"));
+            indicator.IsVisible = visible;
+            if (!visible) return;
+            dot.Fill = new SolidColorBrush(Color.Parse(active ? "#4FB0D4" : "#6B737F"));
         }
 ```
 
@@ -1802,7 +1871,7 @@ Call `RefreshAgentObserveIndicator();` at both settings-apply sites — after `A
 scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentObserveIndicatorTests"
 ```
 
-Expected: PASS, 2 tests.
+Expected: PASS — 7 theory cases plus 1 wiring test.
 
 - [ ] **Step 6: Commit**
 
