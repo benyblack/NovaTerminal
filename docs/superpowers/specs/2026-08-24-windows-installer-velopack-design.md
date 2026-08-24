@@ -195,11 +195,22 @@ confirm the toast appears, restart, confirm the running version bumped and the d
 
 ## Version consistency
 
-`Directory.Build.props` hardcodes `0.4.0` while release versions come from the tag. If
-the publish is not given the tag-derived version, an installed build reports `0.4.0`
-forever: the first release after any drift looks like an available update to every
-client, permanently. The tag must drive both `vpk --packVersion` and the publish's
-`Version` properties, and they must agree.
+`Directory.Build.props` hardcodes `0.4.0` while release versions come from the tag. The
+tag must drive both `vpk --packVersion` and the publish's `Version` properties, and they
+must agree.
+
+Being precise about why, because an earlier draft of this section overstated it:
+Velopack compares against the version recorded by its own install metadata, not against
+`AssemblyInformationalVersion`, so drift does not by itself produce a permanent
+false "update available". What it does corrupt is everything the app reports about
+itself — `DescribeBuild()`, the debug log's `Build:` line, the Windows file properties —
+which is exactly the information anyone diagnosing an update problem will read first.
+Stamping the publish is cheap and removes the ambiguity; the spike (implementation
+Task 1) confirms which source `UpdateManager.CurrentVersion` actually reads.
+
+`AssemblyVersion` and `FileVersion` are deliberately left at their `Directory.Build.props`
+values: they must be four-part numerics, and a prerelease tag such as `v0.5.0-beta.1`
+would not parse.
 
 ## Open questions / follow-ups
 
