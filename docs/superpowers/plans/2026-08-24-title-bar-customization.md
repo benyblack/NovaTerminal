@@ -1235,10 +1235,12 @@ public static class TitleBarViewFactory
 
             string shortcut = TitleBarShortcuts.Resolve(entry.ShortcutKey, keybindings);
 
+            // The shortcut goes in the header text, not into InputGesture: these bindings are
+            // dispatched from MainWindow's own key handler rather than Avalonia's gesture system,
+            // so an InputGesture here would register a second, competing route to the same action.
             flyout.Items.Add(new MenuItem
             {
-                Header = entry.Title,
-                InputGesture = null,
+                Header = TitleBarShortcuts.FormatTooltip(entry.Title, shortcut),
                 Command = new RelayCommand(handler),
                 Icon = new PathIcon
                 {
@@ -1246,10 +1248,6 @@ public static class TitleBarViewFactory
                     Width = entry.IconSize,
                     Height = entry.IconSize,
                 },
-                // Shown as trailing text rather than an InputGesture: these bindings are dispatched
-                // from MainWindow's own key handler, not by Avalonia's gesture system, so binding
-                // an InputGesture here would register a second, competing route to the same action.
-                Tag = shortcut,
             });
         }
 
@@ -1280,14 +1278,13 @@ public static class TitleBarViewFactory
     /// <summary>Minimal ICommand so a plain Action can drive a Button without a Click subscription.</summary>
     private sealed class RelayCommand(Action execute) : ICommand
     {
-        public event EventHandler? CanExecuteChanged;
+        // These commands are always executable, so the event never fires. Empty accessors satisfy
+        // ICommand without leaving an unraised field behind.
+        public event EventHandler? CanExecuteChanged { add { } remove { } }
 
         public bool CanExecute(object? parameter) => true;
 
         public void Execute(object? parameter) => execute();
-
-        // Never raised: these commands are always executable. Declared to satisfy ICommand.
-        private void Unused() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
     }
 }
 ```
@@ -1507,30 +1504,48 @@ git commit -m "feat(ui): render the title bar from the resolved layout"
 
 - [ ] **Step 1: Track the toggle and rebuild when it flips**
 
-Find `OnRecordingStateChanged` and make the active-set update drive a rebuild only on an actual change — an unconditional rebuild here would discard and recreate the whole bar on every recording notification:
+`OnRecordingStateChanged` is at `MainWindow.axaml.cs:5960` and its entire current body is:
 
 ```csharp
         private void OnRecordingStateChanged(bool isRecording)
         {
-            bool changed = isRecording
-                ? _activeTitleBarToggles.Add("toggle_recording")
-                : _activeTitleBarToggles.Remove("toggle_recording");
-
-            if (changed)
-            {
-                // Rebuild so an overflowed Record button surfaces into the bar while recording and
-                // drops back into the … flyout when it stops. RebuildTitleBar re-syncs the button
-                // colouring itself, so no separate UpdateRecordButtonUi call is needed here.
-                RebuildTitleBar();
-            }
-            else
+            Dispatcher.UIThread.Post(() =>
             {
                 UpdateRecordButtonUi(isRecording);
-            }
+            });
         }
 ```
 
-Keep whatever else the existing `OnRecordingStateChanged` body does — toast handling, notification wiring — and add this logic alongside it rather than replacing the method wholesale.
+Replace it with exactly this. The `Dispatcher.UIThread.Post` wrapper is load-bearing — this
+callback arrives from the recording session off the UI thread, and both `RebuildTitleBar` and
+`UpdateRecordButtonUi` touch Avalonia controls. The rebuild is gated on an actual state change
+because an unconditional rebuild would discard and recreate the whole bar on every notification:
+
+```csharp
+        private void OnRecordingStateChanged(bool isRecording)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                bool changed = isRecording
+                    ? _activeTitleBarToggles.Add("toggle_recording")
+                    : _activeTitleBarToggles.Remove("toggle_recording");
+
+                if (changed)
+                {
+                    // Surfaces an overflowed Record button into the bar while recording and drops
+                    // it back into the … flyout when it stops. RebuildTitleBar re-syncs the button
+                    // colouring itself, so no separate UpdateRecordButtonUi call belongs here.
+                    RebuildTitleBar();
+                }
+                else
+                {
+                    UpdateRecordButtonUi(isRecording);
+                }
+            });
+        }
+```
+
+Leave `OnRecordingNotification` — the toast handling immediately below — untouched.
 
 - [ ] **Step 2: Point the record-button colouring at the generated button**
 
@@ -1985,8 +2000,11 @@ Every geometry constant in Task 1 is a literal path string, and a malformed one 
 - [ ] **Step 4: Confirm the settings file holds only deltas**
 
 ```bash
-cat "$env:APPDATA/NovaTerminal/settings.json" | grep -A5 TitleBar
+grep -A5 TitleBar "$APPDATA/NovaTerminal/settings.json"
 ```
+
+That path works from Git Bash. `$env:APPDATA` is PowerShell syntax and expands to nothing
+in a bash fence, which would silently read the wrong file.
 
 Expected: `TitleBarItems` contains only the ids you changed — not all 12 — and `TitleBarOrder` lists just the pinned set.
 
