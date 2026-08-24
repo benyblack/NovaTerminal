@@ -32,9 +32,12 @@ namespace NovaTerminal
         private TerminalProfile? _selectedProfile;
         private System.Collections.Generic.List<TerminalProfile> _profilesList = new();
         private Dictionary<string, string> _shortcutDraftBindings = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, TitleBarItemState> _titleBarDraftStates =
-            new(StringComparer.OrdinalIgnoreCase);
-        private readonly List<string> _titleBarDraftOrder = new();
+        private readonly TitleBarDraftState _titleBarDraft = new();
+
+        // Shared style-class name (see SettingsWindow.axaml's "TextBlock.RowDesc" selector) used
+        // across several row-building methods below; a const avoids the literal drifting out of
+        // sync with the selector in one of its several call sites.
+        private const string RowDescStyleClass = "RowDesc";
 
         public event Action<double>? OnOpacityChanged;
         public event Action<string>? OnBlurChanged;
@@ -1267,33 +1270,17 @@ namespace NovaTerminal
 
         private void LoadTitleBarDraft()
         {
-            _titleBarDraftStates.Clear();
-            _titleBarDraftOrder.Clear();
-
-            // Resolve once and derive both the per-entry draft state and the pinned order from
-            // that single result, rather than re-reading _settings.TitleBarItems a second time
-            // with a separate lookup. The resolver is the sole owner of state resolution --
-            // including normalizing settings keys to OrdinalIgnoreCase so a hand-edited
-            // settings.json entry like "Find" still matches the catalog id "find" -- and a
-            // second, independent reader here would inevitably drift from it and silently
-            // disagree about a case-variant id.
+            // Resolve once and let TitleBarDraftState derive both the per-entry draft state and
+            // the pinned order from that single result, rather than re-reading
+            // _settings.TitleBarItems a second time with a separate lookup. The resolver is the
+            // sole owner of state resolution -- including normalizing settings keys to
+            // OrdinalIgnoreCase so a hand-edited settings.json entry like "Find" still matches the
+            // catalog id "find" -- and a second, independent reader here would inevitably drift
+            // from it and silently disagree about a case-variant id.
             var layout = TitleBarLayoutResolver.Resolve(
                 _settings.TitleBarItems, _settings.TitleBarOrder, null);
 
-            var pinnedIds = new HashSet<string>(
-                layout.Pinned.Select(e => e.Id), StringComparer.OrdinalIgnoreCase);
-            var overflowIds = new HashSet<string>(
-                layout.Overflow.Select(e => e.Id), StringComparer.OrdinalIgnoreCase);
-
-            foreach (var entry in TitleBarCatalog.GetEntries())
-            {
-                _titleBarDraftStates[entry.Id] =
-                    pinnedIds.Contains(entry.Id) ? TitleBarItemState.Pinned :
-                    overflowIds.Contains(entry.Id) ? TitleBarItemState.Overflow :
-                    TitleBarItemState.Hidden;
-            }
-
-            _titleBarDraftOrder.AddRange(layout.Pinned.Select(e => e.Id));
+            _titleBarDraft.SeedFrom(layout);
         }
 
         private void RebuildTitleBarRows()
@@ -1309,12 +1296,7 @@ namespace NovaTerminal
             // Pinned entries first, in their configured order, so the ▲/▼ buttons act on a list
             // that reads top-to-bottom the way the bar reads left-to-right. Then the rest in
             // catalog order.
-            var ordered = _titleBarDraftOrder
-                .Where(id => _titleBarDraftStates.TryGetValue(id, out var s) && s == TitleBarItemState.Pinned)
-                .ToList();
-            ordered.AddRange(TitleBarCatalog.GetEntries()
-                .Select(e => e.Id)
-                .Where(id => !ordered.Contains(id, StringComparer.OrdinalIgnoreCase)));
+            var ordered = _titleBarDraft.GetDisplayOrder();
 
             var byId = TitleBarCatalog.GetEntries()
                 .ToDictionary(e => e.Id, StringComparer.OrdinalIgnoreCase);
@@ -1329,7 +1311,7 @@ namespace NovaTerminal
             TitleBarCatalogEntry entry,
             int index)
         {
-            var state = _titleBarDraftStates[entry.Id];
+            var state = _titleBarDraft.GetState(entry.Id);
             bool isPinned = state == TitleBarItemState.Pinned;
 
             var row = new Border
@@ -1361,7 +1343,7 @@ namespace NovaTerminal
                     new TextBlock
                     {
                         Text = string.IsNullOrWhiteSpace(shortcut) ? "No shortcut" : shortcut,
-                        Classes = { "RowDesc" },
+                        Classes = { RowDescStyleClass },
                     },
                 },
             };
@@ -1375,7 +1357,7 @@ namespace NovaTerminal
                 placement = new TextBlock
                 {
                     Text = "Always pinned",
-                    Classes = { "RowDesc" },
+                    Classes = { RowDescStyleClass },
                     VerticalAlignment = VerticalAlignment.Center,
                 };
             }
@@ -1408,7 +1390,7 @@ namespace NovaTerminal
                         return;
                     }
 
-                    if (next == TitleBarItemState.Pinned && CountDraftPinned() >= TitleBarCatalog.MaxPinned)
+                    if (!_titleBarDraft.TrySetState(entry.Id, next))
                     {
                         // Explicit placement with no width-driven spill means nothing else stops a
                         // pinned set from running into the tab strip.
@@ -1416,27 +1398,12 @@ namespace NovaTerminal
                             $"At most {TitleBarCatalog.MaxPinned} actions can be pinned. Move one to Overflow or Hidden first.");
 
                         suppressSelectionChanged = true;
-                        combo.SelectedItem = _titleBarDraftStates[entry.Id].ToString();
+                        combo.SelectedItem = _titleBarDraft.GetState(entry.Id).ToString();
                         suppressSelectionChanged = false;
                         return;
                     }
 
                     ClearTitleBarValidationMessage();
-                    _titleBarDraftStates[entry.Id] = next;
-
-                    if (next == TitleBarItemState.Pinned)
-                    {
-                        if (!_titleBarDraftOrder.Contains(entry.Id, StringComparer.OrdinalIgnoreCase))
-                        {
-                            _titleBarDraftOrder.Add(entry.Id);
-                        }
-                    }
-                    else
-                    {
-                        _titleBarDraftOrder.RemoveAll(
-                            id => string.Equals(id, entry.Id, StringComparison.OrdinalIgnoreCase));
-                    }
-
                     RebuildTitleBarRows();
                 };
 
@@ -1456,7 +1423,7 @@ namespace NovaTerminal
             {
                 Content = "▼",
                 Classes = { "Pill" },
-                IsEnabled = isPinned && !entry.IsLocked && index < CountDraftPinned() - 1,
+                IsEnabled = isPinned && !entry.IsLocked && index < _titleBarDraft.CountPinned() - 1,
                 VerticalAlignment = VerticalAlignment.Center,
             };
             down.Click += (s, e) => MoveDraftPinned(entry.Id, +1);
@@ -1477,24 +1444,9 @@ namespace NovaTerminal
             return row;
         }
 
-        private int CountDraftPinned()
-            => _titleBarDraftStates.Count(kv => kv.Value == TitleBarItemState.Pinned);
-
         private void MoveDraftPinned(string id, int delta)
         {
-            int from = _titleBarDraftOrder.FindIndex(
-                x => string.Equals(x, id, StringComparison.OrdinalIgnoreCase));
-            int to = from + delta;
-
-            // Index 0 is the locked New Tab entry, which never moves and can never be displaced.
-            if (from <= 0 || to <= 0 || to >= _titleBarDraftOrder.Count)
-            {
-                return;
-            }
-
-            (_titleBarDraftOrder[from], _titleBarDraftOrder[to]) =
-                (_titleBarDraftOrder[to], _titleBarDraftOrder[from]);
-
+            _titleBarDraft.MovePinned(id, delta);
             RebuildTitleBarRows();
         }
 
@@ -1563,7 +1515,7 @@ namespace NovaTerminal
                 panel.Children.Add(new TextBlock
                 {
                     Text = "No shortcuts match the current filter.",
-                    Classes = { "RowDesc" },
+                    Classes = { RowDescStyleClass },
                 });
             }
         }
@@ -1638,7 +1590,7 @@ namespace NovaTerminal
                                     new TextBlock
                                     {
                                         Text = $"{entry.Category} · {FormatScopeLabel(entry.Scope)} · Default {entry.DefaultBinding}",
-                                        Classes = { "RowDesc" },
+                                        Classes = { RowDescStyleClass },
                                     },
                                 },
                             },
@@ -2060,7 +2012,7 @@ namespace NovaTerminal
                     Text = CommandAssistSnippetStore == null
                         ? "Snippets are not available in this window."
                         : "No snippets yet. Pin a suggestion with Ctrl+Shift+S, or add one here.",
-                    Classes = { "RowDesc" },
+                    Classes = { RowDescStyleClass },
                 });
                 return;
             }
@@ -2567,13 +2519,8 @@ namespace NovaTerminal
 
             // Deltas only: an id at its catalog default is omitted, so a future catalog change
             // reaches existing users without a migration.
-            _settings.TitleBarItems = TitleBarCatalog.GetEntries()
-                .Where(e => !e.IsLocked && _titleBarDraftStates[e.Id] != e.DefaultState)
-                .ToDictionary(e => e.Id, e => _titleBarDraftStates[e.Id].ToString(), StringComparer.OrdinalIgnoreCase);
-
-            _settings.TitleBarOrder = _titleBarDraftOrder
-                .Where(id => _titleBarDraftStates.TryGetValue(id, out var s) && s == TitleBarItemState.Pinned)
-                .ToList();
+            _settings.TitleBarItems = _titleBarDraft.BuildSaveDelta();
+            _settings.TitleBarOrder = _titleBarDraft.BuildSaveOrder();
 
             _settings.Save();
             Close(true); // Return true to indicate saved
