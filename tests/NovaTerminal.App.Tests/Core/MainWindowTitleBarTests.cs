@@ -3,6 +3,7 @@ using System.Linq;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Media;
 using NovaTerminal.Shell;
 using NovaTerminal.Shell.TitleBar;
 using Xunit;
@@ -146,6 +147,115 @@ public sealed class MainWindowTitleBarTests
 
         var hostAfterDeactivation = GetTitleBarHost(window);
         Assert.DoesNotContain(recordButtonName, hostAfterDeactivation.Children.Select(c => (c as Control)?.Name));
+    }
+
+    /// <summary>
+    /// Task 11 regression coverage: Tasks 5-7 wired every call site in MainWindow.axaml.cs that
+    /// touches a generated title bar button through
+    /// <c>this.FindControl&lt;Button&gt;(TitleBarViewFactory.ButtonName(id))</c>, which - per the
+    /// class remark above - can never resolve a runtime-created child and silently returns null.
+    /// The null-checks at each call site turned that into a quiet no-op instead of a crash, which
+    /// is exactly why three tasks of review missed it. These tests drive the real private methods
+    /// (via reflection, same as the rest of this file) and assert on a property each one actually
+    /// mutates that is NOT inherited from the window, since an inherited property (e.g.
+    /// Foreground, when never locally set) reads correctly from the window even when the lookup
+    /// underneath is completely dead - that inheritance fallback is what masked the defect.
+    /// </summary>
+    [AvaloniaFact]
+    public void UpdateRecordButtonUi_Recolors_GeneratedRecordButtonBackground()
+    {
+        var window = TestMainWindowFactory.Create();
+        var settings = GetSettings(window);
+        settings.TitleBarItems["toggle_recording"] = "Pinned";
+        InvokeRebuildTitleBar(window);
+
+        var button = GetGeneratedButton(window, "toggle_recording");
+        var initialBackground = button.Background;
+
+        InvokeUpdateRecordButtonUi(window, isRecording: true);
+
+        // Background is a locally-set property on every generated button (Brushes.Transparent at
+        // creation - see TitleBarViewFactory.CreateItemButton), so it never falls back to an
+        // inherited value: if FindTitleBarButton's lookup were dead, this assertion would fail
+        // rather than pass on a false positive, unlike Foreground would. Asserted through
+        // ISolidColorBrush rather than a concrete IsType check, since Brushes.Transparent (the
+        // untouched initial value) is an ImmutableSolidColorBrush while the active-state brush the
+        // production code assigns is a mutable SolidColorBrush - both implement ISolidColorBrush,
+        // and pinning to one concrete type would make the assertion fail for that incidental
+        // reason instead of the one this test actually cares about.
+        var activeBrush = Assert.IsAssignableFrom<ISolidColorBrush>(button.Background);
+        Assert.Equal(Color.Parse("#30F1636B"), activeBrush.Color);
+        Assert.NotEqual(initialBackground, button.Background);
+    }
+
+    [AvaloniaFact]
+    public void PopulateTabListMenu_ReachesGeneratedButton_AndAttachesMenuFlyout()
+    {
+        var window = TestMainWindowFactory.Create();
+
+        // open_tab_list is pinned by default (see DefaultPinnedButtonNames), and unlike the
+        // overflow button, TitleBarViewFactory does not give a pinned item button a MenuFlyout up
+        // front - PopulateTabListMenu is supposed to get-or-create one on first use.
+        var button = GetGeneratedButton(window, "open_tab_list");
+        Assert.Null(button.Flyout);
+
+        InvokePopulateTabListMenu(window, showFlyout: false);
+
+        Assert.IsType<MenuFlyout>(button.Flyout);
+    }
+
+    /// <summary>
+    /// ApplyThemeToUI only ever assigns Foreground on the generated title bar buttons (see
+    /// MainWindow.axaml.cs around line 4404) - every property it touches on them is inherited from
+    /// the window, which already carries the same contrastForeground brush by the time these lines
+    /// run. That means asserting Foreground alone would pass even with a totally dead
+    /// FindTitleBarButton lookup, the same masking documented on the other two tests in this
+    /// group. To make the assertion meaningful, this test first gives the button a local
+    /// (non-inherited) sentinel Foreground value; only a real assignment inside ApplyThemeToUI -
+    /// meaning the lookup actually found the live button - can overwrite it back to the shared
+    /// contrastForeground instance also applied to the window itself.
+    /// </summary>
+    [AvaloniaFact]
+    public void ApplyThemeToUI_Recolors_GeneratedConnectionsButtonForeground()
+    {
+        var window = TestMainWindowFactory.Create();
+        var button = GetGeneratedButton(window, "connections");
+        button.Foreground = Brushes.Lime;
+
+        InvokeApplyThemeToUI(window);
+
+        Assert.NotEqual(Brushes.Lime, button.Foreground);
+        Assert.Same(window.Foreground, button.Foreground);
+    }
+
+    private static Button GetGeneratedButton(NovaTerminal.MainWindow window, string catalogId)
+    {
+        var host = GetTitleBarHost(window);
+        string name = TitleBarViewFactory.ButtonName(catalogId);
+        var button = host.Children.OfType<Button>().SingleOrDefault(b => b.Name == name);
+        Assert.NotNull(button);
+        return button!;
+    }
+
+    private static void InvokeUpdateRecordButtonUi(NovaTerminal.MainWindow window, bool isRecording)
+    {
+        var method = typeof(NovaTerminal.MainWindow).GetMethod("UpdateRecordButtonUi", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method!.Invoke(window, [isRecording]);
+    }
+
+    private static void InvokePopulateTabListMenu(NovaTerminal.MainWindow window, bool showFlyout)
+    {
+        var method = typeof(NovaTerminal.MainWindow).GetMethod("PopulateTabListMenu", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method!.Invoke(window, [showFlyout]);
+    }
+
+    private static void InvokeApplyThemeToUI(NovaTerminal.MainWindow window)
+    {
+        var method = typeof(NovaTerminal.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method!.Invoke(window, null);
     }
 
     private static StackPanel GetTitleBarHost(NovaTerminal.MainWindow window)

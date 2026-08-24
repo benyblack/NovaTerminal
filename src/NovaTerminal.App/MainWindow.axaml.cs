@@ -683,7 +683,7 @@ namespace NovaTerminal
             var badge = this.FindControl<TextBlock>("TabOverflowBadge");
             // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
             // layout, in which case this button does not exist and the indicator stays quiet.
-            var button = this.FindControl<Button>(TitleBarViewFactory.ButtonName("open_tab_list"));
+            var button = FindTitleBarButton("open_tab_list");
             var scrollViewer = FindTabHeaderScrollViewer();
             if (tabs == null || badge == null || button == null || scrollViewer == null) return;
 
@@ -762,7 +762,7 @@ namespace NovaTerminal
         {
             // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
             // layout, in which case this button does not exist and populating its menu is moot.
-            var button = this.FindControl<Button>(TitleBarViewFactory.ButtonName("open_tab_list"));
+            var button = FindTitleBarButton("open_tab_list");
             var tabs = this.FindControl<TabControl>("Tabs");
             if (button == null || tabs == null) return;
 
@@ -4402,10 +4402,10 @@ namespace NovaTerminal
 
             // Apply to Title Bar Buttons
             var btnNew = this.FindControl<Button>("BtnNewTab");
-            var btnTabList = this.FindControl<Button>(TitleBarViewFactory.ButtonName("open_tab_list"));
+            var btnTabList = FindTitleBarButton("open_tab_list");
             var iconTabList = btnTabList?.Content as PathIcon;
-            var btnRecord = this.FindControl<Button>(TitleBarViewFactory.ButtonName("toggle_recording"));
-            var btnConns = this.FindControl<Button>(TitleBarViewFactory.ButtonName("connections"));
+            var btnRecord = FindTitleBarButton("toggle_recording");
+            var btnConns = FindTitleBarButton("connections");
             var commandSearchBox = this.FindControl<TextBox>("CommandSearchBox");
 
             if (btnNew != null) btnNew.Foreground = contrastForeground;
@@ -4614,7 +4614,7 @@ namespace NovaTerminal
 
         private void UpdateShortcutTooltips()
         {
-            var btnConnections = this.FindControl<Button>(TitleBarViewFactory.ButtonName("connections"));
+            var btnConnections = FindTitleBarButton("connections");
             if (btnConnections != null)
             {
                 ToolTip.SetTip(btnConnections, $"Connections ({GetEffectiveShortcutBinding("connections", "Ctrl+Shift+K")})");
@@ -6088,7 +6088,7 @@ namespace NovaTerminal
 
         private void UpdateRecordButtonUi(bool isRecording)
         {
-            var btnRecord = this.FindControl<Button>(TitleBarViewFactory.ButtonName("toggle_recording"));
+            var btnRecord = FindTitleBarButton("toggle_recording");
             var iconRecord = btnRecord?.Content as PathIcon;
 
             // Absent whenever Record is hidden, or overflowed and not currently active — both
@@ -6132,6 +6132,25 @@ namespace NovaTerminal
                 ["sftp_transfers"] = () => ToggleTransferCenter(),
                 ["agent_activity"] = () => _ = ShowAgentActivityJournalAsync(),
             };
+        }
+
+        /// <summary>
+        /// Finds a generated title bar button by catalog id. TitleBarViewFactory creates these at
+        /// runtime, so they are not in the window's compile-time NameScope and FindControl can never
+        /// see them — it would return null forever, silently. Scanning the host panel is the only
+        /// lookup that works. Returns null when the action is set to Overflow or Hidden, which is a
+        /// legitimate configuration and must stay a quiet no-op at every call site.
+        /// </summary>
+        private Button? FindTitleBarButton(string catalogId)
+        {
+            var host = this.FindControl<StackPanel>("TitleBarItemsHost");
+            if (host == null)
+            {
+                return null;
+            }
+
+            string name = TitleBarViewFactory.ButtonName(catalogId);
+            return host.Children.OfType<Button>().FirstOrDefault(b => b.Name == name);
         }
 
         private void RebuildTitleBar()
