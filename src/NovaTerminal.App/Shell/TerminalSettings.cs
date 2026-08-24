@@ -93,7 +93,11 @@ namespace NovaTerminal.Shell
         public bool CommandAssistPassiveBubbleEnabled { get; set; } = true;
         public bool CommandAssistShellIntegrationEnabled { get; set; } = true;
         public bool CommandAssistPowerShellIntegrationEnabled { get; set; } = true;
-        public bool ExperimentalNativeSshEnabled { get; set; } = false;
+        // On by default since the native backend reached parity (agent auth, jump chains, all
+        // three forward kinds, SFTP) and every gap warns instead of degrading silently. Users
+        // whose settings.json already stores an explicit false keep it — this default only
+        // reaches fresh installs and settings files predating the field.
+        public bool ExperimentalNativeSshEnabled { get; set; } = true;
         // Agent-host observe surface (docs/agent-host/DIRECTION.md, milestone A1).
         // Off by default: when false, no local IPC endpoint exists at all and AI
         // agents cannot read any terminal session. Observe-only in v1 — there is

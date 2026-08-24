@@ -8,6 +8,11 @@ public sealed class JsonSshProfileStoreTests
     [Fact]
     public void SshProfile_DefaultsBackendKindToOpenSsh()
     {
+        // Deliberately unchanged by the default-backend flip: this model default is what a
+        // deserialized profile gets when its JSON predates the BackendKind field, so it must
+        // stay OpenSsh — an old store's profiles were connecting via OpenSSH and must not
+        // silently migrate. The Native default for NEW profiles lives at the creation surface
+        // (the editor dialog and its ToSshProfile fallback), not here.
         var profile = new SshProfile
         {
             Name = "default-backend",
