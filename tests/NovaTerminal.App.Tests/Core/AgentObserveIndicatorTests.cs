@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 
@@ -43,13 +45,38 @@ public class AgentObserveIndicatorTests
     public void The_indicator_control_exists_and_starts_hidden()
     {
         // Wiring only: the decision itself is covered by the theory above, and
-        // this must not touch AgentHostService.Instance.
-        var window = TestMainWindowFactory.Create();
-        window.Show();
+        // this must not touch AgentHostService.Instance directly. But
+        // TestMainWindowFactory.Create() runs the real MainWindow constructor,
+        // which loads the real on-disk settings.json and then calls
+        // AgentHostService.Instance.Apply(settings.AgentAccessObserveEnabled) -
+        // transitively reaching the exact singleton this test must avoid. On a
+        // machine where that setting is persisted as enabled (e.g. anyone who
+        // has exercised this feature for real), Apply(true) would start a real
+        // named-pipe/Unix-socket accept loop inside this shared test process.
+        // Point NOVATERM_APPDATA_ROOT at a fresh, empty scratch directory for
+        // the duration of the test so TerminalSettings.Load() always yields
+        // defaults (observe disabled) and Apply() takes its no-op Stop() path,
+        // regardless of what is persisted on the machine running the test.
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"novaterm_observe_indicator_test_{Guid.NewGuid():N}");
+        string? previousRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        Directory.CreateDirectory(tempRoot);
 
-        var indicator = window.FindControl<Button>("AgentObserveIndicator");
+        try
+        {
+            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
 
-        Assert.NotNull(indicator);
-        Assert.False(indicator!.IsVisible);
+            var window = TestMainWindowFactory.Create();
+            window.Show();
+
+            var indicator = window.FindControl<Button>("AgentObserveIndicator");
+
+            Assert.NotNull(indicator);
+            Assert.False(indicator!.IsVisible);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
+            try { Directory.Delete(tempRoot, recursive: true); } catch { /* best effort */ }
+        }
     }
 }
