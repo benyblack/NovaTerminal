@@ -89,6 +89,20 @@ namespace NovaTerminal.Tests
         }
 
         [Fact]
+        public void StateKeys_DifferingOnlyByCase_DoNotThrow_AndLastOneWins()
+        {
+            // Both "find" and "Find" are ordinal-distinct, so a hand-edited settings.json can
+            // contain both as sibling keys and deserialize cleanly into a case-sensitive
+            // Dictionary<string, string>. Normalizing that dictionary to OrdinalIgnoreCase must
+            // not throw on the collision; per the documented last-wins rule, whichever key was
+            // enumerated last (here, "Find") determines the resolved state.
+            var layout = Resolve(new() { ["find"] = "Overflow", ["Find"] = "Pinned" });
+
+            Assert.Contains("find", Ids(layout.Pinned));
+            Assert.DoesNotContain("find", Ids(layout.Overflow));
+        }
+
+        [Fact]
         public void HiddenEntry_AppearsInNeitherList()
         {
             var layout = Resolve(new() { ["connections"] = "Hidden" });

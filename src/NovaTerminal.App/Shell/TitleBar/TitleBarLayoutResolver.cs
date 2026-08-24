@@ -26,9 +26,28 @@ public static class TitleBarLayoutResolver
         // "Find" would silently miss the catalog id "find" and fall back to the default — a
         // different failure mode than "unknown id" but observably identical, which undermines the
         // resolver's contract of tolerating malformed user input.
-        var normalizedStates = states is null
-            ? null
-            : new Dictionary<string, string>(states, StringComparer.OrdinalIgnoreCase);
+        //
+        // `states` is built with an explicit assignment loop rather than the
+        // `new Dictionary(source, comparer)` copy constructor: that constructor adds entries one
+        // by one under the *new* comparer and throws ArgumentException the moment two source keys
+        // collapse to the same key (e.g. sibling JSON entries "find" and "Find", which survive
+        // deserialization intact because JSON keys are ordinal-distinct). These keys come from a
+        // hand-editable file, so a typo-shaped duplicate must degrade, not crash — last one wins,
+        // by plain dictionary-indexer assignment in source enumeration order.
+        Dictionary<string, string>? normalizedStates = null;
+        if (states is not null)
+        {
+            normalizedStates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in states)
+            {
+                normalizedStates[kv.Key] = kv.Value;
+            }
+        }
+
+        // HashSet's equivalent constructor is safe here: HashSet<T>.Add (which is what the
+        // IEnumerable-and-comparer constructor calls internally) silently ignores an item that
+        // already collides under the given comparer instead of throwing, so a case-variant
+        // duplicate id (e.g. "toggle_recording" and "Toggle_Recording") is just deduplicated.
         var normalizedActiveToggleIds = activeToggleIds is null
             ? null
             : new HashSet<string>(activeToggleIds, StringComparer.OrdinalIgnoreCase);
