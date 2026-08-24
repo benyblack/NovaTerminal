@@ -64,11 +64,28 @@ namespace NovaTerminal.Tests
         }
 
         [Fact]
-        public void StateString_IsCaseInsensitive()
+        public void StateValue_IsCaseInsensitive()
         {
             var layout = Resolve(new() { ["find"] = "pinned" });
 
             Assert.Contains("find", Ids(layout.Pinned));
+        }
+
+        [Fact]
+        public void StateKey_IsCaseInsensitive()
+        {
+            var layout = Resolve(new() { ["Find"] = "Pinned" });
+
+            Assert.Contains("find", Ids(layout.Pinned));
+        }
+
+        [Fact]
+        public void ActiveToggleId_IsCaseInsensitive()
+        {
+            var layout = Resolve(activeToggles: "Toggle_Recording");
+
+            Assert.Equal("toggle_recording", layout.Pinned[^1].Id);
+            Assert.DoesNotContain("toggle_recording", Ids(layout.Overflow));
         }
 
         [Fact]

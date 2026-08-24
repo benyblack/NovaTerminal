@@ -18,11 +18,26 @@ public static class TitleBarLayoutResolver
     {
         var entries = TitleBarCatalog.GetEntries();
 
+        // Normalize the two caller-supplied lookups to OrdinalIgnoreCase up front. `order` is
+        // already matched case-insensitively below via the OrdinalIgnoreCase `byId` dictionary,
+        // but a plain Dictionary<string,string> / HashSet<string> (what System.Text.Json produces
+        // when deserializing settings.json, and what callers pass in practice) defaults to an
+        // ordinal, case-sensitive comparer. Without this, a hand-edited settings.json key like
+        // "Find" would silently miss the catalog id "find" and fall back to the default — a
+        // different failure mode than "unknown id" but observably identical, which undermines the
+        // resolver's contract of tolerating malformed user input.
+        var normalizedStates = states is null
+            ? null
+            : new Dictionary<string, string>(states, StringComparer.OrdinalIgnoreCase);
+        var normalizedActiveToggleIds = activeToggleIds is null
+            ? null
+            : new HashSet<string>(activeToggleIds, StringComparer.OrdinalIgnoreCase);
+
         // Rule 1: saved state when present and parseable, otherwise the catalog default.
         // Rule 2 (partial): a locked entry is pinned whatever settings say.
         var resolved = entries.ToDictionary(
             e => e.Id,
-            e => e.IsLocked ? TitleBarItemState.Pinned : ReadState(states, e),
+            e => e.IsLocked ? TitleBarItemState.Pinned : ReadState(normalizedStates, e),
             StringComparer.OrdinalIgnoreCase);
 
         var pinned = new List<TitleBarCatalogEntry>();
@@ -58,9 +73,9 @@ public static class TitleBarLayoutResolver
         // at the end, and returns to the flyout when it turns off. Stated generally rather than
         // for Record specifically, so any future stateful toggle inherits it. Hidden entries are
         // never promoted — hidden means hidden.
-        if (activeToggleIds is { Count: > 0 })
+        if (normalizedActiveToggleIds is { Count: > 0 })
         {
-            var surfacing = overflow.Where(e => e.IsToggle && activeToggleIds.Contains(e.Id)).ToList();
+            var surfacing = overflow.Where(e => e.IsToggle && normalizedActiveToggleIds.Contains(e.Id)).ToList();
             foreach (var entry in surfacing)
             {
                 overflow.Remove(entry);
