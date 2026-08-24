@@ -3797,6 +3797,33 @@ namespace NovaTerminal
             RefreshAgentObserveIndicator();
         }
 
+        /// <summary>
+        /// Live-applies the agent-host settings after the Settings dialog is
+        /// saved — the observe endpoint itself, the A4 replay-export and A5
+        /// screenshot sub-gates, the A3 act gate — and then re-renders every
+        /// chrome surface that reads them.
+        ///
+        /// Both refreshes are mandatory, and the tab one is easy to miss:
+        /// <see cref="RefreshTabAgentAttention"/> bakes the rollup policy into
+        /// each tab's stored tier, so a runtime change from "All" to
+        /// "WritesOnly" leaves an already-displayed read glyph on the tab until
+        /// the next attention event on that pane — which may never come. Named
+        /// and factored out rather than inlined at the call site so that
+        /// invariant is testable without driving the Settings dialog.
+        /// </summary>
+        internal void ApplyAgentHostSettingsLive()
+        {
+            AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
+            AgentHost.AgentHostService.Instance.ScreenshotEnabled = _settings.AgentScreenshotEnabled;
+            AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
+            AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
+            AgentHost.AgentHostService.Instance.SetActionExecutor(this);
+            AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
+            // RefreshTabAgentAttention already ends by calling
+            // RefreshAgentObserveIndicator, so this covers both surfaces.
+            RefreshTabAgentAttention();
+        }
+
         private void OnAgentSessionRegisteredForAttention(AgentHost.AgentSessionRegistration registration)
             => registration.AttentionMachine.Changed += OnAgentAttentionChangedForTabs;
 
@@ -5486,16 +5513,7 @@ namespace NovaTerminal
                 ApplyThemeToUI();
                 ApplySettingsToAllTabs();
                 UpdateTransparencyHints();
-                // Live-apply the agent-host observe endpoint (no restart needed),
-                // including the A4 replay-export and A5 screenshot sub-gates and
-                // the A3 act gate.
-                AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
-                AgentHost.AgentHostService.Instance.ScreenshotEnabled = _settings.AgentScreenshotEnabled;
-                AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
-                AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
-                AgentHost.AgentHostService.Instance.SetActionExecutor(this);
-                AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
-                RefreshAgentObserveIndicator();
+                ApplyAgentHostSettingsLive();
 
                 // Refresh Connection Manager if open (or just always update it)
                 _connectionManagerControl?.LoadProfiles(_sshConnectionService.GetConnectionProfiles());

@@ -106,6 +106,30 @@ public sealed class AgentIndicatorTabRollupTests
     }
 
     [AvaloniaFact]
+    public void Tightening_the_rollup_policy_clears_a_displayed_read_glyph()
+    {
+        // The policy filter is baked into the tab's stored tier by
+        // RefreshTabAgentAttention, so nothing re-evaluates it on its own. The
+        // settings-applied path used to refresh only the window-level indicator,
+        // leaving a displayed read glyph on the tab until the next attention
+        // event on that pane — which, for a pane an agent has stopped touching,
+        // may never come. ApplyAgentHostSettingsLive is the exact method the
+        // Settings dialog's save path calls.
+        RunIsolated((window, registration) =>
+        {
+            SetRollupPolicy(window, "All");
+            registration.AttentionMachine.NoteRead();
+            window.RefreshTabAgentAttention();
+            Assert.Contains(MainWindow.AgentWatchedGlyph, FirstTabLabel(window));
+
+            SetRollupPolicy(window, "WritesOnly");
+            window.ApplyAgentHostSettingsLive();
+
+            Assert.DoesNotContain(MainWindow.AgentWatchedGlyph, FirstTabLabel(window));
+        });
+    }
+
+    [AvaloniaFact]
     public void Updating_tab_visuals_preserves_the_marker()
     {
         // UpdateTabVisuals rewrites every label from scratch, so the marker has
