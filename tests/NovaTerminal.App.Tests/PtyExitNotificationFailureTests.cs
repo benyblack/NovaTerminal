@@ -38,26 +38,24 @@ namespace NovaTerminal.Tests
             // (and only) caller of TryNotifyExit. This isolates ProcessLoop's call site.
             using var log = PtyLogCapture.Attach();
 
-            int eof = 0;
+            // A real pty_read parks until the shell writes something or the stream ends, so the
+            // substitute parks too - on a gate the test opens. That ordering is the whole test:
+            // the loops start in the constructor, so a substitute that reports EOF straight away
+            // can notify the exit before the handler is attached, leaving the test asserting
+            // nothing. A gate makes "not until I say so" explicit instead of inferring it from a
+            // sleep being longer than the test's own setup.
+            using var readyForEof = new ManualResetEventSlim(false);
             using var session = NewSession((handle, buffer, length) =>
             {
-                if (Volatile.Read(ref eof) == 1)
-                {
-                    return 0;
-                }
-
-                Thread.Sleep(25);
-                buffer[0] = (byte)'x';
-                return 1;
+                // Bounded so a failing test cannot park this thread indefinitely.
+                readyForEof.Wait(TimeSpan.FromSeconds(10));
+                return 0;
             });
 
             Thread process = await WaitForLoopThreadAsync(() => session.ProcessLoopThread);
 
-            // Subscribe before releasing the EOF: the loops start in the constructor, so a read
-            // substitute that reports EOF immediately can notify the exit before the handler is
-            // attached, and the test would assert nothing at all.
             session.OnExit += _ => throw new InvalidOperationException("exit subscriber blew up");
-            Volatile.Write(ref eof, 1);
+            readyForEof.Set();
 
             await WaitUntilAsync(() => !process.IsAlive, TimeSpan.FromSeconds(20));
 
@@ -77,23 +75,21 @@ namespace NovaTerminal.Tests
             // the site under test and ProcessLoop's later call is a no-op.
             using var log = PtyLogCapture.Attach();
 
-            int failReads = 0;
+            // Parked until the test opens the gate, then failing for good - so the read loop
+            // exhausts MaxConsecutiveReadErrors and reaches its `finally` only after the throwing
+            // handler is attached. The loop's own bounded retry paces the failures; nothing here
+            // needs to.
+            using var readyToFail = new ManualResetEventSlim(false);
             using var session = NewSession((handle, buffer, length) =>
             {
-                if (Volatile.Read(ref failReads) == 1)
-                {
-                    return -1;
-                }
-
-                Thread.Sleep(25);
-                buffer[0] = (byte)'x';
-                return 1;
+                readyToFail.Wait(TimeSpan.FromSeconds(10));
+                return -1;
             });
 
             Thread process = await WaitForLoopThreadAsync(() => session.ProcessLoopThread);
 
             session.OnExit += _ => throw new InvalidOperationException("exit subscriber blew up");
-            Volatile.Write(ref failReads, 1);
+            readyToFail.Set();
 
             await WaitUntilAsync(() => !process.IsAlive, TimeSpan.FromSeconds(30));
 
