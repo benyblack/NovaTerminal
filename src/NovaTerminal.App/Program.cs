@@ -5,6 +5,7 @@ using System;
 using NovaTerminal.Platform;
 using NovaTerminal.Pty;
 using NovaTerminal.VT;
+using Velopack;
 
 namespace NovaTerminal;
 
@@ -18,6 +19,14 @@ class Program
     {
         try
         {
+            // Velopack install/update/uninstall hooks re-invoke this exe with their own
+            // arguments and expect to be serviced before anything else happens - including
+            // before our own CLI-mode dispatch below, which would otherwise treat a hook
+            // argument as an unrecognised command line. Run() returns immediately for a
+            // normal launch, and exits the process for a hook invocation. Harmless when the
+            // app was not installed by Velopack (portable zip, winget, dev runs).
+            VelopackApp.Build().Run();
+
             if (VtReportCommand.IsSupportedCliMode(args))
             {
                 CliConsoleBindings.Prepare();

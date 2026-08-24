@@ -204,4 +204,29 @@ public class ProjectFileLayeringTests
                 $"Content '{(string?)item.Attribute("Include")}' must declare CopyToPublishDirectory.");
         }
     }
+
+    // Same CA1861 reasoning as VtOnly above.
+    private static readonly string[] ProjectsAllowedToReferenceVelopack =
+        ["src/NovaTerminal.App/NovaTerminal.App.csproj"];
+
+    /// <summary>
+    /// Velopack is the Windows install/update host. It is referenced for exactly one reason -
+    /// <c>VelopackApp.Build().Run()</c> and the update seam in <c>NovaTerminal.App/Update</c> - and
+    /// must not spread. A second project taking the reference would put install-location and
+    /// restart-the-process concerns behind a library boundary where nothing can see them, and would
+    /// drag an unsigned-updater dependency into layers that are meant to be host-agnostic.
+    /// </summary>
+    [Fact]
+    public void Velopack_is_referenced_only_by_the_App()
+    {
+        var offenders = Directory
+            .EnumerateFiles(Path.Combine(RepoRoot(), "src"), "*.csproj", SearchOption.AllDirectories)
+            .Select(p => Path.GetRelativePath(RepoRoot(), p).Replace('\\', '/'))
+            .Where(rel => PackageReferences(rel).Any(
+                p => p.Equals("Velopack", StringComparison.OrdinalIgnoreCase)))
+            .Where(rel => !ProjectsAllowedToReferenceVelopack.Contains(rel))
+            .ToArray();
+
+        Assert.Empty(offenders);
+    }
 }

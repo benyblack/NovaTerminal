@@ -26,6 +26,9 @@
     <PackageReference Include="SkiaSharp.HarfBuzz" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
+    <!-- Windows installer + auto-update (#91). Version is pinned centrally in
+         Directory.Packages.props and must match the vpk tool version in release.yml. -->
+    <PackageReference Include="Velopack" />
     <!-- Sideloaded ConPTY host (#310). Nothing to compile against: we only want the native files
          out of it, and the Content items further down place them by hand. The package's own
          build/targets keys off $(PlatformTarget), which for this AnyCPU app is empty on a plain

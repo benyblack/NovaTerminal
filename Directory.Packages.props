@@ -42,5 +42,9 @@
     <!-- Sideloaded ConPTY host (#310). Ships conpty.dll + OpenConsole.exe so panes are
          hosted by a known-good console host instead of whatever conhost.exe the OS has. -->
     <PackageVersion Include="Microsoft.Windows.Console.ConPTY" Version="1.24.260710001" />
+
+    <!-- Windows install + auto-update (#91). The vpk CLI version used in
+         .github/workflows/release.yml MUST equal this version. -->
+    <PackageVersion Include="Velopack" Version="1.2.0" />
   </ItemGroup>
 </Project>
