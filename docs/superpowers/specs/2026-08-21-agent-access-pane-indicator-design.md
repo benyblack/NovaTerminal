@@ -94,9 +94,18 @@ the only surface at the right scope for them:
   shows a "watching" state. The subscription is app-scoped, so this is the only correct
   place for it — see the note in Background. `AgentHostService` tracks it as a counter
   incremented for the duration of each in-flight `HandleWaitForEventsAsync` call.
-- **Observe-only reads.** With act off no pane carries a bar, so the indicator also
-  takes on the `Watched` styling while any pane is being read. Otherwise reads would be
-  invisible everywhere in that mode.
+- **Unmarked-pane reads.** The indicator also takes on the `Watched` styling while a
+  pane *that carries no segment of its own* is being read. An actable pane already
+  reports its own reads on its own bar; lighting the window too would just double-report
+  the same read. A non-actable pane reports nowhere else — whether that's because act is
+  off globally, or because act is on but this particular SSH profile isn't allowlisted
+  for it — so the window light is the only place its read can surface.
+
+  (Earlier draft of this section keyed the second state on "act is off". That premise
+  was false: an SSH pane whose profile lacks `AllowAgentAccess` has no bar even with act
+  on, so the old condition missed exactly the panes a user had deliberately excluded
+  from act. The implemented condition — no segment of its own — subsumes the act-off
+  case instead of special-casing it.)
 
 It does not otherwise aggregate the per-pane tiers. Its tooltip names the enabled
 permissions; clicking it opens the Agent Activity window.
@@ -255,12 +264,20 @@ semantics and font-metric assumptions.
 ## Risks
 
 - **One-time resize when act is enabled.** Local actable panes grow a 22 px bar and
-  reflow once, at toggle time only. Called out here because a reflow of every pane is
+  reflow once, at toggle time only. Actability is `ActEnabled && IsRunning`
+  (`AgentHostService.RefreshActability`), so the reflow requires observe *and* act both
+  on, not act alone — flipping act on while observe is off does nothing, and stopping
+  the endpoint clears the bars again. Called out here because a reflow of every pane is
   surprising if unexplained.
 - **`spawnSession` has no pane to mark** when it is called — the pane does not exist
   yet. Mitigation: mark the *created* pane as `Wrote` at registration, so a pane an
   agent conjured into existence is visibly flagged as such.
-- **Observe-only mode cannot say which pane is being read.** With act off, no pane
-  carries a bar, so reads surface solely on the application-level observe indicator.
-  Accepted: observe-only is the deliberately lower-risk mode, and the alternatives
-  were a uniform mark on every pane or a permanently reserved 22 px strip.
+- **Unmarked-pane reads cannot say which pane is being read.** Reads of any pane that
+  carries no segment of its own — because act is off globally, or because act is on but
+  this pane's SSH profile isn't allowlisted — surface solely on the application-level
+  observe indicator, which tells you *that* reading is happening but not *which* pane.
+  (This item originally read "observe-only mode cannot say which pane," on the false
+  premise that act-off was the only case with no per-pane bar; the SSH-allowlist case
+  above shares the same gap with act on, so the risk is broader than first scoped, not
+  narrower.) Accepted: the alternatives were a uniform mark on every pane or a
+  permanently reserved 22 px strip, and this residual ambiguity is preferable to either.
