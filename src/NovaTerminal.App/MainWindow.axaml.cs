@@ -4396,10 +4396,10 @@ namespace NovaTerminal
 
             // Apply to Title Bar Buttons
             var btnNew = this.FindControl<Button>("BtnNewTab");
-            var btnTabList = this.FindControl<Button>("BtnTabList");
-            var iconTabList = this.FindControl<PathIcon>("IconTabList");
-            var btnRecord = this.FindControl<Button>("BtnRecord");
-            var btnConns = this.FindControl<Button>("BtnConnections");
+            var btnTabList = this.FindControl<Button>(TitleBarViewFactory.ButtonName("open_tab_list"));
+            var iconTabList = btnTabList?.Content as PathIcon;
+            var btnRecord = this.FindControl<Button>(TitleBarViewFactory.ButtonName("toggle_recording"));
+            var btnConns = this.FindControl<Button>(TitleBarViewFactory.ButtonName("connections"));
             var commandSearchBox = this.FindControl<TextBox>("CommandSearchBox");
 
             if (btnNew != null) btnNew.Foreground = contrastForeground;
@@ -4608,7 +4608,7 @@ namespace NovaTerminal
 
         private void UpdateShortcutTooltips()
         {
-            var btnConnections = this.FindControl<Button>("BtnConnections");
+            var btnConnections = this.FindControl<Button>(TitleBarViewFactory.ButtonName("connections"));
             if (btnConnections != null)
             {
                 ToolTip.SetTip(btnConnections, $"Connections ({GetEffectiveShortcutBinding("connections", "Ctrl+Shift+K")})");
@@ -5970,7 +5970,21 @@ namespace NovaTerminal
         {
             Dispatcher.UIThread.Post(() =>
             {
-                UpdateRecordButtonUi(isRecording);
+                bool changed = isRecording
+                    ? _activeTitleBarToggles.Add("toggle_recording")
+                    : _activeTitleBarToggles.Remove("toggle_recording");
+
+                if (changed)
+                {
+                    // Surfaces an overflowed Record button into the bar while recording and drops
+                    // it back into the … flyout when it stops. RebuildTitleBar re-syncs the button
+                    // colouring itself, so no separate UpdateRecordButtonUi call belongs here.
+                    RebuildTitleBar();
+                }
+                else
+                {
+                    UpdateRecordButtonUi(isRecording);
+                }
             });
         }
 
@@ -6068,9 +6082,11 @@ namespace NovaTerminal
 
         private void UpdateRecordButtonUi(bool isRecording)
         {
-            var btnRecord = this.FindControl<Button>("BtnRecord");
-            var iconRecord = this.FindControl<PathIcon>("IconRecord");
+            var btnRecord = this.FindControl<Button>(TitleBarViewFactory.ButtonName("toggle_recording"));
+            var iconRecord = btnRecord?.Content as PathIcon;
 
+            // Absent whenever Record is hidden, or overflowed and not currently active — both
+            // legitimate configurations, so this is a quiet no-op rather than a failure.
             if (btnRecord == null || iconRecord == null)
             {
                 return;
