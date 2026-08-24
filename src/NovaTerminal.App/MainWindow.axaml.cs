@@ -89,6 +89,8 @@ namespace NovaTerminal
         private readonly DispatcherTimer _recordingToastTimer = new() { Interval = TimeSpan.FromSeconds(6) };
         private string? _recordingToastFolderPath;
         private string? _recordingToastFilePath;
+        private NovaTerminal.Update.UpdateCoordinator? _updateCoordinator;
+        private readonly DispatcherTimer _updateCheckTimer = new() { Interval = TimeSpan.FromSeconds(10) };
         private ConnectionManager? _connectionManagerControl;
         private TransferCenter? _transferCenterControl;
         private readonly CommandPaletteUsageStore _commandPaletteUsageStore;
@@ -151,6 +153,20 @@ namespace NovaTerminal
             // Reap leftover clipboard-paste temp images from previous runs (best-effort).
             System.Threading.Tasks.Task.Run(() =>
                 NovaTerminal.Platform.Input.ClipboardImage.CleanUpOldTempImages(TimeSpan.FromHours(24)));
+
+            var updateToastClose = this.FindControl<Button>("UpdateToastClose");
+            if (updateToastClose != null)
+            {
+                updateToastClose.Click += (_, __) => HideUpdateToast();
+            }
+
+            var updateToastRestart = this.FindControl<Button>("UpdateToastRestart");
+            if (updateToastRestart != null)
+            {
+                updateToastRestart.Click += (_, __) => ApplyStagedUpdate();
+            }
+
+            StartUpdateChecks();
         }
 
         private void ToggleConnections()
@@ -4444,6 +4460,27 @@ namespace NovaTerminal
             // 1. Register Default Commands
             CommandRegistry.Register("New Tab", "General", () => AddTab(), GetEffectiveShortcutBinding("new_tab", "Ctrl+Shift+T"), "new_tab");
 
+            // Update commands are registered only when this build can actually update itself -
+            // a portable-zip or dev run has nothing to check. SetupCommandPalette() is lazy
+            // (it runs on palette-open and settings-save), so this reflects the state at the
+            // moment the palette is built rather than a value latched at startup.
+            if (_updateCoordinator != null)
+            {
+                if (_updateCoordinator.IsUpdateStaged)
+                {
+                    CommandRegistry.Register(
+                        $"Update: Restart to apply {_updateCoordinator.StagedVersion}",
+                        "Application",
+                        () => ApplyStagedUpdate(),
+                        "");
+                }
+
+                CommandRegistry.Register("Update: Check for updates", "Application", () =>
+                {
+                    _ = CheckForUpdatesInteractiveAsync();
+                }, "");
+            }
+
             // Dynamic Profile Tabs
             if (_settings.Profiles != null)
             {
@@ -6042,6 +6079,103 @@ namespace NovaTerminal
             if (toast != null)
             {
                 toast.IsVisible = false;
+            }
+        }
+
+        /// <summary>
+        /// Raises the update-ready notice. No auto-hide: unlike a recording toast this is an
+        /// offer the user may take minutes later, and closing it only dismisses the notice - the
+        /// update stays staged.
+        /// </summary>
+        private void ShowUpdateToast(string version)
+        {
+            var toast = this.FindControl<Border>("UpdateToast");
+            var messageBlock = this.FindControl<TextBlock>("UpdateToastMessage");
+            if (toast == null || messageBlock == null)
+            {
+                return;
+            }
+
+            messageBlock.Text = $"NovaTerminal {version} is downloaded and will be applied when you restart.";
+            toast.IsVisible = true;
+        }
+
+        private void HideUpdateToast()
+        {
+            var toast = this.FindControl<Border>("UpdateToast");
+            if (toast != null)
+            {
+                toast.IsVisible = false;
+            }
+        }
+
+        /// <summary>
+        /// Builds the update coordinator and schedules the one background check this process
+        /// makes. Deliberately not on the cold-start path: <see cref="StartupPerformanceTracker"/>
+        /// exists because that path is measured, and an update check has no business in it.
+        /// </summary>
+        private void StartUpdateChecks()
+        {
+            _updateCoordinator = new NovaTerminal.Update.UpdateCoordinator(
+                new NovaTerminal.Update.VelopackUpdateService(
+                    NovaTerminal.Update.VelopackUpdateService.DefaultRepoUrl,
+                    message => TerminalLogger.Log(message)),
+                () => _settings.AutomaticUpdateChecks,
+                version => Dispatcher.UIThread.Post(() =>
+                {
+                    ShowUpdateToast(version);
+                    SetupCommandPalette();
+                }),
+                message => TerminalLogger.Log(message));
+
+            _updateCheckTimer.Tick += (_, __) =>
+            {
+                // Once per launch, not every 10 seconds.
+                _updateCheckTimer.Stop();
+                _ = _updateCoordinator.RunAutomaticCheckAsync();
+            };
+            _updateCheckTimer.Start();
+        }
+
+        private void ApplyStagedUpdate()
+        {
+            _updateCoordinator?.ApplyStagedUpdate();
+        }
+
+        /// <summary>
+        /// The palette's "Check for updates". Unlike the background check this one always says
+        /// what happened: the user asked a direct question and silence would read as a hang.
+        /// </summary>
+        private async System.Threading.Tasks.Task CheckForUpdatesInteractiveAsync()
+        {
+            if (_updateCoordinator == null)
+            {
+                return;
+            }
+
+            var outcome = await _updateCoordinator.RunManualCheckAsync();
+            switch (outcome)
+            {
+                case NovaTerminal.Update.UpdateCheckOutcome.UpdateReady:
+                    // The coordinator's onUpdateReady callback already raised the toast.
+                    break;
+                case NovaTerminal.Update.UpdateCheckOutcome.UpToDate:
+                    ShowRecordingToast("Up to date", "You are running the newest version.", null, null, autoHide: true);
+                    break;
+                case NovaTerminal.Update.UpdateCheckOutcome.Unsupported:
+                    ShowRecordingToast(
+                        "Updates unavailable",
+                        "This build was not installed by the NovaTerminal installer, so it cannot update itself. Download the installer from the releases page to get automatic updates.",
+                        null,
+                        null,
+                        autoHide: true);
+                    break;
+                case NovaTerminal.Update.UpdateCheckOutcome.Failed:
+                    ShowRecordingToast("Update check failed", "Could not reach GitHub. See the debug log for details.", null, null, autoHide: true);
+                    break;
+                case NovaTerminal.Update.UpdateCheckOutcome.Disabled:
+                    // Unreachable: a manual check ignores the automatic-checks setting.
+                    break;
             }
         }
 
