@@ -79,6 +79,12 @@ namespace NovaTerminal
         private readonly ISshInteractionService _sshInteractionService;
         private readonly SshLegacyProfileMigrationService _sshLegacyMigrationService;
         private static readonly TimeSpan BellDebounceWindow = TimeSpan.FromMilliseconds(750);
+
+        /// <summary>Tab-label marker for "an agent typed into a pane in this tab".</summary>
+        internal const string AgentWroteGlyph = "⌨";  // keyboard
+
+        /// <summary>Tab-label marker for "an agent is reading a pane in this tab".</summary>
+        internal const string AgentWatchedGlyph = "\U0001F441";  // eye
         internal const double MinimumTabHeaderRightReserve = 440;
         internal const double MacOsTrafficLightReserve = 92;
         internal const double TabHeaderViewportPadding = 16;
@@ -115,6 +121,7 @@ namespace NovaTerminal
             public bool HasActivity { get; set; }
             public bool HasBell { get; set; }
             public DateTime LastBellUtc { get; set; }
+            public AgentHost.AgentAttentionTier AgentTier { get; set; }
         }
 
         internal enum TabHeaderPointerAction
@@ -611,6 +618,8 @@ namespace NovaTerminal
             string icon = state.IsPinned ? "📌 " : string.Empty;
             if (state.HasBell) icon += "🔔 ";
             else if (state.HasActivity) icon += "• ";
+            if (state.AgentTier == AgentHost.AgentAttentionTier.Wrote) icon += AgentWroteGlyph + " ";
+            else if (state.AgentTier == AgentHost.AgentAttentionTier.Watched) icon += AgentWatchedGlyph + " ";
             string label = GetTabHeaderText(tab);
             return $"{index}. {icon}{label}";
         }
@@ -928,6 +937,15 @@ namespace NovaTerminal
             else if (state.HasActivity)
             {
                 label += " •";
+            }
+
+            if (state.AgentTier == AgentHost.AgentAttentionTier.Wrote)
+            {
+                label += " " + AgentWroteGlyph;
+            }
+            else if (state.AgentTier == AgentHost.AgentAttentionTier.Watched)
+            {
+                label += " " + AgentWatchedGlyph;
             }
 
             if (state.IsPinned)
@@ -2004,6 +2022,18 @@ namespace NovaTerminal
             AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
             AgentHost.AgentHostService.Instance.ObserveActivityChanged += OnAgentObserveActivityChanged;
             RefreshAgentObserveIndicator();
+
+            // Tab-label rollup: mirror each pane's attention tier onto its
+            // owning tab. Subscribe to sessions already registered (a pane can
+            // register before MainWindow's constructor reaches this point is
+            // not expected today, but costs nothing to handle) and to future
+            // registrations via the registry's lifecycle events.
+            AgentHost.AgentSessionRegistry.Instance.SessionRegistered += OnAgentSessionRegisteredForAttention;
+            AgentHost.AgentSessionRegistry.Instance.SessionUnregistered += OnAgentSessionUnregisteredForAttention;
+            foreach (var registration in AgentHost.AgentSessionRegistry.Instance.GetRegistrations())
+            {
+                registration.AttentionMachine.Changed += OnAgentAttentionChangedForTabs;
+            }
 
             // Ensure visual tree is ready for initial tab border
             this.Loaded += (s, e) =>
@@ -3148,7 +3178,10 @@ namespace NovaTerminal
                 var state = GetOrCreateTabState(tab);
                 bool active = tabs.SelectedItem == tab;
                 string attention = state.HasBell ? " bell" : state.HasActivity ? " activity" : string.Empty;
-                string label = $"Tab {i + 1} of {count}: {GetTabHeaderText(tab)}{(active ? " active" : "")}{attention}";
+                string agent = state.AgentTier == AgentHost.AgentAttentionTier.Wrote
+                    ? " agent-typed"
+                    : state.AgentTier == AgentHost.AgentAttentionTier.Watched ? " agent-reading" : string.Empty;
+                string label = $"Tab {i + 1} of {count}: {GetTabHeaderText(tab)}{(active ? " active" : "")}{attention}{agent}";
                 AutomationProperties.SetName(tab, label);
             }
             sw.Stop();
@@ -3658,6 +3691,58 @@ namespace NovaTerminal
         // returns to zero.
         private void OnAgentObserveActivityChanged()
             => Dispatcher.UIThread.Post(RefreshAgentObserveIndicator);
+
+        /// <summary>
+        /// Recomputes each tab's agent marker from the loudest attention tier
+        /// among its panes, filtered by the rollup setting, then refreshes the
+        /// labels. Tiers are stored on tab state rather than patched onto
+        /// labels because UpdateTabVisuals rebuilds every label from scratch.
+        /// </summary>
+        internal void RefreshTabAgentAttention()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            var loudestByTab = new Dictionary<Guid, AgentHost.AgentAttentionTier>();
+            foreach (var registration in AgentHost.AgentSessionRegistry.Instance.GetRegistrations())
+            {
+                var tabId = registration.TabId;
+                if (!tabId.HasValue) continue;
+                var tier = registration.AttentionMachine.Snapshot().Tier;
+                if (!loudestByTab.TryGetValue(tabId.Value, out var current) || tier > current)
+                {
+                    loudestByTab[tabId.Value] = tier;
+                }
+            }
+
+            foreach (TabItem tab in tabs.Items.Cast<TabItem>())
+            {
+                var state = GetOrCreateTabState(tab);
+                var tier = loudestByTab.TryGetValue(GetPersistentTabId(tab), out var found)
+                    ? found
+                    : AgentHost.AgentAttentionTier.Idle;
+
+                state.AgentTier = ShouldShowTierInTabStrip(_settings.AgentIndicatorTabRollup, tier)
+                    ? tier
+                    : AgentHost.AgentAttentionTier.Idle;
+            }
+
+            UpdateTabVisuals();
+            RefreshAgentObserveIndicator();
+        }
+
+        private void OnAgentSessionRegisteredForAttention(AgentHost.AgentSessionRegistration registration)
+            => registration.AttentionMachine.Changed += OnAgentAttentionChangedForTabs;
+
+        private void OnAgentSessionUnregisteredForAttention(AgentHost.AgentSessionRegistration registration)
+        {
+            registration.AttentionMachine.Changed -= OnAgentAttentionChangedForTabs;
+            Dispatcher.UIThread.Post(RefreshTabAgentAttention);
+        }
+
+        // Raised on the endpoint's IPC or timer thread; hop before touching tabs.
+        private void OnAgentAttentionChangedForTabs(AgentHost.AgentAttentionSnapshot _)
+            => Dispatcher.UIThread.Post(RefreshTabAgentAttention);
 
         internal static bool ShouldAutoAcceptRunningPaneClose(
             bool isProcessRunning,
@@ -5815,6 +5900,12 @@ namespace NovaTerminal
             _recordingToastTimer.Stop();
             _globalHotkey?.Dispose();
             AgentHost.AgentHostService.Instance.ObserveActivityChanged -= OnAgentObserveActivityChanged;
+            AgentHost.AgentSessionRegistry.Instance.SessionRegistered -= OnAgentSessionRegisteredForAttention;
+            AgentHost.AgentSessionRegistry.Instance.SessionUnregistered -= OnAgentSessionUnregisteredForAttention;
+            foreach (var registration in AgentHost.AgentSessionRegistry.Instance.GetRegistrations())
+            {
+                registration.AttentionMachine.Changed -= OnAgentAttentionChangedForTabs;
+            }
             AgentHost.AgentHostService.Instance.Stop();
         }
 
