@@ -161,21 +161,28 @@ public class UpdateCoordinatorTests
     /// Version whenever HasUpdate is true. Because IsUpdateStaged is defined as
     /// StagedVersion != null, a service that violates the contract with (true, null) would
     /// otherwise stage the empty string, report the check as ready, and announce an update
-    /// with a blank version number. This must fail loudly instead.
+    /// with a blank version number. This must fail loudly instead - and, critically, must not
+    /// clobber whatever was legitimately staged before the violation. A fresh harness would
+    /// leave StagedVersion null either way, so this stages a real version first: only then
+    /// does asserting it survives actually pin "untouched" rather than "still its initial
+    /// value."
     /// </summary>
     [Fact]
     public async Task An_update_available_with_a_null_version_is_a_contract_violation_not_a_staged_update()
     {
         var harness = new Harness();
-        harness.Service.Result = new UpdateAvailability(true, null);
-
+        harness.Service.Result = new UpdateAvailability(true, "1.2.0");
         var coordinator = harness.Build();
-        var outcome = await coordinator.RunAutomaticCheckAsync();
+        await coordinator.RunAutomaticCheckAsync();
+        Assert.Equal("1.2.0", coordinator.StagedVersion);
+
+        harness.Service.Result = new UpdateAvailability(true, null);
+        var outcome = await coordinator.RunManualCheckAsync();
 
         Assert.Equal(UpdateCheckOutcome.Failed, outcome);
-        Assert.Empty(harness.Ready);
-        Assert.False(coordinator.IsUpdateStaged);
-        Assert.Null(coordinator.StagedVersion);
+        Assert.Equal(["1.2.0"], harness.Ready);
+        Assert.True(coordinator.IsUpdateStaged);
+        Assert.Equal("1.2.0", coordinator.StagedVersion);
         Assert.Contains(harness.Log, m => m.Contains("contract", StringComparison.Ordinal));
     }
 }

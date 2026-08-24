@@ -35,8 +35,9 @@ namespace NovaTerminal.Update
     /// <param name="HasUpdate">True when a newer release was found and downloaded.</param>
     /// <param name="Version">
     /// The new version, for display. Null when <paramref name="HasUpdate"/> is false, and never
-    /// null when it is true - <see cref="UpdateCoordinator"/> treats <c>(true, null)</c> as a
-    /// contract violation rather than a staged update.
+    /// null or blank when it is true - <see cref="UpdateCoordinator"/> treats a null or
+    /// whitespace-only <paramref name="Version"/> alongside <c>HasUpdate: true</c> as a contract
+    /// violation rather than a staged update.
     /// </param>
     public readonly record struct UpdateAvailability(bool HasUpdate, string? Version);
 }

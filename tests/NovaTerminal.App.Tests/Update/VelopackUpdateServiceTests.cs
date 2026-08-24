@@ -31,6 +31,11 @@ public class VelopackUpdateServiceTests
 
         Assert.False(availability.HasUpdate);
         Assert.Null(availability.Version);
+
+        // The class doc comment's guarantee is that unsupported hosts never reach the network
+        // or show update UI - an empty log is the observable proof that an unsupported check
+        // produced no update chatter at all, not merely a negative result.
+        Assert.Empty(log);
     }
 
     [Fact]

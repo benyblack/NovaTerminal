@@ -101,15 +101,16 @@ namespace NovaTerminal.Update
                 return UpdateCheckOutcome.UpToDate;
             }
 
-            if (availability.Version == null)
+            if (string.IsNullOrWhiteSpace(availability.Version))
             {
                 // IUpdateService's contract (see UpdateAvailability's doc comment) guarantees a
-                // non-null Version whenever HasUpdate is true. IsUpdateStaged is defined as
-                // StagedVersion != null, so silently coalescing to string.Empty here would stage
-                // the empty string, report the update as ready, and announce it with a blank
-                // version number. Treat the violation as a failed check instead: nothing is
-                // staged, nothing is announced.
-                _log("Update check violated its contract: HasUpdate was true but Version was null.");
+                // non-null, non-blank Version whenever HasUpdate is true. IsUpdateStaged is
+                // defined as StagedVersion != null, so a null OR an empty/whitespace Version
+                // would still stage successfully and announce an update with a blank version
+                // number - checking only for null misses the empty-string half of exactly the
+                // harm this guard exists to prevent. Treat any such violation as a failed check
+                // instead: nothing is staged, nothing is announced.
+                _log("Update check violated its contract: HasUpdate was true but Version was null or blank.");
                 return UpdateCheckOutcome.Failed;
             }
 
