@@ -155,4 +155,27 @@ public class UpdateCoordinatorTests
 
         Assert.Equal(0, harness.Service.ApplyCount);
     }
+
+    /// <summary>
+    /// IUpdateService's contract (see UpdateAvailability's doc comment) requires a non-null
+    /// Version whenever HasUpdate is true. Because IsUpdateStaged is defined as
+    /// StagedVersion != null, a service that violates the contract with (true, null) would
+    /// otherwise stage the empty string, report the check as ready, and announce an update
+    /// with a blank version number. This must fail loudly instead.
+    /// </summary>
+    [Fact]
+    public async Task An_update_available_with_a_null_version_is_a_contract_violation_not_a_staged_update()
+    {
+        var harness = new Harness();
+        harness.Service.Result = new UpdateAvailability(true, null);
+
+        var coordinator = harness.Build();
+        var outcome = await coordinator.RunAutomaticCheckAsync();
+
+        Assert.Equal(UpdateCheckOutcome.Failed, outcome);
+        Assert.Empty(harness.Ready);
+        Assert.False(coordinator.IsUpdateStaged);
+        Assert.Null(coordinator.StagedVersion);
+        Assert.Contains(harness.Log, m => m.Contains("contract", StringComparison.Ordinal));
+    }
 }

@@ -101,7 +101,19 @@ namespace NovaTerminal.Update
                 return UpdateCheckOutcome.UpToDate;
             }
 
-            var version = availability.Version ?? string.Empty;
+            if (availability.Version == null)
+            {
+                // IUpdateService's contract (see UpdateAvailability's doc comment) guarantees a
+                // non-null Version whenever HasUpdate is true. IsUpdateStaged is defined as
+                // StagedVersion != null, so silently coalescing to string.Empty here would stage
+                // the empty string, report the update as ready, and announce it with a blank
+                // version number. Treat the violation as a failed check instead: nothing is
+                // staged, nothing is announced.
+                _log("Update check violated its contract: HasUpdate was true but Version was null.");
+                return UpdateCheckOutcome.Failed;
+            }
+
+            var version = availability.Version;
 
             // Announce a given staged version once. Without this, a manual check after the
             // startup check re-raises the toast the user just dismissed.
