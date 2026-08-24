@@ -601,6 +601,15 @@
                             </Grid>
                             <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,18,0,18"/>
 
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Automatic update checks"/>
+                                    <TextBlock Classes="RowDesc" Text="Check GitHub for a newer version shortly after launch and download it in the background. Nothing restarts until you say so. Only applies to installed builds, not the portable zip."/>
+                                </StackPanel>
+                                <CheckBox Name="AutomaticUpdateChecksToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
                             <!-- ── Scrollback ── -->
                             <TextBlock Classes="SectionHeader" Text="SCROLLBACK" Margin="0,0,0,14"/>
 
