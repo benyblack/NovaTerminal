@@ -681,7 +681,9 @@ namespace NovaTerminal
         {
             var tabs = this.FindControl<TabControl>("Tabs");
             var badge = this.FindControl<TextBlock>("TabOverflowBadge");
-            var button = this.FindControl<Button>("BtnTabList");
+            // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
+            // layout, in which case this button does not exist and the indicator stays quiet.
+            var button = this.FindControl<Button>(TitleBarViewFactory.ButtonName("open_tab_list"));
             var scrollViewer = FindTabHeaderScrollViewer();
             if (tabs == null || badge == null || button == null || scrollViewer == null) return;
 
@@ -758,10 +760,20 @@ namespace NovaTerminal
 
         private void PopulateTabListMenu(bool showFlyout = false)
         {
-            var button = this.FindControl<Button>("BtnTabList");
-            var flyout = button?.Flyout as MenuFlyout;
+            // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
+            // layout, in which case this button does not exist and populating its menu is moot.
+            var button = this.FindControl<Button>(TitleBarViewFactory.ButtonName("open_tab_list"));
             var tabs = this.FindControl<TabControl>("Tabs");
-            if (flyout == null || tabs == null) return;
+            if (button == null || tabs == null) return;
+
+            // TitleBarViewFactory only wires Command; unlike the old declared BtnTabList it does not
+            // carry a MenuFlyout, so get-or-create one here rather than teaching the generic factory
+            // about this one caller's flyout.
+            if (button.Flyout is not MenuFlyout flyout)
+            {
+                flyout = new MenuFlyout();
+                button.Flyout = flyout;
+            }
 
             flyout.Items.Clear();
             int index = 1;
