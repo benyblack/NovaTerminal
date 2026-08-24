@@ -16,6 +16,14 @@ public static class TitleBarViewFactory
 {
     public const string OverflowButtonName = "BtnTitleBarOverflow";
 
+    /// <summary>
+    /// The XAML-declared name of the "+" New Tab button. It lives here, not in MainWindow, because
+    /// this factory already owns the title bar's button-naming contract (<see cref="ButtonName"/>,
+    /// <see cref="OverflowButtonName"/>) and MainWindow.axaml.cs looks the button up by this same
+    /// name in several places. Must keep matching the `Name="BtnNewTab"` in MainWindow.axaml.
+    /// </summary>
+    public const string NewTabButtonName = "BtnNewTab";
+
     public static string ButtonName(string id) => $"BtnTitleBar_{id}";
 
     public static void Populate(
@@ -169,9 +177,18 @@ public static class TitleBarViewFactory
     /// <summary>Minimal ICommand so a plain Action can drive a Button without a Click subscription.</summary>
     private sealed class RelayCommand(Action execute) : ICommand
     {
-        // These commands are always executable, so the event never fires. Empty accessors satisfy
-        // ICommand without leaving an unraised field behind.
-        public event EventHandler? CanExecuteChanged { add { } remove { } }
+        private EventHandler? _canExecuteChanged;
+
+        /// <summary>
+        /// Required by ICommand. These commands are always executable, so nothing ever raises this —
+        /// the field-backed form exists so the accessors are not empty and the compiler still sees the
+        /// field used.
+        /// </summary>
+        public event EventHandler? CanExecuteChanged
+        {
+            add => _canExecuteChanged += value;
+            remove => _canExecuteChanged -= value;
+        }
 
         public bool CanExecute(object? parameter) => true;
 
