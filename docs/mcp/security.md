@@ -46,10 +46,12 @@ macOS/Linux). They are gated by opt-ins in the app's settings:
   keyboard badge for writes (eye badge for reads too, if
   **Settings → Agent Access → Tab indicator** is set to `All`), and a window-level light
   shows whenever agent access is enabled, brightening while an agent holds a `waitForEvents`
-  long poll open or while a pane that carries no segment of its own is being read. That
-  second condition is what covers the panes you deliberately left off the act allowlist:
-  they show no status-bar segment, and under the default `WritesOnly` tab setting no badge
-  either, so without it a read of exactly those panes would be visible nowhere.
+  long poll open or while a pane whose segment you cannot currently see is being read.
+  A pane counts as unseen when it carries no segment at all — it is not actable, e.g. an SSH
+  pane you deliberately left off the act allowlist — or when it does carry one but sits in a
+  tab you do not have selected, because a non-selected tab's content is not rendered. Either
+  way there is no segment on screen, under the default `WritesOnly` tab setting no badge
+  either, and the read would otherwise be visible nowhere.
   The activity journal remains the retrospective
   record; these are the live ones. There is no way to silence them — the way to have no
   indicator is to turn agent access off.

@@ -2197,6 +2197,12 @@ namespace NovaTerminal
                         updatedSpecific = true;
                     }
                     if (!updatedSpecific) UpdateTabVisuals();
+                    // The window light's "no visible bar" term is relative to
+                    // the selected tab, so a tab switch changes its answer with
+                    // no attention event behind it: the pane whose segment just
+                    // came on screen must stop double-reporting, and a pane
+                    // still being read in the tab just left must start.
+                    RefreshAgentObserveIndicator();
                     UpdatePaneAutomationLabels();
                     UpdateTabAutomationLabels();
                     UpdateBroadcastIndicator();
@@ -3710,8 +3716,8 @@ namespace NovaTerminal
         /// Visible exactly while observe is enabled. "Active" (the watched
         /// styling) covers the two cases this is the only correctly-scoped
         /// surface for: an in-flight waitForEvents long poll, which names no
-        /// pane; and a read landing on a pane that carries no status bar of its
-        /// own, which would otherwise be invisible everywhere.
+        /// pane; and a read landing on a pane whose status bar the user cannot
+        /// currently see, which would otherwise be invisible everywhere.
         ///
         /// The condition is deliberately per-pane rather than "act is off".
         /// A pane carries a bar only when it is *actable*, and act being on is
@@ -3720,15 +3726,57 @@ namespace NovaTerminal
         /// tab glyph under the default WritesOnly rollup, and — under the old
         /// global-toggle condition — no window light either. Reading exactly
         /// the panes the user deliberately excluded from act produced no signal
-        /// anywhere. Keying on "the watched pane has no bar" subsumes the
-        /// act-off case: with act off no pane is actable, so every watched pane
-        /// is unmarked.
+        /// anywhere. Keying on "the watched pane has no visible bar" subsumes
+        /// the act-off case: with act off no pane is actable, so every watched
+        /// pane is unmarked.
+        ///
+        /// See <see cref="IsPaneReadInvisibleWithoutWindowLight"/> for the
+        /// per-pane half of that decision.
         /// </summary>
         internal static (bool Visible, bool Active) ComputeObserveIndicatorState(
             bool observeRunning, bool polling, bool anyUnmarkedPaneWatched)
         {
             if (!observeRunning) return (false, false);
             return (true, polling || anyUnmarkedPaneWatched);
+        }
+
+        /// <summary>
+        /// Whether a read of this pane would be invisible unless the window
+        /// light reports it — i.e. the pane has no agent status-bar segment
+        /// the user can *currently see*. Pure, so the rule is testable without
+        /// a window.
+        ///
+        /// Three cases say "invisible":
+        ///
+        /// 1. The pane is not actable, so it carries no agent segment at all.
+        /// 2. The pane is actable and therefore has a segment, but it lives in
+        ///    a tab that is not selected. A non-selected tab's content is not
+        ///    rendered, so that segment is off screen. This is the common case,
+        ///    not an edge one — act on plus more than one tab is enough — and
+        ///    it fails in the same inverted direction as the SSH-allowlist hole
+        ///    this predicate already covers: the more permission a pane is
+        ///    granted, the *less* visible reading it becomes. The tier decays
+        ///    in ~3 s, so switching to that tab a moment later shows nothing
+        ///    either.
+        /// 3. The pane has no tab association yet. A registration is created in
+        ///    TerminalPane.SetupCommon and only associated with a tab later by
+        ///    MainWindow (SetTabAssociation), so this window is real, if brief.
+        ///    Unassociated means "cannot be proven on screen", and the whole
+        ///    point of this light is that a read is never silent, so the
+        ///    unprovable case reports rather than hides. The cost of being
+        ///    wrong here is at worst a redundant light next to a visible
+        ///    segment; the cost the other way is a silent read.
+        ///
+        /// A pane whose segment *is* on screen (actable, in the selected tab)
+        /// returns false: it already says "agent reading" itself, and lighting
+        /// the window too would double-report the same event.
+        /// </summary>
+        internal static bool IsPaneReadInvisibleWithoutWindowLight(
+            bool isAgentActable, Guid? paneTabId, Guid? selectedTabId)
+        {
+            if (!isAgentActable) return true;
+            if (!paneTabId.HasValue) return true;
+            return paneTabId.Value != selectedTabId;
         }
 
         /// <summary>Applies <see cref="ComputeObserveIndicatorState"/> to the chrome. UI thread.</summary>
@@ -3739,10 +3787,19 @@ namespace NovaTerminal
             if (indicator == null || dot == null) return;
 
             var service = AgentHost.AgentHostService.Instance;
-            // "Unmarked" = the pane shows no agent segment of its own, so this
-            // light is the only place its read can appear.
+
+            // Which tab's content is actually rendered right now. Resolved the
+            // same way every other tab-id consumer in this file does it, so a
+            // pane's stored TabId and this are comparable by construction.
+            var tabs = this.FindControl<TabControl>("Tabs");
+            Guid? selectedTabId = tabs?.SelectedItem is TabItem selectedTab
+                ? GetPersistentTabId(selectedTab)
+                : null;
+
+            // "Unmarked" = the pane shows no agent segment the user can see
+            // right now, so this light is the only place its read can appear.
             bool anyUnmarkedPaneWatched = AgentHost.AgentSessionRegistry.Instance.GetRegistrations()
-                .Any(r => !r.IsAgentActable
+                .Any(r => IsPaneReadInvisibleWithoutWindowLight(r.IsAgentActable, r.TabId, selectedTabId)
                     && r.AttentionMachine.Snapshot().Tier == AgentHost.AgentAttentionTier.Watched);
 
             var (visible, active) = ComputeObserveIndicatorState(
