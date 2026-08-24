@@ -3703,22 +3703,32 @@ namespace NovaTerminal
         }
 
         /// <summary>
-        /// Decides the application-level agent light from its four inputs. Pure
+        /// Decides the application-level agent light from its three inputs. Pure
         /// so it can be tested without a window and without touching the
         /// process-wide <see cref="AgentHost.AgentHostService.Instance"/>.
         ///
         /// Visible exactly while observe is enabled. "Active" (the watched
         /// styling) covers the two cases this is the only correctly-scoped
         /// surface for: an in-flight waitForEvents long poll, which names no
-        /// pane; and, when act is off so no pane carries a status bar, a pane
-        /// being read. With act on, pane reads are already shown on the pane
-        /// itself, so they deliberately do not light this too.
+        /// pane; and a read landing on a pane that carries no status bar of its
+        /// own, which would otherwise be invisible everywhere.
+        ///
+        /// The condition is deliberately per-pane rather than "act is off".
+        /// A pane carries a bar only when it is *actable*, and act being on is
+        /// not sufficient for that: an SSH pane whose profile lacks
+        /// AllowAgentAccess is never actable, so with act on it has no bar, no
+        /// tab glyph under the default WritesOnly rollup, and — under the old
+        /// global-toggle condition — no window light either. Reading exactly
+        /// the panes the user deliberately excluded from act produced no signal
+        /// anywhere. Keying on "the watched pane has no bar" subsumes the
+        /// act-off case: with act off no pane is actable, so every watched pane
+        /// is unmarked.
         /// </summary>
         internal static (bool Visible, bool Active) ComputeObserveIndicatorState(
-            bool observeRunning, bool actEnabled, bool polling, bool anyPaneWatched)
+            bool observeRunning, bool polling, bool anyUnmarkedPaneWatched)
         {
             if (!observeRunning) return (false, false);
-            return (true, polling || (!actEnabled && anyPaneWatched));
+            return (true, polling || anyUnmarkedPaneWatched);
         }
 
         /// <summary>Applies <see cref="ComputeObserveIndicatorState"/> to the chrome. UI thread.</summary>
@@ -3729,11 +3739,14 @@ namespace NovaTerminal
             if (indicator == null || dot == null) return;
 
             var service = AgentHost.AgentHostService.Instance;
-            bool anyPaneWatched = AgentHost.AgentSessionRegistry.Instance.GetRegistrations()
-                .Any(r => r.AttentionMachine.Snapshot().Tier == AgentHost.AgentAttentionTier.Watched);
+            // "Unmarked" = the pane shows no agent segment of its own, so this
+            // light is the only place its read can appear.
+            bool anyUnmarkedPaneWatched = AgentHost.AgentSessionRegistry.Instance.GetRegistrations()
+                .Any(r => !r.IsAgentActable
+                    && r.AttentionMachine.Snapshot().Tier == AgentHost.AgentAttentionTier.Watched);
 
             var (visible, active) = ComputeObserveIndicatorState(
-                service.IsRunning, _settings.AgentAccessActEnabled, service.InFlightPollCount > 0, anyPaneWatched);
+                service.IsRunning, service.InFlightPollCount > 0, anyUnmarkedPaneWatched);
 
             indicator.IsVisible = visible;
             if (!visible) return;
