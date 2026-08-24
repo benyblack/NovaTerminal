@@ -18,54 +18,100 @@ public static class TitleBarLayoutResolver
     {
         var entries = TitleBarCatalog.GetEntries();
 
-        // Normalize the two caller-supplied lookups to OrdinalIgnoreCase up front. `order` is
-        // already matched case-insensitively below via the OrdinalIgnoreCase `byId` dictionary,
-        // but a plain Dictionary<string,string> / HashSet<string> (what System.Text.Json produces
-        // when deserializing settings.json, and what callers pass in practice) defaults to an
-        // ordinal, case-sensitive comparer. Without this, a hand-edited settings.json key like
-        // "Find" would silently miss the catalog id "find" and fall back to the default — a
-        // different failure mode than "unknown id" but observably identical, which undermines the
-        // resolver's contract of tolerating malformed user input.
-        //
-        // `states` is built with an explicit assignment loop rather than the
-        // `new Dictionary(source, comparer)` copy constructor: that constructor adds entries one
-        // by one under the *new* comparer and throws ArgumentException the moment two source keys
-        // collapse to the same key (e.g. sibling JSON entries "find" and "Find", which survive
-        // deserialization intact because JSON keys are ordinal-distinct). These keys come from a
-        // hand-editable file, so a typo-shaped duplicate must degrade, not crash — last one wins,
-        // by plain dictionary-indexer assignment in source enumeration order.
-        Dictionary<string, string>? normalizedStates = null;
-        if (states is not null)
-        {
-            normalizedStates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var kv in states)
-            {
-                normalizedStates[kv.Key] = kv.Value;
-            }
-        }
-
-        // HashSet's equivalent constructor is safe here: HashSet<T>.Add (which is what the
-        // IEnumerable-and-comparer constructor calls internally) silently ignores an item that
-        // already collides under the given comparer instead of throwing, so a case-variant
-        // duplicate id (e.g. "toggle_recording" and "Toggle_Recording") is just deduplicated.
-        var normalizedActiveToggleIds = activeToggleIds is null
-            ? null
-            : new HashSet<string>(activeToggleIds, StringComparer.OrdinalIgnoreCase);
+        var normalizedStates = NormalizeStates(states);
+        var normalizedActiveToggleIds = NormalizeActiveToggleIds(activeToggleIds);
 
         // Rule 1: saved state when present and parseable, otherwise the catalog default.
         // Rule 2 (partial): a locked entry is pinned whatever settings say.
-        var resolved = entries.ToDictionary(
-            e => e.Id,
-            e => e.IsLocked ? TitleBarItemState.Pinned : ReadState(normalizedStates, e),
-            StringComparer.OrdinalIgnoreCase);
-
-        var pinned = new List<TitleBarCatalogEntry>();
+        var resolved = ResolveEntryStates(entries, normalizedStates);
 
         // Rule 2 (rest): locked entries lead, in catalog order among themselves.
-        pinned.AddRange(entries.Where(e => e.IsLocked));
+        var pinned = SeedLockedPinnedEntries(entries);
 
         // Rule 3: the saved order first, for the ids it names that are actually pinned and
         // unlocked; then everything else still pinned, in catalog order.
+        PlacePinnedEntriesInOrder(entries, order, resolved, pinned);
+
+        var overflow = entries
+            .Where(e => resolved[e.Id] == TitleBarItemState.Overflow)
+            .ToList();
+
+        // Rule 4 (auto-surface): an overflowed toggle that is currently ON moves into the bar,
+        // at the end, and returns to the flyout when it turns off. Stated generally rather than
+        // for Record specifically, so any future stateful toggle inherits it. Hidden entries are
+        // never promoted — hidden means hidden.
+        AutoSurfaceActiveToggles(overflow, pinned, normalizedActiveToggleIds);
+
+        // No clamp on pinned.Count: the MaxPinned limit is enforced by the settings UI so that no
+        // previously-saved configuration can silently lose an icon here. An auto-surfaced toggle
+        // may push the count one past MaxPinned while it is active, which is intended.
+        return new TitleBarLayout(pinned, overflow);
+    }
+
+    // Normalizes the two caller-supplied lookups to OrdinalIgnoreCase up front. `order` is
+    // already matched case-insensitively below via the OrdinalIgnoreCase `byId` dictionary,
+    // but a plain Dictionary<string,string> / HashSet<string> (what System.Text.Json produces
+    // when deserializing settings.json, and what callers pass in practice) defaults to an
+    // ordinal, case-sensitive comparer. Without this, a hand-edited settings.json key like
+    // "Find" would silently miss the catalog id "find" and fall back to the default — a
+    // different failure mode than "unknown id" but observably identical, which undermines the
+    // resolver's contract of tolerating malformed user input.
+    //
+    // `states` is built with an explicit assignment loop rather than the
+    // `new Dictionary(source, comparer)` copy constructor: that constructor adds entries one
+    // by one under the *new* comparer and throws ArgumentException the moment two source keys
+    // collapse to the same key (e.g. sibling JSON entries "find" and "Find", which survive
+    // deserialization intact because JSON keys are ordinal-distinct). These keys come from a
+    // hand-editable file, so a typo-shaped duplicate must degrade, not crash — last one wins,
+    // by plain dictionary-indexer assignment in source enumeration order.
+    private static Dictionary<string, string>? NormalizeStates(IReadOnlyDictionary<string, string>? states)
+    {
+        if (states is null)
+        {
+            return null;
+        }
+
+        var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kv in states)
+        {
+            normalized[kv.Key] = kv.Value;
+        }
+
+        return normalized;
+    }
+
+    // HashSet's equivalent constructor is safe here: HashSet<T>.Add (which is what the
+    // IEnumerable-and-comparer constructor calls internally) silently ignores an item that
+    // already collides under the given comparer instead of throwing, so a case-variant
+    // duplicate id (e.g. "toggle_recording" and "Toggle_Recording") is just deduplicated.
+    private static HashSet<string>? NormalizeActiveToggleIds(IReadOnlySet<string>? activeToggleIds)
+        => activeToggleIds is null
+            ? null
+            : new HashSet<string>(activeToggleIds, StringComparer.OrdinalIgnoreCase);
+
+    private static Dictionary<string, TitleBarItemState> ResolveEntryStates(
+        IReadOnlyList<TitleBarCatalogEntry> entries,
+        IReadOnlyDictionary<string, string>? normalizedStates)
+    {
+        return entries.ToDictionary(
+            e => e.Id,
+            e => e.IsLocked ? TitleBarItemState.Pinned : ReadState(normalizedStates, e),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static List<TitleBarCatalogEntry> SeedLockedPinnedEntries(IReadOnlyList<TitleBarCatalogEntry> entries)
+    {
+        var pinned = new List<TitleBarCatalogEntry>();
+        pinned.AddRange(entries.Where(e => e.IsLocked));
+        return pinned;
+    }
+
+    private static void PlacePinnedEntriesInOrder(
+        IReadOnlyList<TitleBarCatalogEntry> entries,
+        IReadOnlyList<string>? order,
+        IReadOnlyDictionary<string, TitleBarItemState> resolved,
+        List<TitleBarCatalogEntry> pinned)
+    {
         var byId = entries.ToDictionary(e => e.Id, StringComparer.OrdinalIgnoreCase);
         var placed = new HashSet<string>(pinned.Select(e => e.Id), StringComparer.OrdinalIgnoreCase);
 
@@ -83,29 +129,24 @@ public static class TitleBarLayoutResolver
             if (!placed.Add(entry.Id)) continue;
             pinned.Add(entry);
         }
+    }
 
-        var overflow = entries
-            .Where(e => resolved[e.Id] == TitleBarItemState.Overflow)
-            .ToList();
-
-        // Rule 4 (auto-surface): an overflowed toggle that is currently ON moves into the bar,
-        // at the end, and returns to the flyout when it turns off. Stated generally rather than
-        // for Record specifically, so any future stateful toggle inherits it. Hidden entries are
-        // never promoted — hidden means hidden.
-        if (normalizedActiveToggleIds is { Count: > 0 })
+    private static void AutoSurfaceActiveToggles(
+        List<TitleBarCatalogEntry> overflow,
+        List<TitleBarCatalogEntry> pinned,
+        HashSet<string>? normalizedActiveToggleIds)
+    {
+        if (normalizedActiveToggleIds is not { Count: > 0 })
         {
-            var surfacing = overflow.Where(e => e.IsToggle && normalizedActiveToggleIds.Contains(e.Id)).ToList();
-            foreach (var entry in surfacing)
-            {
-                overflow.Remove(entry);
-                pinned.Add(entry);
-            }
+            return;
         }
 
-        // No clamp on pinned.Count: the MaxPinned limit is enforced by the settings UI so that no
-        // previously-saved configuration can silently lose an icon here. An auto-surfaced toggle
-        // may push the count one past MaxPinned while it is active, which is intended.
-        return new TitleBarLayout(pinned, overflow);
+        var surfacing = overflow.Where(e => e.IsToggle && normalizedActiveToggleIds.Contains(e.Id)).ToList();
+        foreach (var entry in surfacing)
+        {
+            overflow.Remove(entry);
+            pinned.Add(entry);
+        }
     }
 
     private static TitleBarItemState ReadState(
