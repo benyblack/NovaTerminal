@@ -142,13 +142,23 @@ namespace NovaTerminal.AgentHost
 
         /// <summary>
         /// Recomputes and publishes act-reachability onto every registration:
-        /// the global act toggle, plus the per-profile allowlist for SSH panes.
-        /// Called from the 1 s sweep and immediately whenever the act toggle
-        /// flips, so the pane chrome cannot lag a permission change.
+        /// observe (the endpoint actually running), the global act toggle, and
+        /// the per-profile allowlist for SSH panes. Called from the 1 s sweep,
+        /// immediately whenever the act toggle flips, and from
+        /// <see cref="Apply"/>, so the pane chrome cannot lag a permission
+        /// change.
+        ///
+        /// The observe term is not redundant: the two settings checkboxes are
+        /// independent, so observe-off/act-on is user-reachable. Without it,
+        /// every local pane grew a 22 px "agent access" bar — reflowing its PTY
+        /// once — claiming an agent could type into it while nothing was even
+        /// listening. <c>IsRunning</c> rather than a mirrored observe flag
+        /// because that is what the acting handlers actually require: a request
+        /// can only arrive over a live endpoint.
         /// </summary>
         internal void RefreshActability()
         {
-            bool act = ActEnabled;
+            bool act = ActEnabled && IsRunning;
             foreach (var registration in _registry.GetRegistrations())
             {
                 bool actable = act;
@@ -247,6 +257,12 @@ namespace NovaTerminal.AgentHost
         public void Apply(bool enabled)
         {
             if (enabled) Start(); else Stop();
+            // Actability includes the observe term (see RefreshActability), so
+            // the pane bars have to be republished on both edges: stopping the
+            // endpoint must clear them immediately rather than leaving them
+            // until the next sweep tick — which, with the endpoint stopped, no
+            // longer runs at all.
+            RefreshActability();
         }
 
         public void Start()

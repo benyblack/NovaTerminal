@@ -33,14 +33,24 @@ public class AgentHostAttentionProtocolTests : IDisposable
 
     private AgentHostService NewRunningService(AgentSessionRegistry registry, bool act)
     {
-        var endpoint = OperatingSystem.IsWindows()
-            ? "novaterminal-agent-attention-test-" + Guid.NewGuid().ToString("N")
-            : Path.Combine(_tempDir, Guid.NewGuid().ToString("N")[..8] + ".sock");
-        var service = new AgentHostService(registry, endpoint, _tempDir);
+        var service = NewStoppedService(registry);
         service.ActEnabled = act;
         service.Start();
         Assert.True(service.IsRunning);
         return service;
+    }
+
+    /// <summary>
+    /// A service that never binds an endpoint — i.e. observe off. Actability
+    /// includes the observe term, so this is the state that must publish no
+    /// bars no matter what the act toggle says.
+    /// </summary>
+    private AgentHostService NewStoppedService(AgentSessionRegistry registry)
+    {
+        var endpoint = OperatingSystem.IsWindows()
+            ? "novaterminal-agent-attention-test-" + Guid.NewGuid().ToString("N")
+            : Path.Combine(_tempDir, Guid.NewGuid().ToString("N")[..8] + ".sock");
+        return new AgentHostService(registry, endpoint, _tempDir);
     }
 
     private static AgentSessionRegistration Register(AgentSessionRegistry registry, string kind = "local", Guid? profileId = null)
@@ -252,6 +262,60 @@ public class AgentHostAttentionProtocolTests : IDisposable
 
         service.RefreshActability();
 
+        Assert.True(registration.IsAgentActable);
+    }
+
+    [Fact]
+    public void Act_without_a_running_endpoint_marks_nothing()
+    {
+        // Actable is observe && act && (local || allowlisted). The two settings
+        // checkboxes are independent, so observe-off/act-on is reachable, and
+        // without the observe term every local pane grew a 22 px "agent access"
+        // bar - reflowing its PTY once - claiming an agent could type into it
+        // while nothing was listening at all.
+        var registry = new AgentSessionRegistry();
+        using var service = NewStoppedService(registry);
+        service.ActEnabled = true;
+        Assert.False(service.IsRunning);
+        var registration = Register(registry);
+
+        service.RefreshActability();
+
+        Assert.False(registration.IsAgentActable);
+    }
+
+    [Fact]
+    public void Stopping_the_endpoint_clears_actability()
+    {
+        // Apply(false) has to republish, not just stop: the 1 s sweep is the
+        // only other caller of RefreshActability and it dies with the endpoint,
+        // so without this the bars would persist forever.
+        var registry = new AgentSessionRegistry();
+        using var service = NewRunningService(registry, act: true);
+        var registration = Register(registry);
+        service.RefreshActability();
+        Assert.True(registration.IsAgentActable);
+
+        service.Apply(enabled: false);
+
+        Assert.False(service.IsRunning);
+        Assert.False(registration.IsAgentActable);
+    }
+
+    [Fact]
+    public void Starting_the_endpoint_publishes_actability()
+    {
+        // The other edge of the same call: observe turned on with act already
+        // on must surface the bars without waiting for a sweep tick.
+        var registry = new AgentSessionRegistry();
+        using var service = NewStoppedService(registry);
+        service.ActEnabled = true;
+        var registration = Register(registry);
+        Assert.False(registration.IsAgentActable);
+
+        service.Apply(enabled: true);
+
+        Assert.True(service.IsRunning);
         Assert.True(registration.IsAgentActable);
     }
 
