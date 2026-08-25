@@ -196,10 +196,11 @@ namespace NovaTerminal.Shell
 
             var bitmap = new SKBitmap(deviceWidth, deviceHeight);
             var canvas = new SKCanvas(bitmap);
-            if (renderScaling != 1.0)
-            {
-                canvas.Scale((float)renderScaling);
-            }
+
+            // Applied unconditionally: scaling by 1.0 concatenates the identity matrix, so there
+            // is nothing for a guard to save, and no tolerance worth expressing either - whatever
+            // scaling the caller asked for is simply what the canvas gets.
+            canvas.Scale((float)renderScaling);
 
             var typeface = new Typeface(options.TypefaceFamily);
             var glyphTypeface = typeface.GlyphTypeface;
