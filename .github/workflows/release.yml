@@ -450,7 +450,12 @@ jobs:
     name: Submit to winget-pkgs
     runs-on: windows-latest
     needs: [release_metadata, publish_aot]
-    if: github.event_name == 'push'
+    # Never submit a prerelease to the community repo. Same contains('-') test as the
+    # prerelease flag on create_release: winget-pkgs is for stable versions, and a
+    # `-beta`/`-test` tag reaching it is a public retraction, not a private mistake. The step
+    # body also self-skips when WINGET_PAT is unset (it is unset today), but that is a
+    # coincidence of configuration rather than a guard — this is the guard.
+    if: github.event_name == 'push' && !contains(needs.release_metadata.outputs.release_tag, '-')
     steps:
       - name: Submit manifest via wingetcreate
         shell: pwsh
