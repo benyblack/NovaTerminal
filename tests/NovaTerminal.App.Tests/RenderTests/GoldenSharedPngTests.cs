@@ -1,6 +1,7 @@
 using NovaTerminal.Shell;
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Platform;
+using NovaTerminal.Rendering;
 using NovaTerminal.VT;
 using NovaTerminal.Tests.Infra;
 using System;
@@ -15,6 +16,21 @@ namespace NovaTerminal.Tests.RenderTests
     ///   PowerShell: $env:UPDATE_SNAPSHOTS=1; dotnet test --filter GoldenSharedPng
     ///   Bash: UPDATE_SNAPSHOTS=1 dotnet test --filter GoldenSharedPng
     /// </summary>
+    /// <remarks>
+    /// "Shared" means the bytes must not depend on the machine, and for the box-drawing and
+    /// block-element captures that holds only because they render through the geometric
+    /// primitive painter instead of font glyphs. Reaching that painter takes a glyph cache:
+    /// it lives behind <c>if (_glyphCache != null)</c> in
+    /// <c>TerminalDrawOperation.DrawRowTextFromSnapshot</c>, so a cacheless capture silently
+    /// falls through to plain font rendering and <c>Force*Primitives</c> does nothing at all.
+    ///
+    /// These three baselines were captured that way, which made them accidentally
+    /// machine-specific. <see cref="SKTypeface.FromFamilyName"/> returns null for an
+    /// uninstalled family on Windows, so they recorded notdef boxes; fontconfig never fails a
+    /// lookup and substitutes its best match instead, so on Linux the same test rendered real
+    /// glyphs out of whatever font happened to be installed and the comparison could not pass.
+    /// <c>PrimitiveCaptures_AreFontIndependent</c> pins the invariant down directly.
+    /// </remarks>
     [Trait("Category", "GoldenSharedPng")]
     [Collection("GoldenPng")]
     public sealed class GoldenSharedPngTests
@@ -40,10 +56,14 @@ namespace NovaTerminal.Tests.RenderTests
             parser.Process("\u2591\u2592\u2593\u2588 \u2596\u2597\u2598\u2599\u259A\u259B\u259C\u259D\u259E\u259F\r\n");
             parser.Process("\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\r\n");
 
+            // GlyphCache is not an optimisation here - it is what puts the cells on the
+            // primitive path at all. See the class remarks.
+            using var glyphCache = new GlyphCache();
             byte[] pngBytes = SnapshotService.CapturePng(buffer, Metrics, WidthFor(cols), HeightFor(rows), new SnapshotCaptureOptions
             {
                 ForceBoxDrawingPrimitives = true,
                 ForceBlockElementPrimitives = true,
+                GlyphCache = glyphCache,
                 HideCursor = true
             });
 
@@ -66,10 +86,12 @@ namespace NovaTerminal.Tests.RenderTests
             parser.Process("╔══════╦══════╗\r\n");
             parser.Process("╚══════╩══════╝");
 
+            using var glyphCache = new GlyphCache();
             byte[] pngBytes = SnapshotService.CapturePng(buffer, Metrics, WidthFor(cols), HeightFor(rows), new SnapshotCaptureOptions
             {
                 ForceBoxDrawingPrimitives = true,
                 ForceBlockElementPrimitives = true,
+                GlyphCache = glyphCache,
                 HideCursor = true
             });
 
@@ -142,15 +164,77 @@ namespace NovaTerminal.Tests.RenderTests
             parser.Process("┌──────────────────────────────┐\r\n");
             parser.Process("└──────────────────────────────┘");
 
+            // KNOWN DEFECT captured in this baseline: the two box-drawing rows come out blank.
+            //
+            // TryDrawBoxDrawingGlyph picks its stroke in whole *device* pixels and then converts
+            // back to DIPs (FromDevicePx) to draw - but nothing ever scales the canvas, so at
+            // RenderScaling 1.5 a 1-device-pixel stroke is emitted as a 0.67px rect with
+            // antialiasing off and rasterises to nothing. Measured mean luma for these two rows:
+            // 0.0219 at scaling 1.0, 0.0324 at 1.25, 0.0225 at 2.0, and 0.0007 at 1.5. The block
+            // and shade rows above are unaffected because those fill whole cells.
+            //
+            // So the horizontals genuinely vanish at 150% scaling - a display scale plenty of
+            // people run - and this test was the one meant to catch it. It could not, because
+            // before the glyph cache above it never reached the primitive path at all. The
+            // baseline therefore records today's behaviour rather than the desired behaviour;
+            // regenerate it when the scaling bug is fixed and expect these rows to gain content.
+            using var glyphCache = new GlyphCache();
             byte[] pngBytes = SnapshotService.CapturePng(buffer, Metrics, WidthFor(cols), HeightFor(rows), new SnapshotCaptureOptions
             {
                 ForceBoxDrawingPrimitives = true,
                 ForceBlockElementPrimitives = true,
+                GlyphCache = glyphCache,
                 RenderScaling = 1.5,
                 HideCursor = true
             });
 
             SnapshotService.CompareToBaseline(BaselineScope.Shared, "shared/SeamRegressionSurface", pngBytes);
+        }
+
+        /// <summary>
+        /// The guard that makes "shared" mean what it says: a primitive capture must not care
+        /// which font is installed, so the same buffer rendered against wildly different
+        /// families - including one that does not exist - must come out byte-identical.
+        /// </summary>
+        /// <remarks>
+        /// Without this, the only thing standing between the suite and a machine-specific
+        /// baseline is whether someone remembered to pass a glyph cache. Drop the cache from
+        /// the captures above and this test fails, rather than three baselines quietly becoming
+        /// portraits of one developer's font list.
+        /// </remarks>
+        [AvaloniaTheory]
+        [InlineData("Liberation Sans")]
+        [InlineData("Noto Sans Mono")]
+        [InlineData("This Font Is Not Installed Anywhere")]
+        public void PrimitiveCaptures_AreFontIndependent(string family)
+        {
+            const int cols = 24;
+            const int rows = 4;
+
+            byte[] Capture(string typefaceFamily)
+            {
+                var buffer = CreateThemedBuffer(cols, rows);
+                var parser = new AnsiParser(buffer);
+                parser.Process("█░▒▓▄▀\r\n");
+                parser.Process("┌─┬─┐\r\n");
+                parser.Process("└─┴─┘");
+
+                using var glyphCache = new GlyphCache();
+                return SnapshotService.CapturePng(buffer, Metrics, WidthFor(cols), HeightFor(rows), new SnapshotCaptureOptions
+                {
+                    ForceBoxDrawingPrimitives = true,
+                    ForceBlockElementPrimitives = true,
+                    GlyphCache = glyphCache,
+                    HideCursor = true,
+                    TypefaceFamily = typefaceFamily
+                });
+            }
+
+            // Compared against the family the shared baselines are captured with, so a
+            // divergence points at the capture the baselines actually use.
+            Assert.Equal(
+                Capture(TerminalSnapshotOptions.DefaultTypefaceFamily),
+                Capture(family));
         }
 
         private static TerminalBuffer CreateThemedBuffer(int cols, int rows)
