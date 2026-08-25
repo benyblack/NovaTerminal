@@ -335,8 +335,24 @@ jobs:
           # create_release sets from the tag's SemVer suffix) and drafts, so counting a beta's
           # full package here would demand a delta that vpk was never going to download —
           # blocking the first STABLE release after any prerelease. (Codex P2 on #340.)
-          $priorFullCount = [int](gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" `
-            --jq '[.[] | select(.tag_name != env.RELEASE_TAG) | select(.prerelease == false) | select(.draft == false) | .assets[]? | select(.name | endswith("-full.nupkg"))] | length')
+          $priorFullRaw = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" `
+            --jq '[.[] | select(.tag_name != env.RELEASE_TAG) | select(.prerelease == false) | select(.draft == false) | .assets[]? | select(.name | endswith("-full.nupkg"))] | length'
+
+          # Check the exit code before trusting the output, and check it IMMEDIATELY - any
+          # other command in between overwrites $LASTEXITCODE. GitHub's pwsh wrapper sets
+          # $ErrorActionPreference = 'stop', but that governs cmdlet errors, not native exit
+          # codes: a failing `gh` (1, 2 or 4 per `gh help exit-codes`) prints nothing to stdout
+          # and does NOT terminate the script. `[int]$null` is 0, so without this the query
+          # failing silently reads as "no prior release", $expectDelta goes false, and the
+          # release publishes full-only - reinstating the exact silent-degradation hole this
+          # query was added to close. (Codex P2 on #340.)
+          if ($LASTEXITCODE -ne 0) {
+            throw "Querying the releases API failed (gh exit code $LASTEXITCODE). Cannot tell a first release from a transient failure, and guessing wrong publishes a release with no delta. Re-run the workflow for this tag."
+          }
+          if ("$priorFullRaw" -notmatch '^\d+$') {
+            throw "The releases API query returned '$priorFullRaw', which is not a count. Refusing to guess whether a delta is expected."
+          }
+          $priorFullCount = [int]$priorFullRaw
           $expectDelta = $priorFullCount -gt 0
           Write-Host "Prior full packages on GitHub (excluding $tag): $priorFullCount. Download step outcome: $env:DOWNLOAD_OUTCOME."
 
