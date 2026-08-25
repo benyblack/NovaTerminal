@@ -6369,7 +6369,16 @@ namespace NovaTerminal
             switch (outcome)
             {
                 case NovaTerminal.Update.UpdateCheckOutcome.UpdateReady:
-                    // The coordinator's onUpdateReady callback already raised the toast.
+                    // Show it here rather than relying on the coordinator's onUpdateReady
+                    // callback. That callback fires only when the staged version CHANGES (its
+                    // announce-once guard, which exists so a second check does not re-nag about
+                    // an update the user already dismissed). So for a user who dismissed the
+                    // toast and then asked again, the callback correctly stays silent - and
+                    // trusting it here left the manual check answering a direct question with
+                    // nothing at all, and no visible way to restart. Re-showing is idempotent:
+                    // when the callback did just fire, this sets the same text again.
+                    // (Codex P2 on #340.)
+                    ShowUpdateToast(_updateCoordinator.StagedVersion ?? string.Empty);
                     break;
                 case NovaTerminal.Update.UpdateCheckOutcome.UpToDate:
                     ShowRecordingToast("Up to date", "You are running the newest version.", null, null, autoHide: true);

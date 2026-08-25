@@ -318,8 +318,13 @@ jobs:
           # assertion fires, and the release publishes full-only, permanently and silently
           # dropping delta updates for every client. Ask the releases API which case it is.
           # (Codex P2 on #340.)
+          # The filter has to mirror what `vpk download github` itself will fetch, or this
+          # query and that step disagree. It skips prereleases (the same GitHub flag
+          # create_release sets from the tag's SemVer suffix) and drafts, so counting a beta's
+          # full package here would demand a delta that vpk was never going to download —
+          # blocking the first STABLE release after any prerelease. (Codex P2 on #340.)
           $priorFullCount = [int](gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" `
-            --jq '[.[] | select(.tag_name != env.RELEASE_TAG) | .assets[]? | select(.name | endswith("-full.nupkg"))] | length')
+            --jq '[.[] | select(.tag_name != env.RELEASE_TAG) | select(.prerelease == false) | select(.draft == false) | .assets[]? | select(.name | endswith("-full.nupkg"))] | length')
           $expectDelta = $priorFullCount -gt 0
           Write-Host "Prior full packages on GitHub (excluding $tag): $priorFullCount. Download step outcome: $env:DOWNLOAD_OUTCOME."
 
