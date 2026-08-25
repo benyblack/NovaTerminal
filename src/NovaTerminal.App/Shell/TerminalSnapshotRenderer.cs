@@ -171,8 +171,35 @@ namespace NovaTerminal.Shell
                 buffer.Lock.ExitReadLock();
             }
 
-            var bitmap = new SKBitmap(width, height);
+            // The draw operation works in DIPs and expects the canvas to carry the render
+            // scaling, because that is what it gets on screen: Render() draws onto Avalonia's
+            // leased SKCanvas, which already has the DPI transform applied. Everything downstream
+            // is built on that contract - glyph sprites are rasterised at _renderScaling and drawn
+            // back through a 1/_renderScaling transform, and the pixel grid snaps geometry to
+            // k/_renderScaling DIPs precisely so it lands on whole device pixels.
+            //
+            // This method used to pass RenderScaling down while handing over a plain unscaled
+            // canvas sized in DIPs, so that contract was broken for any scaling but 1.0. Position
+            // survived it (ToDevicePx then FromDevicePx round-trips back to roughly the same DIP)
+            // but thickness did not: a box-drawing stroke is chosen as a whole number of *device*
+            // pixels, so the 1px stroke came out as a 1/1.5 = 0.67px rect with antialiasing off
+            // and rasterised to nothing. Box borders vanished at RenderScaling 1.5 while whole-cell
+            // block fills, which never convert a device-pixel count back to DIPs, were unaffected.
+            //
+            // So scale the canvas and size the bitmap in device pixels, exactly as the live path
+            // does. width/height stay DIPs - that is what every caller passes and what the draw
+            // operation's bounds want - and the returned bitmap is the device-pixel image those
+            // DIPs describe at this scaling.
+            double renderScaling = options.RenderScaling <= 0 ? 1.0 : options.RenderScaling;
+            int deviceWidth = Math.Max(1, (int)Math.Round(width * renderScaling, MidpointRounding.AwayFromZero));
+            int deviceHeight = Math.Max(1, (int)Math.Round(height * renderScaling, MidpointRounding.AwayFromZero));
+
+            var bitmap = new SKBitmap(deviceWidth, deviceHeight);
             var canvas = new SKCanvas(bitmap);
+            if (renderScaling != 1.0)
+            {
+                canvas.Scale((float)renderScaling);
+            }
 
             var typeface = new Typeface(options.TypefaceFamily);
             var glyphTypeface = typeface.GlyphTypeface;
@@ -214,7 +241,7 @@ namespace NovaTerminal.Shell
                 fallbackChain: fallbackChain,
                 opacity: options.Opacity,
                 hideCursor: options.HideCursor,
-                renderScaling: options.RenderScaling <= 0 ? 1.0 : options.RenderScaling,
+                renderScaling: renderScaling,
                 snapshotRows: snapshotRows,
                 snapshotCols: snapshotCols,
                 totalLines: totalLines,

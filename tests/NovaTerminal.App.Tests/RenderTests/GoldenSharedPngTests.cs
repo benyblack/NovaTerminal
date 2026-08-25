@@ -164,20 +164,19 @@ namespace NovaTerminal.Tests.RenderTests
             parser.Process("┌──────────────────────────────┐\r\n");
             parser.Process("└──────────────────────────────┘");
 
-            // KNOWN DEFECT captured in this baseline: the two box-drawing rows come out blank.
+            // Renders at 1.5 on purpose: this is the fractional-scaling case where the box borders
+            // below used to disappear outright. TerminalSnapshotRenderer passed the scaling down
+            // while handing the draw operation an unscaled DIP-sized canvas, so a box stroke -
+            // picked as a whole number of *device* pixels - was emitted as a 0.67px rect with
+            // antialiasing off and rasterised to nothing. Mean luma across the two box rows was
+            // 0.0007 here against 0.0219 at scaling 1.0. The block and shade rows never noticed,
+            // because they fill whole cells instead of converting a device-pixel count back to
+            // DIPs, which is why the test looked like it was passing on something.
             //
-            // TryDrawBoxDrawingGlyph picks its stroke in whole *device* pixels and then converts
-            // back to DIPs (FromDevicePx) to draw - but nothing ever scales the canvas, so at
-            // RenderScaling 1.5 a 1-device-pixel stroke is emitted as a 0.67px rect with
-            // antialiasing off and rasterises to nothing. Measured mean luma for these two rows:
-            // 0.0219 at scaling 1.0, 0.0324 at 1.25, 0.0225 at 2.0, and 0.0007 at 1.5. The block
-            // and shade rows above are unaffected because those fill whole cells.
-            //
-            // So the horizontals genuinely vanish at 150% scaling - a display scale plenty of
-            // people run - and this test was the one meant to catch it. It could not, because
-            // before the glyph cache above it never reached the primitive path at all. The
-            // baseline therefore records today's behaviour rather than the desired behaviour;
-            // regenerate it when the scaling bug is fixed and expect these rows to gain content.
+            // Two consequences for this baseline. It is 1.5x the DIP size, because the capture now
+            // returns the device-pixel image those DIPs describe. And the border is one crisp
+            // device pixel at every scaling, so its share of the image shrinks as the image grows -
+            // the luma here is lower than at scaling 1.0 rather than equal to it, by design.
             using var glyphCache = new GlyphCache();
             byte[] pngBytes = SnapshotService.CapturePng(buffer, Metrics, WidthFor(cols), HeightFor(rows), new SnapshotCaptureOptions
             {
