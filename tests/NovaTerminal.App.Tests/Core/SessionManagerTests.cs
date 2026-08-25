@@ -82,6 +82,87 @@ public sealed class SessionManagerTests
         Assert.Equal(17, termView!.FontSize);
     }
 
+    // Restoring a session saved on another OS used to be permanently fatal: the pane's persisted
+    // Command was only checked for blankness, so a Windows workspace restored "cmd.exe" on Linux,
+    // the spawn failed, and the same value was written back out on exit - so every later launch
+    // failed identically. The pane now falls back to a shell that exists here.
+    [AvaloniaFact]
+    public void CreateRestoredTabContent_CommandFromAnotherPlatform_FallsBackToARunnableShell()
+    {
+        var settings = new TerminalSettings();
+
+        var tabSession = new TabSession
+        {
+            Title = "Local",
+            Root = new PaneNode
+            {
+                Type = NodeType.Leaf,
+                // No ProfileId, so the restore takes the raw-command path rather than resolving
+                // a profile - exactly the shape a first-run session file has.
+                Command = OperatingSystem.IsWindows() ? "/bin/bash" : "cmd.exe",
+                Arguments = "",
+                PaneId = Guid.NewGuid().ToString()
+            }
+        };
+
+        var pane = Assert.IsType<TerminalPane>(
+            SessionManager.CreateRestoredTabContent(tabSession, settings));
+
+        Assert.Equal(ShellHelper.GetDefaultShell(), pane.ShellCommand);
+    }
+
+    // The arguments belonged to the command that was replaced. Carrying them over would hand the
+    // substituted shell another shell's flags - a persisted `cmd.exe /c ...` reaching bash as
+    // `/c ...`.
+    [AvaloniaFact]
+    public void CreateRestoredTabContent_WhenCommandIsSubstituted_DropsTheForeignArguments()
+    {
+        var settings = new TerminalSettings();
+
+        var tabSession = new TabSession
+        {
+            Title = "Local",
+            Root = new PaneNode
+            {
+                Type = NodeType.Leaf,
+                Command = OperatingSystem.IsWindows() ? "/bin/bash" : "cmd.exe",
+                Arguments = OperatingSystem.IsWindows() ? "-lc echo hi" : "/c echo hi",
+                PaneId = Guid.NewGuid().ToString()
+            }
+        };
+
+        var pane = Assert.IsType<TerminalPane>(
+            SessionManager.CreateRestoredTabContent(tabSession, settings));
+
+        Assert.Equal(ShellHelper.GetDefaultShell(), pane.ShellCommand);
+        Assert.Equal(string.Empty, pane.ShellArgs);
+    }
+
+    // The flip side: a command that does run here keeps both itself and its arguments.
+    [AvaloniaFact]
+    public void CreateRestoredTabContent_RunnableCommand_KeepsItsArguments()
+    {
+        var settings = new TerminalSettings();
+
+        var tabSession = new TabSession
+        {
+            Title = "Local",
+            Root = new PaneNode
+            {
+                Type = NodeType.Leaf,
+                Command = ShellHelper.GetDefaultShell(),
+                Arguments = "--version",
+                PaneId = Guid.NewGuid().ToString()
+            }
+        };
+
+        var pane = Assert.IsType<TerminalPane>(
+            SessionManager.CreateRestoredTabContent(tabSession, settings));
+
+        Assert.Equal(ShellHelper.GetDefaultShell(), pane.ShellCommand);
+        Assert.Equal("--version", pane.ShellArgs);
+    }
+
     [AvaloniaFact]
     public void RestoreSession_UsesStoreBackedSshProfileAndPreservesBackendKind()
     {

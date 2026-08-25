@@ -322,14 +322,28 @@ namespace NovaTerminal.Shell
                 {
                     // Fallback to command args if profile missing.
                     //
-                    // IsNullOrWhiteSpace, not `??`: session files written before the capture
-                    // above learned to skip blanks contain "Command": "", and `??` does not
-                    // fire for an empty string — so the pane was constructed with "" and
-                    // spawned nothing. Those files are still on disk, so this reads them
-                    // correctly rather than relying on the capture fix alone.
+                    // ResolveExecutableOrDefault, not a blank check: session files written
+                    // before the capture above learned to skip blanks contain "Command": "",
+                    // and a `??` does not fire for an empty string — so the pane was
+                    // constructed with "" and spawned nothing. Those files are still on disk,
+                    // so this reads them correctly rather than relying on the capture fix
+                    // alone. It also covers the command being non-blank but unrunnable here:
+                    // a session saved on Windows restores "cmd.exe", which spawns nothing on
+                    // Linux and gets re-persisted, so every later launch failed the same way.
+                    string restoredCommand = ShellHelper.ResolveExecutableOrDefault(node.Command);
+
+                    // Arguments belong to the command that was saved. Once that command has been
+                    // swapped for this platform's shell they are the wrong shell's flags - a
+                    // persisted `cmd.exe /c ...` would reach bash as `/c ...` - so drop them,
+                    // the same way the profile-launch path does when it substitutes.
+                    bool commandSubstituted = !string.Equals(
+                        restoredCommand,
+                        (node.Command ?? string.Empty).Trim(),
+                        StringComparison.Ordinal);
+
                     pane = new TerminalPane(
-                        string.IsNullOrWhiteSpace(node.Command) ? ShellHelper.GetDefaultShell() : node.Command,
-                        node.Arguments ?? "",
+                        restoredCommand,
+                        commandSubstituted ? "" : node.Arguments ?? "",
                         settings);
                 }
 

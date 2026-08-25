@@ -1,6 +1,7 @@
 using NovaTerminal.Platform;
 using System;
 using NovaTerminal.Platform.Ssh.Models;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Shell
 {
@@ -206,12 +207,19 @@ namespace NovaTerminal.Shell
         }
 
 
+        /// <summary>
+        /// A profile pointing at this platform's default shell.
+        /// </summary>
+        /// <remarks>
+        /// Not hardcoded to cmd.exe any more: on Linux and macOS that produced a profile that
+        /// could never spawn, and its name claimed to be a Windows shell besides.
+        /// </remarks>
         public static TerminalProfile CreateDefault()
         {
             return new TerminalProfile
             {
-                Name = "Command Prompt",
-                Command = "cmd.exe"
+                Name = OperatingSystem.IsWindows() ? "Command Prompt" : "Shell",
+                Command = ShellHelper.GetDefaultShell()
             };
         }
     }
