@@ -247,9 +247,21 @@ jobs:
         run: dotnet restore
 
       - name: Publish AOT
+        # RELEASE_VERSION through env for the same reason as every other run block in this
+        # file: it derives from a tag or a workflow_dispatch input, so interpolating it into
+        # script source is a command-injection path — on all three runners here, bash and
+        # pwsh alike. $(...) executes in both. env.CONFIGURATION and matrix.rid are literals
+        # from this workflow file, not user input, so they stay inline. (Codex P1 on #340.)
+        #
+        # shell: bash is explicit because this step runs on all three OSes and env-var syntax
+        # is not portable ($VAR in bash, $env:VAR in pwsh, which is the default shell on the
+        # Windows runner). bash is present on every GitHub-hosted runner, and the release_tests
+        # job already runs a bash step on windows-latest, so this is the file's own precedent.
+        shell: bash
         env:
           SKIP_RUST_NATIVE_BUILD: "1"
-        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true -p:Version=${{ needs.release_metadata.outputs.release_version }} -p:InformationalVersion=${{ needs.release_metadata.outputs.release_version }} -o artifacts/publish/${{ matrix.rid }}
+          RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
+        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true "-p:Version=$RELEASE_VERSION" "-p:InformationalVersion=$RELEASE_VERSION" -o artifacts/publish/${{ matrix.rid }}
 
       - name: Archive bundle
         shell: pwsh
@@ -426,14 +438,17 @@ jobs:
     steps:
       - name: Submit manifest via wingetcreate
         shell: pwsh
+        # Same injection class as the steps above, and this one predates the installer work:
+        # the tag reaches the script through env rather than being interpolated into it.
         env:
           WINGET_PAT: ${{ secrets.WINGET_PAT }}
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
         run: |
           if (-not $env:WINGET_PAT) {
             Write-Host "WINGET_PAT not set; skipping winget-pkgs submission."
             exit 0
           }
-          $tag = "${{ needs.release_metadata.outputs.release_tag }}"
+          $tag = $env:RELEASE_TAG
           $ver = $tag.TrimStart('v')
           $url = "https://github.com/benyblack/NovaTerminal/releases/download/$tag/NovaTerminal-win-x64-$tag.zip"
           Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
