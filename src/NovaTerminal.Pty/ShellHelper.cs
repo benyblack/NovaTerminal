@@ -240,12 +240,19 @@ namespace NovaTerminal.Pty
         /// than a working shell. Modelling cmd.exe was the wrong model; this models the launcher.
         /// </remarks>
         /// <remarks>
+        /// One entry, and specifically <c>.exe</c>, because that is the only extension the launcher
+        /// appends. The native path calls <c>CreateProcessW</c> with <c>lpApplicationName</c> NULL
+        /// (native/src/lib.rs:301), and Windows then appends <c>.exe</c> - not <c>.com</c>, and not
+        /// anything from PATHEXT, which only a shell consults. <c>.com</c> was in this list on the
+        /// same mistaken reasoning that first put <c>.bat</c> here: modelling cmd.exe rather than
+        /// the launcher.
+        ///
         /// <c>internal</c> so the policy itself can be asserted off Windows. The probe that uses it
         /// is gated on <see cref="OperatingSystem.IsWindows"/> and so does nothing on Linux, which
         /// means a test that goes through the filesystem there passes whatever this list contains -
         /// it would not have caught .bat being in it. The list is the decision worth pinning.
         /// </remarks>
-        internal static readonly string[] LaunchableWindowsExtensions = { ".exe", ".com" };
+        internal static readonly string[] LaunchableWindowsExtensions = { ".exe" };
 
         /// <summary>
         /// Windows file types that only run because an interpreter runs them, so this application
@@ -281,17 +288,39 @@ namespace NovaTerminal.Pty
 
             if (File.Exists(candidate)) return true;
             if (!OperatingSystem.IsWindows()) return false;
+            if (!AppendsImplicitExtension(candidate)) return false;
 
-            // Tried even when the name looks like it already has an extension: a "." in the stem
-            // (python3.11) is not an executable extension, and the launcher would still go on to
-            // append one. Guessing wrong here reintroduces the false negative, and an extra
-            // File.Exists that misses costs nothing.
             foreach (string extension in LaunchableWindowsExtensions)
             {
                 if (File.Exists(candidate + extension)) return true;
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// True when Windows would append an extension to <paramref name="candidate"/> while
+        /// looking for the executable.
+        /// </summary>
+        /// <remarks>
+        /// Only for a name with no extension at all. <c>CreateProcessW</c> with
+        /// <c>lpApplicationName</c> NULL appends <c>.exe</c> when "the file name does not contain an
+        /// extension", and a dot anywhere in the final component counts - so <c>python3.11</c> is
+        /// treated as already extensioned and <c>python3.11.exe</c> is never found.
+        ///
+        /// This probe used to append regardless, on a comment of mine arguing that a dot in the stem
+        /// is not a *real* extension so the launcher would keep looking. That describes what a shell
+        /// does. It is the same cmd.exe-shaped assumption that first admitted .bat and .com, left
+        /// standing in the adjacent decision after those were corrected.
+        ///
+        /// <c>internal</c> for the same reason as the extension lists: the caller is gated on
+        /// Windows, so this cannot be reached from a filesystem test on Linux.
+        /// </remarks>
+        internal static bool AppendsImplicitExtension(string? candidate)
+        {
+            if (string.IsNullOrWhiteSpace(candidate)) return false;
+
+            return !Path.HasExtension(candidate);
         }
 
         /// <summary>

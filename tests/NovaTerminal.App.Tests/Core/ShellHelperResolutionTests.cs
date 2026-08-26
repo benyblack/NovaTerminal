@@ -377,4 +377,92 @@ public sealed class ShellHelperResolutionTests
             Assert.DoesNotContain(launchable, ShellHelper.WindowsExtensionsNeedingAnInterpreter);
         }
     }
+
+    // Codex review, round 6: the implicit-extension probe modelled a shell, not the launcher.
+    // CreateProcessW with lpApplicationName NULL (native/src/lib.rs:301) appends .exe and only when
+    // the name has no extension at all - so a saved `tool` backed by `tool.com`, and a saved
+    // `python3.11` backed by `python3.11.exe`, are both unreachable, yet the probe called them
+    // runnable and the pane was kept instead of falling back.
+    [Theory]
+    [InlineData("tool")]
+    [InlineData("pwsh")]
+    [InlineData("C:\\tools\\wrapper")]
+    public void AppendsImplicitExtension_NamesWithoutAnExtension_AreProbed(string candidate)
+    {
+        Assert.True(ShellHelper.AppendsImplicitExtension(candidate));
+    }
+
+    [Theory]
+    // A dot anywhere in the final component counts as an extension to CreateProcessW, however
+    // little it looks like one.
+    [InlineData("python3.11")]
+    [InlineData("tool.com")]
+    [InlineData("pwsh.exe")]
+    [InlineData("wrapper.bat")]
+    [InlineData(null)]
+    [InlineData("")]
+    public void AppendsImplicitExtension_NamesThatAlreadyHaveOne_AreNot(string? candidate)
+    {
+        Assert.False(ShellHelper.AppendsImplicitExtension(candidate));
+    }
+
+    [Fact]
+    public void LaunchableWindowsExtensions_IsOnlyWhatTheLauncherAppends()
+    {
+        // .exe and nothing else: CreateProcessW does not append .com, and PATHEXT is a shell's list.
+        Assert.Equal(new[] { ".exe" }, ShellHelper.LaunchableWindowsExtensions);
+    }
+
+    // The policy tests above pin the decision; this pins that it is actually applied, which no test
+    // on Linux can observe because the probe is gated on Windows. Runs on the Windows jobs.
+    [Fact]
+    public void ResolveExecutableOrDefault_DottedNameBackedByAnExe_FallsBackOnWindows()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Implicit extension probing is Windows-only behaviour.");
+        }
+
+        string directory = Path.Combine(Path.GetTempPath(), "nova dotted " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            // CreateProcessW sees "python3.11" as already extensioned and never looks for this file.
+            File.WriteAllText(Path.Combine(directory, "python3.11.exe"), "");
+
+            Assert.Equal(
+                ShellHelper.GetDefaultShell(),
+                ShellHelper.ResolveExecutableOrDefault(Path.Combine(directory, "python3.11")));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public void ResolveExecutableOrDefault_ExtensionlessNameBackedByAnExe_ResolvesOnWindows()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Implicit extension probing is Windows-only behaviour.");
+        }
+
+        string directory = Path.Combine(Path.GetTempPath(), "nova implicit " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "tool.exe"), "");
+            string extensionless = Path.Combine(directory, "tool");
+
+            // The flip side, so the narrowing above cannot be over-applied.
+            Assert.Equal(extensionless, ShellHelper.ResolveExecutableOrDefault(extensionless));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
+    }
 }
