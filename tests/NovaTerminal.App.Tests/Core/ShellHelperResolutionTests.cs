@@ -98,6 +98,58 @@ public sealed class ShellHelperResolutionTests
         Assert.Equal(quoted, ShellHelper.ResolveExecutableOrDefault(quoted));
     }
 
+    // A stored command may carry its arguments inline - "zsh -l", "wsl.exe -e /bin/bash" - and
+    // TerminalPane.InitializeSessionCore supports exactly that, splitting executable from arguments
+    // at the first space. Probing the whole string as one filename rejected commands that run
+    // perfectly well, and rejection also costs the arguments.
+    [Fact]
+    public void ResolveExecutableOrDefault_CombinedCommandWithARunnableExecutable_IsLeftAlone()
+    {
+        string combined = ShellHelper.GetDefaultShell() + " -l";
+
+        Assert.Equal(combined, ShellHelper.ResolveExecutableOrDefault(combined));
+    }
+
+    [Fact]
+    public void ResolveExecutableOrDefault_CombinedCommandWhoseExecutableIsMissing_FallsBack()
+    {
+        // The split must not become a way to smuggle an unrunnable command past the check.
+        Assert.Equal(
+            ShellHelper.GetDefaultShell(),
+            ShellHelper.ResolveExecutableOrDefault("definitely-not-installed-xyz -l --flag"));
+    }
+
+    [Fact]
+    public void ResolveExecutableOrDefault_QuotedExecutableWithArguments_IsLeftAlone()
+    {
+        // The closing quote delimits the executable, not the first space - which on Windows falls
+        // inside paths like "C:\\Program Files\\...".
+        string combined = "\"" + ShellHelper.GetDefaultShell() + "\" -l";
+
+        Assert.Equal(combined, ShellHelper.ResolveExecutableOrDefault(combined));
+    }
+
+    [Fact]
+    public void ResolveExecutableOrDefault_PathContainingSpaces_IsFoundAsItself()
+    {
+        // The whole string is probed before any split, so a path that merely contains a space is
+        // not mistaken for an executable plus arguments.
+        string directory = Path.Combine(Path.GetTempPath(), "nova shell probe " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string executable = Path.Combine(directory, "my shell");
+
+        try
+        {
+            File.WriteAllText(executable, "");
+
+            Assert.Equal(executable, ShellHelper.ResolveExecutableOrDefault(executable));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
     [Fact]
     public void InPath_BlankCommand_IsNotFound()
     {

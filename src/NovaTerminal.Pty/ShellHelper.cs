@@ -61,7 +61,62 @@ namespace NovaTerminal.Pty
             // whoever spawns it wants the original spelling back.
             string probe = Unquote(trimmed);
 
-            return CanExecute(probe) || InPath(probe) ? trimmed : GetDefaultShell();
+            // Whole string first, so a path that simply contains spaces is found as itself rather
+            // than mistaken for a command plus arguments. This is the same order
+            // TerminalPane.InitializeSessionCore uses when it decides whether to split.
+            if (CanExecute(probe) || InPath(probe))
+            {
+                return trimmed;
+            }
+
+            // A stored command may carry its arguments inline - "zsh -l", "wsl.exe -e /bin/bash" -
+            // and the pane supports that, splitting executable from arguments at the first space.
+            // Probing the whole string as one filename therefore rejected commands that run
+            // perfectly well, and rejection costs the arguments too. Probe just the executable, and
+            // still hand back the combined string so the pane's own split does the parsing.
+            if (TryGetExecutablePortion(probe, out string executable) &&
+                (CanExecute(executable) || InPath(executable)))
+            {
+                return trimmed;
+            }
+
+            return GetDefaultShell();
+        }
+
+        /// <summary>
+        /// Extracts the executable from a command that carries its arguments inline, mirroring the
+        /// split in <c>TerminalPane.InitializeSessionCore</c>.
+        /// </summary>
+        /// <remarks>
+        /// False when there is nothing to split, so the caller keeps whatever verdict it already
+        /// reached about the whole string.
+        /// </remarks>
+        private static bool TryGetExecutablePortion(string command, out string executable)
+        {
+            // A quoted executable followed by arguments: "C:\Program Files\...\pwsh.exe" -NoLogo.
+            // The closing quote delimits it, not the first space, which falls inside the path.
+            if (command.StartsWith('"'))
+            {
+                int closingQuote = command.IndexOf('"', 1);
+                if (closingQuote > 1)
+                {
+                    executable = command[1..closingQuote];
+                    return true;
+                }
+
+                executable = string.Empty;
+                return false;
+            }
+
+            int firstSpace = command.IndexOf(' ');
+            if (firstSpace <= 0)
+            {
+                executable = string.Empty;
+                return false;
+            }
+
+            executable = command[..firstSpace];
+            return true;
         }
 
         /// <summary>
