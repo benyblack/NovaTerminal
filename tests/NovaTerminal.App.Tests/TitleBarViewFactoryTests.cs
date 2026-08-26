@@ -130,6 +130,35 @@ namespace NovaTerminal.Tests
         }
 
         [AvaloniaFact]
+        public void Populate_ReusesTheSuppliedNewTabButton_SetsTheResolvedTooltip()
+        {
+            var host = new StackPanel();
+            // The XAML-declared button ships with a static ToolTip.Tip="New Tab" that carries no
+            // shortcut; Populate must overwrite it with the same title-plus-shortcut format every
+            // generated button gets, not leave the stale XAML value in place.
+            var newTab = new Button { Name = "BtnNewTab", Content = "+" };
+            ToolTip.SetTip(newTab, "New Tab");
+            var layout = TitleBarLayoutResolver.Resolve(null, null, null);
+
+            TitleBarViewFactory.Populate(host, layout, null, AllHandlers(), newTab, _ => { });
+
+            Assert.Equal("New Tab (Ctrl+Shift+T)", ToolTip.GetTip(newTab));
+        }
+
+        [AvaloniaFact]
+        public void Populate_ReusesTheSuppliedNewTabButton_TooltipReflectsAUserShortcutOverride()
+        {
+            var host = new StackPanel();
+            var newTab = new Button { Name = "BtnNewTab", Content = "+" };
+            var keybindings = new Dictionary<string, string> { ["new_tab"] = "Ctrl+Alt+T" };
+            var layout = TitleBarLayoutResolver.Resolve(null, null, null);
+
+            TitleBarViewFactory.Populate(host, layout, keybindings, AllHandlers(), newTab, _ => { });
+
+            Assert.Equal("New Tab (Ctrl+Alt+T)", ToolTip.GetTip(newTab));
+        }
+
+        [AvaloniaFact]
         public void Populate_ReusesTheSameNewTabButton_AcrossRepeatedCalls_WithoutThrowing()
         {
             var host = new StackPanel();

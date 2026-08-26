@@ -48,6 +48,13 @@ public static class TitleBarViewFactory
             // than rebuild it, or that flyout is lost on every rebuild.
             if (entry.Id == TitleBarCatalog.NewTabId && newTabButton is not null)
             {
+                // The reused button keeps its XAML tooltip ("New Tab") unless it's reset here, so
+                // set the same title-plus-shortcut tooltip every generated button gets below. This
+                // is the only change made to it -- it is inserted as-is, not rebuilt, so its
+                // MenuFlyout survives.
+                string newTabShortcut = TitleBarShortcuts.Resolve(entry.ShortcutKey, keybindings);
+                ToolTip.SetTip(newTabButton, TitleBarShortcuts.FormatTooltip(entry.Title, newTabShortcut));
+
                 host.Children.Add(newTabButton);
                 continue;
             }

@@ -1567,6 +1567,10 @@ namespace NovaTerminal
                 bindingEditor.Text = entry.DefaultBinding;
                 errorText.IsVisible = false;
                 ClearShortcutValidationMessage();
+                // The title bar rows (Appearance tab) show the same effective shortcut text and
+                // read straight from _shortcutDraftBindings; without this they'd keep showing the
+                // binding that was just reset until the window is closed and reopened.
+                RebuildTitleBarRows();
             };
 
             row.Child = new StackPanel
@@ -1663,6 +1667,15 @@ namespace NovaTerminal
             errorText.IsVisible = false;
             ClearShortcutValidationMessage();
             e.Handled = true;
+
+            // Keep the Appearance tab's title bar rows in sync: they render the same effective
+            // shortcut (TitleBarShortcuts.Resolve over _shortcutDraftBindings) but only did so at
+            // RebuildTitleBarRows's last call, so without this refresh they'd show the old binding
+            // until Settings is closed and reopened even though Save will persist the new one.
+            // This rebuilds a different panel (TitleBarItemsPanel, not ShortcutBindingsPanel) than
+            // the one bindingEditor lives in, so it does not touch bindingEditor's focus or
+            // re-enter this handler.
+            RebuildTitleBarRows();
         }
 
         private static bool IsModifierKey(Key key)
