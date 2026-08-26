@@ -25,9 +25,11 @@ public sealed class NativePortForwardSession : IDisposable
     private readonly ConcurrentDictionary<int, PendingChannelEvents> _pendingByChannel = new();
     private int _opensInFlight;
 
-    // Monotonic open counter, used to stamp parked entries so EndOpen's cleanup can tell its own
-    // generation's leftovers from a newer open's live work. See EndOpen.
-    private long _openGeneration;
+    // Serialises the in-flight count, parking, publishing and the cleanup sweep. Never held across
+    // the blocking open call — that would stall the poll loop, which is the freeze the outbound
+    // queue exists to prevent (#173 item 2). See EndOpen for why one gate replaced an earlier
+    // lock-free counter-and-generation scheme.
+    private readonly object _registrationGate = new();
 
     /// <summary>
     /// How long to wait before retrying a forward-channel write the native side refused for want of
@@ -203,35 +205,33 @@ public sealed class NativePortForwardSession : IDisposable
     {
         channel = null;
 
-        // No open in flight means no registration can be racing us, so an unknown id is simply
-        // unknown - a stale or already-torn-down channel. Dropping is correct, and this check is
-        // what stops those from accumulating in _pendingByChannel forever.
-        if (Volatile.Read(ref _opensInFlight) == 0)
+        lock (_registrationGate)
         {
-            return false;
-        }
-
-        long generation = Volatile.Read(ref _openGeneration);
-        PendingChannelEvents pending = _pendingByChannel.GetOrAdd(
-            nextEvent.StatusCode,
-            _ => new PendingChannelEvents { Generation = generation });
-
-        lock (pending.Gate)
-        {
-            // An entry can outlive the generation that created it when a channel id is reused, so
-            // re-stamp it to the current open. Without this, EndOpen's sweep could remove an entry
-            // holding events for a later open just because the entry object was older.
-            if (pending.Generation < generation)
+            // Everything that touches this state - the in-flight count, parking, publishing, and
+            // the cleanup sweep - runs under this one gate, so the checks below cannot be
+            // invalidated between here and the decision. Two earlier attempts tried to keep this
+            // lock-free by reading the counter (and then a generation stamp) with Volatile/
+            // Interlocked, and both had the same shape of hole: another thread could change the
+            // state being inferred from, between the read and the action. Serialising the four
+            // operations is simpler than making that inference sound.
+            if (_opensInFlight == 0)
             {
-                pending.Generation = generation;
+                // No open in flight, so no registration can be racing us: an unknown id is simply
+                // unknown (a stale or already-torn-down channel) and dropping it is correct. This
+                // is also what keeps _pendingByChannel from accumulating entries forever.
+                return false;
             }
 
-            // PublishChannel adds to _channels inside this same lock, so re-checking here closes
-            // the window rather than narrowing it.
+            // PublishChannel adds to _channels under this same gate, so re-checking here closes the
+            // window rather than narrowing it.
             if (_channels.TryGetValue(nextEvent.StatusCode, out channel))
             {
                 return true;
             }
+
+            PendingChannelEvents pending = _pendingByChannel.GetOrAdd(
+                nextEvent.StatusCode,
+                static _ => new PendingChannelEvents());
 
             if (pending.Published)
             {
@@ -275,13 +275,13 @@ public sealed class NativePortForwardSession : IDisposable
     /// </summary>
     private bool PublishChannel(int channelId, ForwardChannelState state)
     {
-        PendingChannelEvents pending = _pendingByChannel.GetOrAdd(
-            channelId,
-            static _ => new PendingChannelEvents());
-
         bool added;
-        lock (pending.Gate)
+        lock (_registrationGate)
         {
+            PendingChannelEvents pending = _pendingByChannel.GetOrAdd(
+                channelId,
+                static _ => new PendingChannelEvents());
+
             if (pending.Failed)
             {
                 // Bytes were lost before we could register, so this channel cannot be served
@@ -296,7 +296,7 @@ public sealed class NativePortForwardSession : IDisposable
             }
 
             // Replay BEFORE publishing, not after. Once the channel is in _channels a concurrent
-            // HandleEvent can enqueue without taking this lock, and if that happened while parked
+            // HandleEvent dispatches without taking this gate, and if that happened while parked
             // events were still being replayed the stream would be reordered - a subtler corruption
             // than the loss this fixes.
             foreach (NativeSshEvent parked in pending.Events)
@@ -315,56 +315,52 @@ public sealed class NativePortForwardSession : IDisposable
         return added;
     }
 
+    /// <summary>
+    /// Opens the window in which a locally-issued channel id exists but is not registered yet.
+    /// </summary>
     private void BeginOpen()
     {
-        // Generation first, so an entry created by a racing HandleEvent can never be stamped older
-        // than the open it belongs to.
-        Interlocked.Increment(ref _openGeneration);
-        Interlocked.Increment(ref _opensInFlight);
+        lock (_registrationGate)
+        {
+            _opensInFlight++;
+        }
     }
 
     /// <summary>
-    /// Closes the open window. When the last one finishes, anything still parked belongs to a
-    /// channel that never registered (a failed open, or an id we will never see again), so drop it
-    /// rather than let it sit — that is what keeps <see cref="_pendingByChannel"/> empty in steady
-    /// state.
+    /// Closes that window. When the last one finishes, anything still parked belongs to a channel
+    /// that never registered (a failed open, or an id we will never see again), so drop it rather
+    /// than let it sit — that is what keeps <see cref="_pendingByChannel"/> empty in steady state.
     /// </summary>
     /// <remarks>
-    /// The generation check is not decoration. Reaching zero here does not mean no open will start
-    /// during the sweep: another listener or SOCKS client can call <see cref="BeginOpen"/> the
-    /// instant the count drops, and without this the sweep would clear that newer open's parked
-    /// events — reinstating exactly the pre-registration data loss this class now prevents. Reading
-    /// the generation BEFORE the decrement means every entry a later open creates is stamped higher
-    /// than <c>sweepGeneration</c> and is therefore skipped, and entries reused across generations
-    /// are re-stamped in <see cref="TryResolveOrPark"/>.
+    /// The decrement, the zero test and the sweep all happen under the same gate that
+    /// <see cref="BeginOpen"/>, <see cref="TryResolveOrPark"/> and <see cref="PublishChannel"/>
+    /// take, and that is the entire correctness argument: a new open cannot begin, and cannot park
+    /// anything, part-way through a sweep.
     ///
-    /// A <c>Failed</c> entry is safe to remove here for the same reason: publishing only ever
-    /// happens inside an open window, so at a genuine zero transition nothing is about to publish
-    /// it.
+    /// Two earlier attempts got this wrong in the same way. Dropping everything on a lock-free zero
+    /// transition let a new open's events be swept; stamping entries with a generation counter still
+    /// lost, because an open could bump the generation and be descheduled before bumping the count,
+    /// so a sweeper read the NEW generation, saw zero in flight, and swept entries stamped with
+    /// exactly that generation. Both tried to infer "abandoned" from state other threads were
+    /// concurrently changing. Serialising the four operations removes the inference.
+    ///
+    /// A <c>Failed</c> entry is safe to remove here for the same reason: publishing only happens
+    /// inside an open window, so at a zero transition under this gate nothing is about to publish.
     /// </remarks>
     private void EndOpen()
     {
-        long sweepGeneration = Volatile.Read(ref _openGeneration);
-
-        if (Interlocked.Decrement(ref _opensInFlight) != 0)
+        lock (_registrationGate)
         {
-            return;
-        }
-
-        foreach (KeyValuePair<int, PendingChannelEvents> entry in _pendingByChannel)
-        {
-            bool removable;
-            lock (entry.Value.Gate)
+            if (--_opensInFlight != 0)
             {
-                if (entry.Value.Generation > sweepGeneration)
-                {
-                    // Belongs to an open that started after this sweep began. Not ours to touch.
-                    continue;
-                }
+                return;
+            }
 
-                removable = entry.Value.Published || !_channels.ContainsKey(entry.Key);
-                if (!removable)
+            foreach (KeyValuePair<int, PendingChannelEvents> entry in _pendingByChannel)
+            {
+                if (entry.Value.Published || _channels.ContainsKey(entry.Key))
                 {
+                    _pendingByChannel.TryRemove(entry.Key, out _);
                     continue;
                 }
 
@@ -375,19 +371,18 @@ public sealed class NativePortForwardSession : IDisposable
 
                 entry.Value.Events.Clear();
                 entry.Value.QueuedBytes = 0;
+                _pendingByChannel.TryRemove(entry.Key, out _);
             }
-
-            _pendingByChannel.TryRemove(entry.Key, out _);
         }
     }
 
     /// <summary>
-    /// Events that arrived for a channel between its id being issued and its registration.
+    /// Events that arrived for a channel between its id being issued and its registration. Every
+    /// member is read and written under <c>_registrationGate</c>, so none of them needs its own
+    /// synchronisation.
     /// </summary>
     private sealed class PendingChannelEvents
     {
-        public object Gate { get; } = new();
-
         public bool Published { get; set; }
 
         /// <summary>
@@ -395,13 +390,6 @@ public sealed class NativePortForwardSession : IDisposable
         /// than published with a hole in its stream. See <see cref="TryResolveOrPark"/>.
         /// </summary>
         public bool Failed { get; set; }
-
-        /// <summary>
-        /// Which open window these events belong to, so <see cref="EndOpen"/>'s sweep cannot
-        /// discard events parked by a later open. Guarded by <see cref="Gate"/> for the re-stamp
-        /// that happens when a channel id is reused across generations.
-        /// </summary>
-        public long Generation { get; set; }
 
         public List<NativeSshEvent> Events { get; } = [];
 
