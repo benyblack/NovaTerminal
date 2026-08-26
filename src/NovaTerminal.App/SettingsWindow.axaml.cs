@@ -2023,13 +2023,9 @@ namespace NovaTerminal
             var agentIndicatorTabRollupList = this.FindControl<ComboBox>("AgentIndicatorTabRollupList");
             if (agentIndicatorTabRollupList != null)
             {
-                foreach (ComboBoxItem item in agentIndicatorTabRollupList.Items.Cast<ComboBoxItem>())
-                {
-                    if (string.Equals(item.Content?.ToString(), _settings.AgentIndicatorTabRollup, StringComparison.Ordinal))
-                    {
-                        agentIndicatorTabRollupList.SelectedItem = item;
-                    }
-                }
+                agentIndicatorTabRollupList.SelectedItem = agentIndicatorTabRollupList.Items
+                    .Cast<ComboBoxItem>()
+                    .FirstOrDefault(item => string.Equals(item.Content?.ToString(), _settings.AgentIndicatorTabRollup, StringComparison.Ordinal));
                 if (agentIndicatorTabRollupList.SelectedItem == null) agentIndicatorTabRollupList.SelectedIndex = 0;
             }
             var longCommandNotificationsToggle = this.FindControl<CheckBox>("LongCommandNotificationsToggle");
