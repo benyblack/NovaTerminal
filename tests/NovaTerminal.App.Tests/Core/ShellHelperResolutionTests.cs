@@ -157,33 +157,120 @@ public sealed class ShellHelperResolutionTests
         Assert.False(ShellHelper.InPath("   "));
     }
 
-    // The PATHEXT parsing runs only on Windows, so these cover it from here - the surrounding
-    // extension handling is a File.Exists loop, but this is the part with details worth getting
-    // wrong, and it needs no Windows filesystem to check.
-    [Theory]
-    [InlineData(".COM;.EXE;.BAT", new[] { ".COM", ".EXE", ".BAT" })]
-    [InlineData(".EXE", new[] { ".EXE" })]
-    // Entries without a leading dot, which PATHEXT is not required to have.
-    [InlineData("EXE;BAT", new[] { ".EXE", ".BAT" })]
-    // Stray whitespace and empty entries from a hand-edited variable.
-    [InlineData(".EXE; .BAT ;;.CMD", new[] { ".EXE", ".BAT", ".CMD" })]
-    public void ParseExecutableExtensions_NormalisesTheValue(string pathExt, string[] expected)
+    // Codex review, round 4a: the resolver validated the executable inside a quoted command and
+    // returned the combined string, while the pane split at the first literal space and tried to
+    // spawn `"C:\\Program`. Both now use ShellHelper.TrySplitCommandLine, so what gets validated is
+    // what gets launched. Asserting the split - not just that the string survived - is the point:
+    // the previous test only checked preservation and would have passed with the bug present.
+    [Fact]
+    public void TrySplitCommandLine_QuotedExecutableWithSpaces_SplitsAtTheClosingQuote()
     {
-        Assert.Equal(expected, ShellHelper.ParseExecutableExtensions(pathExt));
+        Assert.True(ShellHelper.TrySplitCommandLine(
+            "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoLogo -File build.ps1",
+            out string executable,
+            out string arguments));
+
+        Assert.Equal("C:\\Program Files\\PowerShell\\7\\pwsh.exe", executable);
+        Assert.Equal("-NoLogo -File build.ps1", arguments);
+    }
+
+    [Fact]
+    public void TrySplitCommandLine_QuotedExecutableWithoutArguments_IsUnquoted()
+    {
+        Assert.True(ShellHelper.TrySplitCommandLine("\"/opt/my shell\"", out string executable, out string arguments));
+
+        Assert.Equal("/opt/my shell", executable);
+        Assert.Equal(string.Empty, arguments);
+    }
+
+    [Fact]
+    public void TrySplitCommandLine_CombinedCommand_SplitsAtTheFirstSpace()
+    {
+        Assert.True(ShellHelper.TrySplitCommandLine("zsh -l", out string executable, out string arguments));
+
+        Assert.Equal("zsh", executable);
+        Assert.Equal("-l", arguments);
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void ParseExecutableExtensions_WhenPathExtIsUnset_FallsBackToTheLauncherDefaults(string? pathExt)
+    [InlineData("zsh")]
+    public void TrySplitCommandLine_NothingToSplit_ReturnsFalse(string? commandLine)
     {
-        string[] extensions = ShellHelper.ParseExecutableExtensions(pathExt);
+        Assert.False(ShellHelper.TrySplitCommandLine(commandLine, out _, out _));
+    }
 
-        // An extensionless "pwsh" has to keep resolving even where PATHEXT has been cleared.
-        Assert.Contains(".EXE", extensions);
-        Assert.Contains(".COM", extensions);
-        Assert.Contains(".BAT", extensions);
-        Assert.Contains(".CMD", extensions);
+    [Fact]
+    public void TrySplitCommandLine_AnExistingFileWithSpaces_IsNotSplit()
+    {
+        // "/opt/my shell" is the executable, not "/opt/my" with an argument.
+        string directory = Path.Combine(Path.GetTempPath(), "nova split probe " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string executable = Path.Combine(directory, "my shell");
+
+        try
+        {
+            File.WriteAllText(executable, "");
+
+            Assert.False(ShellHelper.TrySplitCommandLine(executable, out _, out _));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    // The decision behind round 4b, asserted directly. PATHEXT contains script types - .BAT, .CMD,
+    // .PS1, .VBS - that only run because a shell runs them, and nothing here launches through a
+    // shell: the native layer calls CreateProcessW and the fallback uses portable_pty's
+    // CommandBuilder. Probing those called a batch-backed command runnable, so restore kept it and
+    // its arguments and the pane failed to spawn instead of falling back to a working shell.
+    //
+    // Asserted as a list rather than through the filesystem on purpose: the probe is gated on
+    // OperatingSystem.IsWindows, so a filesystem test passes on Linux no matter what this contains -
+    // I confirmed that by putting .bat back and watching the filesystem test still pass.
+    [Fact]
+    public void LaunchableWindowsExtensions_ExcludeAnythingNeedingAnInterpreter()
+    {
+        string[] extensions = ShellHelper.LaunchableWindowsExtensions;
+
+        Assert.Contains(".exe", extensions);
+
+        foreach (string needsInterpreter in new[] { ".bat", ".cmd", ".ps1", ".vbs", ".js" })
+        {
+            Assert.DoesNotContain(needsInterpreter, extensions);
+        }
+    }
+
+    // Codex review, round 4b: PATHEXT includes .BAT/.CMD, but nothing here launches through a
+    // shell - the native layer calls CreateProcessW and the fallback uses portable_pty's
+    // CommandBuilder, neither of which can start a batch file. Probing those extensions called such
+    // a command runnable, so restore kept it and its arguments and the pane failed to spawn instead
+    // of falling back to a shell that works.
+    //
+    // Runs on Linux too, for the same reason by a different route: no extension probing happens
+    // there at all, so the extensionless name is equally unresolvable.
+    [Fact]
+    public void ResolveExecutableOrDefault_CommandBackedOnlyByABatchFile_IsNotConsideredRunnable()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "nova batch probe " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            // Only the .bat exists - no .exe, no extensionless file.
+            File.WriteAllText(Path.Combine(directory, "wrapper.bat"), "@echo off");
+            string extensionless = Path.Combine(directory, "wrapper");
+
+            Assert.Equal(
+                ShellHelper.GetDefaultShell(),
+                ShellHelper.ResolveExecutableOrDefault(extensionless));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
     }
 }

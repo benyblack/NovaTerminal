@@ -70,11 +70,12 @@ namespace NovaTerminal.Pty
             }
 
             // A stored command may carry its arguments inline - "zsh -l", "wsl.exe -e /bin/bash" -
-            // and the pane supports that, splitting executable from arguments at the first space.
-            // Probing the whole string as one filename therefore rejected commands that run
-            // perfectly well, and rejection costs the arguments too. Probe just the executable, and
-            // still hand back the combined string so the pane's own split does the parsing.
-            if (TryGetExecutablePortion(probe, out string executable) &&
+            // and the spawn path supports that, splitting executable from arguments. Probing the
+            // whole string as one filename therefore rejected commands that run perfectly well, and
+            // rejection costs the arguments too. Probe just the executable, and hand back the
+            // combined string: the consumer splits it again with this same method, so the verdict
+            // reached here and the command actually spawned cannot disagree.
+            if (TrySplitCommandLine(trimmed, out string executable, out _) &&
                 (CanExecute(executable) || InPath(executable)))
             {
                 return trimmed;
@@ -84,38 +85,51 @@ namespace NovaTerminal.Pty
         }
 
         /// <summary>
-        /// Extracts the executable from a command that carries its arguments inline, mirroring the
-        /// split in <c>TerminalPane.InitializeSessionCore</c>.
+        /// Splits a command that carries its arguments inline into its executable and argument
+        /// parts, removing the quotes around a quoted executable.
         /// </summary>
         /// <remarks>
-        /// False when there is nothing to split, so the caller keeps whatever verdict it already
-        /// reached about the whole string.
+        /// The single definition of that split, used both by <see cref="ResolveExecutableOrDefault"/>
+        /// to decide what to probe and by <c>TerminalPane.InitializeSessionCore</c> to decide what
+        /// to spawn. They used to answer it separately and disagree: this validated the executable
+        /// inside <c>"C:\Program Files\PowerShell\7\pwsh.exe" -NoLogo</c> and approved the command,
+        /// while the pane split the same string at the first literal space and tried to spawn
+        /// <c>"C:\Program</c>. Approving a command nobody can launch is worse than rejecting it,
+        /// because rejection at least falls back to a working shell.
+        ///
+        /// Returns false when there is nothing to split, leaving the whole string as the command.
         /// </remarks>
-        private static bool TryGetExecutablePortion(string command, out string executable)
+        public static bool TrySplitCommandLine(string? commandLine, out string executable, out string arguments)
         {
-            // A quoted executable followed by arguments: "C:\Program Files\...\pwsh.exe" -NoLogo.
-            // The closing quote delimits it, not the first space, which falls inside the path.
-            if (command.StartsWith('"'))
-            {
-                int closingQuote = command.IndexOf('"', 1);
-                if (closingQuote > 1)
-                {
-                    executable = command[1..closingQuote];
-                    return true;
-                }
+            executable = string.Empty;
+            arguments = string.Empty;
 
-                executable = string.Empty;
-                return false;
+            if (string.IsNullOrWhiteSpace(commandLine)) return false;
+
+            string value = commandLine.Trim();
+
+            // A quoted executable, with or without arguments after it:
+            // "C:\Program Files\...\pwsh.exe" -NoLogo. The closing quote delimits it, not the first
+            // space - which on Windows usually falls inside the path.
+            if (value.StartsWith('"'))
+            {
+                int closingQuote = value.IndexOf('"', 1);
+                if (closingQuote <= 1) return false;
+
+                executable = value[1..closingQuote];
+                arguments = value[(closingQuote + 1)..].Trim();
+                return true;
             }
 
-            int firstSpace = command.IndexOf(' ');
-            if (firstSpace <= 0)
-            {
-                executable = string.Empty;
-                return false;
-            }
+            // An existing file is itself, spaces and all. Splitting "/opt/my shell" would look for
+            // "/opt/my" and pass "shell" as an argument.
+            if (File.Exists(value)) return false;
 
-            executable = command[..firstSpace];
+            int firstSpace = value.IndexOf(' ');
+            if (firstSpace <= 0) return false;
+
+            executable = value[..firstSpace];
+            arguments = value[(firstSpace + 1)..].Trim();
             return true;
         }
 
@@ -161,8 +175,32 @@ namespace NovaTerminal.Pty
         }
 
         /// <summary>
-        /// True when <paramref name="candidate"/> names a file that exists, allowing for Windows
-        /// appending a <c>PATHEXT</c> extension to a name that has none.
+        /// Extensions this application can actually start on Windows.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately not <c>PATHEXT</c>. PATHEXT is the list a *shell* appends, and it includes
+        /// script types - .BAT, .CMD, .PS1, .VBS - that only run because cmd.exe or another
+        /// interpreter runs them. NovaTerminal does not launch through a shell: the native layer
+        /// calls <c>CreateProcessW</c> directly, and the fallback hands the command to
+        /// portable_pty's <c>CommandBuilder</c>. Neither can start a batch file without an
+        /// interpreter.
+        ///
+        /// Probing the full PATHEXT therefore reported a .bat-backed command as runnable, and
+        /// "runnable" is not an idle verdict here - it makes the caller keep the command and its
+        /// arguments instead of falling back, so the user got a pane that failed to spawn rather
+        /// than a working shell. Modelling cmd.exe was the wrong model; this models the launcher.
+        /// </remarks>
+        /// <remarks>
+        /// <c>internal</c> so the policy itself can be asserted off Windows. The probe that uses it
+        /// is gated on <see cref="OperatingSystem.IsWindows"/> and so does nothing on Linux, which
+        /// means a test that goes through the filesystem there passes whatever this list contains -
+        /// it would not have caught .bat being in it. The list is the decision worth pinning.
+        /// </remarks>
+        internal static readonly string[] LaunchableWindowsExtensions = { ".exe", ".com" };
+
+        /// <summary>
+        /// True when <paramref name="candidate"/> names a file this application could start,
+        /// allowing for the extension being left off on Windows.
         /// </summary>
         private static bool CanExecute(string candidate)
         {
@@ -173,46 +211,12 @@ namespace NovaTerminal.Pty
             // (python3.11) is not an executable extension, and the launcher would still go on to
             // append one. Guessing wrong here reintroduces the false negative, and an extra
             // File.Exists that misses costs nothing.
-            foreach (string extension in WindowsExecutableExtensions())
+            foreach (string extension in LaunchableWindowsExtensions)
             {
                 if (File.Exists(candidate + extension)) return true;
             }
 
             return false;
-        }
-
-        /// <summary>
-        /// The extensions Windows appends to an extensionless command, from <c>PATHEXT</c>.
-        /// </summary>
-        private static string[] WindowsExecutableExtensions() =>
-            ParseExecutableExtensions(Environment.GetEnvironmentVariable("PATHEXT"));
-
-        /// <summary>
-        /// Parses a <c>PATHEXT</c> value into normalised extensions.
-        /// </summary>
-        /// <remarks>
-        /// Split out as a pure function, and <c>internal</c> rather than private, so the parsing
-        /// can be tested off Windows. The rest of the extension handling is a File.Exists loop,
-        /// but this part has the details worth getting wrong - a cleared variable, entries without
-        /// a leading dot, stray whitespace - and it is the half that does not need a Windows
-        /// filesystem to verify. Taking the value as an argument rather than reading the
-        /// environment also keeps the tests from mutating process-wide state other tests read.
-        /// </remarks>
-        internal static string[] ParseExecutableExtensions(string? pathExtValue)
-        {
-            // The launcher's own defaults, for the rare environment that clears PATHEXT.
-            string pathExt = string.IsNullOrWhiteSpace(pathExtValue) ? ".COM;.EXE;.BAT;.CMD" : pathExtValue;
-
-            string[] parts = pathExt.Split(
-                ';',
-                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-            for (int i = 0; i < parts.Length; i++)
-            {
-                if (!parts[i].StartsWith('.')) parts[i] = "." + parts[i];
-            }
-
-            return parts;
         }
 
         /// <summary>Strips one layer of surrounding double quotes.</summary>
