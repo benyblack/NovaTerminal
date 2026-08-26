@@ -359,6 +359,45 @@ public sealed class NativePortForwardSessionTests
     }
 
     [Fact]
+    public async Task ForwardChannelData_ArrivingBeforeRegistration_IsNotDropped()
+    {
+        // The production race behind the macOS flake, and the more serious half of it.
+        // nova_ssh_open_direct_tcpip blocks until the server confirms the channel
+        // (rusty_ssh/src/lib.rs: it waits on reply_rx.recv()), so by the time the accept loop
+        // learns the channel id the server may ALREADY have sent data — and the poll loop
+        // delivers that on a different thread, which can beat the accept loop to
+        // _channels.TryAdd. HandleEvent used to return silently for an unknown id, so those bytes
+        // vanished with no error anywhere. The head of the stream is the worst possible thing to
+        // lose: for any protocol where the server speaks first (SMTP, MySQL, IMAP greetings) the
+        // forward fails in a way that looks like a broken server.
+        //
+        // The fake fires OnOpenDirectTcpIp from inside the open call, which is exactly that
+        // window, making the race deterministic instead of a 1-in-5 CI coin flip.
+        var interop = new FakeNativeSshInterop();
+        int listenPort = GetFreePort();
+        byte[] payload = Encoding.ASCII.GetBytes("server-speaks-first");
+
+        NativePortForwardSession? session = null;
+        interop.OnOpenDirectTcpIp = channelId =>
+            session!.HandleEvent(NativeSshEvent.ForwardChannelData(channelId, payload));
+
+        session = new NativePortForwardSession(
+            FakeHandle(41),
+            [CreateForward(listenPort, "svc.internal", 9100)],
+            interop);
+
+        using (session)
+        {
+            using TcpClient client = await ConnectLoopbackAsync(listenPort);
+
+            byte[] received = await ReadExactlyAsync(
+                client.GetStream(), payload.Length, TimeSpan.FromSeconds(10));
+
+            Assert.Equal(payload, received);
+        }
+    }
+
+    [Fact]
     public async Task HandleEvent_WithALocalPeerThatNeverReads_DoesNotBlockTheCaller()
     {
         // The regression this pins: HandleEvent used to write straight to the local socket from
@@ -1121,6 +1160,14 @@ public sealed class NativePortForwardSessionTests
         {
         }
 
+        /// <summary>
+        /// Invoked with the new channel id from inside <see cref="OpenDirectTcpIp"/>, after the id
+        /// exists and before the caller can register it. That is where the real implementation
+        /// leaves the window: nova_ssh_open_direct_tcpip blocks until the server confirms the
+        /// channel, so the server's first bytes can already be waiting for the poll loop.
+        /// </summary>
+        public Action<int>? OnOpenDirectTcpIp { get; set; }
+
         public int OpenDirectTcpIp(NovaSshSafeHandle sessionHandle, NativePortForwardOpenOptions options)
         {
             int channelId = Interlocked.Increment(ref _nextChannelId);
@@ -1129,6 +1176,10 @@ public sealed class NativePortForwardSessionTests
                 _openRequests.Add(options);
                 _openedChannelIds.Add(channelId);
             }
+
+            // Outside the lock: the callback re-enters the session, which can call back into this
+            // fake (CloseChannel takes the same lock).
+            OnOpenDirectTcpIp?.Invoke(channelId);
             return channelId;
         }
 

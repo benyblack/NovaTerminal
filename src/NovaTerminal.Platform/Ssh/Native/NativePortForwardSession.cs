@@ -17,6 +17,13 @@ public sealed class NativePortForwardSession : IDisposable
     /// </summary>
     private const int MaxQueuedOutboundBytesPerChannel = 1024 * 1024;
 
+    // Events that arrived for a locally-opened channel before it was registered, keyed by channel
+    // id, plus a count of opens currently in flight. See TryResolveOrPark for why both exist: the
+    // open blocks until the server answers, so data can be waiting for the poll loop before the
+    // accept loop has published the channel. Empty in steady state.
+    private readonly ConcurrentDictionary<int, PendingChannelEvents> _pendingByChannel = new();
+    private int _opensInFlight;
+
     /// <summary>
     /// How long to wait before retrying a forward-channel write the native side refused for want of
     /// queue space. Polling because the FFI has no completion signal to await; short enough that it
@@ -136,14 +143,22 @@ public sealed class NativePortForwardSession : IDisposable
             return;
         }
 
-        if (!_channels.TryGetValue(nextEvent.StatusCode, out ForwardChannelState? channel))
+        if (!_channels.TryGetValue(nextEvent.StatusCode, out ForwardChannelState? channel)
+            && !TryResolveOrPark(nextEvent, out channel))
         {
             return;
         }
 
-        // EOF and close travel through the same queue as the data rather than acting immediately.
-        // Ordering is the whole point: shutting the send side down (or disposing the socket) while
-        // bytes were still queued behind it would truncate the proxied stream.
+        DispatchToChannel(channel!, nextEvent);
+    }
+
+    /// <summary>
+    /// EOF and close travel through the same queue as the data rather than acting immediately.
+    /// Ordering is the whole point: shutting the send side down (or disposing the socket) while
+    /// bytes were still queued behind it would truncate the proxied stream.
+    /// </summary>
+    private void DispatchToChannel(ForwardChannelState channel, NativeSshEvent nextEvent)
+    {
         switch (nextEvent.Kind)
         {
             case NativeSshEventKind.ForwardChannelData:
@@ -156,6 +171,157 @@ public sealed class NativePortForwardSession : IDisposable
                 EnqueueOutbound(channel, new ForwardOutbound(ForwardOutboundKind.Closed, []));
                 break;
         }
+    }
+
+    /// <summary>
+    /// Handles an event whose channel is not in <see cref="_channels"/> yet: either it appeared
+    /// while we looked (return it), or an open is in flight and this event belongs to it (park it
+    /// for <see cref="PublishChannel"/> to replay), or the id is genuinely unknown (drop it).
+    /// </summary>
+    /// <remarks>
+    /// This exists because a locally-initiated open is synchronous all the way to the server:
+    /// nova_ssh_open_direct_tcpip waits on the worker's reply, so when the accept loop finally
+    /// learns the channel id, the server may already have sent its first bytes — and the poll
+    /// loop delivers those on a different thread, which can beat the accept loop to registration.
+    /// Dropping them silently loses the head of a forwarded stream, which for any protocol whose
+    /// server speaks first (SMTP, MySQL, IMAP) breaks the connection in a way that looks like a
+    /// broken server rather than a bug here.
+    ///
+    /// Parking rather than locking around the open call is deliberate: the open blocks for a
+    /// network round trip, and holding a lock across it would stall the poll loop — reintroducing
+    /// exactly the freeze this class's queue exists to prevent (#173 item 2). The lock here is
+    /// per-channel, in-memory, and uncontended once published.
+    /// </remarks>
+    private bool TryResolveOrPark(NativeSshEvent nextEvent, out ForwardChannelState? channel)
+    {
+        channel = null;
+
+        // No open in flight means no registration can be racing us, so an unknown id is simply
+        // unknown - a stale or already-torn-down channel. Dropping is correct, and this check is
+        // what stops those from accumulating in _pendingByChannel forever.
+        if (Volatile.Read(ref _opensInFlight) == 0)
+        {
+            return false;
+        }
+
+        PendingChannelEvents pending = _pendingByChannel.GetOrAdd(
+            nextEvent.StatusCode,
+            static _ => new PendingChannelEvents());
+
+        lock (pending.Gate)
+        {
+            // PublishChannel adds to _channels inside this same lock, so re-checking here closes
+            // the window rather than narrowing it.
+            if (_channels.TryGetValue(nextEvent.StatusCode, out channel))
+            {
+                return true;
+            }
+
+            if (pending.Published)
+            {
+                // Registered and already torn down again; there is nothing to replay into.
+                return false;
+            }
+
+            int payloadLength = nextEvent.Payload?.Length ?? 0;
+            if (pending.QueuedBytes > 0 &&
+                pending.QueuedBytes + payloadLength > MaxQueuedOutboundBytesPerChannel)
+            {
+                // Same budget and the same reasoning as the outbound queue: a bound that cannot be
+                // exceeded is the only way this cannot become a memory leak on a channel that
+                // never registers.
+                _log($"[NativePortForwardSession] Dropping pre-registration event for channel {nextEvent.StatusCode}: already holding {pending.QueuedBytes} bytes.");
+                return false;
+            }
+
+            pending.Events.Add(nextEvent);
+            pending.QueuedBytes += payloadLength;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Publishes a locally-opened channel, replaying anything that arrived for it before it was
+    /// registered. Returns false when the id is already taken, leaving the caller to tear down.
+    /// </summary>
+    private bool PublishChannel(int channelId, ForwardChannelState state)
+    {
+        PendingChannelEvents pending = _pendingByChannel.GetOrAdd(
+            channelId,
+            static _ => new PendingChannelEvents());
+
+        bool added;
+        lock (pending.Gate)
+        {
+            // Replay BEFORE publishing, not after. Once the channel is in _channels a concurrent
+            // HandleEvent can enqueue without taking this lock, and if that happened while parked
+            // events were still being replayed the stream would be reordered - a subtler corruption
+            // than the loss this fixes.
+            foreach (NativeSshEvent parked in pending.Events)
+            {
+                DispatchToChannel(state, parked);
+            }
+
+            pending.Events.Clear();
+            pending.QueuedBytes = 0;
+
+            added = _channels.TryAdd(channelId, state);
+            pending.Published = added;
+        }
+
+        _pendingByChannel.TryRemove(channelId, out _);
+        return added;
+    }
+
+    private void BeginOpen() => Interlocked.Increment(ref _opensInFlight);
+
+    /// <summary>
+    /// Closes the open window. When the last one finishes, anything still parked belongs to a
+    /// channel that never registered (a failed open, or an id we will never see again), so drop it
+    /// rather than let it sit — that is what keeps <see cref="_pendingByChannel"/> empty in steady
+    /// state.
+    /// </summary>
+    private void EndOpen()
+    {
+        if (Interlocked.Decrement(ref _opensInFlight) != 0)
+        {
+            return;
+        }
+
+        foreach (KeyValuePair<int, PendingChannelEvents> entry in _pendingByChannel)
+        {
+            lock (entry.Value.Gate)
+            {
+                if (entry.Value.Published || _channels.ContainsKey(entry.Key))
+                {
+                    continue;
+                }
+
+                if (entry.Value.Events.Count > 0)
+                {
+                    _log($"[NativePortForwardSession] Discarding {entry.Value.Events.Count} pre-registration event(s) for channel {entry.Key}: no open is in flight, so it will never be registered.");
+                }
+
+                entry.Value.Events.Clear();
+                entry.Value.QueuedBytes = 0;
+            }
+
+            _pendingByChannel.TryRemove(entry.Key, out _);
+        }
+    }
+
+    /// <summary>
+    /// Events that arrived for a channel between its id being issued and its registration.
+    /// </summary>
+    private sealed class PendingChannelEvents
+    {
+        public object Gate { get; } = new();
+
+        public bool Published { get; set; }
+
+        public List<NativeSshEvent> Events { get; } = [];
+
+        public int QueuedBytes { get; set; }
     }
 
     private void EnqueueOutbound(ForwardChannelState channel, ForwardOutbound item)
@@ -455,22 +621,36 @@ public sealed class NativePortForwardSession : IDisposable
             {
                 client = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
                 IPEndPoint remoteEndPoint = (IPEndPoint)(client.Client.RemoteEndPoint ?? new IPEndPoint(IPAddress.Loopback, 0));
-                int channelId = _interop.OpenDirectTcpIp(
-                    _sessionHandle,
-                    new NativePortForwardOpenOptions
-                    {
-                        HostToConnect = forward.DestinationHost,
-                        PortToConnect = forward.DestinationPort,
-                        OriginatorAddress = remoteEndPoint.Address.ToString(),
-                        OriginatorPort = remoteEndPoint.Port
-                    });
 
-                var state = new ForwardChannelState(channelId, client);
-                if (!_channels.TryAdd(channelId, state))
+                // The in-flight window has to open BEFORE the id is issued and close only after the
+                // channel is published: everything in between is time in which the poll loop can be
+                // handed data for an id this map does not know yet. See TryResolveOrPark.
+                int channelId;
+                ForwardChannelState state;
+                BeginOpen();
+                try
                 {
-                    client.Dispose();
-                    _interop.CloseChannel(_sessionHandle, channelId);
-                    continue;
+                    channelId = _interop.OpenDirectTcpIp(
+                        _sessionHandle,
+                        new NativePortForwardOpenOptions
+                        {
+                            HostToConnect = forward.DestinationHost,
+                            PortToConnect = forward.DestinationPort,
+                            OriginatorAddress = remoteEndPoint.Address.ToString(),
+                            OriginatorPort = remoteEndPoint.Port
+                        });
+
+                    state = new ForwardChannelState(channelId, client);
+                    if (!PublishChannel(channelId, state))
+                    {
+                        client.Dispose();
+                        _interop.CloseChannel(_sessionHandle, channelId);
+                        continue;
+                    }
+                }
+                finally
+                {
+                    EndOpen();
                 }
 
                 // Token passed to Task.Run as well as into the pump: once the session is being torn
@@ -549,29 +729,44 @@ public sealed class NativePortForwardSession : IDisposable
 
             IPEndPoint remoteEndPoint = (IPEndPoint)(client.Client.RemoteEndPoint ?? new IPEndPoint(IPAddress.Loopback, 0));
 
+            // Same pre-registration window as the local accept loop, for the same reason - the open
+            // blocks until the server answers, so data can reach the poll loop before this channel
+            // is published. See TryResolveOrPark.
             int channelId;
+            ForwardChannelState state;
+            bool published;
+            BeginOpen();
             try
             {
-                channelId = _interop.OpenDirectTcpIp(
-                    _sessionHandle,
-                    new NativePortForwardOpenOptions
-                    {
-                        HostToConnect = request.Host,
-                        PortToConnect = request.Port,
-                        OriginatorAddress = remoteEndPoint.Address.ToString(),
-                        OriginatorPort = remoteEndPoint.Port
-                    });
+                try
+                {
+                    channelId = _interop.OpenDirectTcpIp(
+                        _sessionHandle,
+                        new NativePortForwardOpenOptions
+                        {
+                            HostToConnect = request.Host,
+                            PortToConnect = request.Port,
+                            OriginatorAddress = remoteEndPoint.Address.ToString(),
+                            OriginatorPort = remoteEndPoint.Port
+                        });
+                }
+                catch (Exception ex)
+                {
+                    _log($"[NativePortForwardSession] Failed to open dynamic forward channel for {request.Host}:{request.Port}: {ex.Message}");
+                    await SendSocksReplyAsync(stream, SocksReplyGeneralFailure, cancellationToken).ConfigureAwait(false);
+                    client.Dispose();
+                    return;
+                }
+
+                state = new ForwardChannelState(channelId, client);
+                published = PublishChannel(channelId, state);
             }
-            catch (Exception ex)
+            finally
             {
-                _log($"[NativePortForwardSession] Failed to open dynamic forward channel for {request.Host}:{request.Port}: {ex.Message}");
-                await SendSocksReplyAsync(stream, SocksReplyGeneralFailure, cancellationToken).ConfigureAwait(false);
-                client.Dispose();
-                return;
+                EndOpen();
             }
 
-            var state = new ForwardChannelState(channelId, client);
-            if (!_channels.TryAdd(channelId, state))
+            if (!published)
             {
                 await SendSocksReplyAsync(stream, SocksReplyGeneralFailure, cancellationToken).ConfigureAwait(false);
                 client.Dispose();
