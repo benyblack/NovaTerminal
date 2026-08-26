@@ -138,6 +138,122 @@ public sealed class SessionManagerTests
         Assert.Equal(string.Empty, pane.ShellArgs);
     }
 
+    // A profile-backed pane never reached the raw-command fallback, and normal capture writes a
+    // ProfileId for every profile-backed pane - so the common shape of the bug was the uncovered
+    // one. Opening Windows settings on Linux keeps the imported cmd.exe profile (validation only
+    // *adds* this platform's defaults), the pane's ProfileId resolves to it, and the pane failed to
+    // spawn on every launch.
+    [AvaloniaFact]
+    public void CreateRestoredTabContent_ProfileCommandFromAnotherPlatform_FallsBackToARunnableShell()
+    {
+        var foreign = new TerminalProfile
+        {
+            Id = Guid.NewGuid(),
+            Name = "Imported",
+            Type = ConnectionType.Local,
+            Command = OperatingSystem.IsWindows() ? "/bin/bash" : "cmd.exe",
+            Arguments = OperatingSystem.IsWindows() ? "-lc echo hi" : "/c echo hi"
+        };
+
+        var settings = new TerminalSettings { Profiles = new List<TerminalProfile> { foreign } };
+        settings.DefaultProfileId = foreign.Id;
+
+        var pane = Assert.IsType<TerminalPane>(
+            SessionManager.CreateRestoredTabContent(LeafTabWithProfile(foreign.Id), settings));
+
+        Assert.Equal(ShellHelper.GetDefaultShell(), pane.ShellCommand);
+        Assert.Equal(string.Empty, pane.ShellArgs);
+    }
+
+    // The substitution must not reach the stored profile. TryResolvePaneProfile returns the instance
+    // that lives in TerminalSettings.Profiles, so editing it in place would rewrite the user's own
+    // profile - and persist that rewrite the next time settings were saved.
+    [AvaloniaFact]
+    public void CreateRestoredTabContent_WhenAProfileCommandIsSubstituted_TheStoredProfileIsUntouched()
+    {
+        string foreignCommand = OperatingSystem.IsWindows() ? "/bin/bash" : "cmd.exe";
+        const string foreignArguments = "--some-foreign-flag";
+
+        var stored = new TerminalProfile
+        {
+            Id = Guid.NewGuid(),
+            Name = "Imported",
+            Type = ConnectionType.Local,
+            Command = foreignCommand,
+            Arguments = foreignArguments
+        };
+
+        var settings = new TerminalSettings { Profiles = new List<TerminalProfile> { stored } };
+        settings.DefaultProfileId = stored.Id;
+
+        SessionManager.CreateRestoredTabContent(LeafTabWithProfile(stored.Id), settings);
+
+        Assert.Equal(foreignCommand, stored.Command);
+        Assert.Equal(foreignArguments, stored.Arguments);
+        Assert.Same(stored, settings.Profiles[0]);
+    }
+
+    [AvaloniaFact]
+    public void CreateRestoredTabContent_RunnableProfileCommand_IsUsedAsItStands()
+    {
+        var runnable = new TerminalProfile
+        {
+            Id = Guid.NewGuid(),
+            Name = "Local",
+            Type = ConnectionType.Local,
+            Command = ShellHelper.GetDefaultShell(),
+            Arguments = ""
+        };
+
+        var settings = new TerminalSettings { Profiles = new List<TerminalProfile> { runnable } };
+        settings.DefaultProfileId = runnable.Id;
+
+        var pane = Assert.IsType<TerminalPane>(
+            SessionManager.CreateRestoredTabContent(LeafTabWithProfile(runnable.Id), settings));
+
+        Assert.Equal(runnable.Command, pane.ShellCommand);
+        // The stored instance is handed straight through when nothing needed changing.
+        Assert.Same(runnable, pane.Profile);
+    }
+
+    // SSH profiles have their command built for them, so the local-executable check must not touch
+    // one - substituting a shell there would break the connection rather than repair it.
+    [AvaloniaFact]
+    public void CreateRestoredTabContent_SshProfile_IsNotTreatedAsALocalCommand()
+    {
+        var ssh = new TerminalProfile
+        {
+            Id = Guid.NewGuid(),
+            Name = "Remote",
+            Type = ConnectionType.SSH,
+            // Deliberately unspawnable as a local command: if the local substitution ever applied
+            // to SSH profiles, this is what it would replace.
+            Command = OperatingSystem.IsWindows() ? "/bin/bash" : "cmd.exe",
+            SshHost = "example.internal",
+            SshUser = "ops"
+        };
+
+        var settings = new TerminalSettings { Profiles = new List<TerminalProfile> { ssh } };
+
+        var pane = Assert.IsType<TerminalPane>(
+            SessionManager.CreateRestoredTabContent(LeafTabWithProfile(ssh.Id), settings));
+
+        Assert.NotNull(pane.Profile);
+        Assert.Equal(ConnectionType.SSH, pane.Profile!.Type);
+        Assert.Same(ssh, pane.Profile);
+    }
+
+    private static TabSession LeafTabWithProfile(Guid profileId) => new()
+    {
+        Title = "Restored",
+        Root = new PaneNode
+        {
+            Type = NodeType.Leaf,
+            ProfileId = profileId.ToString(),
+            PaneId = Guid.NewGuid().ToString()
+        }
+    };
+
     // The flip side: a command that does run here keeps both itself and its arguments.
     [AvaloniaFact]
     public void CreateRestoredTabContent_RunnableCommand_KeepsItsArguments()

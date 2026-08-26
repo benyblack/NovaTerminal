@@ -101,6 +101,21 @@ namespace NovaTerminal.Shell
         public override string ToString() => Name;
 
         /// <summary>
+        /// A shallow copy, for a caller that has to adjust a profile for one launch without
+        /// editing the stored one.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="object.MemberwiseClone"/> rather than a hand-written copy so a property added
+        /// to this class later is carried over without anyone remembering to update a copy method.
+        ///
+        /// Shallow, so the collection properties (<see cref="Tags"/>, <see cref="Forwards"/>) are
+        /// shared with the original by reference. That is fine for the launch-time command
+        /// substitution this exists for, which only touches strings; do not use it to hand someone
+        /// a profile they are going to edit.
+        /// </remarks>
+        internal TerminalProfile ShallowCopy() => (TerminalProfile)MemberwiseClone();
+
+        /// <summary>
         /// Generates the full SSH command including ProxyJump (-J) and Identity (-i) flags.
         /// Recursively resolves jump hosts.
         /// </summary>

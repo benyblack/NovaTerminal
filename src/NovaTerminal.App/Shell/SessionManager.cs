@@ -303,6 +303,49 @@ namespace NovaTerminal.Shell
             return profile;
         }
 
+        /// <summary>
+        /// Returns a profile whose command can be spawned on this machine, substituting the default
+        /// shell when it cannot.
+        /// </summary>
+        /// <remarks>
+        /// The raw-command path below has done this since a Windows workspace restored as
+        /// <c>cmd.exe</c> on Linux, but a profile-backed pane never reached it, and normal capture
+        /// writes a <c>ProfileId</c> for every profile-backed pane - so the common case was the
+        /// uncovered one. Settings validation does not close the gap either: opening Windows
+        /// settings on Linux *adds* this platform's defaults but leaves the imported profiles
+        /// alone, so the pane's ProfileId still resolves to the profile holding <c>cmd.exe</c>. The
+        /// pane failed to spawn and re-persisted the same ProfileId on every launch, exactly the
+        /// self-sustaining loop the raw-command fix was for.
+        ///
+        /// Copies rather than edits. <see cref="TryResolvePaneProfile"/> hands back the instance
+        /// living in <see cref="TerminalSettings.Profiles"/>, so assigning to its Command would
+        /// rewrite the user's stored profile - and persist that rewrite the next time settings are
+        /// saved. Restoring a session must not quietly edit someone's profile.
+        /// </remarks>
+        private static TerminalProfile ResolveProfileForThisPlatform(TerminalProfile profile)
+        {
+            // SSH panes get their command built for them (ssh/ssh.exe plus generated arguments), so
+            // there is no local executable here to check and nothing this should touch.
+            if (profile.Type != ConnectionType.Local)
+            {
+                return profile;
+            }
+
+            string resolved = ShellHelper.ResolveExecutableOrDefault(profile.Command);
+            if (string.Equals(resolved, (profile.Command ?? string.Empty).Trim(), StringComparison.Ordinal))
+            {
+                return profile;
+            }
+
+            TerminalProfile local = profile.ShallowCopy();
+            local.Command = resolved;
+
+            // Dropped for the same reason as the raw-command path: they were written for the
+            // command that has just been replaced, so `cmd.exe /c ...` would reach bash as `/c ...`.
+            local.Arguments = "";
+            return local;
+        }
+
         private static Control? RestorePaneTree(PaneNode? node, TerminalSettings settings)
         {
             if (node == null) return null;
@@ -316,7 +359,7 @@ namespace NovaTerminal.Shell
                 TerminalPane pane;
                 if (profile != null)
                 {
-                    pane = new TerminalPane(profile, settings);
+                    pane = new TerminalPane(ResolveProfileForThisPlatform(profile), settings);
                 }
                 else
                 {
