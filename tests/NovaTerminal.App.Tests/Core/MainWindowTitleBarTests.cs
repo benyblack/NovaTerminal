@@ -26,10 +26,15 @@ namespace NovaTerminal.Tests.Core;
 /// </summary>
 public sealed class MainWindowTitleBarTests
 {
+    // TabOverflowBadge is inserted immediately after the Tab List button by
+    // MainWindow.PlaceTabOverflowBadge - see
+    // RebuildTitleBar_DefaultSettings_BadgeSitsImmediatelyAfterTabListButton below for the dedicated
+    // adjacency test. This list has to include it too since it asserts the host's full children order.
     private static readonly string[] DefaultPinnedButtonNames =
     [
         "BtnNewTab",
         TitleBarViewFactory.ButtonName("open_tab_list"),
+        "TabOverflowBadge",
         TitleBarViewFactory.ButtonName("connections"),
         TitleBarViewFactory.ButtonName("settings"),
         TitleBarViewFactory.OverflowButtonName,
@@ -107,9 +112,12 @@ public sealed class MainWindowTitleBarTests
     }
 
     /// <summary>
-    /// TabOverflowBadge was deliberately moved out of the item host that RebuildTitleBar clears on
-    /// every call (it is a sibling in the same Grid, not a child of TitleBarItemsHost) - if it were
-    /// ever a child of that host instead, Populate's host.Children.Clear() would destroy it.
+    /// TabOverflowBadge is not one of the catalog buttons TitleBarViewFactory.Populate builds, so its
+    /// unconditional host.Children.Clear() would destroy the badge outright if it were a permanent
+    /// child of TitleBarItemsHost. MainWindow.PlaceTabOverflowBadge re-parents the same TextBlock
+    /// instance back into (or out of) the host after every Populate() call instead of ever letting a
+    /// new one get created - this asserts the instance really does survive a rebuild rather than
+    /// getting silently replaced.
     /// </summary>
     [AvaloniaFact]
     public void RebuildTitleBar_TabOverflowBadge_SurvivesRebuild()
@@ -126,12 +134,110 @@ public sealed class MainWindowTitleBarTests
     }
 
     /// <summary>
-    /// Codex P2 on PR #342: the badge lives outside TitleBarItemsHost specifically so RebuildTitleBar
-    /// (which clears that host's children) does not orphan it - but that same independence meant
-    /// UpdateTabOverflowIndicator's old null-button early return left a stale "+N" visible with no
-    /// adjacent Tab List button once open_tab_list moved from Pinned to Overflow/Hidden while tabs
-    /// were clipped. This forces the badge into a visible "clipped" state, flips open_tab_list out of
-    /// Pinned, and asserts the next indicator update hides and clears it instead of leaving it stuck.
+    /// With Tab List Pinned, the badge sits immediately after its button in TitleBarItemsHost -
+    /// asserted here as an index relationship because RebuildTitleBar rebuilds both around it and the
+    /// concrete index shifts depending on what else is pinned.
+    /// </summary>
+    [AvaloniaFact]
+    public void RebuildTitleBar_DefaultSettings_BadgeSitsImmediatelyAfterTabListButton()
+    {
+        var window = TestMainWindowFactory.Create();
+
+        var host = GetTitleBarHost(window);
+        var badge = window.FindControl<TextBlock>("TabOverflowBadge");
+        Assert.NotNull(badge);
+
+        int tabListIndex = host.Children.IndexOf(
+            host.Children.OfType<Button>().Single(b => b.Name == TitleBarViewFactory.ButtonName("open_tab_list")));
+        int badgeIndex = host.Children.IndexOf(badge);
+
+        Assert.Equal(tabListIndex + 1, badgeIndex);
+    }
+
+    /// <summary>
+    /// Codex P2 round 2 on PR #342: a fixed Grid.Column="0" placement kept the badge structurally
+    /// separate from the Tab List button, so reordering the pinned set could put several buttons
+    /// between them. Moving Tab List later in TitleBarOrder must not break the adjacency.
+    /// </summary>
+    [AvaloniaFact]
+    public void RebuildTitleBar_TabListReorderedLater_BadgeStillFollowsIt()
+    {
+        var window = TestMainWindowFactory.Create();
+        var settings = GetSettings(window);
+
+        settings.TitleBarOrder.Clear();
+        settings.TitleBarOrder.AddRange(["connections", "settings", "open_tab_list"]);
+        InvokeRebuildTitleBar(window);
+
+        var host = GetTitleBarHost(window);
+        var badge = window.FindControl<TextBlock>("TabOverflowBadge");
+        Assert.NotNull(badge);
+
+        int tabListIndex = host.Children.IndexOf(
+            host.Children.OfType<Button>().Single(b => b.Name == TitleBarViewFactory.ButtonName("open_tab_list")));
+        int badgeIndex = host.Children.IndexOf(badge);
+
+        Assert.True(tabListIndex > 1, "Tab List should have moved later than its default (index 1) position for this test to mean anything.");
+        Assert.Equal(tabListIndex + 1, badgeIndex);
+    }
+
+    /// <summary>
+    /// With Tab List Hidden there is no button for the badge to sit beside, so it must not be in the
+    /// host at all (which would otherwise leave a trailing, un-anchored badge) and must not be
+    /// visible.
+    /// </summary>
+    [AvaloniaFact]
+    public void RebuildTitleBar_TabListHidden_BadgeIsNotInHostAndNotVisible()
+    {
+        var window = TestMainWindowFactory.Create();
+        var settings = GetSettings(window);
+
+        settings.TitleBarItems["open_tab_list"] = "Hidden";
+        InvokeRebuildTitleBar(window);
+
+        var host = GetTitleBarHost(window);
+        var badge = window.FindControl<TextBlock>("TabOverflowBadge");
+        Assert.NotNull(badge);
+
+        Assert.DoesNotContain(host.Children, c => ReferenceEquals(c, badge));
+        Assert.False(badge!.IsVisible);
+    }
+
+    /// <summary>
+    /// Avalonia throws when a control that still has a logical parent is added to a different one.
+    /// PlaceTabOverflowBadge detaches the badge from wherever it currently lives before re-inserting
+    /// it, but Populate()'s host.Children.Clear() also detaches it if it was previously inside the
+    /// host - two consecutive rebuilds exercise both of those detach paths back to back and must not
+    /// throw, ending with the badge correctly placed either time.
+    /// </summary>
+    [AvaloniaFact]
+    public void RebuildTitleBar_TwoConsecutiveRebuilds_LeaveBadgeCorrectlyPlacedWithoutThrowing()
+    {
+        var window = TestMainWindowFactory.Create();
+
+        InvokeRebuildTitleBar(window);
+        var exception = Record.Exception(() => InvokeRebuildTitleBar(window));
+        Assert.Null(exception);
+
+        var host = GetTitleBarHost(window);
+        var badge = window.FindControl<TextBlock>("TabOverflowBadge");
+        Assert.NotNull(badge);
+
+        int tabListIndex = host.Children.IndexOf(
+            host.Children.OfType<Button>().Single(b => b.Name == TitleBarViewFactory.ButtonName("open_tab_list")));
+        int badgeIndex = host.Children.IndexOf(badge);
+
+        Assert.Equal(tabListIndex + 1, badgeIndex);
+    }
+
+    /// <summary>
+    /// Codex P2 on PR #342: the badge lives outside TitleBarItemsHost while Tab List is not Pinned
+    /// specifically so RebuildTitleBar (which clears that host's children on every call) does not
+    /// orphan it - but that same independence meant UpdateTabOverflowIndicator's old null-button
+    /// early return left a stale "+N" visible with no adjacent Tab List button once open_tab_list
+    /// moved from Pinned to Overflow/Hidden while tabs were clipped. This forces the badge into a
+    /// visible "clipped" state, flips open_tab_list out of Pinned, and asserts the next indicator
+    /// update hides and clears it instead of leaving it stuck.
     /// </summary>
     [AvaloniaFact]
     public void UpdateTabOverflowIndicator_TabListNoLongerPinned_ClearsAStaleBadge()

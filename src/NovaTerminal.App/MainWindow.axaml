@@ -110,33 +110,36 @@
 
 
 
-        <!-- Overlay layer for custom buttons (right aligned, leaving space for the system caption
-             buttons). Contents are built by MainWindow.RebuildTitleBar from TitleBarCatalog +
-             the user's saved placement, so nothing but the + button is declared here. -->
-        <Grid VerticalAlignment="Top" Height="32" HorizontalAlignment="Right" ZIndex="100" x:Name="TitleBar" Margin="0,4,140,0" Background="Transparent"
-              ColumnDefinitions="Auto,Auto">
-            <Grid.ContextMenu>
-                <ContextMenu>
-                    <MenuItem Header="Customize Title Bar..." Name="MenuCustomizeTitleBar"/>
-                </ContextMenu>
-            </Grid.ContextMenu>
-            <!-- TabOverflowBadge lives in column 0, immediately left of the button cluster. It must
-                 stay a sibling of TitleBarItemsHost rather than a child of it - Populate's
-                 host.Children.Clear() on every rebuild would otherwise orphan it (see
-                 RebuildTitleBar_TabOverflowBadge_SurvivesRebuild). Giving the Grid two Auto columns,
-                 badge in 0 and the host in 1, keeps that placement while making the two structurally
-                 unable to overlap - previously both defaulted to column 0, so HorizontalAlignment=
-                 "Left" put the badge at the left edge of the whole title bar (over the locked New
-                 Tab button) instead of next to the tab-list button (Codex P2 on PR #342). -->
+        <!-- Home for TabOverflowBadge whenever Tab List (open_tab_list) is not Pinned. MainWindow's
+             RebuildTitleBar re-parents the badge into TitleBarItemsHost, immediately after the Tab
+             List button, every time that action IS Pinned (see PlaceTabOverflowBadge) - the badge
+             adjacency has to follow the user's pinned order, so it cannot live at a fixed position
+             of its own (Codex P2 round 2 on PR #342: a fixed Grid.Column="0" placement kept it
+             structurally separate from the button it's meant to sit beside). This slot exists so the
+             badge always has *some* logical parent to detach from before every re-parent - Avalonia
+             throws if you Add a control that still has one - and so it renders nothing and can't
+             intercept clicks while parked here. IsHitTestVisible=False is belt-and-braces on top of
+             the badge's own IsVisible=False. -->
+        <Panel x:Name="TitleBarBadgeParkingSlot" IsHitTestVisible="False">
             <TextBlock Name="TabOverflowBadge"
-                       Grid.Column="0"
                        IsVisible="False"
                        Foreground="#FFD25A"
                        FontSize="11"
                        VerticalAlignment="Center"
                        HorizontalAlignment="Left"
                        Margin="2,0,0,0"/>
-            <StackPanel Name="TitleBarItemsHost" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent">
+        </Panel>
+
+        <!-- Overlay layer for custom buttons (right aligned, leaving space for the system caption
+             buttons). Contents are built by MainWindow.RebuildTitleBar from TitleBarCatalog +
+             the user's saved placement, so nothing but the + button is declared here. -->
+        <Grid VerticalAlignment="Top" Height="32" HorizontalAlignment="Right" ZIndex="100" x:Name="TitleBar" Margin="0,4,140,0" Background="Transparent">
+            <Grid.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Customize Title Bar..." Name="MenuCustomizeTitleBar"/>
+                </ContextMenu>
+            </Grid.ContextMenu>
+            <StackPanel Name="TitleBarItemsHost" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent">
                 <!-- The + button is declared rather than generated: it is locked into the bar and
                      carries this flyout's real content. TitleBarViewFactory reinserts it on every
                      rebuild instead of rebuilding it. Focusable=False keeps clicks from stealing

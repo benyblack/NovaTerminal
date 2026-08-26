@@ -6239,9 +6239,59 @@ namespace NovaTerminal
                 this.FindControl<Button>(TitleBarViewFactory.NewTabButtonName),
                 id => AppLogger.Log($"[TitleBar] no handler wired for catalog id '{id}'; skipping"));
 
+            PlaceTabOverflowBadge(host);
+
             // The record button is recreated by every rebuild, so its active colouring has to be
             // reapplied against the new instance.
             SyncRecordingButtonState();
+        }
+
+        /// <summary>
+        /// Re-anchors TabOverflowBadge next to the Tab List (open_tab_list) button after every
+        /// Populate() call. TitleBarViewFactory stays deliberately unaware of the badge - it is not
+        /// one of the catalog actions it knows how to build - so MainWindow has to own this
+        /// placement itself, and has to redo it on every RebuildTitleBar: Populate() unconditionally
+        /// clears TitleBarItemsHost's children, which would otherwise orphan a badge left inside it,
+        /// and a fixed position outside the host can't track the button through a user reorder
+        /// (Codex P2 round 2 on PR #342 - see the parking-slot XAML comment in MainWindow.axaml for
+        /// the full history).
+        /// </summary>
+        private void PlaceTabOverflowBadge(Panel host)
+        {
+            var badge = this.FindControl<TextBlock>("TabOverflowBadge");
+            if (badge == null)
+            {
+                return;
+            }
+
+            // Detach before inserting anywhere: Avalonia throws when a control that still has a
+            // logical parent is added to a different one. The badge always has a parent at this
+            // point - either the parking slot (unpinned, or first run), or TitleBarItemsHost from a
+            // previous rebuild (Populate's Clear() above already null'd that one out, so this is a
+            // no-op in that case, but the parking-slot case still needs the explicit removal).
+            if (badge.Parent is Panel currentParent)
+            {
+                currentParent.Children.Remove(badge);
+            }
+
+            string tabListButtonName = TitleBarViewFactory.ButtonName(TitleBarCatalog.OpenTabListId);
+            var tabListButton = host.Children.OfType<Button>()
+                .FirstOrDefault(b => b.Name == tabListButtonName);
+
+            if (tabListButton is null)
+            {
+                // Tab List is Overflow or Hidden - no button to sit beside. Hide it and send it back
+                // to the parking slot so the next rebuild has a consistent parent to detach it from,
+                // and so it renders nothing and can't overlap or intercept clicks on any other
+                // button while unpinned.
+                badge.IsVisible = false;
+                badge.Text = string.Empty;
+                var parkingSlot = this.FindControl<Panel>("TitleBarBadgeParkingSlot");
+                parkingSlot?.Children.Add(badge);
+                return;
+            }
+
+            host.Children.Insert(host.Children.IndexOf(tabListButton) + 1, badge);
         }
     }
 }
