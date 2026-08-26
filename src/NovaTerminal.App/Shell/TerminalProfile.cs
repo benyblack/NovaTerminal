@@ -1,6 +1,7 @@
 using NovaTerminal.Platform;
 using System;
 using NovaTerminal.Platform.Ssh.Models;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Shell
 {
@@ -98,6 +99,21 @@ namespace NovaTerminal.Shell
         public DateTime LastUsed { get; set; } = DateTime.MinValue;
 
         public override string ToString() => Name;
+
+        /// <summary>
+        /// A shallow copy, for a caller that has to adjust a profile for one launch without
+        /// editing the stored one.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="object.MemberwiseClone"/> rather than a hand-written copy so a property added
+        /// to this class later is carried over without anyone remembering to update a copy method.
+        ///
+        /// Shallow, so the collection properties (<see cref="Tags"/>, <see cref="Forwards"/>) are
+        /// shared with the original by reference. That is fine for the launch-time command
+        /// substitution this exists for, which only touches strings; do not use it to hand someone
+        /// a profile they are going to edit.
+        /// </remarks>
+        internal TerminalProfile ShallowCopy() => (TerminalProfile)MemberwiseClone();
 
         /// <summary>
         /// Generates the full SSH command including ProxyJump (-J) and Identity (-i) flags.
@@ -206,12 +222,19 @@ namespace NovaTerminal.Shell
         }
 
 
+        /// <summary>
+        /// A profile pointing at this platform's default shell.
+        /// </summary>
+        /// <remarks>
+        /// Not hardcoded to cmd.exe any more: on Linux and macOS that produced a profile that
+        /// could never spawn, and its name claimed to be a Windows shell besides.
+        /// </remarks>
         public static TerminalProfile CreateDefault()
         {
             return new TerminalProfile
             {
-                Name = "Command Prompt",
-                Command = "cmd.exe"
+                Name = OperatingSystem.IsWindows() ? "Command Prompt" : "Shell",
+                Command = ShellHelper.GetDefaultShell()
             };
         }
     }

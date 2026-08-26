@@ -2997,13 +2997,15 @@ namespace NovaTerminal.Controls
             _agentRegistration?.SetLifecycle(null);
             try
             {
-                // If effectiveShell contains a space and is not a direct file, it's likely a combined command.
-                if (effectiveShell.Contains(' ') && !System.IO.File.Exists(effectiveShell))
+                // A combined command carries its arguments inline ("zsh -l"). The split lives in
+                // ShellHelper because ResolveExecutableOrDefault has to make the same call when it
+                // decides whether a command is runnable, and when the two split differently they
+                // disagreed about what was being launched: this code cut at the first literal space,
+                // so a quoted executable whose path contains spaces
+                // ("C:\Program Files\PowerShell\7\pwsh.exe" -NoLogo) passed the resolver's check and
+                // was then spawned here as `"C:\Program`.
+                if (ShellHelper.TrySplitCommandLine(effectiveShell, out string cmdPart, out string argPart))
                 {
-                    int firstSpace = effectiveShell.IndexOf(' ');
-                    string cmdPart = effectiveShell.Substring(0, firstSpace);
-                    string argPart = effectiveShell.Substring(firstSpace + 1);
-
                     effectiveShell = cmdPart;
                     args = (argPart + " " + args).Trim();
                 }

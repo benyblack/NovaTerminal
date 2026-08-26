@@ -59,10 +59,19 @@ public class SessionEmptyCommandTests
     public void Restoring_a_leaf_with_a_real_command_keeps_it()
     {
         // The fallback must not swallow a command that was perfectly good.
-        TabItem restored = SessionManager.CreateRestoredTabItem(LeafTab("cmd.exe"), new TerminalSettings())!;
+        //
+        // Deliberately not "cmd.exe": the restore fallback now rejects a command that cannot run
+        // on *this* platform, not just a blank one, so cmd.exe is a fine example of a good command
+        // on Windows and an example of the opposite everywhere else. Environment.ProcessPath is a
+        // real executable on every platform, and it is never the default shell, so this still
+        // distinguishes "kept" from "fell back".
+        string realCommand = Environment.ProcessPath!;
+        Assert.NotEqual(ShellHelper.GetDefaultShell(), realCommand);
+
+        TabItem restored = SessionManager.CreateRestoredTabItem(LeafTab(realCommand), new TerminalSettings())!;
 
         var pane = (TerminalPane)restored.Content!;
-        Assert.Equal("cmd.exe", pane.ShellCommand);
+        Assert.Equal(realCommand, pane.ShellCommand);
     }
 
     [AvaloniaFact]
