@@ -115,8 +115,14 @@ public static class TitleBarLayoutResolver
         var byId = entries.ToDictionary(e => e.Id, StringComparer.OrdinalIgnoreCase);
         var placed = new HashSet<string>(pinned.Select(e => e.Id), StringComparer.OrdinalIgnoreCase);
 
-        foreach (string id in order ?? [])
+        foreach (string? id in order ?? [])
         {
+            // `order` comes straight from a hand-editable settings.json deserialized into
+            // List<string>; System.Text.Json accepts a JSON `null` array element into that list
+            // without complaint. TryGetValue would throw ArgumentNullException on a null key, so
+            // a null id must be skipped here, exactly like an id the catalog doesn't recognize —
+            // do not simplify this guard away, it is load-bearing against a startup crash.
+            if (id is null) continue;                                           // null id
             if (!byId.TryGetValue(id, out var entry)) continue;                  // unknown id
             if (resolved[entry.Id] != TitleBarItemState.Pinned) continue;        // not pinned
             if (!placed.Add(entry.Id)) continue;                                 // already placed

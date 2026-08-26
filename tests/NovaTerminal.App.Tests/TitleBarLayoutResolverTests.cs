@@ -235,5 +235,52 @@ namespace NovaTerminal.Tests
             Assert.Equal(TitleBarCatalog.GetEntries().Count, layout.Pinned.Count);
             Assert.True(layout.Pinned.Count > TitleBarCatalog.MaxPinned);
         }
+
+        // A hand-edited settings.json can contain `"TitleBarOrder":[null]` — System.Text.Json
+        // accepts a JSON null array element into List<string> without complaint, so this is
+        // reachable from a real file, not just a synthetic input. A null id must be ignored like
+        // an unknown id, not throw ArgumentNullException out of the TryGetValue lookup.
+
+        [Fact]
+        public void NullEntryInOrder_IsIgnored_SameLayoutAsIfAbsent()
+        {
+            var withNull = Resolve(order: new List<string> { "settings", null!, "connections" });
+            var withoutNull = Resolve(order: new List<string> { "settings", "connections" });
+
+            Assert.Equal(Ids(withoutNull.Pinned), Ids(withNull.Pinned));
+        }
+
+        [Fact]
+        public void OrderContainingOnlyNull_DoesNotThrow_YieldsCatalogDefaults()
+        {
+            var layout = Resolve(order: new List<string> { null! });
+
+            Assert.Equal(
+                new[] { "new_tab", "open_tab_list", "connections", "settings" },
+                Ids(layout.Pinned));
+        }
+
+        [Fact]
+        public void NullMixedWithValidIds_HonorsValidIdsInOrder_IgnoresNull()
+        {
+            var layout = Resolve(order: new List<string> { "settings", null!, "connections" });
+
+            Assert.Equal(
+                new[] { "new_tab", "settings", "connections", "open_tab_list" },
+                Ids(layout.Pinned));
+        }
+
+        [Fact]
+        public void NullValueInTitleBarItems_IsIgnored_FallsBackToDefault()
+        {
+            // {"TitleBarItems":{"find":null}} deserializes cleanly into Dictionary<string, string>
+            // (a null value is a legal reference-type entry); Enum.TryParse(null, ...) returns
+            // false rather than throwing, so ReadState already falls back to the catalog default.
+            // This test pins that behavior rather than adding an unneeded guard.
+            var layout = Resolve(new() { ["find"] = null! });
+
+            Assert.Contains("find", Ids(layout.Overflow));
+            Assert.DoesNotContain("find", Ids(layout.Pinned));
+        }
     }
 }
