@@ -125,8 +125,6 @@ namespace NovaTerminal.Controls
         // Whether UpdateStatusBarUI has rendered the SSH forwarding half of the
         // status bar at least once. See UpdateForwardingStatus.
         private bool _forwardingStatusUiBuilt;
-        private NovaTerminal.AgentHost.AgentAttentionSnapshot _agentAttention =
-            new(NovaTerminal.AgentHost.AgentAttentionTier.Idle, null, null);
         private DateTimeOffset? _lastCommandStartedAtUtc;
         private Action<int, int>? _onTermViewResize;
         private Action<float, float>? _onTermViewMetricsChanged;
@@ -4064,7 +4062,6 @@ namespace NovaTerminal.Controls
         /// </summary>
         internal void ApplyAgentAttention(NovaTerminal.AgentHost.AgentAttentionSnapshot snapshot, bool isActable)
         {
-            _agentAttention = snapshot;
             _agentActable = isActable;
             UpdateStatusBarVisibility();
 
