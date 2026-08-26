@@ -302,6 +302,23 @@ public static class SettingsTools
             }
         }
 
+        // TitleBarOrder: array of string ids. RequireArray (above) only checks the container is a
+        // JSON array; the runtime deserializes this property as List<string> in TerminalSettings,
+        // so a non-string element (e.g. [1]) passes the container check but throws at load time,
+        // sending settings.json through the corrupt-file backup/default recovery path.
+        if (root.TryGetProperty("TitleBarOrder", out var tboEl) && tboEl.ValueKind == JsonValueKind.Array)
+        {
+            int index = 0;
+            foreach (var element in tboEl.EnumerateArray())
+            {
+                if (element.ValueKind != JsonValueKind.String)
+                {
+                    errors.Add($"TitleBarOrder[{index}] must be a string, but was {element.ValueKind}.");
+                }
+                index++;
+            }
+        }
+
         // Unknown fields + stray Password (top-level only; profiles are not deep-scanned).
         foreach (var prop in root.EnumerateObject())
         {
