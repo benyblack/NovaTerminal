@@ -3219,6 +3219,48 @@ namespace NovaTerminal
             }
         }
 
+        /// <summary>
+        /// The trailing attention-marker suffix for a tab's screen-reader
+        /// automation label, spoken as words rather than the glyphs
+        /// <see cref="GetAttentionMarkerSuffix"/> renders for sighted users.
+        /// Order and wording preserve exactly what the previous inline
+        /// ternary chain in <c>UpdateTabAutomationLabels</c> produced: bell
+        /// beats mere activity, and the agent tier (independent of either)
+        /// follows.
+        /// </summary>
+        private static string GetAttentionAnnouncementSuffix(TabRuntimeState state)
+        {
+            string attention;
+            if (state.HasBell)
+            {
+                attention = " bell";
+            }
+            else if (state.HasActivity)
+            {
+                attention = " activity";
+            }
+            else
+            {
+                attention = string.Empty;
+            }
+
+            string agent;
+            if (state.AgentTier == AgentHost.AgentAttentionTier.Wrote)
+            {
+                agent = " agent-typed";
+            }
+            else if (state.AgentTier == AgentHost.AgentAttentionTier.Watched)
+            {
+                agent = " agent-reading";
+            }
+            else
+            {
+                agent = string.Empty;
+            }
+
+            return attention + agent;
+        }
+
         private void UpdateTabAutomationLabels()
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -3236,11 +3278,7 @@ namespace NovaTerminal
                 if (tabs.Items[i] is not TabItem tab) continue;
                 var state = GetOrCreateTabState(tab);
                 bool active = tabs.SelectedItem == tab;
-                string attention = state.HasBell ? " bell" : state.HasActivity ? " activity" : string.Empty;
-                string agent = state.AgentTier == AgentHost.AgentAttentionTier.Wrote
-                    ? " agent-typed"
-                    : state.AgentTier == AgentHost.AgentAttentionTier.Watched ? " agent-reading" : string.Empty;
-                string label = $"Tab {i + 1} of {count}: {GetTabHeaderText(tab)}{(active ? " active" : "")}{attention}{agent}";
+                string label = $"Tab {i + 1} of {count}: {GetTabHeaderText(tab)}{(active ? " active" : "")}{GetAttentionAnnouncementSuffix(state)}";
                 AutomationProperties.SetName(tab, label);
             }
             sw.Stop();
