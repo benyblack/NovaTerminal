@@ -270,10 +270,8 @@ public sealed class MainWindowTitleBarTests
             TitleBarViewFactory.ButtonName("open_tab_list"),
             host.Children.Select(c => (c as Control)?.Name));
 
-        // RebuildTitleBar's own bookkeeping (e.g. the initial tab's selection-changed handling) can
-        // legitimately reach PopulateTabListMenu on its own by this point, which would already give
-        // this field a value for reasons unrelated to what this test drives. Force a clean baseline
-        // via the field directly rather than asserting on incidental timing.
+        // Reset the field to null to guarantee a clean baseline, making the assertion unambiguous:
+        // any non-null result can only have come from the call under test, not from prior state.
         SetTabListFallbackFlyout(window, null);
 
         InvokePopulateTabListMenu(window, showFlyout: true);
@@ -282,6 +280,7 @@ public sealed class MainWindowTitleBarTests
         // this guards against left it null forever because the method returned before reaching it.
         var flyout = GetTabListFallbackFlyout(window);
         Assert.NotNull(flyout);
+        Assert.True(flyout!.Items.Count > 0, "The fallback flyout should have been populated with menu items");
     }
 
     /// <summary>
