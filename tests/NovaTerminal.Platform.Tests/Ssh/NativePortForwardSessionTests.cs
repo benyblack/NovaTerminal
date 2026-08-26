@@ -368,10 +368,17 @@ public sealed class NativePortForwardSessionTests
         var interop = new FakeNativeSshInterop();
         int listenPort = GetFreePort();
 
+        // Collect the session's diagnostics. Without this the only failure signal is
+        // "Condition was not met before timeout" from WaitUntilAsync, which cannot distinguish
+        // "the budget was never exceeded" from "it was exceeded but the close did not land" -
+        // and this test's only coverage is a CI runner you cannot attach a debugger to.
+        var sessionLog = new ConcurrentQueue<string>();
+
         using var session = new NativePortForwardSession(
             FakeHandle(23),
             [CreateForward(listenPort, "svc.internal", 9000)],
-            interop);
+            interop,
+            log: sessionLog.Enqueue);
 
         using TcpClient client = await ConnectLoopbackAsync(listenPort);
         client.ReceiveBufferSize = 1024;
@@ -395,7 +402,25 @@ public sealed class NativePortForwardSessionTests
             $"HandleEvent blocked for {stopwatch.Elapsed} while the local peer was not reading.");
 
         // And the channel that could not keep up is closed rather than buffered without limit.
-        await WaitUntilAsync(() => interop.ClosedChannelIds.Contains(channelId));
+        //
+        // Diagnostics on failure rather than a bare timeout: this test's premise is that the
+        // kernel cannot absorb 16 MB destined for a peer that never reads, and that premise is
+        // platform-dependent. When it does not hold, the pump keeps draining, the queue never
+        // reaches its budget, and nothing closes - which looks identical to a lost close unless
+        // the failure says which happened. So report the session's own log (it logs the
+        // overflow) and how much the local peer could actually still drain.
+        if (!await TryWaitUntilAsync(() => interop.ClosedChannelIds.Contains(channelId)))
+        {
+            long drained = await DrainAvailableAsync(client, TimeSpan.FromSeconds(3));
+            Assert.Fail(
+                $"Channel {channelId} was never closed after queueing 16 MB at a peer that never reads. " +
+                $"Bytes the local peer could still drain afterwards: {drained:N0}. " +
+                $"Closed channels: [{string.Join(", ", interop.ClosedChannelIds)}]. " +
+                $"Session log: [{string.Join(" | ", sessionLog)}]. " +
+                "An empty session log means the outbound budget was never exceeded - i.e. this " +
+                "host buffered the writes instead of blocking them, so the test's premise, not " +
+                "the backpressure code, is what failed.");
+        }
     }
 
     [Fact]
@@ -826,6 +851,59 @@ public sealed class NativePortForwardSessionTests
         var client = new TcpClient();
         await client.ConnectAsync(IPAddress.Loopback, port);
         return client;
+    }
+
+    /// <summary>
+    /// Like <see cref="WaitUntilAsync"/> but reports the outcome instead of asserting, so the
+    /// caller can attach its own diagnostics to the failure.
+    /// </summary>
+    private static async Task<bool> TryWaitUntilAsync(Func<bool> predicate, int timeoutSeconds = 30)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (predicate())
+            {
+                return true;
+            }
+
+            await Task.Delay(20);
+        }
+
+        return predicate();
+    }
+
+    /// <summary>
+    /// Reads whatever the peer can currently supply, up to <paramref name="budget"/>, and returns
+    /// the byte count. Diagnostic only: how much a host was willing to buffer is the thing worth
+    /// knowing when a backpressure test fails to see backpressure.
+    /// </summary>
+    private static async Task<long> DrainAvailableAsync(TcpClient client, TimeSpan budget)
+    {
+        long total = 0;
+        byte[] buffer = new byte[64 * 1024];
+        using var cts = new CancellationTokenSource(budget);
+
+        try
+        {
+            NetworkStream stream = client.GetStream();
+            while (true)
+            {
+                int read = await stream.ReadAsync(buffer, cts.Token);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                total += read;
+            }
+        }
+        catch (Exception)
+        {
+            // Timeout, reset, disposed - all fine. The count so far is the diagnostic.
+        }
+
+        return total;
     }
 
     private static async Task SendSocksGreetingAsync(NetworkStream stream)

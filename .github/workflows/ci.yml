@@ -192,7 +192,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        # Same dispatch-conditional shape as `build` above, and for the same reason: macOS is
+        # not worth the minutes on every PR, but it must be reachable WITHOUT cutting a
+        # release. Until now `build` compiled on macOS while nothing ever ran the tests there,
+        # so macOS's only test coverage was release.yml's release_tests — meaning a
+        # macOS-only defect could surface exactly once, at release time, where it blocks the
+        # release. That is how #325's port-forward backpressure test went three months
+        # unverified on macOS and then failed the first release that ran it.
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["windows-latest","ubuntu-latest","macos-latest"]' || '["windows-latest","ubuntu-latest"]') }}
 
     steps:
       - uses: actions/checkout@v4
