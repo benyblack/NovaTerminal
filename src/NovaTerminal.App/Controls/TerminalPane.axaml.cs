@@ -729,11 +729,28 @@ namespace NovaTerminal.Controls
             // agentObserveIndicator.Click). Null-safe on VisualRoot: the pane is
             // constructed before it is attached, and unit tests never attach it
             // to a window at all.
+            //
+            // async void by necessity (Click is an EventHandler), so the await
+            // must not be left bare: an exception out of an async void handler
+            // is re-raised on the UI thread's synchronization context as an
+            // unhandled exception rather than contained, and a click that
+            // should quietly do nothing would terminate the app instead - the
+            // journal dialog failing to construct while the owning window is
+            // closing is enough. Contained the same way the rest of this file
+            // contains failures on the attention path.
             AgentStatusButton.Click += async (_, _) =>
             {
-                if (VisualRoot is MainWindow mainWindow)
+                try
                 {
-                    await mainWindow.ShowAgentActivityJournalAsync();
+                    if (VisualRoot is MainWindow mainWindow)
+                    {
+                        await mainWindow.ShowAgentActivityJournalAsync();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[TerminalPane] Opening the agent activity journal failed: {ex.Message}");
                 }
             };
 
