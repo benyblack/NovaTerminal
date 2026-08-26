@@ -4014,8 +4014,20 @@ namespace NovaTerminal
             // path uses, so opening a profile and restoring one agree about it. They did not before:
             // this asked whether the command existed, so a profile carrying inline arguments or a
             // quoted path was reset here while restore kept it.
+            //
+            // Copied before it is changed, exactly as SessionManager.ResolveProfileForThisPlatform
+            // does. The local branch above hands back the instance living in _settings.Profiles, so
+            // assigning to its Command edited the user's stored profile - and any later
+            // _settings.Save() persisted that. Several ordinary actions save (font size, cursor
+            // style, bell), so opening a /bin/bash profile once on Windows could rewrite it to
+            // pwsh.exe with its arguments dropped, in the settings.json that travels back to the
+            // Linux machine. That is the cross-machine corruption this whole change exists to stop.
+            //
+            // The SSH branch below mutates too, and does not need this: GetConnectionProfile returns
+            // a freshly converted runtime profile, not the stored instance.
             if (profile.Type == ConnectionType.Local && ShellHelper.IsCommandForAnotherPlatform(profile.Command))
             {
+                profile = profile.ShallowCopy();
                 profile.Command = ShellHelper.GetDefaultShell();
                 profile.Arguments = ""; // The old arguments belonged to the command just replaced.
             }

@@ -137,14 +137,45 @@ namespace NovaTerminal.Pty
             return false;
         }
 
-        /// <summary>Unix-only shapes: a rooted POSIX path. Nothing on Windows starts with a
-        /// slash, and a bare name there could be anything.</summary>
-        private static bool LooksLikeAUnixCommand(string executable) =>
-            executable.StartsWith('/');
+        /// <summary>Unix-only shapes: a path under one of the filesystem roots only Unix has.</summary>
+        /// <remarks>
+        /// Not simply "starts with a slash", which was the first attempt and is wrong on Windows: a
+        /// leading slash there means rooted-on-the-current-drive, and the path APIs accept <c>/</c>
+        /// as a separator throughout, so <c>/Windows/System32/cmd.exe</c> is a real command that
+        /// launches - measured with <c>CreateProcessW</c> on Windows, pid and all. Flagging it broke
+        /// the rule this predicate is supposed to keep, that it fires only on signals which cannot
+        /// mean anything else. Note the old rule was also inconsistent with itself: the backslash
+        /// spelling of the same drive-relative path was kept while the forward-slash spelling was
+        /// substituted, and both launch.
+        ///
+        /// Requiring a recognisably Unix first segment keeps the rule honest and still catches every
+        /// realistic case - GetDefaultShell on Unix only ever returns a <c>/bin/</c> path, and
+        /// configured shells live under these roots. A path under some other root falls through and
+        /// fails visibly, which is the trade made everywhere else here.
+        /// </remarks>
+        private static bool LooksLikeAUnixCommand(string executable)
+        {
+            foreach (string root in UnixFilesystemRoots)
+            {
+                if (executable.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return true;
+            }
 
-        /// <summary>Suffixes that only Windows executes. <c>.bat</c> and <c>.cmd</c> included: they
-        /// run fine on Windows - <c>CreateProcess</c> hands them to the command processor - and not
-        /// at all anywhere else.</summary>
+            return false;
+        }
+
+        /// <summary>Roots that exist on Unix and not on Windows. Case-insensitive at the point of
+        /// use, since the comparison happens on a Windows machine.</summary>
+        private static readonly string[] UnixFilesystemRoots =
+            { "/bin/", "/sbin/", "/usr/", "/opt/", "/etc/", "/home/", "/var/", "/snap/", "/nix/", "/Library/", "/System/" };
+
+        /// <summary>Suffixes that mark an executable as Windows-addressed.</summary>
+        /// <remarks>
+        /// <c>.bat</c> and <c>.cmd</c> belong here: they run fine on Windows - <c>CreateProcess</c>
+        /// hands them to the command processor - and not at all elsewhere. <c>.ps1</c> is the loose
+        /// one, since PowerShell Core runs .ps1 files on Linux too; it stays because a .ps1 is not
+        /// directly spawnable there either, so the verdict is right even though the reason is
+        /// narrower than "only Windows executes this".
+        /// </remarks>
         private static readonly string[] WindowsExecutableSuffixes =
             { ".exe", ".com", ".bat", ".cmd", ".ps1", ".vbs", ".wsf", ".msc" };
 

@@ -43,11 +43,29 @@ public sealed class ShellHelperResolutionTests
     [InlineData("pwsh")]
     [InlineData("pwsh -NoLogo")]
     [InlineData("./tools/shell")]
+    [InlineData("tools/shell --flag")]
     [InlineData("some-tool-that-is-not-installed")]
     public void ResolveExecutableOrDefault_CommandForThisPlatform_IsLeftAlone(string command)
     {
         Assert.Equal(command, ShellHelper.ResolveExecutableOrDefault(command));
     }
+
+    // A rooted path only Windows understands. Verified on Windows: a leading slash there means
+    // rooted-on-the-current-drive and /Windows/System32/cmd.exe genuinely launches, so the rule can
+    // no longer be "starts with a slash" - it has to name a root only Unix has.
+    [Fact]
+    public void IsCommandForAnotherPlatform_DriveRelativeWindowsPath_IsNotForeignOnWindows()
+    {
+        Assert.Equal(
+            !OperatingSystem.IsWindows(),
+            ShellHelper.IsCommandForAnotherPlatform("/Windows/System32/cmd.exe"));
+    }
+
+    /// <summary>A path shaped for the platform the test is running on, which does not exist.</summary>
+    private static string NativeShapedMissingCommand =>
+        OperatingSystem.IsWindows()
+            ? @"C:\nope\definitely-not-installed-xyz.exe"
+            : "/opt/definitely-not-installed-xyz/shell";
 
     [Fact]
     public void ResolveExecutableOrDefault_TrimsSurroundingWhitespace()
@@ -59,8 +77,10 @@ public sealed class ShellHelperResolutionTests
     public void ResolveExecutableOrDefault_QuotedCommand_KeepsItsQuotes()
     {
         // Whoever spawns it wants the original spelling; TrySplitCommandLine unquotes at the point
-        // of use.
-        const string quoted = "\"/opt/my shell\" -l";
+        // of use. Native-shaped for the same reason as above.
+        string quoted = OperatingSystem.IsWindows()
+            ? "\"C:\\my dir\\shell.exe\" -l"
+            : "\"/opt/my shell\" -l";
 
         Assert.Equal(quoted, ShellHelper.ResolveExecutableOrDefault(quoted));
     }
@@ -71,7 +91,10 @@ public sealed class ShellHelperResolutionTests
     [Fact]
     public void ResolveExecutableOrDefault_CommandThatSimplyDoesNotExist_IsStillLeftAlone()
     {
-        const string missing = "/opt/definitely-not-installed-xyz/shell";
+        // Native-shaped on purpose. A POSIX path here would be correctly judged foreign on Windows
+        // and substituted, so the test would fail for a reason that has nothing to do with what it
+        // is checking - which is exactly how this file broke the Windows run twice.
+        string missing = NativeShapedMissingCommand;
 
         Assert.Equal(missing, ShellHelper.ResolveExecutableOrDefault(missing));
     }
