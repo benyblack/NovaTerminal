@@ -117,7 +117,7 @@ namespace NovaTerminal.AgentHost
                 // forever against another thread that already holds it).
                 if (changed)
                 {
-                    ActabilityChanged?.Invoke(value);
+                    ActabilityChanged?.Invoke();
                 }
             }
         }
@@ -128,8 +128,22 @@ namespace NovaTerminal.AgentHost
         /// setter). The owning pane uses this to re-render its status bar
         /// segment when act-reachability is republished with no attention-tier
         /// transition alongside it (global act toggle, allowlist edit).
+        ///
+        /// Deliberately payload-free: a handed-out <c>bool</c> is a stale
+        /// channel. <c>AgentHostService.RefreshActability</c> can run
+        /// concurrently (the 1 s sweep thread, the act-toggle setter, an
+        /// allowlist edit on the UI thread) and two racing writers can compute
+        /// different values for the same SSH pane. Whichever writer enters the
+        /// setter first stores its value; it may then be descheduled and raise
+        /// *after* the other. With a payload, the last value delivered can
+        /// disagree with the value actually stored — and because the setter
+        /// raises only on change, every later sweep sees no change and never
+        /// corrects it, leaving a pane permanently unmarked while agents can
+        /// type into it. With no payload the subscriber must read
+        /// <see cref="IsAgentActable"/>, so whichever post runs last renders
+        /// the current truth no matter how the raises interleave.
         /// </summary>
-        public event Action<bool>? ActabilityChanged;
+        public event Action? ActabilityChanged;
 
         // The PTY session behind this registration, published by the pane on the
         // UI thread whenever the session is created, swapped, or torn down —

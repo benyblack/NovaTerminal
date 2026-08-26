@@ -230,7 +230,7 @@ public class PaneAgentStatusBarTests
         Assert.NotNull(registration);
 
         int raiseCount = 0;
-        registration!.ActabilityChanged += _ => raiseCount++;
+        registration!.ActabilityChanged += () => raiseCount++;
 
         registration.IsAgentActable = true;
         registration.IsAgentActable = true; // same value, as a sweep tick would write
@@ -240,6 +240,73 @@ public class PaneAgentStatusBarTests
 
         registration.IsAgentActable = false; // an actual change still raises
         Assert.Equal(2, raiseCount);
+    }
+
+    [AvaloniaFact]
+    public void An_actability_raise_renders_the_registrations_value_not_the_raised_one()
+    {
+        // The stale-channel bug. AgentHostService.RefreshActability can run
+        // concurrently — the 1 s sweep thread, the ActEnabled setter, Apply,
+        // and a SetSshProfileAllowlist edit — and two of those can compute
+        // different actability for the same SSH pane when one read the old
+        // allowlist probe and the other the new. The setter serialises the
+        // *store* but not the *raise*: the writer that stored false can be
+        // descheduled before Invoke, the writer that stored true raises first,
+        // and then the false writer raises last. Stored value: true. Last
+        // value delivered: false.
+        //
+        // That mattered only because the handler rendered the delivered bool.
+        // And it was permanent: the setter raises only on an actual change, so
+        // every later sweep recomputes true, sees no change, and never raises
+        // again — the pane shows no agent segment forever while agents can
+        // still type into it.
+        //
+        // The fix makes the stale value unrepresentable: ActabilityChanged
+        // carries no payload and OnAgentActabilityChanged reads
+        // IsAgentActable inside the posted lambda. This test reproduces the
+        // losing racer's raise directly — the handler is invoked while the
+        // registration holds true, passing false if the handler still takes a
+        // payload at all — and asserts the pane renders the registration's
+        // value. It does not (and cannot, deterministically) reproduce the
+        // thread interleave itself; what it pins is the property that makes
+        // the interleave harmless.
+        using var pane = new TerminalPane("cmd.exe");
+        pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: false);
+        Assert.False(GetStatusBar(pane).IsVisible);
+
+        var registration = pane.AgentRegistrationForTesting;
+        Assert.NotNull(registration);
+        registration!.IsAgentActable = true; // the value that won the race and is stored
+        Dispatcher.UIThread.RunJobs();
+
+        // Now the losing writer's raise arrives, carrying the value it stored
+        // before it was overwritten.
+        RaiseActabilityChangedOnPane(pane, staleValue: false);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(GetStatusBar(pane).IsVisible);
+        Assert.True(GetAgentSegment(pane).IsVisible);
+    }
+
+    /// <summary>
+    /// Invokes TerminalPane's private ActabilityChanged handler the way a
+    /// racing writer's raise would. Written against both possible signatures
+    /// on purpose: the payload-free one this fix introduces, and the
+    /// <c>bool</c>-taking one it replaces — so the test is a genuine red/green
+    /// check on the fix rather than something that merely fails to compile
+    /// without it.
+    /// </summary>
+    private static void RaiseActabilityChangedOnPane(TerminalPane pane, bool staleValue)
+    {
+        var method = typeof(TerminalPane).GetMethod(
+            "OnAgentActabilityChanged",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        object[] args = method!.GetParameters().Length == 0
+            ? Array.Empty<object>()
+            : new object[] { staleValue };
+        method.Invoke(pane, args);
     }
 
     [AvaloniaFact]

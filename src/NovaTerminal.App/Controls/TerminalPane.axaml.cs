@@ -4150,13 +4150,26 @@ namespace NovaTerminal.Controls
         // flipped actability (the endpoint's request handling, in the toggle
         // case). The registration only raises this on an actual value change,
         // so this cannot become a once-per-second post storm from the sweep.
-        private void OnAgentActabilityChanged(bool isActable)
+        //
+        // ActabilityChanged carries no payload on purpose, and this reads
+        // IsAgentActable *inside* the posted lambda rather than capturing it.
+        // RefreshActability can run concurrently (sweep thread, act-toggle
+        // setter, allowlist edit) and two racing writers can compute different
+        // values for the same SSH pane; the one that stores first may raise
+        // last, so a captured bool can render the value that lost the race.
+        // Because the setter raises only on an actual change, no later sweep
+        // would ever correct that — the pane would stay unmarked forever while
+        // agents could still type into it. Reading through the registration
+        // makes the stale channel structurally impossible: whichever post runs
+        // last renders whatever the registration currently holds.
+        private void OnAgentActabilityChanged()
         {
             var registration = _agentRegistration;
             if (registration == null) return;
             try
             {
-                Dispatcher.UIThread.Post(() => ApplyAgentAttention(registration.AttentionMachine.Snapshot(), isActable));
+                Dispatcher.UIThread.Post(() =>
+                    ApplyAgentAttention(registration.AttentionMachine.Snapshot(), registration.IsAgentActable));
             }
             catch (Exception)
             {
