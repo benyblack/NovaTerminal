@@ -24,6 +24,10 @@ public sealed class NativePortForwardSession : IDisposable
     private readonly ConcurrentDictionary<int, PendingChannelEvents> _pendingByChannel = new();
     private int _opensInFlight;
 
+    // Monotonic open counter, used to stamp parked entries so EndOpen's cleanup can tell its own
+    // generation's leftovers from a newer open's live work. See EndOpen.
+    private long _openGeneration;
+
     /// <summary>
     /// How long to wait before retrying a forward-channel write the native side refused for want of
     /// queue space. Polling because the FFI has no completion signal to await; short enough that it
@@ -204,12 +208,21 @@ public sealed class NativePortForwardSession : IDisposable
             return false;
         }
 
+        long generation = Volatile.Read(ref _openGeneration);
         PendingChannelEvents pending = _pendingByChannel.GetOrAdd(
             nextEvent.StatusCode,
-            static _ => new PendingChannelEvents());
+            _ => new PendingChannelEvents { Generation = generation });
 
         lock (pending.Gate)
         {
+            // An entry can outlive the generation that created it when a channel id is reused, so
+            // re-stamp it to the current open. Without this, EndOpen's sweep could remove an entry
+            // holding events for a later open just because the entry object was older.
+            if (pending.Generation < generation)
+            {
+                pending.Generation = generation;
+            }
+
             // PublishChannel adds to _channels inside this same lock, so re-checking here closes
             // the window rather than narrowing it.
             if (_channels.TryGetValue(nextEvent.StatusCode, out channel))
@@ -223,14 +236,27 @@ public sealed class NativePortForwardSession : IDisposable
                 return false;
             }
 
+            if (pending.Failed)
+            {
+                // Already over budget. Keep dropping; PublishChannel will tear the channel down
+                // rather than hand the peer a stream with a hole in it.
+                return false;
+            }
+
             int payloadLength = nextEvent.Payload?.Length ?? 0;
             if (pending.QueuedBytes > 0 &&
                 pending.QueuedBytes + payloadLength > MaxQueuedOutboundBytesPerChannel)
             {
-                // Same budget and the same reasoning as the outbound queue: a bound that cannot be
-                // exceeded is the only way this cannot become a memory leak on a channel that
-                // never registers.
-                _log($"[NativePortForwardSession] Dropping pre-registration event for channel {nextEvent.StatusCode}: already holding {pending.QueuedBytes} bytes.");
+                // Same budget as the outbound queue, and the same response to breaching it: fail the
+                // channel, do not truncate it. EnqueueOutbound closes on overflow precisely because
+                // "discarding bytes mid-stream would silently corrupt what is, from the peer's view,
+                // a plain TCP connection" - and parked events are the same bytes, so dropping them
+                // and then replaying only the prefix would produce exactly that corruption, with the
+                // channel still live. A dead forward is diagnosable; a corrupted one is not.
+                pending.Failed = true;
+                pending.Events.Clear();
+                pending.QueuedBytes = 0;
+                _log($"[NativePortForwardSession] Pre-registration buffer for channel {nextEvent.StatusCode} exceeded its {MaxQueuedOutboundBytesPerChannel}-byte budget; the channel will be closed instead of delivering a truncated stream.");
                 return false;
             }
 
@@ -253,6 +279,19 @@ public sealed class NativePortForwardSession : IDisposable
         bool added;
         lock (pending.Gate)
         {
+            if (pending.Failed)
+            {
+                // Bytes were lost before we could register, so this channel cannot be served
+                // correctly. Refuse to publish it: the caller's failure path closes the SSH channel
+                // and disposes the socket, which surfaces as a failed connection rather than a
+                // silently truncated one.
+                pending.Events.Clear();
+                pending.QueuedBytes = 0;
+                pending.Published = true;
+                _pendingByChannel.TryRemove(channelId, out _);
+                return false;
+            }
+
             // Replay BEFORE publishing, not after. Once the channel is in _channels a concurrent
             // HandleEvent can enqueue without taking this lock, and if that happened while parked
             // events were still being replayed the stream would be reordered - a subtler corruption
@@ -273,7 +312,13 @@ public sealed class NativePortForwardSession : IDisposable
         return added;
     }
 
-    private void BeginOpen() => Interlocked.Increment(ref _opensInFlight);
+    private void BeginOpen()
+    {
+        // Generation first, so an entry created by a racing HandleEvent can never be stamped older
+        // than the open it belongs to.
+        Interlocked.Increment(ref _openGeneration);
+        Interlocked.Increment(ref _opensInFlight);
+    }
 
     /// <summary>
     /// Closes the open window. When the last one finishes, anything still parked belongs to a
@@ -281,8 +326,23 @@ public sealed class NativePortForwardSession : IDisposable
     /// rather than let it sit — that is what keeps <see cref="_pendingByChannel"/> empty in steady
     /// state.
     /// </summary>
+    /// <remarks>
+    /// The generation check is not decoration. Reaching zero here does not mean no open will start
+    /// during the sweep: another listener or SOCKS client can call <see cref="BeginOpen"/> the
+    /// instant the count drops, and without this the sweep would clear that newer open's parked
+    /// events — reinstating exactly the pre-registration data loss this class now prevents. Reading
+    /// the generation BEFORE the decrement means every entry a later open creates is stamped higher
+    /// than <c>sweepGeneration</c> and is therefore skipped, and entries reused across generations
+    /// are re-stamped in <see cref="TryResolveOrPark"/>.
+    ///
+    /// A <c>Failed</c> entry is safe to remove here for the same reason: publishing only ever
+    /// happens inside an open window, so at a genuine zero transition nothing is about to publish
+    /// it.
+    /// </remarks>
     private void EndOpen()
     {
+        long sweepGeneration = Volatile.Read(ref _openGeneration);
+
         if (Interlocked.Decrement(ref _opensInFlight) != 0)
         {
             return;
@@ -290,9 +350,17 @@ public sealed class NativePortForwardSession : IDisposable
 
         foreach (KeyValuePair<int, PendingChannelEvents> entry in _pendingByChannel)
         {
+            bool removable;
             lock (entry.Value.Gate)
             {
-                if (entry.Value.Published || _channels.ContainsKey(entry.Key))
+                if (entry.Value.Generation > sweepGeneration)
+                {
+                    // Belongs to an open that started after this sweep began. Not ours to touch.
+                    continue;
+                }
+
+                removable = entry.Value.Published || !_channels.ContainsKey(entry.Key);
+                if (!removable)
                 {
                     continue;
                 }
@@ -318,6 +386,19 @@ public sealed class NativePortForwardSession : IDisposable
         public object Gate { get; } = new();
 
         public bool Published { get; set; }
+
+        /// <summary>
+        /// Bytes were lost before this channel could be registered, so it must be closed rather
+        /// than published with a hole in its stream. See <see cref="TryResolveOrPark"/>.
+        /// </summary>
+        public bool Failed { get; set; }
+
+        /// <summary>
+        /// Which open window these events belong to, so <see cref="EndOpen"/>'s sweep cannot
+        /// discard events parked by a later open. Guarded by <see cref="Gate"/> for the re-stamp
+        /// that happens when a channel id is reused across generations.
+        /// </summary>
+        public long Generation { get; set; }
 
         public List<NativeSshEvent> Events { get; } = [];
 

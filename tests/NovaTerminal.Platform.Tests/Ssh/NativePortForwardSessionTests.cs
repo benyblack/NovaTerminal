@@ -398,6 +398,48 @@ public sealed class NativePortForwardSessionTests
     }
 
     [Fact]
+    public async Task PreRegistrationData_OverTheBudget_ClosesTheChannelRatherThanTruncatingIt()
+    {
+        // The parked-event buffer is bounded, so a server that floods faster than we can register
+        // the channel will eventually exceed it. What must NOT happen then is publishing the
+        // channel and replaying only the prefix: from the peer's view a port forward is a plain TCP
+        // connection, and a stream with a hole in it is far worse than one that fails. This mirrors
+        // EnqueueOutbound, which closes on overflow for exactly that reason.
+        var interop = new FakeNativeSshInterop();
+        int listenPort = GetFreePort();
+
+        // 17 x 64 KB clears the 1 MB budget with the first chunk admitted into an empty buffer.
+        byte[] chunk = new byte[64 * 1024];
+        NativePortForwardSession? session = null;
+        interop.OnOpenDirectTcpIp = channelId =>
+        {
+            for (int i = 0; i < 17; i++)
+            {
+                session!.HandleEvent(NativeSshEvent.ForwardChannelData(channelId, chunk));
+            }
+        };
+
+        session = new NativePortForwardSession(
+            FakeHandle(43),
+            [CreateForward(listenPort, "svc.internal", 9200)],
+            interop);
+
+        using (session)
+        {
+            using TcpClient client = await ConnectLoopbackAsync(listenPort);
+
+            // The SSH channel is closed rather than left live with a truncated stream.
+            await WaitUntilAsync(() => interop.ClosedChannelIds.Count == 1);
+
+            // And the local peer sees the connection end instead of receiving a prefix. Reading
+            // returns 0 (or throws) once the session disposes the socket; either way it is not
+            // handed a partial stream.
+            long drained = await DrainAvailableAsync(client, TimeSpan.FromSeconds(5));
+            Assert.Equal(0, drained);
+        }
+    }
+
+    [Fact]
     public async Task HandleEvent_WithALocalPeerThatNeverReads_DoesNotBlockTheCaller()
     {
         // The regression this pins: HandleEvent used to write straight to the local socket from
