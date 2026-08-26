@@ -272,6 +272,118 @@ public sealed class MainWindowTitleBarTests
         Assert.Equal(string.Empty, badge.Text);
     }
 
+    /// <summary>
+    /// Codex P3 round 5 on PR #342: UpdateTabOverflowIndicator used to overwrite the Tab List
+    /// button's tooltip with a bare "Tab List" (no-clipping branch) or "Tab List (N hidden)"
+    /// (clipped branch), discarding whatever shortcut TitleBarViewFactory.Populate had resolved -
+    /// including a user override - every time it ran (startup, a layout change, or a tab update).
+    /// This drives the no-clipping branch directly (a single startup tab never overflows a
+    /// 1200px-wide window) and asserts the tooltip still carries the resolved default shortcut
+    /// instead of regressing to the bare title.
+    /// </summary>
+    [AvaloniaFact]
+    public void UpdateTabOverflowIndicator_NoTabsClipped_TooltipStillCarriesResolvedShortcut()
+    {
+        var window = TestMainWindowFactory.Create();
+        window.Show();
+
+        InvokeUpdateTabOverflowIndicator(window);
+
+        var button = GetGeneratedButton(window, "open_tab_list");
+        var tooltip = ToolTip.GetTip(button) as string;
+
+        Assert.NotNull(tooltip);
+        Assert.StartsWith("Tab List", tooltip, System.StringComparison.Ordinal);
+        Assert.Contains("Ctrl+Shift+O", tooltip, System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Same defect as above, clipped branch: with tabs actually hidden past the scroll viewport,
+    /// the tooltip must convey both the hidden-tab count and the resolved shortcut, not one at the
+    /// expense of the other. Extra tabs are added directly to the TabControl's Items (bypassing
+    /// AddTab, which spawns a real PTY per tab) purely to force real, headless-measured header
+    /// widths past the viewport - CountHiddenTabs itself already has dedicated unit coverage in
+    /// TabBehaviorTests, so this only needs "enough real width to clip", not a specific count.
+    /// </summary>
+    [AvaloniaFact]
+    public void UpdateTabOverflowIndicator_TabsClipped_TooltipComposesHiddenCountWithResolvedShortcut()
+    {
+        var window = TestMainWindowFactory.Create();
+        window.Show();
+
+        AddWidePlainTabs(window, count: 8);
+
+        InvokeUpdateTabOverflowIndicator(window);
+
+        var badge = window.FindControl<TextBlock>("TabOverflowBadge");
+        Assert.NotNull(badge);
+        Assert.True(badge!.IsVisible, "Expected the extra wide tabs to overflow the header viewport for this test to mean anything.");
+
+        var button = GetGeneratedButton(window, "open_tab_list");
+        var tooltip = ToolTip.GetTip(button) as string;
+
+        Assert.NotNull(tooltip);
+        Assert.Contains("hidden", tooltip, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Ctrl+Shift+O", tooltip, System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Proves the fix actually goes through TitleBarShortcuts.Resolve (and therefore
+    /// _settings.Keybindings) rather than a hardcoded default: with a user override in place, the
+    /// composed clipped-branch tooltip must carry the override, not "Ctrl+Shift+O". A test that only
+    /// checked "some shortcut is present" would still pass against a version that ignored the
+    /// override, so this specifically asserts the default's absence alongside the override's
+    /// presence.
+    /// </summary>
+    [AvaloniaFact]
+    public void UpdateTabOverflowIndicator_TabsClippedWithUserShortcutOverride_TooltipUsesTheOverride()
+    {
+        var window = TestMainWindowFactory.Create();
+        window.Show();
+        var settings = GetSettings(window);
+        settings.Keybindings["open_tab_list"] = "Ctrl+Alt+L";
+
+        AddWidePlainTabs(window, count: 8);
+
+        InvokeUpdateTabOverflowIndicator(window);
+
+        var badge = window.FindControl<TextBlock>("TabOverflowBadge");
+        Assert.NotNull(badge);
+        Assert.True(badge!.IsVisible, "Expected the extra wide tabs to overflow the header viewport for this test to mean anything.");
+
+        var button = GetGeneratedButton(window, "open_tab_list");
+        var tooltip = ToolTip.GetTip(button) as string;
+
+        Assert.NotNull(tooltip);
+        Assert.Contains("Ctrl+Alt+L", tooltip, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("Ctrl+Shift+O", tooltip, System.StringComparison.Ordinal);
+        Assert.Contains("hidden", tooltip, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Adds plain TabItems with wide TextBlock headers directly to the "Tabs" TabControl's Items,
+    /// bypassing AddTab (which spawns a real PTY session per tab - far too heavy for forcing a
+    /// header-overflow condition). UpdateTabOverflowIndicator only reads TabItem.Bounds.Width and
+    /// the header ScrollViewer's Bounds.Width, so a real, headless-measured header is all this needs.
+    /// RunJobs() drains the pending layout pass the new items invalidate, since Show() only lays out
+    /// what existed at that point.
+    /// </summary>
+    private static void AddWidePlainTabs(NovaTerminal.MainWindow window, int count)
+    {
+        var tabs = window.FindControl<TabControl>("Tabs");
+        Assert.NotNull(tabs);
+
+        for (int i = 0; i < count; i++)
+        {
+            tabs!.Items.Add(new TabItem
+            {
+                Header = new TextBlock { Text = new string('W', 60) + i }
+            });
+        }
+
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+    }
+
     [AvaloniaFact]
     public void RebuildTitleBar_Record_AutoSurfacesWhileActive_AndReturnsToOverflowWhenNotActive()
     {

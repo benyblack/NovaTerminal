@@ -705,11 +705,22 @@ namespace NovaTerminal
                 return;
             }
 
+            // Compose onto the factory-generated "Tab List (<shortcut>)" tooltip rather than
+            // replacing it: TitleBarViewFactory.Populate already resolved the (possibly
+            // user-overridden) shortcut for this button via TitleBarShortcuts, and this method
+            // reruns after every layout pass, so a bare "Tab List" or "Tab List (N hidden)"
+            // written here would immediately clobber that shortcut (Codex P3 round 5 on PR #342).
+            var tabListEntry = TitleBarCatalog.GetEntries()
+                .FirstOrDefault(e => e.Id == TitleBarCatalog.OpenTabListId);
+            string tabListShortcut = TitleBarShortcuts.Resolve(
+                tabListEntry?.ShortcutKey ?? TitleBarCatalog.OpenTabListId, _settings.Keybindings);
+            string baseTooltip = TitleBarShortcuts.FormatTooltip(tabListEntry?.Title ?? "Tab List", tabListShortcut);
+
             double viewportWidth = scrollViewer.Bounds.Width;
             if (viewportWidth <= 0)
             {
                 badge.IsVisible = false;
-                ToolTip.SetTip(button, "Tab List");
+                ToolTip.SetTip(button, baseTooltip);
                 button.Foreground = Brushes.White;
                 return;
             }
@@ -718,7 +729,7 @@ namespace NovaTerminal
 
             badge.IsVisible = hiddenCount > 0;
             badge.Text = hiddenCount > 0 ? $"+{hiddenCount}" : string.Empty;
-            ToolTip.SetTip(button, hiddenCount > 0 ? $"Tab List ({hiddenCount} hidden)" : "Tab List");
+            ToolTip.SetTip(button, hiddenCount > 0 ? $"{baseTooltip} — {hiddenCount} hidden" : baseTooltip);
             button.Foreground = hiddenCount > 0 ? new SolidColorBrush(Color.FromRgb(255, 210, 90)) : Brushes.White;
         }
 
