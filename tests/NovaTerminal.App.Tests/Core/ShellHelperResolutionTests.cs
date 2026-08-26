@@ -274,33 +274,6 @@ public sealed class ShellHelperResolutionTests
         }
     }
 
-    // Codex review, round 5a: a profile's StartingDirectory becomes the child's cwd, so a relative
-    // command runs from there - while this check runs in NovaTerminal's own directory and called it
-    // missing, substituting the shell and dropping the arguments.
-    [Fact]
-    public void ResolveExecutableOrDefault_RelativeCommandUnderTheWorkingDirectory_IsLeftAlone()
-    {
-        string directory = Path.Combine(Path.GetTempPath(), "nova relative " + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(Path.Combine(directory, "tools"));
-
-        try
-        {
-            WriteExecutable(Path.Combine(directory, "tools", "shell"));
-
-            const string relative = "./tools/shell";
-
-            // Missing when probed from here, which is the bug: nothing resolves it without the cwd.
-            Assert.Equal(ShellHelper.GetDefaultShell(), ShellHelper.ResolveExecutableOrDefault(relative));
-
-            // Found once the directory it will actually run in is taken into account.
-            Assert.Equal(relative, ShellHelper.ResolveExecutableOrDefault(relative, directory));
-        }
-        finally
-        {
-            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
-        }
-    }
-
     [Fact]
     public void ResolveExecutableOrDefault_RelativeCommandNotUnderTheWorkingDirectory_FallsBack()
     {
@@ -346,14 +319,26 @@ public sealed class ShellHelperResolutionTests
     // wrapper.bat passing File.Exists and being kept, which is the dead pane the restriction was
     // meant to prevent. Asserted on the policy, since the caller is gated on Windows.
     [Theory]
-    [InlineData("C:\\tools\\wrapper.bat")]
-    [InlineData("C:\\tools\\wrapper.cmd")]
-    [InlineData("wrapper.BAT")]
     [InlineData("script.ps1")]
+    [InlineData("C:\\tools\\script.PS1")]
     [InlineData("script.vbs")]
+    [InlineData("script.js")]
     public void NeedsAnInterpreter_ScriptFiles_AreRecognised(string candidate)
     {
         Assert.True(ShellHelper.NeedsAnInterpreter(candidate));
+    }
+
+    // Verified on Windows against a raw CreateProcessW P/Invoke and through RustPtySession itself:
+    // CreateProcess special-cases batch files and runs them via the command processor, so a full-path
+    // .bat/.cmd spawns with a live pid. These were on this list on a false premise, and rejecting them
+    // substituted the default shell for a wrapper that had been working.
+    [Theory]
+    [InlineData("C:\\tools\\wrapper.bat")]
+    [InlineData("C:\\tools\\wrapper.cmd")]
+    [InlineData("wrapper.BAT")]
+    public void NeedsAnInterpreter_BatchFiles_AreLaunchableAndNotRejected(string candidate)
+    {
+        Assert.False(ShellHelper.NeedsAnInterpreter(candidate));
     }
 
     [Theory]
@@ -510,10 +495,18 @@ public sealed class ShellHelperResolutionTests
         {
             WriteExecutable(Path.Combine(directory, "tools", "shell"));
 
+            // The control: without the working directory nothing resolves it on either platform,
+            // so a pass below means the working directory did the work.
+            Assert.Equal(
+                ShellHelper.GetDefaultShell(),
+                ShellHelper.ResolveExecutableOrDefault("./tools/shell"));
+
             string resolved = ShellHelper.ResolveExecutableOrDefault("./tools/shell", directory);
 
             if (OperatingSystem.IsWindows())
             {
+                // CreateProcessW resolves a relative executable against the *calling* process's
+                // directory, so a match under the child's cwd means nothing here.
                 Assert.Equal(ShellHelper.GetDefaultShell(), resolved);
             }
             else

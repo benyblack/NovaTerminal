@@ -252,9 +252,13 @@ namespace NovaTerminal.Pty
         /// One entry, and specifically <c>.exe</c>, because that is the only extension the launcher
         /// appends. The native path calls <c>CreateProcessW</c> with <c>lpApplicationName</c> NULL
         /// (native/src/lib.rs:301), and Windows then appends <c>.exe</c> - not <c>.com</c>, and not
-        /// anything from PATHEXT, which only a shell consults. <c>.com</c> was in this list on the
-        /// same mistaken reasoning that first put <c>.bat</c> here: modelling cmd.exe rather than
-        /// the launcher.
+        /// anything from PATHEXT. Measured on Windows: an extensionless name backed only by a
+        /// <c>.com</c> fails with ERROR_FILE_NOT_FOUND, while the same file named in full succeeds.
+        ///
+        /// The two launch paths disagree, so this models the stricter one. portable_pty's
+        /// <c>CommandBuilder</c> walks the full PATHEXT when it searches (cmdbuilder.rs), so it is
+        /// *more* permissive than CreateProcessW, not equally strict - an earlier version of this
+        /// remark claimed neither could manage it, which was wrong about portable_pty.
         ///
         /// <c>internal</c> so the policy itself can be asserted off Windows. The probe that uses it
         /// is gated on <see cref="OperatingSystem.IsWindows"/> and so does nothing on Linux, which
@@ -268,22 +272,25 @@ namespace NovaTerminal.Pty
         /// cannot start one directly.
         /// </summary>
         /// <remarks>
-        /// The counterpart to <see cref="LaunchableWindowsExtensions"/>, and the same reasoning: the
-        /// native layer calls <c>CreateProcessW</c> and the fallback uses portable_pty's
-        /// <c>CommandBuilder</c>, neither of which can start a script without its interpreter.
+        /// Deliberately excludes <c>.bat</c> and <c>.cmd</c>, which this list used to contain on a
+        /// premise that turned out to be false. <c>CreateProcess</c> special-cases batch files and
+        /// runs them through the command processor, so they start perfectly well. Measured on
+        /// Windows against a raw <c>CreateProcessW</c> P/Invoke matching native/src/lib.rs, and again
+        /// through <c>RustPtySession</c> itself: a full-path <c>.bat</c> and <c>.cmd</c> each spawned
+        /// with a live pid, and the <c>.bat</c> produced its own output. Rejecting them substituted
+        /// the default shell for a wrapper that had been working, losing the command and its
+        /// arguments - the expensive failure this check is supposed to prevent.
         ///
-        /// Restricting only the *appended* extensions left an inconsistency: an extensionless
-        /// <c>wrapper</c> backed by <c>wrapper.bat</c> was correctly called unrunnable, while an
-        /// explicit <c>wrapper.bat</c> sailed through <c>File.Exists</c> and was kept - producing the
-        /// dead pane the restriction existed to prevent. The verdict now depends on what can be
-        /// launched, not on how the name was spelled.
+        /// What remains are the types that genuinely need an interpreter: <c>.ps1</c>, <c>.vbs</c> and
+        /// friends fail with ERROR_BAD_EXE_FORMAT (193) from the same call.
         ///
-        /// Running these properly means invoking the interpreter (<c>cmd.exe /c wrapper.bat</c>),
-        /// which is a feature rather than a fix and is deliberately not attempted here; falling back
-        /// to a shell that starts is the better of the two outcomes available.
+        /// The counterpart to <see cref="LaunchableWindowsExtensions"/>: that list is what the
+        /// launcher will *append* to a bare name, this one is what it cannot start even when named in
+        /// full. They are separate questions and a name being spelled out does not make an
+        /// unstartable file startable.
         /// </remarks>
         internal static readonly string[] WindowsExtensionsNeedingAnInterpreter =
-            { ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc" };
+            { ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc" };
 
         /// <summary>
         /// True when <paramref name="candidate"/> names a file this application could start,

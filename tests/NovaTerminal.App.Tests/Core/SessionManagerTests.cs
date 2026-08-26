@@ -247,7 +247,7 @@ public sealed class SessionManagerTests
     // relative command runs from the profile's directory, so probing it from NovaTerminal's own
     // directory called it missing and substituted the shell.
     [AvaloniaFact]
-    public void CreateRestoredTabContent_RelativeProfileCommandUnderItsStartingDirectory_IsKept()
+    public void CreateRestoredTabContent_RelativeProfileCommand_FollowsThePlatformResolutionRule()
     {
         string directory = Path.Combine(Path.GetTempPath(), "nova profile relative " + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(directory, "tools"));
@@ -280,10 +280,27 @@ public sealed class SessionManagerTests
             var pane = Assert.IsType<TerminalPane>(
                 SessionManager.CreateRestoredTabContent(LeafTabWithProfile(profile.Id), settings));
 
-            // Kept, arguments and all - and the stored profile handed through untouched.
-            Assert.Same(profile, pane.Profile);
-            Assert.Equal("./tools/shell", pane.Profile!.Command);
-            Assert.Equal("--login", pane.Profile.Arguments);
+            if (OperatingSystem.IsWindows())
+            {
+                // CreateProcessW resolves a relative executable against the *calling* process's
+                // directory, not the one handed to it as the child's cwd, so a match under
+                // StartingDirectory proves nothing here and the command is substituted. The profile
+                // therefore comes back as a copy, which is what keeps the stored one unedited.
+                Assert.NotSame(profile, pane.Profile);
+                Assert.Equal(ShellHelper.GetDefaultShell(), pane.Profile!.Command);
+                Assert.Equal(string.Empty, pane.Profile.Arguments);
+
+                // The stored profile is untouched either way - the point of copying.
+                Assert.Equal("./tools/shell", profile.Command);
+                Assert.Equal("--login", profile.Arguments);
+            }
+            else
+            {
+                // Kept, arguments and all - and the stored profile handed through untouched.
+                Assert.Same(profile, pane.Profile);
+                Assert.Equal("./tools/shell", pane.Profile!.Command);
+                Assert.Equal("--login", pane.Profile.Arguments);
+            }
         }
         finally
         {
