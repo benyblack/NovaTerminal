@@ -331,7 +331,10 @@ namespace NovaTerminal.Shell
                 return profile;
             }
 
-            string resolved = ShellHelper.ResolveExecutableOrDefault(profile.Command);
+            // StartingDirectory is part of the verdict: it becomes the child's cwd, so a relative
+            // command such as ./tools/shell runs from there rather than from wherever NovaTerminal
+            // happens to be. Probing without it called a perfectly runnable command missing.
+            string resolved = ShellHelper.ResolveExecutableOrDefault(profile.Command, profile.StartingDirectory);
             if (string.Equals(resolved, (profile.Command ?? string.Empty).Trim(), StringComparison.Ordinal))
             {
                 return profile;

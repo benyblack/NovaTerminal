@@ -47,7 +47,12 @@ namespace NovaTerminal.Pty
         /// grounds that they belonged to the command being replaced. A false negative therefore
         /// costs the user their command *and* its arguments, silently.
         /// </remarks>
-        public static string ResolveExecutableOrDefault(string? command)
+        /// <param name="workingDirectory">
+        /// The directory the command will be launched in, when the caller knows it - a profile's
+        /// StartingDirectory. A relative path is resolved against it as well as against this
+        /// process's own directory, because the child gets that directory as its cwd.
+        /// </param>
+        public static string ResolveExecutableOrDefault(string? command, string? workingDirectory = null)
         {
             if (string.IsNullOrWhiteSpace(command))
             {
@@ -64,7 +69,7 @@ namespace NovaTerminal.Pty
             // Whole string first, so a path that simply contains spaces is found as itself rather
             // than mistaken for a command plus arguments. This is the same order
             // TerminalPane.InitializeSessionCore uses when it decides whether to split.
-            if (CanExecute(probe) || InPath(probe))
+            if (IsRunnable(probe, workingDirectory))
             {
                 return trimmed;
             }
@@ -76,12 +81,56 @@ namespace NovaTerminal.Pty
             // combined string: the consumer splits it again with this same method, so the verdict
             // reached here and the command actually spawned cannot disagree.
             if (TrySplitCommandLine(trimmed, out string executable, out _) &&
-                (CanExecute(executable) || InPath(executable)))
+                IsRunnable(executable, workingDirectory))
             {
                 return trimmed;
             }
 
             return GetDefaultShell();
+        }
+
+        /// <summary>
+        /// True when <paramref name="executable"/> names something this application could start,
+        /// looked for as a path, on <c>PATH</c>, and relative to <paramref name="workingDirectory"/>.
+        /// </summary>
+        private static bool IsRunnable(string executable, string? workingDirectory) =>
+            CanExecute(executable) ||
+            InPath(executable) ||
+            CanExecuteRelativeTo(workingDirectory, executable);
+
+        /// <summary>
+        /// True when <paramref name="candidate"/> resolves against the directory the command will
+        /// actually run in.
+        /// </summary>
+        /// <remarks>
+        /// A profile's StartingDirectory becomes the child's cwd (TerminalPane passes it to
+        /// RustPtySession), so a relative command such as <c>./tools/shell</c> runs from there -
+        /// while this check runs in NovaTerminal's own directory and used to declare it missing,
+        /// substituting the default shell and dropping the arguments.
+        ///
+        /// Additive rather than a replacement, because which directory wins is platform-specific:
+        /// exec resolves a relative path against the child's cwd, but Windows resolves
+        /// CreateProcessW's application name against the *calling* process's directory, not the one
+        /// passed as lpCurrentDirectory. Probing both avoids a false negative on either.
+        ///
+        /// Only for something that is already a path. A bare name like <c>zsh</c> is resolved
+        /// through PATH, not the working directory, which is what both a shell and exec do.
+        /// </remarks>
+        private static bool CanExecuteRelativeTo(string? workingDirectory, string candidate)
+        {
+            if (string.IsNullOrWhiteSpace(workingDirectory)) return false;
+            if (string.IsNullOrWhiteSpace(candidate)) return false;
+            if (Path.IsPathRooted(candidate)) return false;
+            if (candidate.IndexOf('/') < 0 && candidate.IndexOf('\\') < 0) return false;
+
+            try
+            {
+                return CanExecute(Path.Combine(workingDirectory, candidate));
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
         }
 
         /// <summary>
@@ -199,11 +248,37 @@ namespace NovaTerminal.Pty
         internal static readonly string[] LaunchableWindowsExtensions = { ".exe", ".com" };
 
         /// <summary>
+        /// Windows file types that only run because an interpreter runs them, so this application
+        /// cannot start one directly.
+        /// </summary>
+        /// <remarks>
+        /// The counterpart to <see cref="LaunchableWindowsExtensions"/>, and the same reasoning: the
+        /// native layer calls <c>CreateProcessW</c> and the fallback uses portable_pty's
+        /// <c>CommandBuilder</c>, neither of which can start a script without its interpreter.
+        ///
+        /// Restricting only the *appended* extensions left an inconsistency: an extensionless
+        /// <c>wrapper</c> backed by <c>wrapper.bat</c> was correctly called unrunnable, while an
+        /// explicit <c>wrapper.bat</c> sailed through <c>File.Exists</c> and was kept - producing the
+        /// dead pane the restriction existed to prevent. The verdict now depends on what can be
+        /// launched, not on how the name was spelled.
+        ///
+        /// Running these properly means invoking the interpreter (<c>cmd.exe /c wrapper.bat</c>),
+        /// which is a feature rather than a fix and is deliberately not attempted here; falling back
+        /// to a shell that starts is the better of the two outcomes available.
+        /// </remarks>
+        internal static readonly string[] WindowsExtensionsNeedingAnInterpreter =
+            { ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc" };
+
+        /// <summary>
         /// True when <paramref name="candidate"/> names a file this application could start,
         /// allowing for the extension being left off on Windows.
         /// </summary>
         private static bool CanExecute(string candidate)
         {
+            // Checked before File.Exists, not after: the file existing is exactly what used to make
+            // an explicitly named script look runnable.
+            if (OperatingSystem.IsWindows() && NeedsAnInterpreter(candidate)) return false;
+
             if (File.Exists(candidate)) return true;
             if (!OperatingSystem.IsWindows()) return false;
 
@@ -214,6 +289,28 @@ namespace NovaTerminal.Pty
             foreach (string extension in LaunchableWindowsExtensions)
             {
                 if (File.Exists(candidate + extension)) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// True when <paramref name="candidate"/> ends in an extension that needs an interpreter.
+        /// </summary>
+        /// <remarks>
+        /// <c>internal</c> for the same reason as the extension lists: the callers are gated on
+        /// Windows, so a test that goes through the filesystem on Linux cannot exercise this.
+        /// </remarks>
+        internal static bool NeedsAnInterpreter(string? candidate)
+        {
+            if (string.IsNullOrWhiteSpace(candidate)) return false;
+
+            string extension = Path.GetExtension(candidate);
+            if (extension.Length == 0) return false;
+
+            foreach (string scripted in WindowsExtensionsNeedingAnInterpreter)
+            {
+                if (string.Equals(extension, scripted, StringComparison.OrdinalIgnoreCase)) return true;
             }
 
             return false;

@@ -273,4 +273,108 @@ public sealed class ShellHelperResolutionTests
             try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
         }
     }
+
+    // Codex review, round 5a: a profile's StartingDirectory becomes the child's cwd, so a relative
+    // command runs from there - while this check runs in NovaTerminal's own directory and called it
+    // missing, substituting the shell and dropping the arguments.
+    [Fact]
+    public void ResolveExecutableOrDefault_RelativeCommandUnderTheWorkingDirectory_IsLeftAlone()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "nova relative " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(directory, "tools"));
+
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "tools", "shell"), "");
+
+            const string relative = "./tools/shell";
+
+            // Missing when probed from here, which is the bug: nothing resolves it without the cwd.
+            Assert.Equal(ShellHelper.GetDefaultShell(), ShellHelper.ResolveExecutableOrDefault(relative));
+
+            // Found once the directory it will actually run in is taken into account.
+            Assert.Equal(relative, ShellHelper.ResolveExecutableOrDefault(relative, directory));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public void ResolveExecutableOrDefault_RelativeCommandNotUnderTheWorkingDirectory_FallsBack()
+    {
+        // The working directory must not become a way to approve something that is not there.
+        string directory = Path.Combine(Path.GetTempPath(), "nova relative empty " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            Assert.Equal(
+                ShellHelper.GetDefaultShell(),
+                ShellHelper.ResolveExecutableOrDefault("./tools/shell", directory));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public void ResolveExecutableOrDefault_BareNameIsNotResolvedAgainstTheWorkingDirectory()
+    {
+        // A bare name goes through PATH, not the cwd - what a shell and exec both do. Resolving it
+        // against the cwd would launch a file that merely happens to sit there.
+        string directory = Path.Combine(Path.GetTempPath(), "nova bare " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "definitely-not-on-path-xyz"), "");
+
+            Assert.Equal(
+                ShellHelper.GetDefaultShell(),
+                ShellHelper.ResolveExecutableOrDefault("definitely-not-on-path-xyz", directory));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    // Codex review, round 5b: restricting only the *appended* extensions left an explicit
+    // wrapper.bat passing File.Exists and being kept, which is the dead pane the restriction was
+    // meant to prevent. Asserted on the policy, since the caller is gated on Windows.
+    [Theory]
+    [InlineData("C:\\tools\\wrapper.bat")]
+    [InlineData("C:\\tools\\wrapper.cmd")]
+    [InlineData("wrapper.BAT")]
+    [InlineData("script.ps1")]
+    [InlineData("script.vbs")]
+    public void NeedsAnInterpreter_ScriptFiles_AreRecognised(string candidate)
+    {
+        Assert.True(ShellHelper.NeedsAnInterpreter(candidate));
+    }
+
+    [Theory]
+    [InlineData("C:\\Windows\\System32\\cmd.exe")]
+    [InlineData("pwsh.exe")]
+    [InlineData("/bin/bash")]
+    [InlineData("zsh")]
+    [InlineData("python3.11")]
+    [InlineData(null)]
+    [InlineData("")]
+    public void NeedsAnInterpreter_ExecutablesAndBareNames_AreNot(string? candidate)
+    {
+        Assert.False(ShellHelper.NeedsAnInterpreter(candidate));
+    }
+
+    [Fact]
+    public void TheTwoExtensionPoliciesDoNotOverlap()
+    {
+        foreach (string launchable in ShellHelper.LaunchableWindowsExtensions)
+        {
+            Assert.DoesNotContain(launchable, ShellHelper.WindowsExtensionsNeedingAnInterpreter);
+        }
+    }
 }

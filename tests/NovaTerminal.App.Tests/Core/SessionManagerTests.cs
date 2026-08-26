@@ -243,6 +243,45 @@ public sealed class SessionManagerTests
         Assert.Same(ssh, pane.Profile);
     }
 
+    // The profile path is where the StartingDirectory is known, and where round 5a landed: a
+    // relative command runs from the profile's directory, so probing it from NovaTerminal's own
+    // directory called it missing and substituted the shell.
+    [AvaloniaFact]
+    public void CreateRestoredTabContent_RelativeProfileCommandUnderItsStartingDirectory_IsKept()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "nova profile relative " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(directory, "tools"));
+
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "tools", "shell"), "");
+
+            var profile = new TerminalProfile
+            {
+                Id = Guid.NewGuid(),
+                Name = "Project shell",
+                Type = ConnectionType.Local,
+                Command = "./tools/shell",
+                Arguments = "--login",
+                StartingDirectory = directory
+            };
+
+            var settings = new TerminalSettings { Profiles = new List<TerminalProfile> { profile } };
+
+            var pane = Assert.IsType<TerminalPane>(
+                SessionManager.CreateRestoredTabContent(LeafTabWithProfile(profile.Id), settings));
+
+            // Kept, arguments and all - and the stored profile handed through untouched.
+            Assert.Same(profile, pane.Profile);
+            Assert.Equal("./tools/shell", pane.Profile!.Command);
+            Assert.Equal("--login", pane.Profile.Arguments);
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
     private static TabSession LeafTabWithProfile(Guid profileId) => new()
     {
         Title = "Restored",
