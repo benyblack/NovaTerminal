@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -153,7 +154,7 @@ public sealed class NativePortForwardSession : IDisposable
             return;
         }
 
-        DispatchToChannel(channel!, nextEvent);
+        DispatchToChannel(channel, nextEvent);
     }
 
     /// <summary>
@@ -196,7 +197,9 @@ public sealed class NativePortForwardSession : IDisposable
     /// exactly the freeze this class's queue exists to prevent (#173 item 2). The lock here is
     /// per-channel, in-memory, and uncontended once published.
     /// </remarks>
-    private bool TryResolveOrPark(NativeSshEvent nextEvent, out ForwardChannelState? channel)
+    private bool TryResolveOrPark(
+        NativeSshEvent nextEvent,
+        [NotNullWhen(true)] out ForwardChannelState? channel)
     {
         channel = null;
 
