@@ -386,6 +386,35 @@ public sealed class NativePortForwardSessionTests
         await WaitUntilAsync(() => interop.OpenedChannelIds.Count == 1);
         int channelId = interop.OpenedChannelIds[0];
 
+        // Waiting on OpenedChannelIds alone is not enough to start sending, and this is the whole
+        // reason the test used to fail ~20% of the time on macOS. The fake records that id inside
+        // OpenDirectTcpIp, which the accept loop calls BEFORE _channels.TryAdd registers the
+        // channel - and HandleEvent silently returns for an id it cannot find. So there is a window
+        // where this thread believes the channel is ready while the session would discard
+        // everything sent to it, and a dropped event is gone for good: nothing is queued, the
+        // outbound budget is never exceeded, no close ever happens, and the wait at the end of this
+        // test burns its full ceiling. A three-core runner loses that window often, because this
+        // thread's continuation and the accept loop compete for a core and the flood below never
+        // yields.
+        //
+        // Probe until a byte actually surfaces at the peer. That is the first observable moment the
+        // channel is registered AND its pump is running, and it needs no hook into the session.
+        byte[] probe = [0x2A];
+        await WaitUntilAsync(() =>
+        {
+            session.HandleEvent(NativeSshEvent.ForwardChannelData(channelId, probe));
+            return client.Available > 0;
+        });
+
+        // Drain the probes so the flood below still meets an idle peer with an empty buffer, which
+        // is the condition this test is actually about.
+        NetworkStream probeStream = client.GetStream();
+        byte[] discard = new byte[64];
+        while (client.Available > 0)
+        {
+            probeStream.ReadExactly(discard, 0, Math.Min(discard.Length, client.Available));
+        }
+
         byte[] chunk = new byte[64 * 1024];
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < 256; i++)
