@@ -254,7 +254,16 @@ public sealed class SessionManagerTests
 
         try
         {
-            File.WriteAllText(Path.Combine(directory, "tools", "shell"), "");
+            // Executable, not merely present: an existing file with no execute bit is not
+            // spawnable on Unix, so writing 0644 here would assert the opposite of the contract.
+            string shell = Path.Combine(directory, "tools", "shell");
+            File.WriteAllText(shell, "");
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(
+                    shell,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
 
             var profile = new TerminalProfile
             {

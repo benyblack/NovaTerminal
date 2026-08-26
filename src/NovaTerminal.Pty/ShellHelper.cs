@@ -108,16 +108,25 @@ namespace NovaTerminal.Pty
         /// while this check runs in NovaTerminal's own directory and used to declare it missing,
         /// substituting the default shell and dropping the arguments.
         ///
-        /// Additive rather than a replacement, because which directory wins is platform-specific:
-        /// exec resolves a relative path against the child's cwd, but Windows resolves
-        /// CreateProcessW's application name against the *calling* process's directory, not the one
-        /// passed as lpCurrentDirectory. Probing both avoids a false negative on either.
+        /// Unix only, and that asymmetry is the whole point. <c>exec</c> resolves a relative path
+        /// after the child has changed directory, so the working directory is where it is found.
+        /// <c>CreateProcessW</c> resolves its application name against the *calling* process's
+        /// directory; <c>lpCurrentDirectory</c> only becomes the child's cwd and plays no part in
+        /// finding the executable. So on Windows a match here means nothing - approving the command
+        /// on that basis keeps it, and its arguments, for a spawn that then fails.
+        ///
+        /// An earlier version probed both platforms, reasoning that being additive could only avoid
+        /// false negatives. That was wrong in one direction: on Windows it manufactures a false
+        /// positive, which is the more expensive mistake, since rejection at least falls back to a
+        /// shell that starts. The remark above it described the Windows rule correctly and the code
+        /// beneath it did the opposite.
         ///
         /// Only for something that is already a path. A bare name like <c>zsh</c> is resolved
         /// through PATH, not the working directory, which is what both a shell and exec do.
         /// </remarks>
         private static bool CanExecuteRelativeTo(string? workingDirectory, string candidate)
         {
+            if (OperatingSystem.IsWindows()) return false;
             if (string.IsNullOrWhiteSpace(workingDirectory)) return false;
             if (string.IsNullOrWhiteSpace(candidate)) return false;
             if (Path.IsPathRooted(candidate)) return false;
@@ -286,8 +295,16 @@ namespace NovaTerminal.Pty
             // an explicitly named script look runnable.
             if (OperatingSystem.IsWindows() && NeedsAnInterpreter(candidate)) return false;
 
+            if (!OperatingSystem.IsWindows())
+            {
+                // Existing is not the same as spawnable here. A regular file with no execute bit -
+                // a config file, a Windows .exe sitting in a shared workspace, a script saved
+                // without chmod +x - passes File.Exists and then fails at exec, which is the dead
+                // pane this check exists to avoid.
+                return HasAnExecuteBit(candidate);
+            }
+
             if (File.Exists(candidate)) return true;
-            if (!OperatingSystem.IsWindows()) return false;
             if (!AppendsImplicitExtension(candidate)) return false;
 
             foreach (string extension in LaunchableWindowsExtensions)
@@ -296,6 +313,36 @@ namespace NovaTerminal.Pty
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// True when <paramref name="candidate"/> is a file with an execute bit set.
+        /// </summary>
+        /// <remarks>
+        /// Any of user/group/other, rather than resolving effective access for the current user.
+        /// That over-approximates slightly - a file executable only by someone else counts - but it
+        /// rejects the case that actually occurs, a file carrying no execute bit at all, and erring
+        /// toward "runnable" here only preserves today's behaviour. Erring the other way would
+        /// replace a working command with a shell.
+        /// </remarks>
+        private static bool HasAnExecuteBit(string candidate)
+        {
+            if (!File.Exists(candidate)) return false;
+
+            try
+            {
+                UnixFileMode mode = File.GetUnixFileMode(candidate);
+                const UnixFileMode anyExecute =
+                    UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
+
+                return (mode & anyExecute) != 0;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+            {
+                // Cannot read the mode: fall back to existence rather than declaring a command
+                // missing on the strength of a failed stat.
+                return true;
+            }
         }
 
         /// <summary>

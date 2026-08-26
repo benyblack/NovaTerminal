@@ -140,7 +140,7 @@ public sealed class ShellHelperResolutionTests
 
         try
         {
-            File.WriteAllText(executable, "");
+            WriteExecutable(executable);
 
             Assert.Equal(executable, ShellHelper.ResolveExecutableOrDefault(executable));
         }
@@ -212,7 +212,7 @@ public sealed class ShellHelperResolutionTests
 
         try
         {
-            File.WriteAllText(executable, "");
+            WriteExecutable(executable);
 
             Assert.False(ShellHelper.TrySplitCommandLine(executable, out _, out _));
         }
@@ -261,7 +261,7 @@ public sealed class ShellHelperResolutionTests
         try
         {
             // Only the .bat exists - no .exe, no extensionless file.
-            File.WriteAllText(Path.Combine(directory, "wrapper.bat"), "@echo off");
+            WriteExecutable(Path.Combine(directory, "wrapper.bat"), "@echo off");
             string extensionless = Path.Combine(directory, "wrapper");
 
             Assert.Equal(
@@ -285,7 +285,7 @@ public sealed class ShellHelperResolutionTests
 
         try
         {
-            File.WriteAllText(Path.Combine(directory, "tools", "shell"), "");
+            WriteExecutable(Path.Combine(directory, "tools", "shell"));
 
             const string relative = "./tools/shell";
 
@@ -330,7 +330,7 @@ public sealed class ShellHelperResolutionTests
 
         try
         {
-            File.WriteAllText(Path.Combine(directory, "definitely-not-on-path-xyz"), "");
+            WriteExecutable(Path.Combine(directory, "definitely-not-on-path-xyz"));
 
             Assert.Equal(
                 ShellHelper.GetDefaultShell(),
@@ -429,7 +429,7 @@ public sealed class ShellHelperResolutionTests
         try
         {
             // CreateProcessW sees "python3.11" as already extensioned and never looks for this file.
-            File.WriteAllText(Path.Combine(directory, "python3.11.exe"), "");
+            WriteExecutable(Path.Combine(directory, "python3.11.exe"));
 
             Assert.Equal(
                 ShellHelper.GetDefaultShell(),
@@ -454,7 +454,7 @@ public sealed class ShellHelperResolutionTests
 
         try
         {
-            File.WriteAllText(Path.Combine(directory, "tool.exe"), "");
+            WriteExecutable(Path.Combine(directory, "tool.exe"));
             string extensionless = Path.Combine(directory, "tool");
 
             // The flip side, so the narrowing above cannot be over-applied.
@@ -463,6 +463,82 @@ public sealed class ShellHelperResolutionTests
         finally
         {
             try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    // Codex review, round 7: an existing file is not a spawnable one on Unix. The tests above used
+    // to create their probe files with File.WriteAllText - mode 0644 - and assert they resolved,
+    // so they were pinning the bug in place. They now write genuinely executable files, and this
+    // covers the case they were accidentally asserting.
+    [Fact]
+    public void ResolveExecutableOrDefault_FileWithoutAnExecuteBit_FallsBack()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Execute bits are a Unix concept.");
+        }
+
+        string directory = Path.Combine(Path.GetTempPath(), "nova noexec " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            string notExecutable = Path.Combine(directory, "shell");
+            File.WriteAllText(notExecutable, "");
+            File.SetUnixFileMode(
+                notExecutable,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+
+            Assert.Equal(ShellHelper.GetDefaultShell(), ShellHelper.ResolveExecutableOrDefault(notExecutable));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    // Codex review, round 7: CreateProcessW resolves a relative executable against the *calling*
+    // process's directory, so a match under the child's working directory means nothing on Windows -
+    // approving on that basis keeps a command whose spawn then fails.
+    [Fact]
+    public void ResolveExecutableOrDefault_RelativeCommand_IsOnlyResolvedFromTheWorkingDirectoryOnUnix()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "nova relwin " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(directory, "tools"));
+
+        try
+        {
+            WriteExecutable(Path.Combine(directory, "tools", "shell"));
+
+            string resolved = ShellHelper.ResolveExecutableOrDefault("./tools/shell", directory);
+
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.Equal(ShellHelper.GetDefaultShell(), resolved);
+            }
+            else
+            {
+                Assert.Equal("./tools/shell", resolved);
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>Writes a file that is actually executable, so a probe of it means something.</summary>
+    private static void WriteExecutable(string path, string contents = "")
+    {
+        File.WriteAllText(path, contents);
+
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(
+                path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
         }
     }
 }
