@@ -1730,6 +1730,14 @@ namespace NovaTerminal
             return ResolvePaneForTab(tabItem)?.PaneId;
         }
 
+        /// <summary>
+        /// Whether this tab is currently pane-zoomed - i.e. its content is one
+        /// pane rather than its split layout, so every other pane in the tab is
+        /// unrendered. Sits beside <see cref="GetZoomedPaneIdForTab"/> because
+        /// the agent observe light needs both halves of that answer.
+        /// </summary>
+        internal bool IsPaneZoomActiveForTab(TabItem tabItem) => _paneZoomStateByTab.ContainsKey(tabItem);
+
         internal Guid? GetZoomedPaneIdForTab(TabItem tabItem)
         {
             if (_zoomedPaneIdByTab.TryGetValue(tabItem, out var paneId))
@@ -3804,17 +3812,72 @@ namespace NovaTerminal
         ///    unprovable case reports rather than hides. The cost of being
         ///    wrong here is at worst a redundant light next to a visible
         ///    segment; the cost the other way is a silent read.
+        /// 4. The pane is actable and in the selected tab, but that tab is
+        ///    pane-zoomed onto a *different* pane. Zoom replaces the tab
+        ///    content with the single zoomed pane (EnterPaneZoom), so the
+        ///    selected-tab test above stops meaning "rendered": every
+        ///    non-zoomed sibling still matches the selected tab id while
+        ///    showing its segment to nobody. Without this the failure is the
+        ///    familiar silent one - a read of the hidden sibling has no bar
+        ///    (unrendered), no tab glyph (reads reach the tab strip only under
+        ///    the non-default "All" rollup) and no window light, and the
+        ///    Watched tier decays in ~3 s, so un-zooming a moment later shows
+        ///    nothing either.
         ///
-        /// A pane whose segment *is* on screen (actable, in the selected tab)
-        /// returns false: it already says "agent reading" itself, and lighting
-        /// the window too would double-report the same event.
+        /// A pane whose segment *is* on screen (actable, in the selected tab,
+        /// and either not zoomed away or the zoomed pane itself) returns false:
+        /// it already says "agent reading" itself, and lighting the window too
+        /// would double-report the same event.
         /// </summary>
         internal static bool IsPaneReadInvisibleWithoutWindowLight(
-            bool isAgentActable, Guid? paneTabId, Guid? selectedTabId)
+            bool isAgentActable, Guid? paneTabId, Guid? selectedTabId, bool paneHiddenByZoom)
         {
             if (!isAgentActable) return true;
             if (!paneTabId.HasValue) return true;
-            return paneTabId.Value != selectedTabId;
+            if (paneTabId.Value != selectedTabId) return true;
+            return paneHiddenByZoom;
+        }
+
+        /// <summary>
+        /// The window-state half of the decision: resolves which tab's content
+        /// is actually rendered, and which pane inside it is, then applies the
+        /// pure rule above to one registration.
+        ///
+        /// The selected tab id is resolved the same way every other tab-id
+        /// consumer in this file does it, so a pane's stored TabId and this are
+        /// comparable by construction. Zoom is read from the same two maps
+        /// EnterPaneZoom/ExitPaneZoom maintain.
+        ///
+        /// A separate method rather than an inline lambda so the zoom wiring
+        /// can be tested: RefreshAgentObserveIndicator's own visible output is
+        /// gated on AgentHostService.Instance.IsRunning, which a test must not
+        /// turn on (it would start a real IPC endpoint in the shared test
+        /// process).
+        /// </summary>
+        internal bool IsPaneReadInvisibleWithoutWindowLight(AgentHost.AgentSessionRegistration registration)
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            var selectedTab = tabs?.SelectedItem as TabItem;
+            Guid? selectedTabId = selectedTab != null ? GetPersistentTabId(selectedTab) : null;
+
+            // Pane zoom breaks the "selected tab == rendered" equivalence:
+            // EnterPaneZoom swaps the tab content for the single zoomed pane,
+            // so the split siblings are off screen while still carrying the
+            // selected tab id.
+            //
+            // zoomedPaneId comes back null only if the two zoom maps ever
+            // disagreed, which they are written not to; if they did, every pane
+            // in the tab compares unequal and is treated as hidden. That is the
+            // direction this feature must fail in - a redundant light, never a
+            // silent read.
+            bool selectedTabIsZoomed = selectedTab != null && IsPaneZoomActiveForTab(selectedTab);
+            Guid? zoomedPaneId = selectedTab != null ? GetZoomedPaneIdForTab(selectedTab) : null;
+
+            return IsPaneReadInvisibleWithoutWindowLight(
+                registration.IsAgentActable,
+                registration.TabId,
+                selectedTabId,
+                paneHiddenByZoom: selectedTabIsZoomed && registration.PaneId != zoomedPaneId);
         }
 
         /// <summary>Applies <see cref="ComputeObserveIndicatorState"/> to the chrome. UI thread.</summary>
@@ -3826,18 +3889,10 @@ namespace NovaTerminal
 
             var service = AgentHost.AgentHostService.Instance;
 
-            // Which tab's content is actually rendered right now. Resolved the
-            // same way every other tab-id consumer in this file does it, so a
-            // pane's stored TabId and this are comparable by construction.
-            var tabs = this.FindControl<TabControl>("Tabs");
-            Guid? selectedTabId = tabs?.SelectedItem is TabItem selectedTab
-                ? GetPersistentTabId(selectedTab)
-                : null;
-
             // "Unmarked" = the pane shows no agent segment the user can see
             // right now, so this light is the only place its read can appear.
             bool anyUnmarkedPaneWatched = AgentHost.AgentSessionRegistry.Instance.GetRegistrations()
-                .Any(r => IsPaneReadInvisibleWithoutWindowLight(r.IsAgentActable, r.TabId, selectedTabId)
+                .Any(r => IsPaneReadInvisibleWithoutWindowLight(r)
                     && r.AttentionMachine.Snapshot().Tier == AgentHost.AgentAttentionTier.Watched);
 
             var (visible, active) = ComputeObserveIndicatorState(

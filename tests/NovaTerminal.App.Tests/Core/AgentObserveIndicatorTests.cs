@@ -5,6 +5,9 @@ using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using NovaTerminal.AgentHost;
+using NovaTerminal.Controls;
+using NovaTerminal.Pty;
+using NovaTerminal.Shell;
 
 namespace NovaTerminal.Tests.Core;
 
@@ -89,9 +92,11 @@ public class AgentObserveIndicatorTests
         // No act permission, no segment at all — the tab it sits in is beside
         // the point.
         Assert.True(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
-            isAgentActable: false, paneTabId: SelectedTab, selectedTabId: SelectedTab));
+            isAgentActable: false, paneTabId: SelectedTab, selectedTabId: SelectedTab,
+            paneHiddenByZoom: false));
         Assert.True(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
-            isAgentActable: false, paneTabId: OtherTab, selectedTabId: SelectedTab));
+            isAgentActable: false, paneTabId: OtherTab, selectedTabId: SelectedTab,
+            paneHiddenByZoom: false));
     }
 
     [Fact]
@@ -100,7 +105,8 @@ public class AgentObserveIndicatorTests
         // Its segment is on screen and says "agent reading" itself; lighting
         // the window too would double-report one event.
         Assert.False(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
-            isAgentActable: true, paneTabId: SelectedTab, selectedTabId: SelectedTab));
+            isAgentActable: true, paneTabId: SelectedTab, selectedTabId: SelectedTab,
+            paneHiddenByZoom: false));
     }
 
     [Fact]
@@ -117,7 +123,8 @@ public class AgentObserveIndicatorTests
         // Note the direction of the old failure: the *more* permission a pane
         // was granted, the *less* visible reading it became.
         Assert.True(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
-            isAgentActable: true, paneTabId: OtherTab, selectedTabId: SelectedTab));
+            isAgentActable: true, paneTabId: OtherTab, selectedTabId: SelectedTab,
+            paneHiddenByZoom: false));
     }
 
     [Fact]
@@ -130,7 +137,53 @@ public class AgentObserveIndicatorTests
         // Worst case that is one redundant light; the other choice risks a
         // silent read.
         Assert.True(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
-            isAgentActable: true, paneTabId: null, selectedTabId: SelectedTab));
+            isAgentActable: true, paneTabId: null, selectedTabId: SelectedTab,
+            paneHiddenByZoom: false));
+    }
+
+    [Fact]
+    public void An_actable_pane_zoomed_away_inside_the_selected_tab_is_unmarked()
+    {
+        // Pane zoom breaks the equivalence the tab test rests on. A tab holding
+        // two split panes, both actable; the user zooms pane A. EnterPaneZoom
+        // replaces the tab content with A alone, so B is not rendered - yet B
+        // still carries the selected tab id, so on the tab test alone it looked
+        // "marked". An agent read of B then appeared nowhere: no bar (B is not
+        // rendered), no tab glyph (reads reach the tab strip only under the
+        // non-default "All" rollup), no window light. The Watched tier decays
+        // in ~3 s, so un-zooming a moment later showed nothing either.
+        Assert.True(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
+            isAgentActable: true, paneTabId: SelectedTab, selectedTabId: SelectedTab,
+            paneHiddenByZoom: true));
+    }
+
+    [Fact]
+    public void The_zoomed_pane_itself_stays_marked()
+    {
+        // The half that must not regress. The zoomed pane is the one thing on
+        // screen, so its segment says "agent reading" itself; lighting the
+        // window as well would double-report the same read.
+        Assert.False(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
+            isAgentActable: true, paneTabId: SelectedTab, selectedTabId: SelectedTab,
+            paneHiddenByZoom: false));
+    }
+
+    [Fact]
+    public void Zoom_cannot_rescue_a_pane_that_is_invisible_for_another_reason()
+    {
+        // paneHiddenByZoom is the last word only for a pane that got past the
+        // earlier gates. A non-actable pane, an unassociated one, or one in an
+        // unselected tab stays unmarked no matter what the zoom flag says -
+        // the flag can only ever take visibility away, never grant it.
+        Assert.True(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
+            isAgentActable: false, paneTabId: SelectedTab, selectedTabId: SelectedTab,
+            paneHiddenByZoom: false));
+        Assert.True(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
+            isAgentActable: true, paneTabId: null, selectedTabId: SelectedTab,
+            paneHiddenByZoom: false));
+        Assert.True(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
+            isAgentActable: true, paneTabId: OtherTab, selectedTabId: SelectedTab,
+            paneHiddenByZoom: false));
     }
 
     [Fact]
@@ -139,7 +192,8 @@ public class AgentObserveIndicatorTests
         // No selected tab means no tab content is rendered, so no segment is
         // visible anywhere.
         Assert.True(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
-            isAgentActable: true, paneTabId: OtherTab, selectedTabId: null));
+            isAgentActable: true, paneTabId: OtherTab, selectedTabId: null,
+            paneHiddenByZoom: false));
     }
 
     [AvaloniaFact]
@@ -165,7 +219,8 @@ public class AgentObserveIndicatorTests
             Assert.False(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
                 isAgentActable: true,
                 paneTabId: registration.TabId,
-                selectedTabId: window.GetPersistentTabId(firstTab)));
+                selectedTabId: window.GetPersistentTabId(firstTab),
+                paneHiddenByZoom: false));
 
             // Select a different tab and the same pane becomes unmarked: its
             // segment is now in unrendered tab content.
@@ -175,7 +230,8 @@ public class AgentObserveIndicatorTests
             Assert.True(MainWindow.IsPaneReadInvisibleWithoutWindowLight(
                 isAgentActable: true,
                 paneTabId: registration.TabId,
-                selectedTabId: window.GetPersistentTabId(secondTab)));
+                selectedTabId: window.GetPersistentTabId(secondTab),
+                paneHiddenByZoom: false));
         });
     }
 
@@ -235,6 +291,105 @@ public class AgentObserveIndicatorTests
             try { Directory.Delete(tempRoot, recursive: true); } catch { /* best effort */ }
         }
     }
+
+    [AvaloniaFact]
+    public void Zooming_one_split_pane_unmarks_its_siblings_and_leaves_the_zoomed_one_marked()
+    {
+        // The wiring, not the rule. The pure cases above would pass unchanged
+        // if RefreshAgentObserveIndicator never looked at the zoom maps at all,
+        // so this drives the real thing: a real split tab, the real
+        // EnterPaneZoom the zoom command calls, and the two real registrations
+        // the panes created for themselves.
+        //
+        // It stops at the visibility decision rather than at the lit indicator
+        // because the indicator is gated on AgentHostService.Instance.IsRunning,
+        // and turning that on would start a real IPC endpoint inside the shared
+        // test process. The tier half of the light is covered by the theory at
+        // the top of this file.
+        RunIsolated(window =>
+        {
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            var splitTab = AddSplitTab(window, out var zoomedPane, out var hiddenPane);
+            tabs.SelectedItem = splitTab;
+
+            var zoomedReg = RegistrationFor(zoomedPane);
+            var hiddenReg = RegistrationFor(hiddenPane);
+            zoomedReg.IsAgentActable = true;
+            hiddenReg.IsAgentActable = true;
+
+            // Un-zoomed: both panes are rendered side by side, both carry a
+            // visible segment, so neither needs the window light.
+            Assert.False(window.IsPaneReadInvisibleWithoutWindowLight(zoomedReg));
+            Assert.False(window.IsPaneReadInvisibleWithoutWindowLight(hiddenReg));
+
+            EnterZoom(window, splitTab, zoomedPane);
+
+            // The zoomed pane is the only thing on screen: still marked, so the
+            // light does not double-report its reads.
+            Assert.False(window.IsPaneReadInvisibleWithoutWindowLight(zoomedReg));
+            // Its sibling is gone from the screen while still sitting in the
+            // selected tab. This is the case the tab test alone got wrong.
+            Assert.True(window.IsPaneReadInvisibleWithoutWindowLight(hiddenReg));
+        });
+    }
+
+    /// <summary>
+    /// Builds a tab holding a real two-pane split — the shape
+    /// <c>SessionManager.CreateRestoredTabItem</c> produces from a
+    /// <c>NodeType.Split</c> root — and runs it through the production
+    /// <c>InitializeRestoredTabs</c> so the panes are wired to the window and
+    /// their registrations are associated with the tab.
+    /// </summary>
+    private static TabItem AddSplitTab(MainWindow window, out TerminalPane first, out TerminalPane second)
+    {
+        var settings = (TerminalSettings)typeof(MainWindow)
+            .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(window)!;
+
+        var session = new TabSession
+        {
+            Title = "Split",
+            Root = new PaneNode
+            {
+                Type = NodeType.Split,
+                SplitOrientation = 0,
+                Children =
+                {
+                    new PaneNode { Type = NodeType.Leaf, Command = "cmd.exe", Arguments = string.Empty, PaneId = Guid.NewGuid().ToString() },
+                    new PaneNode { Type = NodeType.Leaf, Command = "cmd.exe", Arguments = string.Empty, PaneId = Guid.NewGuid().ToString() }
+                },
+                Sizes = { "1*", "1*" }
+            }
+        };
+
+        var tab = SessionManager.CreateRestoredTabItem(session, settings)!;
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        tabs.Items.Add(tab);
+
+        typeof(MainWindow)
+            .GetMethod("InitializeRestoredTabs", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(window, new object[] { tabs });
+
+        // RestorePaneTree builds [child0, GridSplitter, child1]; OfType filters
+        // the splitter out and preserves order.
+        var panes = ((Grid)tab.Content!).Children.OfType<TerminalPane>().ToList();
+        Assert.Equal(2, panes.Count);
+        first = panes[0];
+        second = panes[1];
+        return tab;
+    }
+
+    /// <summary>Drives the production zoom path the zoom command uses.</summary>
+    private static void EnterZoom(MainWindow window, TabItem tab, TerminalPane pane)
+    {
+        var entered = (bool)typeof(MainWindow)
+            .GetMethod("EnterPaneZoom", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(window, new object[] { tab, pane, true })!;
+        Assert.True(entered, "Test setup failed: EnterPaneZoom refused to zoom the pane.");
+    }
+
+    private static AgentSessionRegistration RegistrationFor(TerminalPane pane)
+        => Assert.Single(AgentSessionRegistry.Instance.GetRegistrations().Where(r => r.PaneId == pane.PaneId));
 
     private static TabItem AddBareTab(MainWindow window, string title)
     {
