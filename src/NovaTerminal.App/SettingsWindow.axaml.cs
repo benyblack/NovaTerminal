@@ -5,6 +5,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using NovaTerminal.Shell;
 using NovaTerminal.Platform;
+using NovaTerminal.Pty;
 using NovaTerminal.VT;
 using System;
 using System.Collections.Generic;
@@ -421,7 +422,9 @@ namespace NovaTerminal
             {
                 btnAddProfile.Click += (s, e) =>
                 {
-                    var newProfile = new TerminalProfile { Name = "New Profile", Command = "cmd.exe", Type = ConnectionType.Local };
+                    // Seeded with this platform's shell, not cmd.exe: on Linux and macOS the
+                    // latter gave every freshly added profile a command that cannot spawn.
+                    var newProfile = new TerminalProfile { Name = "New Profile", Command = ShellHelper.GetDefaultShell(), Type = ConnectionType.Local };
                     _profilesList.Add(newProfile);
                     PopulateProfilesList();
                     if (profilesListBox != null) profilesListBox.SelectedIndex = _profilesList.Count - 1;

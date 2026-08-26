@@ -401,6 +401,43 @@ public sealed class NewSshConnectionViewModelTests
     }
 
     [Fact]
+    public void ToSshProfile_WithNoBackendPrimed_FollowsTheGlobalToggle()
+    {
+        // The default backend for a new profile tracks the native toggle: Native where native is
+        // enabled, OpenSSH where it is not — a default must never point at a backend that would
+        // refuse to connect. (The dialog primes BackendKind the same way before showing; this
+        // fallback is for any caller that skips the priming.)
+        var enabled = new NewSshConnectionViewModel
+        {
+            HostName = "flip.internal",
+            ExperimentalNativeSshEnabled = true
+        };
+        var disabled = new NewSshConnectionViewModel
+        {
+            HostName = "flip.internal",
+            ExperimentalNativeSshEnabled = false
+        };
+
+        Assert.Equal(SshBackendKind.Native, enabled.ToSshProfile().BackendKind);
+        Assert.Equal(SshBackendKind.OpenSsh, disabled.ToSshProfile().BackendKind);
+    }
+
+    [Fact]
+    public void ToSshProfile_KeepsAnExplicitBackendChoiceOverTheDefault()
+    {
+        // Only the unset case is defaulted. A profile explicitly on OpenSSH stays there no matter
+        // what the toggle says — existing profiles are never re-defaulted.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "explicit.internal",
+            ExperimentalNativeSshEnabled = true,
+            BackendKind = SshBackendKind.OpenSsh
+        };
+
+        Assert.Equal(SshBackendKind.OpenSsh, vm.ToSshProfile().BackendKind);
+    }
+
+    [Fact]
     public void BackendWarning_ForNativeProfileWithMux_NamesTheIgnoredSetting()
     {
         // Mux (ControlMaster) drives the OpenSSH client; the native backend has no equivalent.

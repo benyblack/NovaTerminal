@@ -130,35 +130,6 @@ namespace NovaTerminal.Tests
             Assert.True(session.IsProcessRunning, "a shell sitting at its prompt is still running");
         }
 
-        /// Tees <see cref="NovaTerminal.Pty.PtyLogger"/> into a string for the duration of a
-        /// test, so an assertion can attach what the session actually did. These sessions
-        /// drive real shells, and their failures are timing-shaped: without the log a failure
-        /// tells you the code was wrong and nothing about why.
-        private sealed class PtyLogCapture : IDisposable
-        {
-            private readonly System.Text.StringBuilder _log = new();
-            private readonly Action<NovaTerminal.Pty.PtyLogLevel, string>? _previous;
-
-            private PtyLogCapture()
-            {
-                _previous = NovaTerminal.Pty.PtyLogger.Sink;
-                NovaTerminal.Pty.PtyLogger.Sink = (level, message) =>
-                {
-                    lock (_log) { _log.AppendLine($"[{level}] {message}"); }
-                    _previous?.Invoke(level, message);
-                };
-            }
-
-            public static PtyLogCapture Attach() => new();
-
-            public void Dispose() => NovaTerminal.Pty.PtyLogger.Sink = _previous;
-
-            public override string ToString()
-            {
-                lock (_log) { return _log.ToString(); }
-            }
-        }
-
         private static RustPtySession NewSession()
         {
             return new RustPtySession(

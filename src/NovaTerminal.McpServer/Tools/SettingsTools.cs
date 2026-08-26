@@ -55,7 +55,7 @@ public static class SettingsTools
         | `ShellExitPolicy` | string (enum-like) | "Never"/"Graceful"/"Always". Default "Graceful". What happens to a pane when its shell exits: keep it with a banner, close it on a clean exit, or always close it. "Graceful" closes the pane on exit code 0 only, so closing the last pane of the last tab quits the app the way `exit` does in any terminal. SSH panes ignore this and always keep their reconnect banner. Type-checked only; unrecognised values behave as "Never" (a typo must not be more destructive than the default). |
         | `QuakeModeEnabled` | bool | Default true. |
         | `GlobalHotkey` | string | Default "Alt+OemTilde". |
-        | `ExperimentalNativeSshEnabled` | bool | Default false. |
+        | `ExperimentalNativeSshEnabled` | bool | Default true. |
         | `AgentAccessObserveEnabled` | bool | Default false. Enables the local agent-host observe endpoint (read-only session access for AI agents). |
         | `AgentReplayExportEnabled` | bool | Default false. Sub-gate on top of the observe toggle: allows agents to export a session's recent output as a replay file (output + resizes only, never input). |
         | `AgentScreenshotEnabled` | bool | Default false. Sub-gate on top of the observe toggle: allows agents to render a session to a PNG image (novaterminal.capture_screen). |

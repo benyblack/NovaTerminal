@@ -99,6 +99,10 @@ namespace NovaTerminal.Pty
         private int _childExitObserved;
         private int _childExitCode;
 
+        // Set the first time the child-status probe fails, so the condition is reported once
+        // per session instead of once per poll. See the catch in TryCaptureChildExit.
+        private int _probeFailureLogged;
+
         /// True once the child shell has been observed to have exited. The read loop uses
         /// this to stop counting read failures: once the shell is gone, a failing read is
         /// the expected consequence of cancelling it, not a session failure worth reporting
@@ -171,7 +175,7 @@ namespace NovaTerminal.Pty
 
             try
             {
-                if (Native.pty_try_get_exit_code(_handle, out int code) != 1)
+                if (_tryGetExitCode(_handle, out int code) != 1)
                 {
                     return false;
                 }
@@ -184,6 +188,45 @@ namespace NovaTerminal.Pty
             catch (ObjectDisposedException)
             {
                 return false; // handle released under us — Dispose owns the teardown
+            }
+            catch (Exception ex)
+            {
+                // An interop failure is a status we could not learn, not a session failure -
+                // exactly what a native -1 already means here, and already handled as such
+                // downstream. Letting it escape cost far more than the status, because this is
+                // called from three places: the exit watcher, the read loop's EOF/error
+                // branches, and ResolveExitCodeForNotification - whose call site in ProcessLoop
+                // sits *outside* that loop's try/catch. So a single throw killed the watcher on
+                // its first tick (silently reverting the session to the EOF-only detection #313
+                // exists to replace) and then took the exit notification with it as an unhandled
+                // exception on a dedicated thread, which a test host reports as a catastrophic
+                // failure of the entire run rather than as anything to do with this session.
+                //
+                // The failure that prompted this: a stale rusty_pty build in a test output
+                // directory, exporting every other pty_* function but predating
+                // pty_try_get_exit_code, throws EntryPointNotFoundException from this call. A
+                // session cannot repair its own native library; it can say so and carry on with
+                // the status unknown.
+                // Logged once per session, not once per call. A missing export does not heal, and
+                // the watcher polls every ChildExitPollIntervalMs for the life of the pane (the EOF
+                // resolver adds one every ChildStatusPollMs on top), so formatting the full
+                // exception every time turned graceful degradation into roughly five error records
+                // a second, indefinitely, for a single idle affected pane - a flood that buries the
+                // rest of the log precisely while the session is coping (Codex review on #341).
+                //
+                // Suppressing rather than demoting to Debug: the sink's minimum level is the host's
+                // choice, so a Debug line is still a flood wherever debug logging is on. The first
+                // message says that further failures are silent, so the log does not imply the
+                // condition healed.
+                if (Interlocked.Exchange(ref _probeFailureLogged, 1) == 0)
+                {
+                    PtyLogger.Error(
+                        "[RustPtySession] Child status probe failed; treating the child's exit status as"
+                        + " unknown. Further probe failures on this session are not logged: "
+                        + ex);
+                }
+
+                return false;
             }
         }
 
@@ -606,6 +649,16 @@ namespace NovaTerminal.Pty
 
         private readonly PtyReadDelegate _readFromPty;
 
+        /// The native child-status probe, injectable for the same reason as
+        /// <see cref="PtyReadDelegate"/>: `pty_try_get_exit_code` is a static P/Invoke, so
+        /// without a seam here the interop-failure handling in
+        /// <see cref="TryCaptureChildExit"/> is unreachable from a test. Returns 1 with
+        /// `exitCode` set once the child has gone, 0 while it is running, and -1 when the
+        /// status cannot be determined.
+        internal delegate int PtyTryGetExitCodeDelegate(PtySafeHandle handle, out int exitCode);
+
+        private readonly PtyTryGetExitCodeDelegate _tryGetExitCode;
+
         public RustPtySession(
             string shellCommand,
             int cols = 120,
@@ -622,15 +675,18 @@ namespace NovaTerminal.Pty
                 cwd,
                 skipPowerShellPostLaunchInit,
                 environmentOverrides,
-                readFromPty: null)
+                readFromPty: null,
+                tryGetExitCode: null)
         {
         }
 
-        /// Test-facing constructor. Identical to the public one except that the PTY read
-        /// call can be substituted: `Native.pty_read` is a static P/Invoke, so without a
-        /// seam here the read loop's error handling (bounded retry, teardown, failure exit
-        /// code) is unreachable from a test. The session still spawns a real shell, so the
-        /// teardown path is exercised against a real handle and a real child process.
+        /// Test-facing constructor. Identical to the public one except that the two native
+        /// calls the background loops depend on can be substituted: `Native.pty_read` and
+        /// `Native.pty_try_get_exit_code` are static P/Invokes, so without a seam here the
+        /// read loop's error handling (bounded retry, teardown, failure exit code) and the
+        /// child-status probe's interop-failure handling are unreachable from a test. The
+        /// session still spawns a real shell, so the teardown path is exercised against a
+        /// real handle and a real child process.
         internal RustPtySession(
             string shellCommand,
             int cols,
@@ -639,7 +695,8 @@ namespace NovaTerminal.Pty
             string? cwd,
             bool skipPowerShellPostLaunchInit,
             IReadOnlyDictionary<string, string>? environmentOverrides,
-            PtyReadDelegate? readFromPty)
+            PtyReadDelegate? readFromPty,
+            PtyTryGetExitCodeDelegate? tryGetExitCode = null)
         {
             // Validate before anything else: everything below either marshals these strings
             // to the native layer or derives from them. A bad value must fail here with a
@@ -657,6 +714,7 @@ namespace NovaTerminal.Pty
             }
 
             _readFromPty = readFromPty ?? Native.pty_read;
+            _tryGetExitCode = tryGetExitCode ?? Native.pty_try_get_exit_code;
             ShellCommand = shellCommand;
             ShellArguments = args;
             _cols = cols;
@@ -1019,7 +1077,7 @@ namespace NovaTerminal.Pty
                     // The cost of this ordering is that subscribers observe the exit a few
                     // microseconds before the handle is released. That is the lesser evil: a
                     // brief window versus a permanently wrong exit code.
-                    TryNotifyExit(ReadFailureExitCode);
+                    TryNotifyExitSafely(() => ReadFailureExitCode);
 
                     // Then tear down. Reporting the exit alone would leave the UI recording
                     // a terminated session while the child process, the writer thread and
@@ -1145,7 +1203,9 @@ namespace NovaTerminal.Pty
                 PtyLogger.Error($"[RustPtySession] ProcessLoop terminated by unhandled exception: {ex}");
             }
             // The child's real status, waited for briefly if EOF got here first (#313, #323).
-            TryNotifyExit(ResolveExitCodeForNotification());
+            // Guarded: this line runs after the catch-alls above, so it is the one place in this
+            // loop where a throw would escape the thread. See TryNotifyExitSafely.
+            TryNotifyExitSafely(ResolveExitCodeForNotification);
         }
 
         public void SendInput(string input)
@@ -1303,7 +1363,7 @@ namespace NovaTerminal.Pty
             // No bounded wait here, unlike ProcessLoop (#323): reaching this line means the pane
             // is being torn down, so the user is closing a tab and a snappy close matters more
             // than an exit code nobody will look at.
-            TryNotifyExit(ChildExitObserved ? Volatile.Read(ref _childExitCode) : 0);
+            TryNotifyExitSafely(() => ChildExitObserved ? Volatile.Read(ref _childExitCode) : 0);
         }
 
         /// Observes the injection task's outcome and removes its script if the shell
@@ -1355,6 +1415,35 @@ namespace NovaTerminal.Pty
             {
                 // Best effort: a leftover temp script must never fail a disposal.
                 PtyLogger.Warning($"[RustPtySession] PS init script cleanup failed: {ex.Message}");
+            }
+        }
+
+        /// Resolves and notifies the exit without letting the attempt escape the caller.
+        ///
+        /// Both halves can throw for reasons the session does not control: the resolver polls the
+        /// native layer, and TryNotifyExit raises OnExit, which is arbitrary subscriber code. This
+        /// class deliberately does not guard event invocation itself - OnOutputReceived is raised
+        /// bare too - because the background loops' catch-alls are where subscriber exceptions are
+        /// contained. The exit notification was the one call sitting outside that protection, and
+        /// the cost differed by caller:
+        ///
+        ///   * ProcessLoop calls it after its try/catch, so a throw escaped a dedicated thread -
+        ///     terminating the process rather than the session.
+        ///   * ReadLoop calls it from its `finally` on the read-failure path, ahead of the
+        ///     teardown that cancels the token and completes the output queue. A throw escaped the
+        ///     whole try statement and took that teardown with it, leaving the session half-alive
+        ///     with ProcessLoop parked on a queue nobody would complete.
+        ///   * Dispose calls it last, where nothing is skipped - but a throwing handler still has
+        ///     no business making `using (session)` throw.
+        private void TryNotifyExitSafely(Func<int> resolveCode)
+        {
+            try
+            {
+                TryNotifyExit(resolveCode());
+            }
+            catch (Exception ex)
+            {
+                PtyLogger.Error($"[RustPtySession] Exit notification failed: {ex}");
             }
         }
 

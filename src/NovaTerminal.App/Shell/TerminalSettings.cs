@@ -93,7 +93,11 @@ namespace NovaTerminal.Shell
         public bool CommandAssistPassiveBubbleEnabled { get; set; } = true;
         public bool CommandAssistShellIntegrationEnabled { get; set; } = true;
         public bool CommandAssistPowerShellIntegrationEnabled { get; set; } = true;
-        public bool ExperimentalNativeSshEnabled { get; set; } = false;
+        // On by default since the native backend reached parity (agent auth, jump chains, all
+        // three forward kinds, SFTP) and every gap warns instead of degrading silently. Users
+        // whose settings.json already stores an explicit false keep it — this default only
+        // reaches fresh installs and settings files predating the field.
+        public bool ExperimentalNativeSshEnabled { get; set; } = true;
         // Agent-host observe surface (docs/agent-host/DIRECTION.md, milestone A1).
         // Off by default: when false, no local IPC endpoint exists at all and AI
         // agents cannot read any terminal session. Observe-only in v1 — there is
@@ -249,9 +253,13 @@ namespace NovaTerminal.Shell
             {
                 // Cross-platform polish: If we don't have any profile that matches a known shell for this OS,
                 // add the defaults for this OS so the user isn't stuck with invalid shells from another OS.
+                // "Usable here" means the command is not addressed to another OS - the same
+                // predicate the restore and launch paths use. It used to mean "the command exists",
+                // which made this disagree with them: a profile they would happily open could still
+                // be judged unusable here, and vice versa.
                 bool nativeShellsFound = settings.Profiles.Exists(p =>
                     p.Type == ConnectionType.Local &&
-                    (File.Exists(p.Command) || ShellHelper.InPath(p.Command)));
+                    !ShellHelper.IsCommandForAnotherPlatform(p.Command));
 
                 if (!nativeShellsFound)
                 {
@@ -283,12 +291,17 @@ namespace NovaTerminal.Shell
                 var currentDefault = settings.Profiles.Find(p => p.Id == settings.DefaultProfileId);
                 if (currentDefault != null && currentDefault.Type == ConnectionType.Local)
                 {
-                    bool exists = File.Exists(currentDefault.Command) || ShellHelper.InPath(currentDefault.Command);
-                    if (!exists)
+                    // Reassigning someone's default profile is not a small thing to do silently, so
+                    // it now happens only when the command could not run on this OS at all. The
+                    // existence check reached much further than that: a default whose command was a
+                    // quoted path, or carried inline arguments, was swapped out even though opening
+                    // it worked - which is what made the same profile behave differently depending on
+                    // whether it was the default or picked from a session.
+                    if (ShellHelper.IsCommandForAnotherPlatform(currentDefault.Command))
                     {
                         var better = settings.Profiles.Find(p =>
                             p.Type == ConnectionType.Local &&
-                            (File.Exists(p.Command) || ShellHelper.InPath(p.Command)));
+                            !ShellHelper.IsCommandForAnotherPlatform(p.Command));
 
                         if (better != null)
                         {
