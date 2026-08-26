@@ -473,12 +473,13 @@ namespace NovaTerminal.AgentHost
             // AgentSessionRegistration._isAgentActable defaults to false, so
             // without this a pane created while act is on is laid out with no
             // status bar and only learns otherwise at the next 1 s sweep tick.
-            // That flips IsAgentActable -> ActabilityChanged ->
-            // ApplyAgentAttention -> UpdateStatusBarVisibility, the 22 px bar
-            // appears, and the terminal row shrinks — reflowing the PTY about a
-            // second after the pane opened, right on top of whatever full-screen
-            // TUI the user just started. The design allows exactly one reflow,
-            // at permission-toggle time, and that is a deliberate user action;
+            // At that point, flipping `IsAgentActable` raises `ActabilityChanged`,
+            // which reaches `ApplyAgentAttention` and then
+            // `UpdateStatusBarVisibility`, so the 22 px bar appears and the
+            // terminal row shrinks — reflowing the PTY about a second after the
+            // pane opened, right on top of whatever full-screen TUI the user
+            // just started. The design allows exactly one reflow, at
+            // permission-toggle time, and that is a deliberate user action;
             // this is not.
             //
             // Guarded for the same reason SweepStatuses guards its call: this
