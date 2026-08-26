@@ -77,8 +77,10 @@ namespace NovaTerminal.Pty
         /// </summary>
         /// <remarks>
         /// Judged on the shape of the name alone - no filesystem access, no launcher emulation.
-        /// Deliberately conservative: it fires only on signals that cannot mean anything else, so a
-        /// command it does not recognise is left alone rather than replaced. Missing the occasional
+        /// Deliberately conservative: it fires only on signals that do not plausibly mean anything
+        /// else, so a command it does not recognise is left alone rather than replaced. "Plausibly"
+        /// is doing real work there - see <see cref="UnixFilesystemRoots"/>, where one entry is a
+        /// probability judgement rather than an impossibility. Missing the occasional
         /// foreign command costs a spawn failure the user can read; a false positive silently swaps
         /// out a command that works.
         ///
@@ -142,14 +144,12 @@ namespace NovaTerminal.Pty
         /// Not simply "starts with a slash", which was the first attempt and is wrong on Windows: a
         /// leading slash there means rooted-on-the-current-drive, and the path APIs accept <c>/</c>
         /// as a separator throughout, so <c>/Windows/System32/cmd.exe</c> is a real command that
-        /// launches - measured with <c>CreateProcessW</c> on Windows, pid and all. Flagging it broke
-        /// the rule this predicate is supposed to keep, that it fires only on signals which cannot
-        /// mean anything else. Note the old rule was also inconsistent with itself: the backslash
+        /// launches - measured with <c>CreateProcessW</c> on Windows, pid and all. Note the old rule
+        /// was also inconsistent with itself: the backslash
         /// spelling of the same drive-relative path was kept while the forward-slash spelling was
         /// substituted, and both launch.
         ///
-        /// Requiring a recognisably Unix first segment keeps the rule honest and still catches every
-        /// realistic case - GetDefaultShell on Unix only ever returns a <c>/bin/</c> path, and
+        /// Requiring a recognisably Unix first segment still catches every realistic case - GetDefaultShell on Unix only ever returns a <c>/bin/</c> path, and
         /// configured shells live under these roots. A path under some other root falls through and
         /// fails visibly, which is the trade made everywhere else here.
         /// </remarks>
@@ -163,10 +163,33 @@ namespace NovaTerminal.Pty
             return false;
         }
 
-        /// <summary>Roots that exist on Unix and not on Windows. Case-insensitive at the point of
-        /// use, since the comparison happens on a Windows machine.</summary>
+        /// <summary>Roots that name a Unix location and, in practice, not a Windows one.</summary>
+        /// <remarks>
+        /// "In practice" rather than "never", because a leading slash on Windows is rooted on the
+        /// current drive, so each of these is also a spellable Windows path. Every entry was checked
+        /// against a real Windows filesystem for a collision before being listed, and one collides:
+        /// <c>C:\home\</c> existed on the machine this was verified on, created by some dev tool. So
+        /// <c>/home/tools/shell.exe</c> would be substituted there even though it is launchable.
+        ///
+        /// <c>/home/</c> stays anyway, on a probability judgement rather than a principle: it is the
+        /// most common Linux home root and nobody writes a Windows profile command that way. That
+        /// makes this list a considered trade, not an invariant - which is why the remarks on
+        /// <see cref="LooksLikeAUnixCommand"/> no longer claim these signals cannot mean anything
+        /// else.
+        ///
+        /// <c>/run/</c> is here for NixOS, whose configured system shell is
+        /// <c>/run/current-system/sw/bin/bash</c> rather than a <c>/nix/store/</c> path.
+        ///
+        /// Deliberately absent: <c>/Users/</c>. It looks like the obvious companion to
+        /// <c>/home/</c> for macOS, and it is the one entry that must not be added -
+        /// <c>C:\Users\</c> exists on every Windows machine, so it would recreate exactly the
+        /// false-positive class this list was tightened to remove. The macOS home case is not
+        /// reachable this way; it falls through and fails visibly instead.
+        ///
+        /// Case-insensitive at the point of use, since the comparison happens on Windows.
+        /// </remarks>
         private static readonly string[] UnixFilesystemRoots =
-            { "/bin/", "/sbin/", "/usr/", "/opt/", "/etc/", "/home/", "/var/", "/snap/", "/nix/", "/Library/", "/System/" };
+            { "/bin/", "/sbin/", "/usr/", "/opt/", "/etc/", "/home/", "/var/", "/run/", "/snap/", "/nix/", "/Library/", "/System/" };
 
         /// <summary>Suffixes that mark an executable as Windows-addressed.</summary>
         /// <remarks>

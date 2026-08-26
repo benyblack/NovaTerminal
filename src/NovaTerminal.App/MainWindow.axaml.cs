@@ -4025,6 +4025,13 @@ namespace NovaTerminal
             //
             // The SSH branch below mutates too, and does not need this: GetConnectionProfile returns
             // a freshly converted runtime profile, not the stored instance.
+            //
+            // One consequence worth knowing, since the copy makes it observable where it was a no-op
+            // before: ApplySettingsRecursive re-binds a pane to the stored profile by id on any
+            // settings re-apply, so after e.g. a font change pane.Profile.Command reads the original
+            // foreign command again while the shell running is the substitute. Verified harmless -
+            // nothing respawns from Profile.Command (Reconnect passes ShellCommand, and TerminalPane
+            // never reads Profile.Command), and session capture writes the pane's actual command.
             if (profile.Type == ConnectionType.Local && ShellHelper.IsCommandForAnotherPlatform(profile.Command))
             {
                 profile = profile.ShallowCopy();

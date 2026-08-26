@@ -270,4 +270,29 @@ public sealed class ShellHelperResolutionTests
             ShellHelper.InPath(extensionless),
             $"'{extensionless}' should resolve through the implicit .exe, since '{shell}' is on PATH.");
     }
+
+    // NixOS keeps its configured system shell at /run/current-system/sw/bin/bash, not under
+    // /nix/store/, so the store root alone missed the path a NixOS profile actually holds.
+    [Fact]
+    public void IsCommandForAnotherPlatform_NixOsSystemShell_IsRecognised()
+    {
+        Assert.Equal(
+            OperatingSystem.IsWindows(),
+            ShellHelper.IsCommandForAnotherPlatform("/run/current-system/sw/bin/bash"));
+    }
+
+    // /Users/ must never join the root list: C:\Users\ exists on every Windows machine, so listing
+    // it would recreate the false-positive class the roots were tightened to remove. Windows
+    // verification confirmed Directory.Exists("/Users/<name>") is true there. The macOS home case is
+    // not reachable this way and is left to fail visibly.
+    [Fact]
+    public void IsCommandForAnotherPlatform_MacHomePath_IsNotTreatedAsAUnixRootOnWindows()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Skip("The collision this guards against is a Windows filesystem fact.");
+        }
+
+        Assert.False(ShellHelper.IsCommandForAnotherPlatform("/Users/someone/bin/myshell"));
+    }
 }
