@@ -797,15 +797,16 @@ namespace NovaTerminal
             Control? anchor = (Control?)button ?? (Control?)overflowButton ?? host;
             if (anchor == null) return;
 
-            // Only the dedicated button gets a persisted, get-or-create Flyout via its own Flyout
-            // property - TitleBarViewFactory does not give a pinned item button a MenuFlyout up
-            // front, so this is the first place one gets attached. The overflow button already owns
-            // its own MenuFlyout (the "..." menu built by TitleBarViewFactory.CreateOverflowButton);
-            // reusing that instance here would silently overwrite its contents the next time it
-            // opens, and the host StackPanel has no Flyout property at all, so a fallback anchor
-            // instead reuses a dedicated field that exists solely for this case.
+            // A pinned item's own button starts out with no popup menu attached, so this method is
+            // where one gets created and attached, the first time it is needed. The overflow ("...")
+            // button is different: it already carries its own popup, prebuilt to list whichever
+            // actions do not have a dedicated icon right now, and grabbing hold of that same popup
+            // here would silently replace those contents the next time someone opens the "..." menu.
+            // The panel hosting the title bar buttons cannot carry a popup at all. So whenever the
+            // anchor is not a pinned item's own button, this method falls back to one dedicated menu
+            // kept alive across calls purely to support that case.
             MenuFlyout flyout;
-            if (ReferenceEquals(anchor, button) && button is not null)
+            if (button is not null)
             {
                 if (button.Flyout is not MenuFlyout existing)
                 {
@@ -2093,7 +2094,6 @@ namespace NovaTerminal
             };
 
             var tabs = this.FindControl<TabControl>("Tabs");
-            var btnNew = this.FindControl<Button>(TitleBarViewFactory.NewTabButtonName);
             var titleBar = this.FindControl<Grid>("TitleBar");
             var dragBorder = this.FindControl<Border>("DragBorder");
 

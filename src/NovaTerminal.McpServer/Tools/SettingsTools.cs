@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Server;
@@ -308,14 +309,12 @@ public static class SettingsTools
         // sending settings.json through the corrupt-file backup/default recovery path.
         if (root.TryGetProperty("TitleBarOrder", out var tboEl) && tboEl.ValueKind == JsonValueKind.Array)
         {
-            int index = 0;
-            foreach (var element in tboEl.EnumerateArray())
+            foreach (var (kind, index) in tboEl.EnumerateArray().Select((element, i) => (element.ValueKind, i)))
             {
-                if (element.ValueKind != JsonValueKind.String)
+                if (kind != JsonValueKind.String)
                 {
-                    errors.Add($"TitleBarOrder[{index}] must be a string, but was {element.ValueKind}.");
+                    errors.Add($"TitleBarOrder[{index}] must be a string, but was {kind}.");
                 }
-                index++;
             }
         }
 
