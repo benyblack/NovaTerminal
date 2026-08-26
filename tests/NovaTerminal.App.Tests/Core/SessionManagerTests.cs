@@ -243,69 +243,34 @@ public sealed class SessionManagerTests
         Assert.Same(ssh, pane.Profile);
     }
 
-    // The profile path is where the StartingDirectory is known, and where round 5a landed: a
-    // relative command runs from the profile's directory, so probing it from NovaTerminal's own
-    // directory called it missing and substituted the shell.
+    // A relative command is not addressed to another OS, so it is kept on both platforms and the
+    // stored profile is handed straight through. This test has been wrong twice, in both directions,
+    // while the predicate underneath it changed - first asserting the Unix outcome unconditionally,
+    // then asserting a Windows substitution that the narrowed predicate no longer performs. Neither
+    // platform needs a special case now, which is the point.
     [AvaloniaFact]
-    public void CreateRestoredTabContent_RelativeProfileCommand_FollowsThePlatformResolutionRule()
+    public void CreateRestoredTabContent_RelativeProfileCommand_IsKeptOnEveryPlatform()
     {
-        string directory = Path.Combine(Path.GetTempPath(), "nova profile relative " + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(Path.Combine(directory, "tools"));
-
-        try
+        var profile = new TerminalProfile
         {
-            // Executable, not merely present: an existing file with no execute bit is not
-            // spawnable on Unix, so writing 0644 here would assert the opposite of the contract.
-            string shell = Path.Combine(directory, "tools", "shell");
-            File.WriteAllText(shell, "");
-            if (!OperatingSystem.IsWindows())
-            {
-                File.SetUnixFileMode(
-                    shell,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            }
+            Id = Guid.NewGuid(),
+            Name = "Project shell",
+            Type = ConnectionType.Local,
+            Command = "./tools/shell",
+            Arguments = "--login",
+            StartingDirectory = Path.GetTempPath()
+        };
 
-            var profile = new TerminalProfile
-            {
-                Id = Guid.NewGuid(),
-                Name = "Project shell",
-                Type = ConnectionType.Local,
-                Command = "./tools/shell",
-                Arguments = "--login",
-                StartingDirectory = directory
-            };
+        var settings = new TerminalSettings { Profiles = new List<TerminalProfile> { profile } };
 
-            var settings = new TerminalSettings { Profiles = new List<TerminalProfile> { profile } };
+        var pane = Assert.IsType<TerminalPane>(
+            SessionManager.CreateRestoredTabContent(LeafTabWithProfile(profile.Id), settings));
 
-            var pane = Assert.IsType<TerminalPane>(
-                SessionManager.CreateRestoredTabContent(LeafTabWithProfile(profile.Id), settings));
-
-            if (OperatingSystem.IsWindows())
-            {
-                // CreateProcessW resolves a relative executable against the *calling* process's
-                // directory, not the one handed to it as the child's cwd, so a match under
-                // StartingDirectory proves nothing here and the command is substituted. The profile
-                // therefore comes back as a copy, which is what keeps the stored one unedited.
-                Assert.NotSame(profile, pane.Profile);
-                Assert.Equal(ShellHelper.GetDefaultShell(), pane.Profile!.Command);
-                Assert.Equal(string.Empty, pane.Profile.Arguments);
-
-                // The stored profile is untouched either way - the point of copying.
-                Assert.Equal("./tools/shell", profile.Command);
-                Assert.Equal("--login", profile.Arguments);
-            }
-            else
-            {
-                // Kept, arguments and all - and the stored profile handed through untouched.
-                Assert.Same(profile, pane.Profile);
-                Assert.Equal("./tools/shell", pane.Profile!.Command);
-                Assert.Equal("--login", pane.Profile.Arguments);
-            }
-        }
-        finally
-        {
-            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
-        }
+        // No filesystem lookup happens, so whether the file is there does not enter into it: a
+        // command that cannot be found fails visibly at spawn rather than being swapped out.
+        Assert.Same(profile, pane.Profile);
+        Assert.Equal("./tools/shell", pane.Profile!.Command);
+        Assert.Equal("--login", pane.Profile.Arguments);
     }
 
     private static TabSession LeafTabWithProfile(Guid profileId) => new()

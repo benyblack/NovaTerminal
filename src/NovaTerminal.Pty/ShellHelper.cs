@@ -29,30 +29,38 @@ namespace NovaTerminal.Pty
         }
 
         /// <summary>
-        /// Resolves a configured or persisted local shell command to one that can actually be
-        /// spawned here, falling back to <see cref="GetDefaultShell"/> when it cannot.
+        /// Resolves a configured or persisted local shell command, substituting this platform's
+        /// default shell when the command was written for a different operating system.
         /// </summary>
         /// <remarks>
-        /// Settings and session files travel between machines, and a pane's command is persisted
-        /// as a bare executable, so a workspace saved on Windows restores as <c>cmd.exe</c> on
-        /// Linux and every pane in it fails to spawn. Callers used to guard only against a blank
-        /// command, which does not catch that: <c>cmd.exe</c> is a perfectly non-blank string.
+        /// Settings and session files travel between machines. A workspace saved on Windows restores
+        /// as <c>cmd.exe</c> on Linux, every pane in it fails to spawn, and the failing command is
+        /// captured again on exit - so the terminal is dead on every subsequent launch and no amount
+        /// of restarting clears it. That is the bug this exists for, and it is a portability
+        /// question: the command is fine, it is just addressed to the wrong OS.
         ///
-        /// This mirrors the existence check the profile-launch path in <c>MainWindow</c> already
-        /// applies to local profiles, so a restored pane and a profile-launched one agree about
-        /// what is runnable.
+        /// It deliberately does not ask the broader question, "can this be launched here". An earlier
+        /// version did, and grew to seven branches over as many review rounds - PATHEXT probing,
+        /// implicit extension rules, an interpreter-extension list, execute bits, working-directory
+        /// resolution - because the specification of that question is "match the real launcher
+        /// exactly", which has no stopping point. Each branch was a chance to model the launcher
+        /// wrongly and two of them did: batch files were rejected as unlaunchable when
+        /// <c>CreateProcess</c> runs them perfectly well, and a relative path was approved against a
+        /// directory Windows does not resolve it from. Both replaced a working command with a shell,
+        /// silently.
         ///
-        /// Be careful changing what counts as runnable: saying "no" here does not just pick a
-        /// different command, it also makes <c>SessionManager</c> drop the pane's arguments, on the
-        /// grounds that they belonged to the command being replaced. A false negative therefore
-        /// costs the user their command *and* its arguments, silently.
+        /// Which is the other half of the reasoning. Rejecting is not the cheap option it looks like:
+        /// the user did not ask for *a* shell, they asked for theirs, and they get the substitute
+        /// with no message. A pane that fails to spawn is visible and diagnosable; a pane quietly
+        /// running something else is neither. So the bar for substituting is high, and a command that
+        /// merely cannot be found is left alone to fail where the user can see it.
+        ///
+        /// Being simple enough to use everywhere is the point. The same predicate now backs the
+        /// session-restore paths, the profile-launch path, the command palette and settings
+        /// validation, which previously each ran their own existence check and disagreed - the same
+        /// profile could be kept on restore, substituted on launch, and hidden from the palette.
         /// </remarks>
-        /// <param name="workingDirectory">
-        /// The directory the command will be launched in, when the caller knows it - a profile's
-        /// StartingDirectory. A relative path is resolved against it as well as against this
-        /// process's own directory, because the child gets that directory as its cwd.
-        /// </param>
-        public static string ResolveExecutableOrDefault(string? command, string? workingDirectory = null)
+        public static string ResolveExecutableOrDefault(string? command)
         {
             if (string.IsNullOrWhiteSpace(command))
             {
@@ -60,87 +68,90 @@ namespace NovaTerminal.Pty
             }
 
             string trimmed = command.Trim();
-
-            // Probed unquoted, returned as written: a configured command may be quoted to survive
-            // spaces ("C:\Program Files\...\pwsh.exe"), which no File.Exists would ever match, and
-            // whoever spawns it wants the original spelling back.
-            string probe = Unquote(trimmed);
-
-            // Whole string first, so a path that simply contains spaces is found as itself rather
-            // than mistaken for a command plus arguments. This is the same order
-            // TerminalPane.InitializeSessionCore uses when it decides whether to split.
-            if (IsRunnable(probe, workingDirectory))
-            {
-                return trimmed;
-            }
-
-            // A stored command may carry its arguments inline - "zsh -l", "wsl.exe -e /bin/bash" -
-            // and the spawn path supports that, splitting executable from arguments. Probing the
-            // whole string as one filename therefore rejected commands that run perfectly well, and
-            // rejection costs the arguments too. Probe just the executable, and hand back the
-            // combined string: the consumer splits it again with this same method, so the verdict
-            // reached here and the command actually spawned cannot disagree.
-            if (TrySplitCommandLine(trimmed, out string executable, out _) &&
-                IsRunnable(executable, workingDirectory))
-            {
-                return trimmed;
-            }
-
-            return GetDefaultShell();
+            return IsCommandForAnotherPlatform(trimmed) ? GetDefaultShell() : trimmed;
         }
 
         /// <summary>
-        /// True when <paramref name="executable"/> names something this application could start,
-        /// looked for as a path, on <c>PATH</c>, and relative to <paramref name="workingDirectory"/>.
-        /// </summary>
-        private static bool IsRunnable(string executable, string? workingDirectory) =>
-            CanExecute(executable) ||
-            InPath(executable) ||
-            CanExecuteRelativeTo(workingDirectory, executable);
-
-        /// <summary>
-        /// True when <paramref name="candidate"/> resolves against the directory the command will
-        /// actually run in.
+        /// True when <paramref name="command"/> names an executable belonging to a different
+        /// operating system, and so could never start here.
         /// </summary>
         /// <remarks>
-        /// A profile's StartingDirectory becomes the child's cwd (TerminalPane passes it to
-        /// RustPtySession), so a relative command such as <c>./tools/shell</c> runs from there -
-        /// while this check runs in NovaTerminal's own directory and used to declare it missing,
-        /// substituting the default shell and dropping the arguments.
+        /// Judged on the shape of the name alone - no filesystem access, no launcher emulation.
+        /// Deliberately conservative: it fires only on signals that cannot mean anything else, so a
+        /// command it does not recognise is left alone rather than replaced. Missing the occasional
+        /// foreign command costs a spawn failure the user can read; a false positive silently swaps
+        /// out a command that works.
         ///
-        /// Unix only, and that asymmetry is the whole point. <c>exec</c> resolves a relative path
-        /// after the child has changed directory, so the working directory is where it is found.
-        /// <c>CreateProcessW</c> resolves its application name against the *calling* process's
-        /// directory; <c>lpCurrentDirectory</c> only becomes the child's cwd and plays no part in
-        /// finding the executable. So on Windows a match here means nothing - approving the command
-        /// on that basis keeps it, and its arguments, for a spawn that then fails.
-        ///
-        /// An earlier version probed both platforms, reasoning that being additive could only avoid
-        /// false negatives. That was wrong in one direction: on Windows it manufactures a false
-        /// positive, which is the more expensive mistake, since rejection at least falls back to a
-        /// shell that starts. The remark above it described the Windows rule correctly and the code
-        /// beneath it did the opposite.
-        ///
-        /// Only for something that is already a path. A bare name like <c>zsh</c> is resolved
-        /// through PATH, not the working directory, which is what both a shell and exec do.
+        /// Arguments are ignored, via <see cref="TrySplitCommandLine"/>, so <c>cmd.exe /c build</c>
+        /// is recognised by its executable. <c>pwsh</c> is intentionally absent from the Windows
+        /// names: PowerShell is cross-platform and <c>pwsh</c> is a perfectly good Linux command.
         /// </remarks>
-        private static bool CanExecuteRelativeTo(string? workingDirectory, string candidate)
+        public static bool IsCommandForAnotherPlatform(string? command)
         {
-            if (OperatingSystem.IsWindows()) return false;
-            if (string.IsNullOrWhiteSpace(workingDirectory)) return false;
-            if (string.IsNullOrWhiteSpace(candidate)) return false;
-            if (Path.IsPathRooted(candidate)) return false;
-            if (candidate.IndexOf('/') < 0 && candidate.IndexOf('\\') < 0) return false;
+            if (string.IsNullOrWhiteSpace(command)) return false;
 
-            try
+            string executable = command.Trim();
+            if (TrySplitCommandLine(executable, out string exePart, out _))
             {
-                return CanExecute(Path.Combine(workingDirectory, candidate));
+                executable = exePart;
             }
-            catch (ArgumentException)
-            {
-                return false;
-            }
+
+            executable = Unquote(executable).Trim();
+            if (executable.Length == 0) return false;
+
+            return OperatingSystem.IsWindows()
+                ? LooksLikeAUnixCommand(executable)
+                : LooksLikeAWindowsCommand(executable);
         }
+
+        /// <summary>Windows-only shapes: a drive-rooted path, a UNC path, a Windows executable
+        /// suffix, or one of the shells that exist only there.</summary>
+        private static bool LooksLikeAWindowsCommand(string executable)
+        {
+            // UNC, which needs both leading slashes: a single one is not a Windows-only shape.
+            if (executable.StartsWith(@"\\", StringComparison.Ordinal)) return true;
+
+            if (executable.Length >= 3 &&
+                char.IsAsciiLetter(executable[0]) &&
+                executable[1] == ':' &&
+                (executable[2] == '\\' || executable[2] == '/'))
+            {
+                return true;
+            }
+
+            string extension = Path.GetExtension(executable);
+            foreach (string windowsOnly in WindowsExecutableSuffixes)
+            {
+                if (string.Equals(extension, windowsOnly, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+
+            string name = executable.Replace('\\', '/');
+            int lastSlash = name.LastIndexOf('/');
+            if (lastSlash >= 0) name = name[(lastSlash + 1)..];
+
+            foreach (string shell in WindowsOnlyShellNames)
+            {
+                if (string.Equals(name, shell, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>Unix-only shapes: a rooted POSIX path. Nothing on Windows starts with a
+        /// slash, and a bare name there could be anything.</summary>
+        private static bool LooksLikeAUnixCommand(string executable) =>
+            executable.StartsWith('/');
+
+        /// <summary>Suffixes that only Windows executes. <c>.bat</c> and <c>.cmd</c> included: they
+        /// run fine on Windows - <c>CreateProcess</c> hands them to the command processor - and not
+        /// at all anywhere else.</summary>
+        private static readonly string[] WindowsExecutableSuffixes =
+            { ".exe", ".com", ".bat", ".cmd", ".ps1", ".vbs", ".wsf", ".msc" };
+
+        /// <summary>Shells that exist only on Windows, spelled with or without their suffix. Not
+        /// <c>pwsh</c>: PowerShell is cross-platform.</summary>
+        private static readonly string[] WindowsOnlyShellNames =
+            { "cmd", "cmd.exe", "powershell", "powershell.exe", "wsl", "wsl.exe", "conhost", "conhost.exe" };
 
         /// <summary>
         /// Splits a command that carries its arguments inline into its executable and argument
@@ -195,12 +206,17 @@ namespace NovaTerminal.Pty
         /// True when <paramref name="command"/> can be found on <c>PATH</c>.
         /// </summary>
         /// <remarks>
-        /// Windows resolution is extension-aware. A command is legitimately written without one
-        /// there - <c>pwsh</c> runs <c>pwsh.exe</c> - because the process launcher appends each
-        /// <c>PATHEXT</c> entry when the name carries no extension of its own. Probing only the
-        /// literal filename reported those as missing, which for <see cref="ResolveExecutableOrDefault"/>
-        /// meant quietly replacing a working <c>pwsh</c>, <c>powershell</c> or <c>cmd</c> with the
-        /// default shell and discarding its arguments.
+        /// Extension-aware on Windows, where a command is legitimately written without one -
+        /// <c>pwsh</c> runs <c>pwsh.exe</c>, because the launcher appends <c>.exe</c> to a name that
+        /// carries no extension of its own. Probing only the literal filename reported those as
+        /// missing, which is a pre-existing defect in the callers that use this to decide whether a
+        /// profile is usable: an extensionless profile command was reset or hidden.
+        ///
+        /// Only <c>.exe</c> is appended, matching <c>CreateProcessW</c> with <c>lpApplicationName</c>
+        /// NULL (native/src/lib.rs:301). Not PATHEXT, which is a shell's list, and not <c>.com</c> -
+        /// measured on Windows, an extensionless name backed only by a <c>.com</c> fails with
+        /// ERROR_FILE_NOT_FOUND. portable_pty's own search is more permissive than this; the stricter
+        /// of the two launchers is the safe one to model.
         /// </remarks>
         public static bool InPath(string command)
         {
@@ -226,174 +242,14 @@ namespace NovaTerminal.Pty
                     continue;
                 }
 
-                if (CanExecute(fullPath)) return true;
-            }
+                if (File.Exists(fullPath)) return true;
 
-            return false;
-        }
-
-        /// <summary>
-        /// Extensions this application can actually start on Windows.
-        /// </summary>
-        /// <remarks>
-        /// Deliberately not <c>PATHEXT</c>. PATHEXT is the list a *shell* appends, and it includes
-        /// script types - .BAT, .CMD, .PS1, .VBS - that only run because cmd.exe or another
-        /// interpreter runs them. NovaTerminal does not launch through a shell: the native layer
-        /// calls <c>CreateProcessW</c> directly, and the fallback hands the command to
-        /// portable_pty's <c>CommandBuilder</c>. Neither can start a batch file without an
-        /// interpreter.
-        ///
-        /// Probing the full PATHEXT therefore reported a .bat-backed command as runnable, and
-        /// "runnable" is not an idle verdict here - it makes the caller keep the command and its
-        /// arguments instead of falling back, so the user got a pane that failed to spawn rather
-        /// than a working shell. Modelling cmd.exe was the wrong model; this models the launcher.
-        /// </remarks>
-        /// <remarks>
-        /// One entry, and specifically <c>.exe</c>, because that is the only extension the launcher
-        /// appends. The native path calls <c>CreateProcessW</c> with <c>lpApplicationName</c> NULL
-        /// (native/src/lib.rs:301), and Windows then appends <c>.exe</c> - not <c>.com</c>, and not
-        /// anything from PATHEXT. Measured on Windows: an extensionless name backed only by a
-        /// <c>.com</c> fails with ERROR_FILE_NOT_FOUND, while the same file named in full succeeds.
-        ///
-        /// The two launch paths disagree, so this models the stricter one. portable_pty's
-        /// <c>CommandBuilder</c> walks the full PATHEXT when it searches (cmdbuilder.rs), so it is
-        /// *more* permissive than CreateProcessW, not equally strict - an earlier version of this
-        /// remark claimed neither could manage it, which was wrong about portable_pty.
-        ///
-        /// <c>internal</c> so the policy itself can be asserted off Windows. The probe that uses it
-        /// is gated on <see cref="OperatingSystem.IsWindows"/> and so does nothing on Linux, which
-        /// means a test that goes through the filesystem there passes whatever this list contains -
-        /// it would not have caught .bat being in it. The list is the decision worth pinning.
-        /// </remarks>
-        internal static readonly string[] LaunchableWindowsExtensions = { ".exe" };
-
-        /// <summary>
-        /// Windows file types that only run because an interpreter runs them, so this application
-        /// cannot start one directly.
-        /// </summary>
-        /// <remarks>
-        /// Deliberately excludes <c>.bat</c> and <c>.cmd</c>, which this list used to contain on a
-        /// premise that turned out to be false. <c>CreateProcess</c> special-cases batch files and
-        /// runs them through the command processor, so they start perfectly well. Measured on
-        /// Windows against a raw <c>CreateProcessW</c> P/Invoke matching native/src/lib.rs, and again
-        /// through <c>RustPtySession</c> itself: a full-path <c>.bat</c> and <c>.cmd</c> each spawned
-        /// with a live pid, and the <c>.bat</c> produced its own output. Rejecting them substituted
-        /// the default shell for a wrapper that had been working, losing the command and its
-        /// arguments - the expensive failure this check is supposed to prevent.
-        ///
-        /// What remains are the types that genuinely need an interpreter: <c>.ps1</c>, <c>.vbs</c> and
-        /// friends fail with ERROR_BAD_EXE_FORMAT (193) from the same call.
-        ///
-        /// The counterpart to <see cref="LaunchableWindowsExtensions"/>: that list is what the
-        /// launcher will *append* to a bare name, this one is what it cannot start even when named in
-        /// full. They are separate questions and a name being spelled out does not make an
-        /// unstartable file startable.
-        /// </remarks>
-        internal static readonly string[] WindowsExtensionsNeedingAnInterpreter =
-            { ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc" };
-
-        /// <summary>
-        /// True when <paramref name="candidate"/> names a file this application could start,
-        /// allowing for the extension being left off on Windows.
-        /// </summary>
-        private static bool CanExecute(string candidate)
-        {
-            // Checked before File.Exists, not after: the file existing is exactly what used to make
-            // an explicitly named script look runnable.
-            if (OperatingSystem.IsWindows() && NeedsAnInterpreter(candidate)) return false;
-
-            if (!OperatingSystem.IsWindows())
-            {
-                // Existing is not the same as spawnable here. A regular file with no execute bit -
-                // a config file, a Windows .exe sitting in a shared workspace, a script saved
-                // without chmod +x - passes File.Exists and then fails at exec, which is the dead
-                // pane this check exists to avoid.
-                return HasAnExecuteBit(candidate);
-            }
-
-            if (File.Exists(candidate)) return true;
-            if (!AppendsImplicitExtension(candidate)) return false;
-
-            foreach (string extension in LaunchableWindowsExtensions)
-            {
-                if (File.Exists(candidate + extension)) return true;
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// True when <paramref name="candidate"/> is a file with an execute bit set.
-        /// </summary>
-        /// <remarks>
-        /// Any of user/group/other, rather than resolving effective access for the current user.
-        /// That over-approximates slightly - a file executable only by someone else counts - but it
-        /// rejects the case that actually occurs, a file carrying no execute bit at all, and erring
-        /// toward "runnable" here only preserves today's behaviour. Erring the other way would
-        /// replace a working command with a shell.
-        /// </remarks>
-        private static bool HasAnExecuteBit(string candidate)
-        {
-            if (!File.Exists(candidate)) return false;
-
-            try
-            {
-                UnixFileMode mode = File.GetUnixFileMode(candidate);
-                const UnixFileMode anyExecute =
-                    UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
-
-                return (mode & anyExecute) != 0;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
-            {
-                // Cannot read the mode: fall back to existence rather than declaring a command
-                // missing on the strength of a failed stat.
-                return true;
-            }
-        }
-
-        /// <summary>
-        /// True when Windows would append an extension to <paramref name="candidate"/> while
-        /// looking for the executable.
-        /// </summary>
-        /// <remarks>
-        /// Only for a name with no extension at all. <c>CreateProcessW</c> with
-        /// <c>lpApplicationName</c> NULL appends <c>.exe</c> when "the file name does not contain an
-        /// extension", and a dot anywhere in the final component counts - so <c>python3.11</c> is
-        /// treated as already extensioned and <c>python3.11.exe</c> is never found.
-        ///
-        /// This probe used to append regardless, on a comment of mine arguing that a dot in the stem
-        /// is not a *real* extension so the launcher would keep looking. That describes what a shell
-        /// does. It is the same cmd.exe-shaped assumption that first admitted .bat and .com, left
-        /// standing in the adjacent decision after those were corrected.
-        ///
-        /// <c>internal</c> for the same reason as the extension lists: the caller is gated on
-        /// Windows, so this cannot be reached from a filesystem test on Linux.
-        /// </remarks>
-        internal static bool AppendsImplicitExtension(string? candidate)
-        {
-            if (string.IsNullOrWhiteSpace(candidate)) return false;
-
-            return !Path.HasExtension(candidate);
-        }
-
-        /// <summary>
-        /// True when <paramref name="candidate"/> ends in an extension that needs an interpreter.
-        /// </summary>
-        /// <remarks>
-        /// <c>internal</c> for the same reason as the extension lists: the callers are gated on
-        /// Windows, so a test that goes through the filesystem on Linux cannot exercise this.
-        /// </remarks>
-        internal static bool NeedsAnInterpreter(string? candidate)
-        {
-            if (string.IsNullOrWhiteSpace(candidate)) return false;
-
-            string extension = Path.GetExtension(candidate);
-            if (extension.Length == 0) return false;
-
-            foreach (string scripted in WindowsExtensionsNeedingAnInterpreter)
-            {
-                if (string.Equals(extension, scripted, StringComparison.OrdinalIgnoreCase)) return true;
+                if (OperatingSystem.IsWindows() &&
+                    !Path.HasExtension(fullPath) &&
+                    File.Exists(fullPath + ".exe"))
+                {
+                    return true;
+                }
             }
 
             return false;

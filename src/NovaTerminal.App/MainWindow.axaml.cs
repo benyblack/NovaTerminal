@@ -4010,15 +4010,14 @@ namespace NovaTerminal
                 }
             }
 
-            // Ensure the command exists on this platform (handles shared settings between Windows/Linux)
-            if (profile.Type == ConnectionType.Local)
+            // Substitute only a command written for another OS - the same predicate the restore
+            // path uses, so opening a profile and restoring one agree about it. They did not before:
+            // this asked whether the command existed, so a profile carrying inline arguments or a
+            // quoted path was reset here while restore kept it.
+            if (profile.Type == ConnectionType.Local && ShellHelper.IsCommandForAnotherPlatform(profile.Command))
             {
-                bool exists = File.Exists(profile.Command) || ShellHelper.InPath(profile.Command);
-                if (!exists)
-                {
-                    profile.Command = ShellHelper.GetDefaultShell();
-                    profile.Arguments = ""; // Reset potentially platform-specific args
-                }
+                profile.Command = ShellHelper.GetDefaultShell();
+                profile.Arguments = ""; // The old arguments belonged to the command just replaced.
             }
 
             // Construct command if it's an SSH connection
@@ -4449,8 +4448,11 @@ namespace NovaTerminal
             {
                 foreach (var profile in _settings.Profiles.Where(p => p.Type == ConnectionType.Local))
                 {
-                    bool exists = File.Exists(profile.Command) || ShellHelper.InPath(profile.Command);
-                    if (!exists) continue;
+                    // Hidden only if the command belongs to another OS. Keyed off existence, this
+                    // dropped profiles the terminal can open perfectly well - a quoted path, or a
+                    // command with inline arguments - so they were missing from the palette while
+                    // still working from a restored session.
+                    if (ShellHelper.IsCommandForAnotherPlatform(profile.Command)) continue;
                     CommandRegistry.Register($"New Tab: {profile.Name}", "Shell", () => AddTab(profile), "");
                 }
             }
