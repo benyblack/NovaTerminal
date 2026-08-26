@@ -113,13 +113,30 @@
         <!-- Overlay layer for custom buttons (right aligned, leaving space for the system caption
              buttons). Contents are built by MainWindow.RebuildTitleBar from TitleBarCatalog +
              the user's saved placement, so nothing but the + button is declared here. -->
-        <Grid VerticalAlignment="Top" Height="32" HorizontalAlignment="Right" ZIndex="100" x:Name="TitleBar" Margin="0,4,140,0" Background="Transparent">
+        <Grid VerticalAlignment="Top" Height="32" HorizontalAlignment="Right" ZIndex="100" x:Name="TitleBar" Margin="0,4,140,0" Background="Transparent"
+              ColumnDefinitions="Auto,Auto">
             <Grid.ContextMenu>
                 <ContextMenu>
                     <MenuItem Header="Customize Title Bar..." Name="MenuCustomizeTitleBar"/>
                 </ContextMenu>
             </Grid.ContextMenu>
-            <StackPanel Name="TitleBarItemsHost" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent">
+            <!-- TabOverflowBadge lives in column 0, immediately left of the button cluster. It must
+                 stay a sibling of TitleBarItemsHost rather than a child of it - Populate's
+                 host.Children.Clear() on every rebuild would otherwise orphan it (see
+                 RebuildTitleBar_TabOverflowBadge_SurvivesRebuild). Giving the Grid two Auto columns,
+                 badge in 0 and the host in 1, keeps that placement while making the two structurally
+                 unable to overlap - previously both defaulted to column 0, so HorizontalAlignment=
+                 "Left" put the badge at the left edge of the whole title bar (over the locked New
+                 Tab button) instead of next to the tab-list button (Codex P2 on PR #342). -->
+            <TextBlock Name="TabOverflowBadge"
+                       Grid.Column="0"
+                       IsVisible="False"
+                       Foreground="#FFD25A"
+                       FontSize="11"
+                       VerticalAlignment="Center"
+                       HorizontalAlignment="Left"
+                       Margin="2,0,0,0"/>
+            <StackPanel Name="TitleBarItemsHost" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent">
                 <!-- The + button is declared rather than generated: it is locked into the bar and
                      carries this flyout's real content. TitleBarViewFactory reinserts it on every
                      rebuild instead of rebuilding it. Focusable=False keeps clicks from stealing
@@ -144,13 +161,6 @@
                     </Button.Flyout>
                 </Button>
             </StackPanel>
-            <TextBlock Name="TabOverflowBadge"
-                       IsVisible="False"
-                       Foreground="#FFD25A"
-                       FontSize="11"
-                       VerticalAlignment="Center"
-                       HorizontalAlignment="Left"
-                       Margin="2,0,0,0"/>
         </Grid>
 
         <Border Name="RecordingToast"

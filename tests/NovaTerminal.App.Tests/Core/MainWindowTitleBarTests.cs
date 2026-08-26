@@ -125,6 +125,47 @@ public sealed class MainWindowTitleBarTests
         Assert.Same(before, after);
     }
 
+    /// <summary>
+    /// Codex P2 on PR #342: the badge lives outside TitleBarItemsHost specifically so RebuildTitleBar
+    /// (which clears that host's children) does not orphan it - but that same independence meant
+    /// UpdateTabOverflowIndicator's old null-button early return left a stale "+N" visible with no
+    /// adjacent Tab List button once open_tab_list moved from Pinned to Overflow/Hidden while tabs
+    /// were clipped. This forces the badge into a visible "clipped" state, flips open_tab_list out of
+    /// Pinned, and asserts the next indicator update hides and clears it instead of leaving it stuck.
+    /// </summary>
+    [AvaloniaFact]
+    public void UpdateTabOverflowIndicator_TabListNoLongerPinned_ClearsAStaleBadge()
+    {
+        var window = TestMainWindowFactory.Create();
+        // FindTabHeaderScrollViewer walks GetVisualDescendants() for the TabControl's templated
+        // PART_TabHeaderScrollViewer, which only materializes once the control template is applied -
+        // Show() is what does that under headless Avalonia (same pattern as
+        // TerminalPaneSshDisconnectTests and the CommandAssist layout tests). Without it,
+        // UpdateTabOverflowIndicator's scrollViewer==null guard would return before ever reaching the
+        // code this test targets, passing for the wrong reason.
+        window.Show();
+        var badge = window.FindControl<TextBlock>("TabOverflowBadge");
+        Assert.NotNull(badge);
+
+        // Simulate the badge already showing a clipped-tabs indicator.
+        badge!.IsVisible = true;
+        badge.Text = "+3";
+
+        var settings = GetSettings(window);
+        settings.TitleBarItems["open_tab_list"] = "Overflow";
+        InvokeRebuildTitleBar(window);
+
+        var host = GetTitleBarHost(window);
+        Assert.DoesNotContain(
+            TitleBarViewFactory.ButtonName("open_tab_list"),
+            host.Children.Select(c => (c as Control)?.Name));
+
+        InvokeUpdateTabOverflowIndicator(window);
+
+        Assert.False(badge.IsVisible);
+        Assert.Equal(string.Empty, badge.Text);
+    }
+
     [AvaloniaFact]
     public void RebuildTitleBar_Record_AutoSurfacesWhileActive_AndReturnsToOverflowWhenNotActive()
     {
@@ -205,6 +246,45 @@ public sealed class MainWindowTitleBarTests
     }
 
     /// <summary>
+    /// Codex P2 on PR #342: PopulateTabListMenu used to early-return whenever
+    /// <c>FindTitleBarButton(TitleBarCatalog.OpenTabListId)</c> came back null, which is exactly
+    /// what happens once the user sets Tab List to Hidden - the dedicated button is gone by design.
+    /// That made the overflow menu entry, the Ctrl+Shift+O shortcut, and the command palette entry
+    /// all silent no-ops, defeating the entire premise of Hidden ("still reachable, just not a
+    /// dedicated icon"). This drives the real private method with Tab List set to Hidden and proves
+    /// it still resolves an anchor and builds a menu instead of bailing out: the production code
+    /// only populates <c>_tabListFallbackFlyout</c> once it gets past the old null-button return.
+    /// </summary>
+    [AvaloniaFact]
+    public void PopulateTabListMenu_TabListHidden_StillResolvesAnAnchorAndBuildsTheMenu()
+    {
+        var window = TestMainWindowFactory.Create();
+        var settings = GetSettings(window);
+
+        settings.TitleBarItems["open_tab_list"] = "Hidden";
+        InvokeRebuildTitleBar(window);
+
+        // The dedicated button is gone, exactly as Hidden intends.
+        var host = GetTitleBarHost(window);
+        Assert.DoesNotContain(
+            TitleBarViewFactory.ButtonName("open_tab_list"),
+            host.Children.Select(c => (c as Control)?.Name));
+
+        // RebuildTitleBar's own bookkeeping (e.g. the initial tab's selection-changed handling) can
+        // legitimately reach PopulateTabListMenu on its own by this point, which would already give
+        // this field a value for reasons unrelated to what this test drives. Force a clean baseline
+        // via the field directly rather than asserting on incidental timing.
+        SetTabListFallbackFlyout(window, null);
+
+        InvokePopulateTabListMenu(window, showFlyout: true);
+
+        // A non-null fallback flyout is only ever set on the path past the old bailout - the bug
+        // this guards against left it null forever because the method returned before reaching it.
+        var flyout = GetTabListFallbackFlyout(window);
+        Assert.NotNull(flyout);
+    }
+
+    /// <summary>
     /// ApplyThemeToUI only ever assigns Foreground on the generated title bar buttons (see
     /// MainWindow.axaml.cs around line 4404) - every property it touches on them is inherited from
     /// the window, which already carries the same contrastForeground brush by the time these lines
@@ -249,6 +329,27 @@ public sealed class MainWindowTitleBarTests
         var method = typeof(NovaTerminal.MainWindow).GetMethod("PopulateTabListMenu", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(window, [showFlyout]);
+    }
+
+    private static void InvokeUpdateTabOverflowIndicator(NovaTerminal.MainWindow window)
+    {
+        var method = typeof(NovaTerminal.MainWindow).GetMethod("UpdateTabOverflowIndicator", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method!.Invoke(window, null);
+    }
+
+    private static MenuFlyout? GetTabListFallbackFlyout(NovaTerminal.MainWindow window)
+    {
+        var field = typeof(NovaTerminal.MainWindow).GetField("_tabListFallbackFlyout", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return (MenuFlyout?)field!.GetValue(window);
+    }
+
+    private static void SetTabListFallbackFlyout(NovaTerminal.MainWindow window, MenuFlyout? value)
+    {
+        var field = typeof(NovaTerminal.MainWindow).GetField("_tabListFallbackFlyout", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        field!.SetValue(window, value);
     }
 
     private static void InvokeApplyThemeToUI(NovaTerminal.MainWindow window)

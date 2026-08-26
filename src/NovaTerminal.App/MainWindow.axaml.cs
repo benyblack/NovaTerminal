@@ -78,6 +78,12 @@ namespace NovaTerminal
         // is auto-surfaced into the bar by TitleBarLayoutResolver, which is how Record stays visible
         // while recording without being permanently pinned.
         private readonly HashSet<string> _activeTitleBarToggles = new(StringComparer.OrdinalIgnoreCase);
+        // Reused only when PopulateTabListMenu's anchor is NOT the dedicated open_tab_list button
+        // (i.e. that action is Overflow or Hidden, see PopulateTabListMenu's anchor fallback chain).
+        // Neither of the two other possible anchors is safe to cache the flyout on directly: the
+        // overflow button already owns a different MenuFlyout for its own menu, and the
+        // TitleBarItemsHost StackPanel fallback has no Flyout property to hold one at all.
+        private MenuFlyout? _tabListFallbackFlyout;
         private bool _closePaneInProgress;
         private bool _closeTabInProgress;
         private readonly SshConnectionService _sshConnectionService;
@@ -682,10 +688,22 @@ namespace NovaTerminal
             var tabs = this.FindControl<TabControl>("Tabs");
             var badge = this.FindControl<TextBlock>("TabOverflowBadge");
             // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
-            // layout, in which case this button does not exist and the indicator stays quiet.
+            // layout, in which case this button does not exist. The badge itself lives outside
+            // TitleBarItemsHost (see RebuildTitleBar_TabOverflowBadge_SurvivesRebuild) so it is NOT
+            // cleared by the title bar rebuild that drops the button - without this explicit
+            // hide/clear, flipping open_tab_list from Pinned to Overflow/Hidden while tabs are
+            // currently clipped left a stale "+N" badge on screen with no adjacent button (Codex P2
+            // on PR #342). Hide and clear it before bailing rather than returning silently.
             var button = FindTitleBarButton(TitleBarCatalog.OpenTabListId);
             var scrollViewer = FindTabHeaderScrollViewer();
-            if (tabs == null || badge == null || button == null || scrollViewer == null) return;
+            if (tabs == null || badge == null || scrollViewer == null) return;
+
+            if (button == null)
+            {
+                badge.IsVisible = false;
+                badge.Text = string.Empty;
+                return;
+            }
 
             double viewportWidth = scrollViewer.Bounds.Width;
             if (viewportWidth <= 0)
@@ -760,19 +778,45 @@ namespace NovaTerminal
 
         private void PopulateTabListMenu(bool showFlyout = false)
         {
-            // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
-            // layout, in which case this button does not exist and populating its menu is moot.
-            var button = FindTitleBarButton(TitleBarCatalog.OpenTabListId);
             var tabs = this.FindControl<TabControl>("Tabs");
-            if (button == null || tabs == null) return;
+            if (tabs == null) return;
 
-            // TitleBarViewFactory only wires Command; unlike the old declared BtnTabList it does not
-            // carry a MenuFlyout, so get-or-create one here rather than teaching the generic factory
-            // about this one caller's flyout.
-            if (button.Flyout is not MenuFlyout flyout)
+            // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
+            // layout, in which case FindTitleBarButton returns null for its dedicated button - but
+            // the action must still be reachable by shortcut and command palette (that is the whole
+            // premise of Hidden: still there, just not a dedicated icon). DO NOT simplify this back
+            // to the button-only lookup: that was exactly the bug (Codex P2 on PR #342) - with no
+            // fallback, setting Tab List to Overflow or Hidden turned the overflow menu item, the
+            // Ctrl+Shift+O shortcut, and the command palette entry all into silent no-ops. Fall back
+            // to the overflow button when it exists, and finally to the title bar host panel itself,
+            // which always exists.
+            var button = FindTitleBarButton(TitleBarCatalog.OpenTabListId);
+            var host = this.FindControl<StackPanel>("TitleBarItemsHost");
+            var overflowButton = host?.Children.OfType<Button>()
+                .FirstOrDefault(b => b.Name == TitleBarViewFactory.OverflowButtonName);
+            Control? anchor = (Control?)button ?? (Control?)overflowButton ?? host;
+            if (anchor == null) return;
+
+            // Only the dedicated button gets a persisted, get-or-create Flyout via its own Flyout
+            // property - TitleBarViewFactory does not give a pinned item button a MenuFlyout up
+            // front, so this is the first place one gets attached. The overflow button already owns
+            // its own MenuFlyout (the "..." menu built by TitleBarViewFactory.CreateOverflowButton);
+            // reusing that instance here would silently overwrite its contents the next time it
+            // opens, and the host StackPanel has no Flyout property at all, so a fallback anchor
+            // instead reuses a dedicated field that exists solely for this case.
+            MenuFlyout flyout;
+            if (ReferenceEquals(anchor, button) && button is not null)
             {
-                flyout = new MenuFlyout();
-                button.Flyout = flyout;
+                if (button.Flyout is not MenuFlyout existing)
+                {
+                    existing = new MenuFlyout();
+                    button.Flyout = existing;
+                }
+                flyout = existing;
+            }
+            else
+            {
+                flyout = _tabListFallbackFlyout ??= new MenuFlyout();
             }
 
             flyout.Items.Clear();
@@ -842,7 +886,7 @@ namespace NovaTerminal
 
             if (showFlyout)
             {
-                flyout.ShowAt(button);
+                flyout.ShowAt(anchor);
             }
 
             UpdateTabOverflowIndicator();
