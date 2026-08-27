@@ -82,6 +82,16 @@ public sealed class BackupService
     private const string SnapshotTimestampFormat = "yyyyMMdd'T'HHmmss'Z'";
 
     /// <summary>
+    /// Hex chars of the content hash kept in the snapshot id and compared for dedupe. 64 bits
+    /// (16 hex chars) rather than 32 (8 hex chars): the dedupe check is a single-pair comparison
+    /// per <see cref="Snapshot"/> call, and a false-positive collision there means silently
+    /// skipping a snapshot of a genuinely changed configuration - no error, no signal, and the
+    /// user later finds no rollback point for that change. 64 bits puts that probability at
+    /// roughly 1 in 2^64, which is negligible; 32 bits is not.
+    /// </summary>
+    private const int SnapshotHashPrefixLength = 16;
+
+    /// <summary>
     /// Writes a snapshot of the current configuration into <see cref="BackupsDirectory"/>.
     /// Returns null when an <see cref="SnapshotReason.Auto"/> snapshot was skipped because the
     /// content is byte-identical to the newest existing snapshot. Forced reasons always write.
@@ -94,12 +104,13 @@ public sealed class BackupService
     {
         try
         {
-            // Only the first 8 hex chars survive on disk (they're embedded in the file name),
-            // so that's the granularity ListSnapshots can ever recover. Comparing against the
-            // full 64-char hash here would compare unequal length strings and never match,
-            // silently disabling dedupe - so the comparison (and the stored ContentHash) must
-            // use the same truncated form that TryParseSnapshot parses back out of the id.
-            string hashPrefix = ComputeContentHash()[..8];
+            // Only the first SnapshotHashPrefixLength hex chars survive on disk (they're
+            // embedded in the file name), so that's the granularity ListSnapshots can ever
+            // recover. Comparing against the full 64-char hash here would compare unequal
+            // length strings and never match, silently disabling dedupe - so the comparison
+            // (and the stored ContentHash) must use the same truncated form that
+            // TryParseSnapshot parses back out of the id.
+            string hashPrefix = ComputeContentHash()[..SnapshotHashPrefixLength];
 
             if (reason == SnapshotReason.Auto)
             {
@@ -123,7 +134,19 @@ public sealed class BackupService
                 return null;
             }
 
-            PruneSnapshots();
+            // A snapshot exists on disk at this point - Export already wrote it durably. A
+            // pruning failure (e.g. Directory.GetFiles throwing on BackupsDirectory) must not
+            // make Snapshot() report null, which callers would read as "nothing was written."
+            // So pruning gets its own try/catch, isolated from the outer one that guards the
+            // write itself.
+            try
+            {
+                PruneSnapshots();
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Log($"[backup] snapshot pruning failed: {ex.Message}");
+            }
 
             return new SnapshotInfo(id, reason, now, new FileInfo(path).Length, hashPrefix, path);
         }
@@ -168,10 +191,18 @@ public sealed class BackupService
             if (entry.IsDirectory)
             {
                 if (!Directory.Exists(source)) continue;
-                foreach (string file in Directory.GetFiles(source, "*", SearchOption.AllDirectories)
-                             .OrderBy(f => f, StringComparer.Ordinal))
+
+                // Sort on the forward-slash-normalized relative path that actually gets hashed,
+                // not the raw OS path: '\' (0x5C) and '/' (0x2F) sit at different points in
+                // ASCII, so a directory and a sibling file whose names diverge in that range
+                // could sort differently on Windows vs Linux if we ordered by the native path,
+                // hashing an identical tree to different digests across platforms.
+                var files = Directory.GetFiles(source, "*", SearchOption.AllDirectories)
+                    .Select(file => (File: file, Relative: Path.GetRelativePath(source, file).Replace('\\', '/')))
+                    .OrderBy(f => f.Relative, StringComparer.Ordinal);
+
+                foreach (var (file, relative) in files)
                 {
-                    string relative = Path.GetRelativePath(source, file).Replace('\\', '/');
                     AppendToHash(buffer, $"{entry.BundlePath}/{relative}", File.ReadAllBytes(file));
                 }
             }
@@ -235,7 +266,7 @@ public sealed class BackupService
         }
     }
 
-    /// <summary>Parses <c>&lt;reason&gt;-&lt;timestamp&gt;-&lt;hash8&gt;</c>. The reason itself may contain a dash.</summary>
+    /// <summary>Parses <c>&lt;reason&gt;-&lt;timestamp&gt;-&lt;hash16&gt;</c>. The reason itself may contain a dash.</summary>
     private static bool TryParseSnapshot(string path, out SnapshotInfo? info)
     {
         info = null;

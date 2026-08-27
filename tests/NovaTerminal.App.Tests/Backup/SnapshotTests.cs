@@ -21,6 +21,28 @@ public sealed class SnapshotTests
             Path.GetFullPath(Path.GetDirectoryName(info.FilePath)!));
     }
 
+    /// <summary>
+    /// Pins the dedupe hash width at 16 hex chars (64 bits). A regression back to 8 hex chars
+    /// (32 bits) would still pass every other test here — dedupe is only ever exercised with a
+    /// handful of distinct contents per test, far too few to hit a 32-bit collision — but it
+    /// would leave production dedupe with a real, if small, chance of silently skipping a
+    /// snapshot for genuinely changed content. This test fails immediately on that regression
+    /// instead of relying on a collision to happen to occur.
+    /// </summary>
+    [Fact]
+    public void Snapshot_IdHashSegmentIsSixteenHexChars()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+
+        var info = service.Snapshot(SnapshotReason.Auto);
+
+        string hashSegment = info!.Id[(info.Id.LastIndexOf('-') + 1)..];
+        Assert.Equal(16, hashSegment.Length);
+        Assert.Matches("^[0-9a-f]{16}$", hashSegment);
+        Assert.Equal(hashSegment, info.ContentHash);
+    }
+
     [Fact]
     public void Snapshot_ReasonEncodedInIdPrefix()
     {
@@ -104,7 +126,7 @@ public sealed class SnapshotTests
     }
 
     /// <summary>
-    /// The snapshot id is `&lt;reason&gt;-&lt;timestamp&gt;-&lt;hash8&gt;`, and the reason token
+    /// The snapshot id is `&lt;reason&gt;-&lt;timestamp&gt;-&lt;hash16&gt;`, and the reason token
     /// itself may contain a dash (`pre-import`, `pre-restore`). A parser that naively splits on
     /// every dash, or splits from the left, mis-parses those two and either drops the snapshot
     /// from the list or reports the wrong reason. Covering all three reasons through the real

@@ -45,6 +45,13 @@ public sealed record InspectOutcome(
 }
 
 /// <summary>A snapshot on disk. <paramref name="Id"/> is the file-name stem.</summary>
+/// <param name="ContentHash">
+/// The first 16 hex characters of the SHA-256 over the backed-up content (the live tree, not
+/// the zip), used for <see cref="BackupService.Snapshot"/>'s auto-dedupe check and embedded in
+/// <paramref name="Id"/>. This is a truncated prefix, not a full digest — it is not collision-
+/// resistant enough to use as an integrity check, only as a dedupe key for one snapshot at a
+/// time.
+/// </param>
 public sealed record SnapshotInfo(
     string Id,
     SnapshotReason Reason,
