@@ -1273,6 +1273,14 @@ public sealed class BackupService
     /// <param name="categories">Null means every category.</param>
     public BackupOutcome Export(string destinationPath, IReadOnlyCollection<BackupCategory>? categories = null)
     {
+        // Export's contract is that failures come back as typed results, never exceptions.
+        // Path.GetFullPath throws ArgumentException on null/empty/malformed input, which is
+        // reachable straight from the CLI (`backup export ""`), so guard before the writer.
+        if (string.IsNullOrWhiteSpace(destinationPath))
+        {
+            return BackupOutcome.Fail(BackupFailureKind.WriteFailed, "No destination path was given.");
+        }
+
         var requested = categories ?? BackupCatalog.AllCategories;
         var present = requested.Where(HasContent).ToArray();
 
@@ -1290,7 +1298,10 @@ public sealed class BackupService
             BundleWriter.Write(RootDirectory, destinationPath, present, manifest);
             return BackupOutcome.Ok($"Exported {present.Length} categories to {destinationPath}.");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        // ArgumentException covers the residual malformed-path cases (embedded NUL, invalid
+        // characters, over-long path) that Path.GetFullPath raises; ArgumentNullException
+        // derives from it, so one clause covers both.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             return BackupOutcome.Fail(
                 BackupFailureKind.WriteFailed,
