@@ -637,6 +637,28 @@ rtk git commit -m "feat(vt): TerminalExporter.GetLastNonEmptyRowText for tab pre
 
 ### Task 6: Vertical layout mode (theme swap + viewport guards + activation hooks)
 
+> **AMENDED during execution (2026-08-27):** the two-`ControlTheme` runtime swap specified below is
+> not implementable — Avalonia 12.0.4 throws `InvalidOperationException` ("already has a visual
+> parent") when `TabControl.Theme` is swapped while a tab has live content, because the new
+> template's `PART_SelectedContentHost` cannot take ownership of the existing content visual.
+> Also, `ItemsPanelTemplate` does not exist as a CLR type in Avalonia 12.0.4 (`TabControl.ItemsPanel`
+> is `ITemplate<Panel>`).
+>
+> **Implemented approach instead (same spec outcome, single source of truth preserved):** ONE
+> template — the existing inline template extended in place with three named parts:
+> `PART_TitleBandSpacer` (Border, Dock=Top, Height 0 in horizontal / 36 in vertical),
+> `PART_TabSidebar` (Grid wrapping the existing `PART_TabHeaderScrollViewer`, docked Top in
+> horizontal / Left in vertical), and `PART_TabStripResizeGrip` (Border, IsVisible only in
+> vertical). `ApplyTabLayout()` sets `_isVerticalTabStrip` + the `vertical-tabs` class and defers
+> to `UpdateTabVisuals()`; `UpdateTabHeaderViewport()` reconfigures the parts at runtime:
+> `DockPanel.SetDock`, spacer height, grip visibility, the items `StackPanel.Orientation`
+> (via `FindTabItemsPresenter()?.Panel` — the panel instance is mutated, never replaced),
+> scrollbar visibilities, and the mode-specific sizing/margins already specified below. No
+> `Theme` or `ItemsPanel` property is ever reassigned, so no visual reparenting occurs.
+> Tests assert geometry, class, badge, and panel orientation instead of theme identity.
+> The keyed-resource XAML in Step 3 and the theme-swap lines of Step 4 are superseded by this;
+> everything else in the task (guards, activation hooks, test intent, regression gate) stands.
+
 **Files:**
 - Modify: `src/NovaTerminal.App/MainWindow.axaml` (TabControl at lines ~71–109, TabItem styles at ~31–45)
 - Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` (`UpdateTabHeaderViewport` ~line 736, `EnsureSelectedTabHeaderVisible` ~line 824, ctor end ~line 2699–2722, `OpenSettings` post-save sequence ~line 5935–5961)
