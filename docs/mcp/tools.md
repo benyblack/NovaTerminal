@@ -29,6 +29,14 @@ The server exposes **two tool families**:
 | `novaterminal.validate_settings_json` | `settingsJson` | Validates a settings.json string (top-level shape); reports wrong types, out-of-range numerics, malformed `DefaultProfileId`, bad collection shapes, and warns on unknown fields and any stray `Password`. Embedded profiles are not deep-validated. |
 | `novaterminal.generate_codex_prompt_for_issue` | `title`, `description?` | Generates a structured implementation prompt (relevant areas, constraints, PR size, steps, tests, acceptance, risks) tailored to NovaTerminal conventions. |
 | `novaterminal.suggest_relevant_files` | `topic` | Suggests the concrete source/test files most relevant to a topic/task (e.g. `reflow`, `glyph atlas`, `ssh key auth`). |
+| `novaterminal.backup_export` | `destinationPath`, `rootDirectory?` | Exports configuration (settings, themes, connections, workspaces, policy, snippets — never passwords) to a `.novabackup` file at `destinationPath`. Reads/writes the app data root (`rootDirectory`, default the current user's NovaTerminal directory) rather than `docs/`. |
+| `novaterminal.backup_list` | `rootDirectory?` | Lists automatic configuration snapshots, newest first, with id, reason, timestamp, and size. |
+
+Deliberately absent: `backup_import` / `backup_restore`. Both would replace the user's live
+configuration, and an out-of-process agent doing that silently is a destructive action the user
+never sees — so import and restore stay confined to the in-app Settings page and the `backup` CLI
+verb, where the user is present. `backup_export` and `backup_list` are read-only and carry no such
+risk.
 
 ## Live-session tools (agent host)
 
@@ -73,6 +81,9 @@ targets additionally require a per-profile allowlist.
 - The live-session tools reach the app only through the zero-reference
   `NovaTerminal.AgentHost.Contracts` wire types over a per-user local IPC endpoint — the server
   still links no terminal, PTY, SSH, or rendering code.
+- `backup_export` and `backup_list` reach the zero-reference `NovaTerminal.Backup` leaf directly
+  (no IPC, no opt-in toggle — they only ever read/export, never import or restore) and never touch
+  secret storage; a bundle carries connection profiles without password material.
 
 ## Still deferred
 
