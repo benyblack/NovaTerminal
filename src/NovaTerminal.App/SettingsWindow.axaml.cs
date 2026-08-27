@@ -20,6 +20,7 @@ using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.CommandAssist.ShellIntegration.Remote;
 using NovaTerminal.Services.Ssh;
+using NovaTerminal.Shell.Backup;
 using NovaTerminal.Shell.Shortcuts;
 using NovaTerminal.Shell.TitleBar;
 
@@ -142,19 +143,20 @@ namespace NovaTerminal
             // Keep the sidebar list boxes in sync with the tab control. The previous single
             // list box drove selection via a direct SelectedIndex binding; that breaks once the
             // sidebar is split (InterfaceNav holds tabs 0-2, AssistantNav holds tabs 3-4,
-            // ConnectionNav holds tab 5), so route everything through this small dispatcher
-            // instead. The tab header strip is not the navigation — these lists are — so a new
-            // tab MUST get a sidebar item and a mapping here, or it is unreachable. That is not
-            // hypothetical: the SSH tab initially shipped without one, which silently remapped
-            // the "Agent Access" item onto SSH and stranded the real Agent Access tab
-            // (Codex review finding on #332). New tabs go at the END of the TabControl so the
-            // existing offsets stay true.
+            // ConnectionNav holds tab 5, DataNav holds tab 6), so route everything through this
+            // small dispatcher instead. The tab header strip is not the navigation — these lists
+            // are — so a new tab MUST get a sidebar item and a mapping here, or it is
+            // unreachable. That is not hypothetical: the SSH tab initially shipped without one,
+            // which silently remapped the "Agent Access" item onto SSH and stranded the real
+            // Agent Access tab (Codex review finding on #332). New tabs go at the END of the
+            // TabControl so the existing offsets stay true.
             var interfaceNav = this.FindControl<ListBox>("InterfaceNav");
             var assistantNav = this.FindControl<ListBox>("AssistantNav");
             var connectionNav = this.FindControl<ListBox>("ConnectionNav");
-            if (tabs != null && interfaceNav != null && assistantNav != null && connectionNav != null)
+            var dataNav = this.FindControl<ListBox>("DataNav");
+            if (tabs != null && interfaceNav != null && assistantNav != null && connectionNav != null && dataNav != null)
             {
-                tabs.SelectionChanged += (_, _) => SyncSidebarFromTabs(tabs, interfaceNav, assistantNav, connectionNav);
+                tabs.SelectionChanged += (_, _) => SyncSidebarFromTabs(tabs, interfaceNav, assistantNav, connectionNav, dataNav);
                 interfaceNav.SelectionChanged += (_, _) =>
                 {
                     if (interfaceNav.SelectedIndex < 0) return;
@@ -170,7 +172,12 @@ namespace NovaTerminal
                     if (connectionNav.SelectedIndex < 0) return;
                     tabs.SelectedIndex = connectionNav.SelectedIndex + 5;
                 };
-                SyncSidebarFromTabs(tabs, interfaceNav, assistantNav, connectionNav);
+                dataNav.SelectionChanged += (_, _) =>
+                {
+                    if (dataNav.SelectedIndex < 0) return;
+                    tabs.SelectedIndex = dataNav.SelectedIndex + 6;
+                };
+                SyncSidebarFromTabs(tabs, interfaceNav, assistantNav, connectionNav, dataNav);
             }
 
             // Settings editor is local-profiles only; SSH connections are managed in Connection Manager.
@@ -894,6 +901,8 @@ namespace NovaTerminal
             if (btnSave != null) btnSave.Click += (s, e) => SaveAndClose();
             if (btnCancel != null) btnCancel.Click += (s, e) => Close();
 
+            WireBackupSection();
+
             // Auto-select profile if requested
             if (initialProfileId.HasValue && profilesListBox != null)
             {
@@ -912,38 +921,233 @@ namespace NovaTerminal
         /// <summary>
         /// Mirror the current tab control selection into the sidebar list boxes.
         /// InterfaceNav owns tabs 0-2 (Appearance / Profiles / Shortcuts), AssistantNav owns
-        /// tabs 3-4 (Command Assist / Agent Access), ConnectionNav owns tab 5 (SSH). The other
-        /// list boxes are cleared so only one item ever reads as selected.
+        /// tabs 3-4 (Command Assist / Agent Access), ConnectionNav owns tab 5 (SSH), DataNav
+        /// owns tab 6 (Backup & Restore). The other list boxes are cleared so only one item
+        /// ever reads as selected.
         /// </summary>
-        private static void SyncSidebarFromTabs(TabControl tabs, ListBox interfaceNav, ListBox assistantNav, ListBox connectionNav)
+        private static void SyncSidebarFromTabs(
+            TabControl tabs,
+            ListBox interfaceNav,
+            ListBox assistantNav,
+            ListBox connectionNav,
+            ListBox dataNav)
         {
             var idx = tabs.SelectedIndex;
-            if (idx < 0)
+
+            interfaceNav.SelectedIndex = -1;
+            assistantNav.SelectedIndex = -1;
+            connectionNav.SelectedIndex = -1;
+            dataNav.SelectedIndex = -1;
+
+            if (idx < 0) return;
+
+            if (idx < 3) interfaceNav.SelectedIndex = idx;
+            else if (idx < 5) assistantNav.SelectedIndex = idx - 3;
+            else if (idx < 6) connectionNav.SelectedIndex = idx - 5;
+            else dataNav.SelectedIndex = idx - 6;
+        }
+
+        /// <summary>
+        /// Wires the Backup &amp; Restore page. All work goes through <see cref="BackupService"/>;
+        /// this method only picks files and renders outcomes.
+        /// </summary>
+        private void WireBackupSection()
+        {
+            var service = new BackupService(AppPaths.RootDirectory);
+
+            var btnExport = this.FindControl<Button>("BtnBackupExport");
+            var btnImport = this.FindControl<Button>("BtnBackupImport");
+            var btnRestore = this.FindControl<Button>("BtnRestoreSnapshot");
+            var status = this.FindControl<TextBlock>("BackupStatusText");
+            var snapshotList = this.FindControl<ListBox>("SnapshotList");
+
+            void SetStatus(string message, bool success)
             {
-                interfaceNav.SelectedIndex = -1;
-                assistantNav.SelectedIndex = -1;
-                connectionNav.SelectedIndex = -1;
-                return;
+                if (status is null) return;
+                status.Text = message;
+                status.Foreground = success
+                    ? (IBrush?)this.FindResource("NtGreen")
+                    : (IBrush?)this.FindResource("NtRed");
             }
 
-            if (idx < 3)
+            void RefreshSnapshots()
             {
-                interfaceNav.SelectedIndex = idx;
-                assistantNav.SelectedIndex = -1;
-                connectionNav.SelectedIndex = -1;
+                if (snapshotList is null) return;
+
+                var rows = service.ListSnapshots()
+                    .Select(s => new SnapshotRow(
+                        s.Id,
+                        $"{s.CreatedUtc.LocalDateTime:yyyy-MM-dd HH:mm}  ·  {ReasonLabel(s.Reason)}  ·  {s.SizeBytes / 1024.0:N0} KB"))
+                    .ToArray();
+
+                snapshotList.ItemsSource = rows;
             }
-            else if (idx < 5)
+
+            if (snapshotList is not null)
             {
-                interfaceNav.SelectedIndex = -1;
-                assistantNav.SelectedIndex = idx - 3;
-                connectionNav.SelectedIndex = -1;
+                // ListBox has no WPF-style DisplayMemberBinding in Avalonia; a FuncDataTemplate
+                // is the established pattern here (see MainWindow.ShowAgentActivityJournalAsync's
+                // agent-activity ItemsControl).
+                snapshotList.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<SnapshotRow>((row, _) =>
+                    new TextBlock { Text = row?.Display ?? string.Empty, Margin = new Thickness(4, 2) });
             }
-            else
+
+            RefreshSnapshots();
+
+            if (btnExport != null)
             {
-                interfaceNav.SelectedIndex = -1;
-                assistantNav.SelectedIndex = -1;
-                connectionNav.SelectedIndex = idx - 5;
+                btnExport.Click += async (_, _) =>
+                {
+                    var topLevel = TopLevel.GetTopLevel(this);
+                    if (topLevel is null) return;
+
+                    var file = await topLevel.StorageProvider.SaveFilePickerAsync(
+                        new Avalonia.Platform.Storage.FilePickerSaveOptions
+                        {
+                            Title = "Export NovaTerminal configuration",
+                            SuggestedFileName = $"novaterminal-{DateTime.Now:yyyy-MM-dd}{BackupService.BundleExtension}",
+                            DefaultExtension = BackupService.BundleExtension.TrimStart('.')
+                        });
+
+                    if (file is null) return;
+
+                    var outcome = service.Export(file.Path.LocalPath);
+                    SetStatus(outcome.Success ? $"Exported to {file.Name}." : outcome.Message, outcome.Success);
+                };
             }
+
+            if (btnImport != null)
+            {
+                btnImport.Click += async (_, _) =>
+                {
+                    var topLevel = TopLevel.GetTopLevel(this);
+                    if (topLevel is null) return;
+
+                    var files = await topLevel.StorageProvider.OpenFilePickerAsync(
+                        new Avalonia.Platform.Storage.FilePickerOpenOptions
+                        {
+                            Title = "Import NovaTerminal configuration",
+                            AllowMultiple = false
+                        });
+
+                    if (files.Count == 0) return;
+                    string path = files[0].Path.LocalPath;
+
+                    // Inspect first so the confirmation names what is about to change.
+                    var inspection = service.Inspect(path);
+                    if (!inspection.Success)
+                    {
+                        SetStatus(inspection.Message, success: false);
+                        return;
+                    }
+
+                    var mode = await PromptForImportModeAsync(inspection.Inspection!);
+                    if (mode is null) return;
+
+                    var outcome = service.Import(path, mode.Value);
+                    SetStatus(
+                        outcome.Success
+                            ? $"Imported ({mode}). Restart NovaTerminal to pick up all changes."
+                            : outcome.Message,
+                        outcome.Success);
+                    RefreshSnapshots();
+                };
+            }
+
+            if (btnRestore != null)
+            {
+                btnRestore.Click += (_, _) =>
+                {
+                    if (snapshotList?.SelectedItem is not SnapshotRow row)
+                    {
+                        SetStatus("Select a snapshot first.", success: false);
+                        return;
+                    }
+
+                    var outcome = service.Restore(row.Id);
+                    SetStatus(
+                        outcome.Success
+                            ? "Restored. Restart NovaTerminal to pick up all changes."
+                            : outcome.Message,
+                        outcome.Success);
+                    RefreshSnapshots();
+                };
+            }
+        }
+
+        private static string ReasonLabel(SnapshotReason reason) => reason switch
+        {
+            SnapshotReason.Auto => "automatic",
+            SnapshotReason.PreImport => "before import",
+            SnapshotReason.PreRestore => "before restore",
+            _ => "automatic"
+        };
+
+        private sealed record SnapshotRow(string Id, string Display);
+
+        /// <summary>
+        /// Asks whether to merge or replace, showing what the bundle contains. Returns null
+        /// when the user cancels. Import is destructive, so there is no default —
+        /// the user must pick.
+        /// </summary>
+        private async System.Threading.Tasks.Task<ImportMode?> PromptForImportModeAsync(BundleInspection inspection)
+        {
+            string summary = string.Join(
+                ", ",
+                inspection.ItemCounts
+                    .Where(pair => pair.Value > 0)
+                    .Select(pair => $"{pair.Value} {pair.Key.ToString().ToLowerInvariant()}"));
+
+            ImportMode? choice = null;
+
+            var dialog = new Window
+            {
+                Title = "Import configuration",
+                Width = 460,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false
+            };
+
+            var mergeButton = new Button { Content = "Merge", Classes = { "Pill" } };
+            var replaceButton = new Button { Content = "Replace", Classes = { "Pill" } };
+            var cancelButton = new Button { Content = "Cancel", Classes = { "Pill" } };
+
+            mergeButton.Click += (_, _) => { choice = ImportMode.Merge; dialog.Close(); };
+            replaceButton.Click += (_, _) => { choice = ImportMode.Replace; dialog.Close(); };
+            cancelButton.Click += (_, _) => dialog.Close();
+
+            dialog.Content = new StackPanel
+            {
+                Margin = new Thickness(20),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = $"This bundle contains: {summary}.",
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    new TextBlock
+                    {
+                        Text = "Merge keeps items you have locally that the bundle does not contain. " +
+                               "Replace makes the bundle the truth for the categories above. " +
+                               "A snapshot is taken first either way, so you can roll back.",
+                        TextWrapping = TextWrapping.Wrap,
+                        Opacity = 0.75
+                    },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 8,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Children = { cancelButton, mergeButton, replaceButton }
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
+            return choice;
         }
 
         /// <summary>
