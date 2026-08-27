@@ -48,6 +48,17 @@ namespace NovaTerminal.AgentHost
         private string _kind;
         private bool _isActive;
         private Guid? _profileId;
+        private bool _isAgentActable;
+
+        // The window half of "the user can see this pane". Focus pushed to the
+        // attention machine is the AND of this and _isActive: being the
+        // selected pane only means "selected inside the app", which stays true
+        // while the app is alt-tabbed away or minimized. Optimistic default so
+        // a registration nobody tells about the window (every test that builds
+        // one directly) behaves as it did before; MainWindow pushes the real
+        // value the moment the registration reaches the registry, so the
+        // default never survives into a running app.
+        private bool _isWindowVisible = true;
 
         public AgentSessionRegistration(
             Guid paneId,
@@ -68,6 +79,8 @@ namespace NovaTerminal.AgentHost
             _isActive = isActive;
             _profileId = profileId;
             StatusMachine = new AgentSessionStatusMachine(nowProvider);
+            AttentionMachine = new AgentAttentionMachine(nowProvider);
+            AttentionMachine.NoteFocusChanged(isActive);
         }
 
         /// <summary>
@@ -75,6 +88,72 @@ namespace NovaTerminal.AgentHost
         /// pane on the UI thread; snapshots are safe from any thread.
         /// </summary>
         public AgentSessionStatusMachine StatusMachine { get; }
+
+        /// <summary>
+        /// Per-pane agent attention tiers (read / wrote). Signals come from the
+        /// endpoint on its IPC and timer threads and from the pane on the UI
+        /// thread; the machine is internally locked.
+        /// </summary>
+        public AgentAttentionMachine AttentionMachine { get; }
+
+        /// <summary>
+        /// Whether an agent may currently act on this pane: the global act
+        /// toggle plus, for SSH panes, the per-profile allowlist. Published by
+        /// <see cref="AgentHostService"/> rather than derived here — the
+        /// registration does not know the settings or the allowlist. Drives
+        /// whether the pane shows its agent status segment at all.
+        /// </summary>
+        public bool IsAgentActable
+        {
+            get { lock (_gate) { return _isAgentActable; } }
+            internal set
+            {
+                // AgentHostService.RefreshActability writes this unconditionally
+                // from a 1 s sweep on every registration. Raising on every write
+                // would turn that into a perpetual once-per-second UI-post storm
+                // per pane, so the event fires only on an actual value change.
+                bool changed;
+                lock (_gate)
+                {
+                    changed = _isAgentActable != value;
+                    _isAgentActable = value;
+                }
+
+                // Raised outside the gate, same rule UpdateSnapshot follows for
+                // AttentionMachine.NoteFocusChanged: invoking a subscriber while
+                // holding this registration's lock is a deadlock hazard (a
+                // subscriber that calls back into this registration would
+                // re-enter the lock on the same thread's call stack, or block
+                // forever against another thread that already holds it).
+                if (changed)
+                {
+                    ActabilityChanged?.Invoke();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Raised outside <see cref="_gate"/> whenever <see cref="IsAgentActable"/>
+        /// actually changes value (never on a same-value rewrite — see the
+        /// setter). The owning pane uses this to re-render its status bar
+        /// segment when act-reachability is republished with no attention-tier
+        /// transition alongside it (global act toggle, allowlist edit).
+        ///
+        /// Deliberately payload-free: a handed-out <c>bool</c> is a stale
+        /// channel. <c>AgentHostService.RefreshActability</c> can run
+        /// concurrently (the 1 s sweep thread, the act-toggle setter, an
+        /// allowlist edit on the UI thread) and two racing writers can compute
+        /// different values for the same SSH pane. Whichever writer enters the
+        /// setter first stores its value; it may then be descheduled and raise
+        /// *after* the other. With a payload, the last value delivered can
+        /// disagree with the value actually stored — and because the setter
+        /// raises only on change, every later sweep sees no change and never
+        /// corrects it, leaving a pane permanently unmarked while agents can
+        /// type into it. With no payload the subscriber must read
+        /// <see cref="IsAgentActable"/>, so whichever post runs last renders
+        /// the current truth no matter how the raises interleave.
+        /// </summary>
+        public event Action? ActabilityChanged;
 
         // The PTY session behind this registration, published by the pane on the
         // UI thread whenever the session is created, swapped, or torn down —
@@ -418,6 +497,7 @@ namespace NovaTerminal.AgentHost
         /// <summary>Atomically replaces the pane-owned metadata. Called on the UI thread by the pane.</summary>
         public void UpdateSnapshot(string title, string profileName, string kind, bool isActive, Guid? profileId = null)
         {
+            bool effectiveFocus;
             lock (_gate)
             {
                 _title = title;
@@ -425,7 +505,43 @@ namespace NovaTerminal.AgentHost
                 _kind = kind;
                 _isActive = isActive;
                 _profileId = profileId;
+                effectiveFocus = isActive && _isWindowVisible;
             }
+
+            // Focus feeds the write-acknowledgement rule, and it means "the
+            // user is plausibly looking at this pane" — being the selected pane
+            // of a window that is minimized or behind another application does
+            // not qualify. Pushed after the gate is released: the machine locks
+            // internally and raises Changed.
+            AttentionMachine.NoteFocusChanged(effectiveFocus);
+        }
+
+        /// <summary>
+        /// The owning window became front-and-visible, or stopped being so
+        /// (deactivated, minimized). Pushed by MainWindow from the UI thread.
+        ///
+        /// This exists because <see cref="UpdateSnapshot"/> is driven by
+        /// pane-level changes only, and a window losing focus is not one: with
+        /// focus meaning nothing but <c>IsActivePane</c>, an agent write into
+        /// the selected pane of an alt-tabbed-away app would be retired by the
+        /// periodic tick ten seconds later, with the user never having seen the
+        /// one mark in this feature that is designed to survive until seen.
+        ///
+        /// Like <see cref="UpdateSnapshot"/>, the machine is signalled outside
+        /// <see cref="_gate"/>: it locks internally and raises Changed to
+        /// subscribers who may call back into this registration.
+        /// </summary>
+        public void NoteWindowVisibilityChanged(bool isWindowVisible)
+        {
+            bool effectiveFocus;
+            lock (_gate)
+            {
+                if (_isWindowVisible == isWindowVisible) return;
+                _isWindowVisible = isWindowVisible;
+                effectiveFocus = _isActive && isWindowVisible;
+            }
+
+            AttentionMachine.NoteFocusChanged(effectiveFocus);
         }
     }
 }

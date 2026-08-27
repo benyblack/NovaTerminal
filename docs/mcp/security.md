@@ -33,6 +33,28 @@ macOS/Linux). They are gated by opt-ins in the app's settings:
 - **Act** (`send_input`, `spawn_session`, `close_session`) requires a **separate** **Agent access
   (act)** opt-in *on top of* observe. SSH targets additionally require a **per-profile allowlist**.
   Every acting call — allowed or denied — is recorded in an in-app **activity journal**.
+- **Visibility while it happens.** Panes an agent may act on carry an agent segment in
+  their status bar; the segment turns blue and reads "agent reading" on any agent read
+  (readScreen, readScrollback, getSessionStatus, captureScreen, exportReplay — an export
+  writes out the pane's retained flight recording, more of its output than a single
+  `read_screen`, so it counts as a read of that pane), and turns
+  amber and reads "agent typed" when an agent writes into that pane (sendInput,
+  spawnSession, closeSession).
+  The amber state persists for at least 10 seconds even if you look at the pane immediately
+  — so an agent typing into a pane you are already watching cannot flash past you — and
+  then clears. Clicking the segment opens the activity journal. Tab headers carry a
+  keyboard badge for writes (eye badge for reads too, if
+  **Settings → Agent Access → Tab indicator** is set to `All`), and a window-level light
+  shows whenever agent access is enabled, brightening while an agent holds a `waitForEvents`
+  long poll open or while a pane whose segment you cannot currently see is being read.
+  A pane counts as unseen when it carries no segment at all — it is not actable, e.g. an SSH
+  pane you deliberately left off the act allowlist — or when it does carry one but sits in a
+  tab you do not have selected, because a non-selected tab's content is not rendered. Either
+  way there is no segment on screen, under the default `WritesOnly` tab setting no badge
+  either, and the read would otherwise be visible nowhere.
+  The activity journal remains the retrospective
+  record; these are the live ones. There is no way to silence them — the way to have no
+  indicator is to turn agent access off.
 - With both toggles off, **no endpoint exists** and the live-session tools return guidance, not data.
 
 Full analysis of the acting surface: the

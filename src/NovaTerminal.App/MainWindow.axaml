@@ -163,6 +163,30 @@
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
+                <!-- The agent observe light is declared rather than generated, and is deliberately
+                     NOT a TitleBarCatalog entry: catalog items are user-pinnable and therefore
+                     user-removable, and this indicator must have no off switch (see
+                     docs/mcp/security.md - the only way to have no indicator is to disable agent
+                     access itself). It is instead locked into the bar the same way BtnNewTab is:
+                     the same instance is re-inserted by MainWindow.PlaceAgentObserveIndicator after
+                     every RebuildTitleBar rather than rebuilt, so the Click handler wired once in
+                     the constructor and the FindControl lookups in RefreshAgentObserveIndicator
+                     keep resolving. It is appended LAST - after everything Populate emitted,
+                     including the overflow button - so its position cannot be moved by the user's
+                     layout: this StackPanel is right-aligned, so the final child is the one slot
+                     whose on-screen location never shifts when items are pinned, unpinned,
+                     reordered, or auto-surfaced. Contrast TabOverflowBadge, which deliberately
+                     tracks a user-movable button because it annotates that button. -->
+                <Button Name="AgentObserveIndicator"
+                        IsVisible="False"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="6,0"
+                        Focusable="False"
+                        VerticalAlignment="Center"
+                        ToolTip.Tip="Agent access is enabled. Click to open the agent activity journal.">
+                    <Ellipse Name="AgentObserveIndicatorDot" Width="7" Height="7" Fill="#6B737F"/>
+                </Button>
             </StackPanel>
         </Grid>
 

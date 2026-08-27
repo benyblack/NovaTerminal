@@ -60,6 +60,14 @@ namespace NovaTerminal.Shell
         // their reconnect banner. Unrecognised values behave as "Never" — a typo must not be more
         // destructive than the default.
         public string ShellExitPolicy { get; set; } = "Graceful";
+        /// <summary>
+        /// Which agent attention tiers reach the tab strip: "WritesOnly"
+        /// (default) or "All". Unrecognised values behave as "WritesOnly" — a
+        /// typo must not make the chrome noisier than the default. Read by
+        /// MainWindow, which owns the tab strip; the pane never reads it, so it
+        /// is deliberately absent from TerminalPane.ApplySettings.
+        /// </summary>
+        public string AgentIndicatorTabRollup { get; set; } = "WritesOnly";
         public System.Collections.Generic.Dictionary<string, string> Keybindings { get; set; } = new();
 
         // Title bar customization. Deltas only: an id absent here takes its TitleBarCatalog default,

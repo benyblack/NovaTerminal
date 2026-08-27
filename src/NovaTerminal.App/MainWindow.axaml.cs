@@ -68,6 +68,14 @@ namespace NovaTerminal
         private readonly Dictionary<TabItem, PaneLayoutModel> _layoutModelByTab = new();
         private readonly List<TabItem> _tabMru = new();
         private bool _windowIconLoaded;
+
+        // The window half of the agent attention machines' focus signal; see
+        // PushAgentWindowVisibility. Two fields because the two inputs arrive
+        // from different places (Activated/Deactivated vs. the WindowState
+        // property) and neither can be read reliably from inside the other's
+        // notification: Avalonia raises Activated *before* it sets IsActive.
+        private bool _agentWindowActivated;
+        private bool _agentWindowVisible;
         private readonly Dictionary<TabItem, TabRuntimeState> _tabStateByTab = new();
         private readonly HashSet<TabItem> _pendingVisualRefreshTabs = new();
         private bool _suppressMruTouchOnSelection;
@@ -90,6 +98,12 @@ namespace NovaTerminal
         private readonly ISshInteractionService _sshInteractionService;
         private readonly SshLegacyProfileMigrationService _sshLegacyMigrationService;
         private static readonly TimeSpan BellDebounceWindow = TimeSpan.FromMilliseconds(750);
+
+        /// <summary>Tab-label marker for "an agent typed into a pane in this tab".</summary>
+        internal const string AgentWroteGlyph = "⌨";  // keyboard
+
+        /// <summary>Tab-label marker for "an agent is reading a pane in this tab".</summary>
+        internal const string AgentWatchedGlyph = "\U0001F441";  // eye
         internal const double MinimumTabHeaderRightReserve = 440;
         internal const double MacOsTrafficLightReserve = 92;
         internal const double TabHeaderViewportPadding = 16;
@@ -137,6 +151,7 @@ namespace NovaTerminal
             public bool HasActivity { get; set; }
             public bool HasBell { get; set; }
             public DateTime LastBellUtc { get; set; }
+            public AgentHost.AgentAttentionTier AgentTier { get; set; }
         }
 
         internal enum TabHeaderPointerAction
@@ -671,6 +686,8 @@ namespace NovaTerminal
             string icon = state.IsPinned ? "📌 " : string.Empty;
             if (state.HasBell) icon += "🔔 ";
             else if (state.HasActivity) icon += "• ";
+            if (state.AgentTier == AgentHost.AgentAttentionTier.Wrote) icon += AgentWroteGlyph + " ";
+            else if (state.AgentTier == AgentHost.AgentAttentionTier.Watched) icon += AgentWatchedGlyph + " ";
             string label = GetTabHeaderText(tab);
             return $"{index}. {icon}{label}";
         }
@@ -1018,7 +1035,18 @@ namespace NovaTerminal
             return ResolveTabPrimaryTitle(state.UserTitle, pane?.GetBaseTabTitle(), GetTabHeaderText(tab));
         }
 
-        private string BuildFullTabLabel(TabItem tab)
+        /// <summary>
+        /// The tab label without its trailing attention marker (bell, activity,
+        /// or agent tier): primary title, forwarding badge, and the pinned/
+        /// protected prefixes. Split out from <see cref="BuildFullTabLabel"/>
+        /// so <see cref="BuildTabDisplayLabels"/> can truncate this part alone
+        /// and append the marker afterwards — the marker must never land in
+        /// the truncated region, or it silently disappears from a long tab's
+        /// visible header (it would still show in the tooltip, since that
+        /// reads the untruncated <see cref="BuildFullTabLabel"/> result, but
+        /// the always-visible header text is the surface that matters).
+        /// </summary>
+        private string BuildBaseTabLabel(TabItem tab)
         {
             var state = GetOrCreateTabState(tab);
             var pane = ResolvePaneForTab(tab);
@@ -1043,15 +1071,6 @@ namespace NovaTerminal
                 }
             }
 
-            if (state.HasBell)
-            {
-                label += " 🔔";
-            }
-            else if (state.HasActivity)
-            {
-                label += " •";
-            }
-
             if (state.IsPinned)
             {
                 label = "📌 " + label;
@@ -1064,10 +1083,70 @@ namespace NovaTerminal
             return label;
         }
 
+        /// <summary>
+        /// The trailing attention-marker suffix for a tab: bell and activity
+        /// are mutually exclusive (a bell always wins over mere activity), and
+        /// the agent tier is independent of both and can accompany either —
+        /// preserving exactly the precedence and combination rules the old,
+        /// inline version of this logic had in <c>BuildFullTabLabel</c>.
+        /// </summary>
+        private static string GetAttentionMarkerSuffix(TabRuntimeState state)
+        {
+            string suffix = string.Empty;
+
+            if (state.HasBell)
+            {
+                suffix += " 🔔";
+            }
+            else if (state.HasActivity)
+            {
+                suffix += " •";
+            }
+
+            if (state.AgentTier == AgentHost.AgentAttentionTier.Wrote)
+            {
+                suffix += " " + AgentWroteGlyph;
+            }
+            else if (state.AgentTier == AgentHost.AgentAttentionTier.Watched)
+            {
+                suffix += " " + AgentWatchedGlyph;
+            }
+
+            return suffix;
+        }
+
+        private string BuildFullTabLabel(TabItem tab)
+        {
+            var state = GetOrCreateTabState(tab);
+            return BuildBaseTabLabel(tab) + GetAttentionMarkerSuffix(state);
+        }
+
+        /// <summary>
+        /// Truncates every tab's label to <paramref name="maxLength"/> for the
+        /// visible header, keeping the attention marker (bell/activity/agent)
+        /// out of the truncated region by treating it as a suffix reserved
+        /// ahead of time — the same mechanism <see cref="TruncateTabLabelWithSuffix"/>
+        /// already used for the collision-disambiguation hint below, just
+        /// applied unconditionally instead of only once tabs collide.
+        ///
+        /// When a truncated label collides with another tab's, the
+        /// disambiguation hint is appended *after* the marker rather than
+        /// before it: the marker is content about the tab's own live state
+        /// (matches its position in the untruncated <see cref="BuildFullTabLabel"/>,
+        /// immediately after the title), while the hint is a synthetic
+        /// disambiguator bolted on only when two tabs would otherwise render
+        /// identically. Putting the hint last also means the one case that
+        /// forces both to compete for space (an extremely small maxLength)
+        /// degrades by dropping hint characters before marker characters —
+        /// <see cref="TruncateTabLabelWithSuffix"/>'s degenerate-case branch
+        /// returns the front of the combined suffix, and the marker occupies
+        /// the front.
+        /// </summary>
         private Dictionary<TabItem, string> BuildTabDisplayLabels(IReadOnlyList<TabItem> tabs, int maxLength)
         {
-            var fullLabels = tabs.ToDictionary(t => t, BuildFullTabLabel);
-            var truncated = tabs.ToDictionary(t => t, t => TruncateTabLabel(fullLabels[t], maxLength));
+            var baseLabels = tabs.ToDictionary(t => t, BuildBaseTabLabel);
+            var markers = tabs.ToDictionary(t => t, t => GetAttentionMarkerSuffix(GetOrCreateTabState(t)));
+            var truncated = tabs.ToDictionary(t => t, t => TruncateTabLabelWithSuffix(baseLabels[t], maxLength, markers[t]));
 
             var collisions = tabs
                 .GroupBy(t => truncated[t], StringComparer.Ordinal)
@@ -1078,7 +1157,7 @@ namespace NovaTerminal
                 foreach (var tab in group)
                 {
                     string hint = "~" + GetTabId(tab).ToString("N").Substring(0, 4);
-                    truncated[tab] = TruncateTabLabelWithSuffix(fullLabels[tab], maxLength, hint);
+                    truncated[tab] = TruncateTabLabelWithSuffix(baseLabels[tab], maxLength, markers[tab] + hint);
                 }
             }
 
@@ -1781,6 +1860,14 @@ namespace NovaTerminal
             return ResolvePaneForTab(tabItem)?.PaneId;
         }
 
+        /// <summary>
+        /// Whether this tab is currently pane-zoomed - i.e. its content is one
+        /// pane rather than its split layout, so every other pane in the tab is
+        /// unrendered. Sits beside <see cref="GetZoomedPaneIdForTab"/> because
+        /// the agent observe light needs both halves of that answer.
+        /// </summary>
+        internal bool IsPaneZoomActiveForTab(TabItem tabItem) => _paneZoomStateByTab.ContainsKey(tabItem);
+
         internal Guid? GetZoomedPaneIdForTab(TabItem tabItem)
         {
             if (_zoomedPaneIdByTab.TryGetValue(tabItem, out var paneId))
@@ -1899,6 +1986,14 @@ namespace NovaTerminal
             FocusPaneTerminal(pane, defer: true);
             UpdatePaneAutomationLabels();
             RefreshLayoutModelForTab(tabItem);
+            // Zoom changes which panes are on screen, so it changes the window
+            // light's answer with no attention event behind it - exactly like a
+            // tab switch. Without this, a sibling being read while it is zoomed
+            // away keeps its now-invisible segment as its only report: the
+            // light stays dark and, under the default WritesOnly rollup, the
+            // tab glyph is suppressed too, so the rest of that read is shown
+            // nowhere and the Watched tier decays in ~3 s.
+            RefreshAgentObserveIndicator();
 
             if (publishEvent)
             {
@@ -1945,6 +2040,10 @@ namespace NovaTerminal
             FocusPaneTerminal(zoomedPane, defer: true);
             UpdatePaneAutomationLabels();
             RefreshLayoutModelForTab(tabItem);
+            // The other direction, and it matters just as much: the siblings
+            // that come back on screen carry their own segments again, so a
+            // light still lit for them would double-report.
+            RefreshAgentObserveIndicator();
 
             if (publishEvent)
             {
@@ -2124,6 +2223,22 @@ namespace NovaTerminal
             AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
             AgentHost.AgentHostService.Instance.SetActionExecutor(this);
             AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
+            AgentHost.AgentHostService.Instance.ObserveActivityChanged += OnAgentObserveActivityChanged;
+            RefreshAgentObserveIndicator();
+
+            // Tab-label rollup: mirror each pane's attention tier onto its
+            // owning tab. Subscribe to sessions already registered (a pane can
+            // register before MainWindow's constructor reaches this point is
+            // not expected today, but costs nothing to handle) and to future
+            // registrations via the registry's lifecycle events.
+            AgentHost.AgentSessionRegistry.Instance.SessionRegistered += OnAgentSessionRegisteredForAttention;
+            AgentHost.AgentSessionRegistry.Instance.SessionUnregistered += OnAgentSessionUnregisteredForAttention;
+            foreach (var registration in AgentHost.AgentSessionRegistry.Instance.GetRegistrations())
+            {
+                // Same wiring the lifecycle event applies, so a session that
+                // beat the subscription also gets the window-visibility seed.
+                OnAgentSessionRegisteredForAttention(registration);
+            }
 
             // Ensure visual tree is ready for initial tab border
             this.Loaded += (s, e) =>
@@ -2146,6 +2261,13 @@ namespace NovaTerminal
                 }, DispatcherPriority.Input);
             };
             this.Activated += (s, e) => FocusCurrentTerminal(defer: true);
+            // Window activation feeds the agent attention machines' focus
+            // signal (see PushAgentWindowVisibility). Deliberately separate
+            // subscriptions rather than folded into the focus handler above:
+            // this half must also run on Deactivated, which has no terminal to
+            // focus.
+            this.Activated += (_, _) => SetAgentWindowActivated(true);
+            this.Deactivated += (_, _) => SetAgentWindowActivated(false);
             this.SizeChanged += (_, __) => Dispatcher.UIThread.Post(UpdateTabHeaderViewport, DispatcherPriority.Background);
             _recordingToastTimer.Tick += (_, __) =>
             {
@@ -2225,6 +2347,12 @@ namespace NovaTerminal
                         updatedSpecific = true;
                     }
                     if (!updatedSpecific) UpdateTabVisuals();
+                    // The window light's "no visible bar" term is relative to
+                    // the selected tab, so a tab switch changes its answer with
+                    // no attention event behind it: the pane whose segment just
+                    // came on screen must stop double-reporting, and a pane
+                    // still being read in the tab just left must start.
+                    RefreshAgentObserveIndicator();
                     UpdatePaneAutomationLabels();
                     UpdateTabAutomationLabels();
                     UpdateBroadcastIndicator();
@@ -2269,6 +2397,16 @@ namespace NovaTerminal
             {
                 await ShowAgentActivityJournalAsync();
             };
+
+            // Wired once, here, and never again: PlaceAgentObserveIndicator re-parents this exact
+            // instance on every RebuildTitleBar instead of recreating it, so this subscription
+            // survives every rebuild. (BtnRecord's old wiring is gone - PR #342 moved Record into
+            // the generated title bar, where TitleBarViewFactory drives it through a Command.)
+            var agentObserveIndicator = this.FindControl<Button>("AgentObserveIndicator");
+            if (agentObserveIndicator != null)
+            {
+                agentObserveIndicator.Click += async (_, _) => await ShowAgentActivityJournalAsync();
+            }
 
             var recordingToastClose = this.FindControl<Button>("RecordingToastClose");
             if (recordingToastClose != null)
@@ -3246,6 +3384,48 @@ namespace NovaTerminal
             }
         }
 
+        /// <summary>
+        /// The trailing attention-marker suffix for a tab's screen-reader
+        /// automation label, spoken as words rather than the glyphs
+        /// <see cref="GetAttentionMarkerSuffix"/> renders for sighted users.
+        /// Order and wording preserve exactly what the previous inline
+        /// ternary chain in <c>UpdateTabAutomationLabels</c> produced: bell
+        /// beats mere activity, and the agent tier (independent of either)
+        /// follows.
+        /// </summary>
+        private static string GetAttentionAnnouncementSuffix(TabRuntimeState state)
+        {
+            string attention;
+            if (state.HasBell)
+            {
+                attention = " bell";
+            }
+            else if (state.HasActivity)
+            {
+                attention = " activity";
+            }
+            else
+            {
+                attention = string.Empty;
+            }
+
+            string agent;
+            if (state.AgentTier == AgentHost.AgentAttentionTier.Wrote)
+            {
+                agent = " agent-typed";
+            }
+            else if (state.AgentTier == AgentHost.AgentAttentionTier.Watched)
+            {
+                agent = " agent-reading";
+            }
+            else
+            {
+                agent = string.Empty;
+            }
+
+            return attention + agent;
+        }
+
         private void UpdateTabAutomationLabels()
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -3263,8 +3443,7 @@ namespace NovaTerminal
                 if (tabs.Items[i] is not TabItem tab) continue;
                 var state = GetOrCreateTabState(tab);
                 bool active = tabs.SelectedItem == tab;
-                string attention = state.HasBell ? " bell" : state.HasActivity ? " activity" : string.Empty;
-                string label = $"Tab {i + 1} of {count}: {GetTabHeaderText(tab)}{(active ? " active" : "")}{attention}";
+                string label = $"Tab {i + 1} of {count}: {GetTabHeaderText(tab)}{(active ? " active" : "")}{GetAttentionAnnouncementSuffix(state)}";
                 AutomationProperties.SetName(tab, label);
             }
             sw.Stop();
@@ -3719,6 +3898,328 @@ namespace NovaTerminal
             // what happened through the exit banner, whereas a closed pane cannot be un-closed.
             return false;
         }
+
+        /// <summary>
+        /// Whether an attention tier is loud enough for the tab strip under the
+        /// given rollup policy. A write always shows: the setting only governs
+        /// whether reads do.
+        /// </summary>
+        internal static bool ShouldShowTierInTabStrip(string? rollupPolicy, AgentHost.AgentAttentionTier tier)
+        {
+            if (tier == AgentHost.AgentAttentionTier.Wrote) return true;
+            if (tier == AgentHost.AgentAttentionTier.Idle) return false;
+            return string.Equals(rollupPolicy, "All", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Decides the application-level agent light from its three inputs. Pure
+        /// so it can be tested without a window and without touching the
+        /// process-wide <see cref="AgentHost.AgentHostService.Instance"/>.
+        ///
+        /// Visible exactly while observe is enabled. "Active" (the watched
+        /// styling) covers the two cases this is the only correctly-scoped
+        /// surface for: an in-flight waitForEvents long poll, which names no
+        /// pane; and a read landing on a pane whose status bar the user cannot
+        /// currently see, which would otherwise be invisible everywhere.
+        ///
+        /// The condition is deliberately per-pane rather than "act is off".
+        /// A pane carries a bar only when it is *actable*, and act being on is
+        /// not sufficient for that: an SSH pane whose profile lacks
+        /// AllowAgentAccess is never actable, so with act on it has no bar, no
+        /// tab glyph under the default WritesOnly rollup, and — under the old
+        /// global-toggle condition — no window light either. Reading exactly
+        /// the panes the user deliberately excluded from act produced no signal
+        /// anywhere. Keying on "the watched pane has no visible bar" subsumes
+        /// the act-off case: with act off no pane is actable, so every watched
+        /// pane is unmarked.
+        ///
+        /// See <see cref="IsPaneReadInvisibleWithoutWindowLight"/> for the
+        /// per-pane half of that decision.
+        /// </summary>
+        internal static (bool Visible, bool Active) ComputeObserveIndicatorState(
+            bool observeRunning, bool polling, bool anyUnmarkedPaneWatched)
+        {
+            if (!observeRunning) return (false, false);
+            return (true, polling || anyUnmarkedPaneWatched);
+        }
+
+        /// <summary>
+        /// Whether a read of this pane would be invisible unless the window
+        /// light reports it — i.e. the pane has no agent status-bar segment
+        /// the user can *currently see*. Pure, so the rule is testable without
+        /// a window.
+        ///
+        /// Three cases say "invisible":
+        ///
+        /// 1. The pane is not actable, so it carries no agent segment at all.
+        /// 2. The pane is actable and therefore has a segment, but it lives in
+        ///    a tab that is not selected. A non-selected tab's content is not
+        ///    rendered, so that segment is off screen. This is the common case,
+        ///    not an edge one — act on plus more than one tab is enough — and
+        ///    it fails in the same inverted direction as the SSH-allowlist hole
+        ///    this predicate already covers: the more permission a pane is
+        ///    granted, the *less* visible reading it becomes. The tier decays
+        ///    in ~3 s, so switching to that tab a moment later shows nothing
+        ///    either.
+        /// 3. The pane has no tab association yet. A registration is created in
+        ///    TerminalPane.SetupCommon and only associated with a tab later by
+        ///    MainWindow (SetTabAssociation), so this window is real, if brief.
+        ///    Unassociated means "cannot be proven on screen", and the whole
+        ///    point of this light is that a read is never silent, so the
+        ///    unprovable case reports rather than hides. The cost of being
+        ///    wrong here is at worst a redundant light next to a visible
+        ///    segment; the cost the other way is a silent read.
+        /// 4. The pane is actable and in the selected tab, but that tab is
+        ///    pane-zoomed onto a *different* pane. Zoom replaces the tab
+        ///    content with the single zoomed pane (EnterPaneZoom), so the
+        ///    selected-tab test above stops meaning "rendered": every
+        ///    non-zoomed sibling still matches the selected tab id while
+        ///    showing its segment to nobody. Without this the failure is the
+        ///    familiar silent one - a read of the hidden sibling has no bar
+        ///    (unrendered), no tab glyph (reads reach the tab strip only under
+        ///    the non-default "All" rollup) and no window light, and the
+        ///    Watched tier decays in ~3 s, so un-zooming a moment later shows
+        ///    nothing either.
+        ///
+        /// A pane whose segment *is* on screen (actable, in the selected tab,
+        /// and either not zoomed away or the zoomed pane itself) returns false:
+        /// it already says "agent reading" itself, and lighting the window too
+        /// would double-report the same event.
+        /// </summary>
+        internal static bool IsPaneReadInvisibleWithoutWindowLight(
+            bool isAgentActable, Guid? paneTabId, Guid? selectedTabId, bool paneHiddenByZoom)
+        {
+            if (!isAgentActable) return true;
+            if (!paneTabId.HasValue) return true;
+            if (paneTabId.Value != selectedTabId) return true;
+            return paneHiddenByZoom;
+        }
+
+        /// <summary>
+        /// The window-state half of the decision: resolves which tab's content
+        /// is actually rendered, and which pane inside it is, then applies the
+        /// pure rule above to one registration.
+        ///
+        /// The selected tab id is resolved the same way every other tab-id
+        /// consumer in this file does it, so a pane's stored TabId and this are
+        /// comparable by construction. Zoom is read from the same two maps
+        /// EnterPaneZoom/ExitPaneZoom maintain.
+        ///
+        /// A separate method rather than an inline lambda so the zoom wiring
+        /// can be tested: RefreshAgentObserveIndicator's own visible output is
+        /// gated on AgentHostService.Instance.IsRunning, which a test must not
+        /// turn on (it would start a real IPC endpoint in the shared test
+        /// process).
+        /// </summary>
+        internal bool IsPaneReadInvisibleWithoutWindowLight(AgentHost.AgentSessionRegistration registration)
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            var selectedTab = tabs?.SelectedItem as TabItem;
+            Guid? selectedTabId = selectedTab != null ? GetPersistentTabId(selectedTab) : null;
+
+            // Pane zoom breaks the "selected tab == rendered" equivalence:
+            // EnterPaneZoom swaps the tab content for the single zoomed pane,
+            // so the split siblings are off screen while still carrying the
+            // selected tab id.
+            //
+            // zoomedPaneId comes back null only if the two zoom maps ever
+            // disagreed, which they are written not to; if they did, every pane
+            // in the tab compares unequal and is treated as hidden. That is the
+            // direction this feature must fail in - a redundant light, never a
+            // silent read.
+            bool selectedTabIsZoomed = selectedTab != null && IsPaneZoomActiveForTab(selectedTab);
+            Guid? zoomedPaneId = selectedTab != null ? GetZoomedPaneIdForTab(selectedTab) : null;
+
+            return IsPaneReadInvisibleWithoutWindowLight(
+                registration.IsAgentActable,
+                registration.TabId,
+                selectedTabId,
+                paneHiddenByZoom: selectedTabIsZoomed && registration.PaneId != zoomedPaneId);
+        }
+
+        /// <summary>Applies <see cref="ComputeObserveIndicatorState"/> to the chrome. UI thread.</summary>
+        internal void RefreshAgentObserveIndicator()
+        {
+            var indicator = this.FindControl<Button>("AgentObserveIndicator");
+            var dot = this.FindControl<Avalonia.Controls.Shapes.Ellipse>("AgentObserveIndicatorDot");
+            if (indicator == null || dot == null) return;
+
+            var service = AgentHost.AgentHostService.Instance;
+
+            // "Unmarked" = the pane shows no agent segment the user can see
+            // right now, so this light is the only place its read can appear.
+            bool anyUnmarkedPaneWatched = AgentHost.AgentSessionRegistry.Instance.GetRegistrations()
+                .Any(r => IsPaneReadInvisibleWithoutWindowLight(r)
+                    && r.AttentionMachine.Snapshot().Tier == AgentHost.AgentAttentionTier.Watched);
+
+            var (visible, active) = ComputeObserveIndicatorState(
+                service.IsRunning, service.InFlightPollCount > 0, anyUnmarkedPaneWatched);
+
+            indicator.IsVisible = visible;
+            if (!visible) return;
+            dot.Fill = new SolidColorBrush(Color.Parse(active ? "#4FB0D4" : "#6B737F"));
+        }
+
+        // Raised on an IPC thread when the in-flight poll count leaves or
+        // returns to zero.
+        private void OnAgentObserveActivityChanged()
+            => Dispatcher.UIThread.Post(RefreshAgentObserveIndicator);
+
+        /// <summary>
+        /// Recomputes each tab's agent marker from the loudest attention tier
+        /// among its panes, filtered by the rollup setting, then refreshes the
+        /// labels. Tiers are stored on tab state rather than patched onto
+        /// labels because UpdateTabVisuals rebuilds every label from scratch.
+        /// </summary>
+        internal void RefreshTabAgentAttention()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            var loudestByTab = new Dictionary<Guid, AgentHost.AgentAttentionTier>();
+            foreach (var registration in AgentHost.AgentSessionRegistry.Instance.GetRegistrations())
+            {
+                var tabId = registration.TabId;
+                if (!tabId.HasValue) continue;
+                var tier = registration.AttentionMachine.Snapshot().Tier;
+                if (!loudestByTab.TryGetValue(tabId.Value, out var current) || tier > current)
+                {
+                    loudestByTab[tabId.Value] = tier;
+                }
+            }
+
+            foreach (TabItem tab in tabs.Items.Cast<TabItem>())
+            {
+                var state = GetOrCreateTabState(tab);
+                var tier = loudestByTab.TryGetValue(GetPersistentTabId(tab), out var found)
+                    ? found
+                    : AgentHost.AgentAttentionTier.Idle;
+
+                state.AgentTier = ShouldShowTierInTabStrip(_settings.AgentIndicatorTabRollup, tier)
+                    ? tier
+                    : AgentHost.AgentAttentionTier.Idle;
+            }
+
+            UpdateTabVisuals();
+            RefreshAgentObserveIndicator();
+        }
+
+        /// <summary>
+        /// Live-applies the agent-host settings after the Settings dialog is
+        /// saved — the observe endpoint itself, the A4 replay-export and A5
+        /// screenshot sub-gates, the A3 act gate — and then re-renders every
+        /// chrome surface that reads them.
+        ///
+        /// Both refreshes are mandatory, and the tab one is easy to miss:
+        /// <see cref="RefreshTabAgentAttention"/> bakes the rollup policy into
+        /// each tab's stored tier, so a runtime change from "All" to
+        /// "WritesOnly" leaves an already-displayed read glyph on the tab until
+        /// the next attention event on that pane — which may never come. Named
+        /// and factored out rather than inlined at the call site so that
+        /// invariant is testable without driving the Settings dialog.
+        /// </summary>
+        internal void ApplyAgentHostSettingsLive()
+        {
+            AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
+            AgentHost.AgentHostService.Instance.ScreenshotEnabled = _settings.AgentScreenshotEnabled;
+            AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
+            AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
+            AgentHost.AgentHostService.Instance.SetActionExecutor(this);
+            AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
+            // RefreshTabAgentAttention already ends by calling
+            // RefreshAgentObserveIndicator, so this covers both surfaces.
+            RefreshTabAgentAttention();
+        }
+
+        /// <summary>
+        /// Pushes "the user can actually see this window" to every live
+        /// registration, which ANDs it with the pane's own selected-ness to
+        /// produce the attention machines' focus signal.
+        ///
+        /// Focus is what retires the sticky "agent typed" mark, and it is
+        /// supposed to mean "the user has plausibly seen it". IsActivePane
+        /// alone does not: it means "selected inside the app" and stays true
+        /// while NovaTerminal is minimized or behind another application. An
+        /// agent typing into that pane would then have its mark retired by the
+        /// periodic tick <see cref="AgentHost.AgentAttentionMachine.WriteFloorSeconds"/>
+        /// later, with nobody looking — the one signal built to survive until
+        /// seen, disappearing in exactly the scenario it exists for.
+        ///
+        /// This has to be a push of its own rather than a term inside
+        /// <c>UpdateSnapshot</c>: that runs on pane-level changes (title,
+        /// profile, selection), and a window losing focus is not one, so
+        /// nothing would ever re-evaluate the AND. Only the *window* half is
+        /// re-pushed here; each registration keeps its own pane half, so this
+        /// does not have to know or recompute which pane is selected where.
+        ///
+        /// Deduplicated twice — once here on the composed value, once in
+        /// <see cref="AgentHost.AgentSessionRegistration.NoteWindowVisibilityChanged"/>
+        /// — so the WindowState property notification (which fires for
+        /// unrelated reasons) cannot turn into a push storm.
+        /// </summary>
+        private void PushAgentWindowVisibility()
+        {
+            bool visible = _agentWindowActivated && this.WindowState != WindowState.Minimized;
+            if (visible == _agentWindowVisible) return;
+            _agentWindowVisible = visible;
+
+            foreach (var registration in AgentHost.AgentSessionRegistry.Instance.GetRegistrations())
+            {
+                registration.NoteWindowVisibilityChanged(visible);
+            }
+        }
+
+        /// <summary>
+        /// Records window activation and re-pushes. Separate from
+        /// <see cref="PushAgentWindowVisibility"/> because Avalonia raises
+        /// <c>Activated</c> before it assigns <c>IsActive</c>, so the handler
+        /// cannot recompute activation from the property.
+        /// </summary>
+        private void SetAgentWindowActivated(bool activated)
+        {
+            _agentWindowActivated = activated;
+            PushAgentWindowVisibility();
+        }
+
+        /// <summary>
+        /// Minimizing is the other way the window stops being visible while the
+        /// selected pane stays selected. On Windows it usually deactivates too,
+        /// but that is a platform courtesy, not a guarantee, so the state is
+        /// watched directly.
+        /// </summary>
+        protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+        {
+            base.OnPropertyChanged(change);
+            if (change.Property == WindowStateProperty)
+            {
+                PushAgentWindowVisibility();
+            }
+        }
+
+        /// <summary>Test seam for the window-visibility push, which no headless test can raise for real.</summary>
+        internal void SetAgentWindowActivatedForTesting(bool activated) => SetAgentWindowActivated(activated);
+
+        private void OnAgentSessionRegisteredForAttention(AgentHost.AgentSessionRegistration registration)
+        {
+            registration.AttentionMachine.Changed += OnAgentAttentionChangedForTabs;
+
+            // A pane can be born while the window is not front — session
+            // restore runs before the window is activated, and a split can be
+            // made by an agent while the user is in another app. Seed the
+            // window half now so the registration's optimistic default never
+            // survives into a live window.
+            registration.NoteWindowVisibilityChanged(_agentWindowVisible);
+        }
+
+        private void OnAgentSessionUnregisteredForAttention(AgentHost.AgentSessionRegistration registration)
+        {
+            registration.AttentionMachine.Changed -= OnAgentAttentionChangedForTabs;
+            Dispatcher.UIThread.Post(RefreshTabAgentAttention);
+        }
+
+        // Raised on the endpoint's IPC or timer thread; hop before touching tabs.
+        private void OnAgentAttentionChangedForTabs(AgentHost.AgentAttentionSnapshot _)
+            => Dispatcher.UIThread.Post(RefreshTabAgentAttention);
 
         internal static bool ShouldAutoAcceptRunningPaneClose(
             bool isProcessRunning,
@@ -5453,15 +5954,7 @@ namespace NovaTerminal
                 ApplySettingsToAllTabs();
                 RebuildTitleBar();
                 UpdateTransparencyHints();
-                // Live-apply the agent-host observe endpoint (no restart needed),
-                // including the A4 replay-export and A5 screenshot sub-gates and
-                // the A3 act gate.
-                AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
-                AgentHost.AgentHostService.Instance.ScreenshotEnabled = _settings.AgentScreenshotEnabled;
-                AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
-                AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
-                AgentHost.AgentHostService.Instance.SetActionExecutor(this);
-                AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
+                ApplyAgentHostSettingsLive();
 
                 // Refresh Connection Manager if open (or just always update it)
                 _connectionManagerControl?.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
@@ -5573,7 +6066,7 @@ namespace NovaTerminal
         // snapshot of recent acting attempts (allowed and denied), newest first,
         // with a Refresh button. The journal data layer lives in
         // AgentActivityJournal; this is its window.
-        private async Task ShowAgentActivityJournalAsync()
+        internal async Task ShowAgentActivityJournalAsync()
         {
             var dialog = CreateThemedDialogWindow("Agent activity", 720, 460, canResize: true);
 
@@ -5951,6 +6444,13 @@ namespace NovaTerminal
             _recordingToastTimer.Stop();
             _updateCheckTimer.Stop();
             _globalHotkey?.Dispose();
+            AgentHost.AgentHostService.Instance.ObserveActivityChanged -= OnAgentObserveActivityChanged;
+            AgentHost.AgentSessionRegistry.Instance.SessionRegistered -= OnAgentSessionRegisteredForAttention;
+            AgentHost.AgentSessionRegistry.Instance.SessionUnregistered -= OnAgentSessionUnregisteredForAttention;
+            foreach (var registration in AgentHost.AgentSessionRegistry.Instance.GetRegistrations())
+            {
+                registration.AttentionMachine.Changed -= OnAgentAttentionChangedForTabs;
+            }
             AgentHost.AgentHostService.Instance.Stop();
         }
 
@@ -6625,6 +7125,10 @@ namespace NovaTerminal
 
             PlaceTabOverflowBadge(host);
 
+            // Must run after PlaceTabOverflowBadge: the indicator is appended to the end of
+            // the host, and the badge insert would otherwise land after it.
+            PlaceAgentObserveIndicator(host);
+
             // The record button is recreated by every rebuild, so its active colouring has to be
             // reapplied against the new instance.
             SyncRecordingButtonState();
@@ -6700,6 +7204,52 @@ namespace NovaTerminal
             }
 
             host.Children.Insert(host.Children.IndexOf(tabListButton) + 1, badge);
+        }
+
+        /// <summary>
+        /// Re-appends AgentObserveIndicator as the last child of TitleBarItemsHost after every
+        /// Populate() call, which unconditionally clears that host.
+        ///
+        /// The indicator is locked into the bar the same way BtnNewTab is - the XAML-declared
+        /// instance is re-inserted, never rebuilt, so the Click handler wired once in the
+        /// constructor and the FindControl&lt;Button&gt;/FindControl&lt;Ellipse&gt; lookups in
+        /// RefreshAgentObserveIndicator keep resolving - but unlike BtnNewTab it is deliberately
+        /// NOT a TitleBarCatalog entry. Catalog items are user-pinnable and therefore
+        /// user-removable, and this is a safety surface with no off switch: the only way to have
+        /// no indicator is to disable agent access itself (docs/mcp/security.md). Keeping it out
+        /// of the catalog is what makes that unconditional, so it cannot be routed through
+        /// TitleBarViewFactory's layout loop the way the + button is, and MainWindow owns the
+        /// placement here instead - the same division of labour PlaceTabOverflowBadge uses for the
+        /// other non-catalog control in this bar.
+        ///
+        /// Position: last, after everything Populate emitted including the overflow button. That is
+        /// the opposite choice from the badge, on purpose. The badge annotates the Tab List button
+        /// and so has to follow it wherever the user moves it; this indicator annotates the window,
+        /// so anchoring it to any catalog button would hand its position to the user's layout -
+        /// the same class of problem as letting them remove it. TitleBarItemsHost is right-aligned,
+        /// so the final slot is also the only one whose on-screen location does not shift when
+        /// items are pinned, unpinned, reordered, or auto-surfaced (Record).
+        /// </summary>
+        private void PlaceAgentObserveIndicator(Panel host)
+        {
+            var indicator = this.FindControl<Button>("AgentObserveIndicator");
+            if (indicator == null)
+            {
+                return;
+            }
+
+            // Same detach-before-insert rule as PlaceTabOverflowBadge: Avalonia throws when a
+            // control that still has a logical parent is added to another one. Populate's Clear()
+            // has already null'd the parent in the steady state, so this is normally a no-op; it
+            // matters on the very first rebuild, when the indicator is still the XAML-declared
+            // child of a host that... has also just been cleared. Kept anyway so any future caller
+            // that places it elsewhere cannot crash the window.
+            if (indicator.Parent is Panel currentParent)
+            {
+                currentParent.Children.Remove(indicator);
+            }
+
+            host.Children.Add(indicator);
         }
     }
 }

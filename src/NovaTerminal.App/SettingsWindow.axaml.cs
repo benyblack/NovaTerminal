@@ -2289,6 +2289,14 @@ namespace NovaTerminal
             if (agentScreenshotToggle != null) agentScreenshotToggle.IsChecked = _settings.AgentScreenshotEnabled;
             var agentAccessActToggle = this.FindControl<CheckBox>("AgentAccessActToggle");
             if (agentAccessActToggle != null) agentAccessActToggle.IsChecked = _settings.AgentAccessActEnabled;
+            var agentIndicatorTabRollupList = this.FindControl<ComboBox>("AgentIndicatorTabRollupList");
+            if (agentIndicatorTabRollupList != null)
+            {
+                agentIndicatorTabRollupList.SelectedItem = agentIndicatorTabRollupList.Items
+                    .Cast<ComboBoxItem>()
+                    .FirstOrDefault(item => string.Equals(item.Content?.ToString(), _settings.AgentIndicatorTabRollup, StringComparison.Ordinal));
+                if (agentIndicatorTabRollupList.SelectedItem == null) agentIndicatorTabRollupList.SelectedIndex = 0;
+            }
             var longCommandNotificationsToggle = this.FindControl<CheckBox>("LongCommandNotificationsToggle");
             if (longCommandNotificationsToggle != null) longCommandNotificationsToggle.IsChecked = _settings.LongCommandNotificationsEnabled;
             var automaticUpdateChecksToggle = this.FindControl<CheckBox>("AutomaticUpdateChecksToggle");
@@ -2546,6 +2554,11 @@ namespace NovaTerminal
             if (agentScreenshotToggle != null) _settings.AgentScreenshotEnabled = agentScreenshotToggle.IsChecked == true;
             var agentAccessActToggle = this.FindControl<CheckBox>("AgentAccessActToggle");
             if (agentAccessActToggle != null) _settings.AgentAccessActEnabled = agentAccessActToggle.IsChecked == true;
+            var agentIndicatorTabRollupList = this.FindControl<ComboBox>("AgentIndicatorTabRollupList");
+            if (agentIndicatorTabRollupList?.SelectedItem is ComboBoxItem agentRollupItem)
+            {
+                _settings.AgentIndicatorTabRollup = agentRollupItem.Content?.ToString() ?? "WritesOnly";
+            }
             var longCommandNotificationsToggle = this.FindControl<CheckBox>("LongCommandNotificationsToggle");
             if (longCommandNotificationsToggle != null) _settings.LongCommandNotificationsEnabled = longCommandNotificationsToggle.IsChecked == true;
             var automaticUpdateChecksToggle = this.FindControl<CheckBox>("AutomaticUpdateChecksToggle");

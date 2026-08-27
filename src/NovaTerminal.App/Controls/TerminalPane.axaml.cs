@@ -121,6 +121,10 @@ namespace NovaTerminal.Controls
         private bool _isUpdatingScroll = false;
         private bool _disposed;
         private NovaTerminal.AgentHost.AgentSessionRegistration? _agentRegistration;
+        private bool _agentActable;
+        // Whether UpdateStatusBarUI has rendered the SSH forwarding half of the
+        // status bar at least once. See UpdateForwardingStatus.
+        private bool _forwardingStatusUiBuilt;
         private DateTimeOffset? _lastCommandStartedAtUtc;
         private Action<int, int>? _onTermViewResize;
         private Action<float, float>? _onTermViewMetricsChanged;
@@ -576,6 +580,33 @@ namespace NovaTerminal.Controls
             // A3 act: an agent typing into this pane is text the keyboard path never saw.
             _agentRegistration.InputInjected = NotifyExternalInputSent;
             NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(_agentRegistration);
+            // Seed act-reachability from the registration instead of waiting for
+            // the first ActabilityChanged. AgentHostService.OnSessionRegistered
+            // publishes it synchronously inside Register above — i.e. one line
+            // before the subscription below exists, so the event is already gone
+            // by the time we would hear it. Subscribing first would not fix it
+            // either: OnAgentActabilityChanged only *posts* to the dispatcher, so
+            // the bar would still appear a frame after the pane's first layout
+            // and resize the PTY, which is the reflow this is here to remove.
+            // Reading the value is synchronous, so the pane is laid out with its
+            // bar already in place and the terminal row is never re-measured.
+            //
+            // Routed through ApplyAgentAttention rather than assigning
+            // _agentActable directly so the segment is rendered by its one
+            // renderer: a seeded-actable pane shows the idle "agent access"
+            // label immediately instead of a bare dot with empty text until the
+            // first attention event.
+            //
+            // Guarded rather than unconditional: _agentActable already defaults
+            // to false, so a non-actable pane has nothing to seed, and calling
+            // UpdateStatusBarVisibility() for it would only re-assert the SSH
+            // half of the bar's visibility OR earlier than anything expects.
+            if (_agentRegistration.IsAgentActable)
+            {
+                ApplyAgentAttention(_agentRegistration.AttentionMachine.Snapshot(), isActable: true);
+            }
+            _agentRegistration.AttentionMachine.Changed += OnAgentAttentionChanged;
+            _agentRegistration.ActabilityChanged += OnAgentActabilityChanged;
             TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
             WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();
 
@@ -691,6 +722,37 @@ namespace NovaTerminal.Controls
             UpdateMinimumSizeConstraints();
             AutomationProperties.SetName(TermView, "Terminal Pane");
             AutomationProperties.SetName(this, "Terminal Pane");
+
+            // The pane segment is the agent surface the user actually looks at,
+            // so it opens the Agent Activity journal exactly the way the
+            // window-level AgentObserveIndicator does (MainWindow.axaml.cs's
+            // agentObserveIndicator.Click). Null-safe on VisualRoot: the pane is
+            // constructed before it is attached, and unit tests never attach it
+            // to a window at all.
+            //
+            // async void by necessity (Click is an EventHandler), so the await
+            // must not be left bare: an exception out of an async void handler
+            // is re-raised on the UI thread's synchronization context as an
+            // unhandled exception rather than contained, and a click that
+            // should quietly do nothing would terminate the app instead - the
+            // journal dialog failing to construct while the owning window is
+            // closing is enough. Contained the same way the rest of this file
+            // contains failures on the attention path.
+            AgentStatusButton.Click += async (_, _) =>
+            {
+                try
+                {
+                    if (VisualRoot is MainWindow mainWindow)
+                    {
+                        await mainWindow.ShowAgentActivityJournalAsync();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[TerminalPane] Opening the agent activity journal failed: {ex.Message}");
+                }
+            };
 
             // Smart Paste Action setup
             TermView.TextFileDropped += (s, args) =>
@@ -3872,6 +3934,11 @@ namespace NovaTerminal.Controls
             _disposed = true;
 
             NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Unregister(PaneId);
+            if (_agentRegistration != null)
+            {
+                _agentRegistration.AttentionMachine.Changed -= OnAgentAttentionChanged;
+                _agentRegistration.ActabilityChanged -= OnAgentActabilityChanged;
+            }
 
             CloseRemoteFilesSidebar();
 
@@ -3986,11 +4053,171 @@ namespace NovaTerminal.Controls
             };
         }
 
+        /// <summary>
+        /// Single owner of StatusBar visibility. Two independent features want
+        /// the bar (SSH port forwards, agent access), so neither writes
+        /// IsVisible directly. Only persistent conditions appear here: the bar
+        /// appearing or disappearing resizes the terminal, so agent *activity*
+        /// must never reach this.
+        ///
+        /// It owns the agent segment's own visibility too — both the clickable
+        /// wrapper and the panel inside it, so an invisible segment leaves no
+        /// button padding behind in the bar.
+        /// </summary>
+        internal void UpdateStatusBarVisibility()
+        {
+            bool sshForwards = Profile != null && Profile.Forwards.Count > 0;
+            StatusBar.IsVisible = sshForwards || _agentActable;
+            AgentStatusButton.IsVisible = _agentActable;
+            AgentStatusSegment.IsVisible = _agentActable;
+        }
+
+        /// <summary>
+        /// Renders the pane's agent attention tier. Called on the UI thread from
+        /// the registration's <c>AttentionMachine.Changed</c> event (a tier
+        /// transition) and from its <c>ActabilityChanged</c> event (act-reachability
+        /// republished with no tier transition — the global act toggle, or an
+        /// SSH allowlist edit, on an otherwise-idle pane).
+        /// </summary>
+        internal void ApplyAgentAttention(NovaTerminal.AgentHost.AgentAttentionSnapshot snapshot, bool isActable)
+        {
+            _agentActable = isActable;
+            UpdateStatusBarVisibility();
+
+            if (!_agentActable) return;
+
+            switch (snapshot.Tier)
+            {
+                case NovaTerminal.AgentHost.AgentAttentionTier.Wrote:
+                    AgentStatusDot.Fill = new SolidColorBrush(Color.Parse("#E8A33D"));
+                    AgentStatusText.Text = "agent typed";
+                    AgentStatusText.Foreground = new SolidColorBrush(Color.Parse("#F0C07A"));
+                    break;
+                case NovaTerminal.AgentHost.AgentAttentionTier.Watched:
+                    AgentStatusDot.Fill = new SolidColorBrush(Color.Parse("#4FB0D4"));
+                    AgentStatusText.Text = "agent reading";
+                    AgentStatusText.Foreground = new SolidColorBrush(Color.Parse("#7FC3DC"));
+                    break;
+                default:
+                    AgentStatusDot.Fill = new SolidColorBrush(Color.Parse("#6B737F"));
+                    AgentStatusText.Text = "agent access";
+                    AgentStatusText.Foreground = new SolidColorBrush(Color.Parse("#AAAAAA"));
+                    break;
+            }
+
+            ToolTip.SetTip(AgentStatusButton, BuildAgentSegmentTooltip(snapshot));
+        }
+
+        /// <summary>
+        /// The segment's hover text. The two-word label in the bar cannot say
+        /// *when* an agent typed, and the write tier is sticky for at least ten
+        /// seconds, so "agent typed" alone leaves the user unable to tell a
+        /// write from a moment ago from one they already saw. Names the method
+        /// too, since sendInput and closeSession are very different events.
+        /// </summary>
+        private static string BuildAgentSegmentTooltip(NovaTerminal.AgentHost.AgentAttentionSnapshot snapshot)
+        {
+            const string Suffix = " Click to open the agent activity journal.";
+            switch (snapshot.Tier)
+            {
+                case NovaTerminal.AgentHost.AgentAttentionTier.Wrote:
+                    string when = snapshot.LastWriteUtc.HasValue
+                        ? snapshot.LastWriteUtc.Value.ToLocalTime().ToString(
+                            "HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
+                        : "just now";
+                    string method = string.IsNullOrEmpty(snapshot.LastWriteMethod)
+                        ? "an agent"
+                        : snapshot.LastWriteMethod;
+                    return $"An agent typed into this pane at {when} ({method})." + Suffix;
+                case NovaTerminal.AgentHost.AgentAttentionTier.Watched:
+                    return "An agent is reading this pane." + Suffix;
+                default:
+                    return "An agent can read this pane and type into it." + Suffix;
+            }
+        }
+
+        // Raised on the endpoint's IPC or timer thread; Avalonia controls are
+        // UI-thread only, so hop before touching the status bar. The handler
+        // body stays a bare Dispatcher.UIThread.Post with no logic in it:
+        // AgentAttentionMachine.DrainPendingEvents rethrows subscriber
+        // exceptions on the calling thread, and that thread is serving a live
+        // agent-host request. Guard the Post itself too — during teardown the
+        // dispatcher can be gone while the endpoint is still serving requests.
+        private void OnAgentAttentionChanged(NovaTerminal.AgentHost.AgentAttentionSnapshot snapshot)
+        {
+            var registration = _agentRegistration;
+            if (registration == null) return;
+            try
+            {
+                Dispatcher.UIThread.Post(() => ApplyAgentAttention(snapshot, registration.IsAgentActable));
+            }
+            catch (Exception)
+            {
+                // Dispatcher unavailable during app teardown; nothing to render to.
+                // Never let this escape: it runs on the endpoint's IPC/timer
+                // thread, and AgentAttentionMachine.Changed rethrows subscriber
+                // exceptions on that same thread.
+            }
+        }
+
+        // Raised on AgentSessionRegistration.IsAgentActable's setter thread —
+        // AgentHostService.RefreshActability runs it from the 1 s sweep and
+        // from the act-toggle setter, neither of which is the UI thread — so
+        // hop the same way OnAgentAttentionChanged does. Kept to a bare guarded
+        // Dispatcher.UIThread.Post with no logic in the body for the same
+        // reason: a throw here must never propagate back into whatever caller
+        // flipped actability (the endpoint's request handling, in the toggle
+        // case). The registration only raises this on an actual value change,
+        // so this cannot become a once-per-second post storm from the sweep.
+        //
+        // ActabilityChanged carries no payload on purpose, and this reads
+        // IsAgentActable *inside* the posted lambda rather than capturing it.
+        // RefreshActability can run concurrently (sweep thread, act-toggle
+        // setter, allowlist edit) and two racing writers can compute different
+        // values for the same SSH pane; the one that stores first may raise
+        // last, so a captured bool can render the value that lost the race.
+        // Because the setter raises only on an actual change, no later sweep
+        // would ever correct that — the pane would stay unmarked forever while
+        // agents could still type into it. Reading through the registration
+        // makes the stale channel structurally impossible: whichever post runs
+        // last renders whatever the registration currently holds.
+        private void OnAgentActabilityChanged()
+        {
+            var registration = _agentRegistration;
+            if (registration == null) return;
+            try
+            {
+                Dispatcher.UIThread.Post(() =>
+                    ApplyAgentAttention(registration.AttentionMachine.Snapshot(), registration.IsAgentActable));
+            }
+            catch (Exception)
+            {
+                // Dispatcher unavailable during app teardown; nothing to render to.
+            }
+        }
+
+        /// <summary>
+        /// Test-only trigger for the SSH forwarding refresh that normally runs off
+        /// <see cref="_statusTimer"/>'s 2-second tick. Tests construct a pane with
+        /// forwards but never wait out a real timer, so without this hook the SSH
+        /// half of the status bar (label, per-rule rows) never renders.
+        /// </summary>
+        internal void UpdateForwardingStatusForTesting() => UpdateForwardingStatus();
+
+        /// <summary>
+        /// Test-only access to the pane's agent-host registration, so tests can
+        /// flip <see cref="NovaTerminal.AgentHost.AgentSessionRegistration.IsAgentActable"/>
+        /// through the exact setter <c>AgentHostService.RefreshActability</c>
+        /// uses, without a live endpoint or settings service.
+        /// </summary>
+        internal NovaTerminal.AgentHost.AgentSessionRegistration? AgentRegistrationForTesting => _agentRegistration;
+
         private void UpdateForwardingStatus()
         {
             if (Profile == null || Profile.Forwards.Count == 0)
             {
-                StatusBar.IsVisible = false;
+                ClearForwardingStatusUi();
+                UpdateStatusBarVisibility();
                 return;
             }
 
@@ -4015,7 +4242,15 @@ namespace NovaTerminal.Controls
                 if (oldStatus != rule.Status) anyChanges = true;
             }
 
-            if (anyChanges || !StatusBar.IsVisible)
+            // "Never rendered yet" used to be inferred from !StatusBar.IsVisible,
+            // on the assumption that the forwards were the only thing that could
+            // have raised the bar. They are not: the agent segment shares it, and
+            // an allowlisted SSH pane can now be born actable (SetupCommon seeds
+            // act-reachability so the bar never reflows the PTY a second later),
+            // which would raise the bar before this ever ran and leave the
+            // forwards half blank until some rule's status happened to change.
+            // Track the render explicitly instead of inferring it.
+            if (anyChanges || !_forwardingStatusUiBuilt)
             {
                 UpdateStatusBarUI();
                 (VisualRoot as MainWindow)?.UpdateTabVisuals();
@@ -4079,10 +4314,40 @@ namespace NovaTerminal.Controls
             }
         }
 
+        /// <summary>
+        /// Drops whatever the forwarding half of the status bar last rendered.
+        ///
+        /// Before the agent segment existed, "no forwards" meant the bar itself
+        /// was hidden, so nothing stale could be on screen and
+        /// <see cref="UpdateForwardingStatus"/> could simply return. It cannot
+        /// any more: the bar now also stays up for an agent-actable pane, so an
+        /// SSH profile edited down to zero forwarding rules would keep
+        /// advertising the rules it used to have, indefinitely.
+        ///
+        /// Deliberately does not touch <c>StatusBar.IsVisible</c> —
+        /// <see cref="UpdateStatusBarVisibility"/> is its sole writer, because
+        /// the bar appearing or disappearing reflows the PTY.
+        ///
+        /// The built flag is reset alongside the controls so that a profile
+        /// which regains forwards renders them on the next pass instead of
+        /// waiting for some rule's status to change. The early return keeps
+        /// this off the hot path: the 2 s tick reaches it on every local pane,
+        /// which never built anything to clear.
+        /// </summary>
+        private void ClearForwardingStatusUi()
+        {
+            if (!_forwardingStatusUiBuilt) return;
+
+            _forwardingStatusUiBuilt = false;
+            StatusBarLabel.Text = string.Empty;
+            StatusBarRules.Children.Clear();
+        }
+
         private void UpdateStatusBarUI()
         {
             if (Profile == null) return;
-            StatusBar.IsVisible = true;
+            UpdateStatusBarVisibility();
+            _forwardingStatusUiBuilt = true;
             StatusBarLabel.Text = $"SSH ▸ {Profile.Name} ▸";
             StatusBarRules.Children.Clear();
 
