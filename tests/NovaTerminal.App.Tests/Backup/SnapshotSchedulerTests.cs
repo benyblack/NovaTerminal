@@ -31,16 +31,34 @@ public sealed class SnapshotSchedulerTests
         Assert.Empty(service.ListSnapshots());
     }
 
+    /// <summary>
+    /// Pins the actual coalescing property, not just "one snapshot exists" (which a boolean
+    /// pending flag satisfies trivially, debounced or not). A long debounce keeps the background
+    /// timer from firing mid-test — FlushAsync is driven explicitly here, so the debounce length
+    /// itself is irrelevant to what this test checks. Each notify follows a genuine content
+    /// change, so a broken (non-coalescing) implementation that flushed once per notify would
+    /// produce 10 distinct snapshots — the content-hash dedupe could not mask that, because the
+    /// content really did change each time. Only a correctly debounced scheduler collapses these
+    /// into the single flush below.
+    /// </summary>
     [Fact]
     public async Task Flush_CoalescesManyChangesIntoOneSnapshot()
     {
         using var tree = BackupTestTree.CreatePopulated();
         var service = new BackupService(tree.Root, Clock());
-        using var scheduler = new SnapshotScheduler(service, TimeSpan.FromMilliseconds(10));
+        using var scheduler = new SnapshotScheduler(service, TimeSpan.FromSeconds(30));
 
-        for (int i = 0; i < 10; i++) scheduler.NotifyChanged();
-        await scheduler.FlushAsync();
+        for (int i = 0; i < 10; i++)
+        {
+            tree.WriteFile(Path.Combine("themes", "solarized.json"), $$"""{"name":"Solarized","revision":{{i}}}""");
+            scheduler.NotifyChanged();
+            Assert.True(scheduler.HasPendingChange);
+        }
 
+        var info = await scheduler.FlushAsync();
+
+        Assert.NotNull(info);
+        Assert.False(scheduler.HasPendingChange);
         Assert.Single(service.ListSnapshots());
     }
 
@@ -53,20 +71,61 @@ public sealed class SnapshotSchedulerTests
 
         scheduler.NotifyChanged();
         await scheduler.FlushAsync();
-        var second = await scheduler.FlushAsync();
 
+        // Pin the flag directly: BackupService.Snapshot(Auto) also returns null when its own
+        // content-hash dedupe fires, so asserting only "second flush returns null" would pass
+        // even for a scheduler that never clears _pending.
+        Assert.False(scheduler.HasPendingChange);
+
+        var second = await scheduler.FlushAsync();
         Assert.Null(second);
     }
 
+    /// <summary>
+    /// Exercises real teardown (Start() registers actual watchers first) and proves the second
+    /// Dispose() is not merely non-throwing but actually a no-op: with the guard removed,
+    /// disposing watchers/timer a second time still would not throw (each underlying Dispose is
+    /// independently idempotent), so a bare double-Dispose-doesn't-throw test cannot fail. Calling
+    /// NotifyChanged() afterward and asserting no pending change pins the _disposed guard itself.
+    /// </summary>
     [Fact]
-    public void Dispose_IsIdempotent()
+    public void Dispose_IsIdempotentAndStopsFurtherWork()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+        var scheduler = new SnapshotScheduler(service, TimeSpan.FromMilliseconds(10));
+        scheduler.Start();
+
+        scheduler.Dispose();
+        scheduler.Dispose();
+
+        scheduler.NotifyChanged();
+        Assert.False(scheduler.HasPendingChange);
+    }
+
+    /// <summary>
+    /// Deterministically reproduces Dispose() racing an in-flight flush without relying on real
+    /// thread timing: BeforeSnapshotForTest runs synchronously on FlushAsync's own call stack,
+    /// right after the gate is acquired and the pending flag cleared, but before
+    /// BackupService.Snapshot() runs. Disposing there simulates the exact window where a
+    /// concurrent Dispose() could tear down the gate while this call still holds it. Before the
+    /// fix, the finally block's _gate.Release() would throw ObjectDisposedException and replace
+    /// the successfully computed SnapshotInfo with a fault; this asserts the caller still gets it.
+    /// </summary>
+    [Fact]
+    public async Task Flush_SurvivesDisposeRacingAnInFlightSnapshot()
     {
         using var tree = BackupTestTree.CreatePopulated();
         var service = new BackupService(tree.Root, Clock());
         var scheduler = new SnapshotScheduler(service, TimeSpan.FromMilliseconds(10));
 
-        scheduler.Dispose();
-        scheduler.Dispose();
+        scheduler.NotifyChanged();
+        scheduler.BeforeSnapshotForTest = () => scheduler.Dispose();
+
+        var info = await scheduler.FlushAsync();
+
+        Assert.NotNull(info);
+        Assert.Single(service.ListSnapshots());
     }
 
     [Fact]
@@ -108,6 +167,23 @@ public sealed class SnapshotSchedulerTests
         using var scheduler = new SnapshotScheduler(service, TimeSpan.FromMilliseconds(10));
 
         scheduler.NotifyFileSystemEvent(Path.Combine(tree.Root, "themes", "solarized.json"));
+
+        Assert.True(scheduler.HasPendingChange);
+    }
+
+    /// <summary>
+    /// The backups filter must be anchored on a trailing separator, not a bare substring match:
+    /// "backups-legacy" contains "backups" but is not our snapshot directory, so it must still be
+    /// treated as a real config write.
+    /// </summary>
+    [Fact]
+    public void SimilarlyNamedDirectory_MarksAChangePending()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+        using var scheduler = new SnapshotScheduler(service, TimeSpan.FromMilliseconds(10));
+
+        scheduler.NotifyFileSystemEvent(Path.Combine(tree.Root, "backups-legacy", "whatever.json"));
 
         Assert.True(scheduler.HasPendingChange);
     }

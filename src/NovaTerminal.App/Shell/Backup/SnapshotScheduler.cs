@@ -21,6 +21,7 @@ public sealed class SnapshotScheduler : IDisposable
 
     private readonly BackupService _service;
     private readonly TimeSpan _debounce;
+    private readonly string _backupsPrefix;
     private readonly List<FileSystemWatcher> _watchers = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _timerLock = new();
@@ -28,19 +29,37 @@ public sealed class SnapshotScheduler : IDisposable
     private Timer? _timer;
     private bool _pending;
     private bool _disposed;
+    private bool _started;
+
+    /// <summary>
+    /// Test-only hook invoked from <see cref="FlushAsync"/> immediately before it calls
+    /// <see cref="BackupService.Snapshot"/> — i.e. after the gate has been acquired and the
+    /// pending flag cleared, but before the potentially slow file I/O. Lets a test deterministically
+    /// simulate <see cref="Dispose"/> racing an in-flight flush on FlushAsync's own call stack,
+    /// rather than relying on real thread timing to hit a narrow window.
+    /// </summary>
+    internal Action? BeforeSnapshotForTest;
 
     public SnapshotScheduler(BackupService service, TimeSpan? debounce = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _debounce = debounce ?? DefaultDebounce;
+        // Anchored with a trailing separator so a sibling like "backups2/" or "backups-legacy/"
+        // is never mistaken for our own snapshot directory.
+        _backupsPrefix = Path.Combine(_service.RootDirectory, "backups") + Path.DirectorySeparatorChar;
     }
 
     /// <summary>
     /// Begins watching. Best-effort: a watcher that cannot be created (missing directory,
-    /// inotify limit reached on Linux) is skipped rather than failing app startup.
+    /// inotify limit reached on Linux) is skipped rather than failing app startup. Calling this
+    /// more than once is a no-op — otherwise a second call would register duplicate watchers and
+    /// every real change would dispatch <see cref="NotifyChanged"/> once per registration.
     /// </summary>
     public void Start()
     {
+        if (_started) return;
+        _started = true;
+
         foreach (string directory in WatchedDirectories())
         {
             try
@@ -97,15 +116,29 @@ public sealed class SnapshotScheduler : IDisposable
                 _pending = false;
             }
 
+            BeforeSnapshotForTest?.Invoke();
             return _service.Snapshot(SnapshotReason.Auto);
         }
         finally
         {
-            _gate.Release();
+            // A concurrent Dispose() can dispose _gate while this call still holds it (Snapshot()
+            // is real file I/O, so the window is not vanishingly small): SemaphoreSlim.Dispose()
+            // succeeds immediately even while "held", and Release() on an already-disposed
+            // semaphore throws ObjectDisposedException. Thrown from a finally, that exception
+            // would replace the SnapshotInfo just computed above with a fault — the caller would
+            // see an exception instead of the snapshot that is genuinely sitting on disk. Swallow
+            // it: the snapshot already succeeded: there is nothing left to release into.
+            try { _gate.Release(); } catch (ObjectDisposedException) { }
         }
     }
 
-    /// <summary>Distinct existing directories covering every catalog entry.</summary>
+    /// <summary>
+    /// Distinct existing directories covering every catalog entry, with any directory dropped
+    /// that is already covered by another (shorter) directory in the set — a watcher always runs
+    /// with <see cref="FileSystemWatcher.IncludeSubdirectories"/> true, so a nested watcher never
+    /// sees anything its ancestor doesn't. In practice this collapses to just RootDirectory
+    /// itself, since the Settings catalog entry resolves there.
+    /// </summary>
     private IEnumerable<string> WatchedDirectories()
     {
         var directories = new HashSet<string>(
@@ -118,7 +151,22 @@ public sealed class SnapshotScheduler : IDisposable
             if (!string.IsNullOrEmpty(directory)) directories.Add(directory);
         }
 
-        return directories;
+        var kept = new List<string>();
+        foreach (var directory in directories.OrderBy(d => d.Length))
+        {
+            if (!kept.Any(existing => IsSameOrUnderDirectory(directory, existing))) kept.Add(directory);
+        }
+
+        return kept;
+    }
+
+    private static bool IsSameOrUnderDirectory(string candidate, string ancestor)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (string.Equals(candidate, ancestor, comparison)) return true;
+
+        string ancestorPrefix = ancestor.EndsWith(Path.DirectorySeparatorChar) ? ancestor : ancestor + Path.DirectorySeparatorChar;
+        return candidate.StartsWith(ancestorPrefix, comparison);
     }
 
     private void OnFileSystemEvent(object sender, FileSystemEventArgs e) => NotifyFileSystemEvent(e.FullPath);
@@ -139,7 +187,7 @@ public sealed class SnapshotScheduler : IDisposable
     /// </summary>
     internal void NotifyFileSystemEvent(string fullPath)
     {
-        if (fullPath.Contains(Path.Combine(_service.RootDirectory, "backups"), StringComparison.Ordinal)) return;
+        if (fullPath.Contains(_backupsPrefix, StringComparison.Ordinal)) return;
         if (fullPath.Contains($"{Path.DirectorySeparatorChar}.import-", StringComparison.Ordinal)) return;
 
         NotifyChanged();
