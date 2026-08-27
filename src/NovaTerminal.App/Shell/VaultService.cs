@@ -10,8 +10,36 @@ namespace NovaTerminal.Shell
         void ApplyRememberPasswordPreference(TerminalProfile profile, bool rememberPasswordInVault, string? password = null);
     }
 
+    /// <summary>
+    /// Read/clear access to the password a profile has saved in the OS credential store.
+    /// </summary>
+    /// <remarks>
+    /// Both members operate on <em>profile-scoped</em> keys only — the canonical
+    /// <c>SSH:PROFILE:{guid}</c> key plus this profile's own legacy keys. The shared
+    /// <c>SSH:{user}@{host}</c> alias is excluded on purpose: sibling profiles on the same
+    /// host resolve through it, so clearing it here would silently break them.
+    ///
+    /// Consequence: a password stored <em>only</em> under that shared alias reports
+    /// <see cref="HasSavedPassword"/> as <see langword="false"/> even though
+    /// <see cref="VaultService.ResolveSshPasswordForProfile"/> will still auto-fill from it at
+    /// connect time. Such a secret migrates to a profile-scoped key on first use, after which
+    /// this reports correctly. That is a legacy-store artifact, and preferable to letting one
+    /// profile delete another's password.
+    /// </remarks>
+    public interface ISavedPasswordAccess
+    {
+        /// <summary>True when the underlying credential store can be read and written.</summary>
+        bool IsVaultAvailable { get; }
+
+        /// <summary>True when a profile-scoped password is stored for <paramref name="profile"/>.</summary>
+        bool HasSavedPassword(TerminalProfile profile);
+
+        /// <summary>Clears every profile-scoped password key; true if anything was removed.</summary>
+        bool ForgetSavedPassword(TerminalProfile profile);
+    }
+
     public class VaultService
-        : ISshPasswordVault
+        : ISshPasswordVault, ISavedPasswordAccess
     {
         private readonly ISecretStore _store;
 
@@ -25,6 +53,38 @@ namespace NovaTerminal.Shell
         }
 
         public bool PersistenceAvailable => _store.IsAvailable;
+
+        public bool IsVaultAvailable => _store.IsAvailable;
+
+        public bool HasSavedPassword(TerminalProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            // GetSecret, not ResolveSshPasswordForProfile: the latter migrates a legacy hit
+            // to the canonical key, and this runs on every selection change in the UI.
+            foreach (string key in GetProfileScopedSshPasswordKeysForProfile(profile))
+            {
+                if (!string.IsNullOrEmpty(GetSecret(key)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool ForgetSavedPassword(TerminalProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            bool removedAny = false;
+            foreach (string key in GetProfileScopedSshPasswordKeysForProfile(profile))
+            {
+                removedAny |= RemoveSecret(key);
+            }
+
+            return removedAny;
+        }
 
         public static string GetCanonicalSshProfileKey(Guid profileId)
         {
