@@ -104,16 +104,37 @@ public sealed class Osc7PathExtractionTests
         Assert.Equal("/home/you", Extract($"file://{Environment.MachineName}.lan/home/you"));
     }
 
-    // ---------------------------------------------------------------- what is deliberately unchanged
+    // ---------------------------------------------------------------- foreign authority (PR #351)
 
     /// <summary>
-    /// A genuinely foreign authority keeps the UNC reading. Second-guessing a remote host's path layout
-    /// is not the parser's job, and this is the one case where the UNC is what the user means.
+    /// A foreign authority is dropped, same as a local one - it names the SSH host the SFTP-consuming
+    /// sidebar is already connected to, so re-encoding it as a UNC prefix is redundant and, worse,
+    /// unusable as a remote SFTP path (PR #351: <c>\\fileserver\share\dir</c> sent to a POSIX SFTP
+    /// server fails with "remote path not found").
     /// </summary>
     [Fact]
-    public void ForeignAuthority_StillReadsAsAUncPath()
+    public void ForeignAuthority_ReadsAsAPosixPath()
     {
-        Assert.Equal(@"\\fileserver\share\dir", Extract("file://fileserver/share/dir"));
+        Assert.Equal("/share/dir", Extract("file://fileserver/share/dir"));
+    }
+
+    /// <summary>
+    /// A literal backslash in a POSIX directory name survives a foreign-authority round trip. The
+    /// shipped Bash/Zsh/Fish integrations percent-escape it (<c>weird%5Cname</c>) specifically so it
+    /// is not mistaken for a path separator; this pins that the parser honors that escaping instead of
+    /// letting .NET's file-URI canonicalization fold it into an extra <c>/</c> (Codex review, PR #351).
+    /// </summary>
+    [Fact]
+    public void ForeignAuthority_PreservesAnEscapedLiteralBackslashInAPathSegment()
+    {
+        Assert.Equal(@"/root/weird\name", Extract("file://chatai/root/weird%5Cname"));
+    }
+
+    /// <summary>The same escaping has to survive for a local POSIX session too, not just a remote one.</summary>
+    [Fact]
+    public void LocalAuthority_PreservesAnEscapedLiteralBackslashInAPathSegment()
+    {
+        Assert.Equal(@"/home/you/weird\name", Extract("file:///home/you/weird%5Cname"));
     }
 
     /// <summary>A payload that is not a URI at all - some shells emit a bare path - is passed through.</summary>
