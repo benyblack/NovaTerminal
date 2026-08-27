@@ -518,10 +518,17 @@
                                    FontSize="13"
                                    Foreground="{StaticResource NtFg3}"/>
 
-                        <!-- Action bar -->
-                        <Grid Margin="0,10,0,0" ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
-                            <Button Grid.Column="0"
-                                    Classes="Primary"
+                        <!-- Action bar. A WrapPanel, not a Grid: the detail panel is capped at ~516px
+                             (the overlay is MaxWidth=1080 and this column gets 3/5 of width-220), which is
+                             narrower than this bar's content. A fixed column Grid silently arranged the
+                             trailing controls outside the panel and they were clipped away. Wrapping keeps
+                             every action reachable at any width. -->
+                        <WrapPanel Name="DetailActionBar"
+                                   Margin="0,10,0,0"
+                                   Orientation="Horizontal"
+                                   ItemSpacing="6"
+                                   LineSpacing="6">
+                            <Button Classes="Primary"
                                     Click="OnOpenCurrentClick"
                                     ToolTip.Tip="Open in current pane">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -529,33 +536,31 @@
                                     <TextBlock Text="Open"/>
                                 </StackPanel>
                             </Button>
-                            <Button Grid.Column="1" Classes="Pill" Margin="6,0,0,0" Content="+ Tab"     Click="OnOpenNewTabClick"/>
-                            <Button Grid.Column="2" Classes="Pill" Margin="6,0,0,0" Content="Split ⇒"   Click="OnSplitHorizontalClick"/>
-                            <Button Grid.Column="3" Classes="Pill" Margin="6,0,0,0" Content="Split ⇓"   Click="OnSplitVerticalClick"/>
+                            <Button Classes="Pill" Content="+ Tab"   Click="OnOpenNewTabClick"/>
+                            <Button Classes="Pill" Content="Split &#x21D2;" Click="OnSplitHorizontalClick"/>
+                            <Button Classes="Pill" Content="Split &#x21D3;" Click="OnSplitVerticalClick"/>
 
                             <ComboBox Name="DiagnosticsCombo"
-                                      Grid.Column="5"
                                       Classes="Diag"
                                       Width="130"
-                                      Margin="6,0,8,0"
                                       ToolTip.Tip="Diagnostics level"/>
 
-                            <Button Grid.Column="6" Classes="IconBtn" Click="OnFavoriteClick" ToolTip.Tip="Toggle favorite">
+                            <Button Classes="IconBtn" Click="OnFavoriteClick" ToolTip.Tip="Toggle favorite">
                                 <PathIcon Data="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z" Width="14" Height="14"/>
                             </Button>
-                            <Button Grid.Column="7" Classes="IconBtn" Click="OnEditClick" ToolTip.Tip="Edit connection">
+                            <Button Classes="IconBtn" Click="OnEditClick" ToolTip.Tip="Edit connection">
                                 <PathIcon Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z" Width="14" Height="14"/>
                             </Button>
-                            <Button Grid.Column="8" Classes="IconBtn" Click="OnCopyCommandClick" ToolTip.Tip="Copy launch command">
+                            <Button Classes="IconBtn" Click="OnCopyCommandClick" ToolTip.Tip="Copy launch command">
                                 <PathIcon Data="M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M19,21H8V7H19V21Z" Width="14" Height="14"/>
                             </Button>
-                            <Button Grid.Column="9" Classes="IconBtn" Click="OnDetailsClick" ToolTip.Tip="Connection details">
+                            <Button Classes="IconBtn" Click="OnDetailsClick" ToolTip.Tip="Connection details">
                                 <PathIcon Data="M11,17H13V11H11M12,9A1,1 0 0,0 13,8A1,1 0 0,0 12,7A1,1 0 0,0 11,8A1,1 0 0,0 12,9M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" Width="14" Height="14"/>
                             </Button>
-                            <Button Grid.Column="10" Classes="IconBtn Danger" Click="OnDeleteClick" ToolTip.Tip="Delete connection">
+                            <Button Classes="IconBtn Danger" Click="OnDeleteClick" ToolTip.Tip="Delete connection">
                                 <PathIcon Data="M9,3V4H4V6H5V19A2,2 0 0,0 7,21H17A2,2 0 0,0 19,19V6H20V4H15V3H9M7,6H17V19H7V6M9,8V17H11V8H9M13,8V17H15V8H13Z" Width="14" Height="14"/>
                             </Button>
-                        </Grid>
+                        </WrapPanel>
                     </StackPanel>
                 </Border>
 

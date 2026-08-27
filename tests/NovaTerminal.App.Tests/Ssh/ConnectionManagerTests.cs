@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using NovaTerminal.Controls;
@@ -364,6 +365,66 @@ public sealed class ConnectionManagerTests
 
         Assert.True(control.Bounds.Width <= 760, $"Expected width <= 760 but was {control.Bounds.Width}.");
         Assert.True(control.Bounds.Height <= 520, $"Expected height <= 520 but was {control.Bounds.Height}.");
+    }
+
+
+    // Regression guard for the delete/details icons being arranged outside the detail
+    // panel and clipped away (invisible in the running app while every behavioural test
+    // passed). Note SecondaryActionButtons_ReserveSquareHitTargets asserts Button.Width,
+    // which is the STYLE-SET property and reads 30 even when the arranged width is 0 —
+    // it cannot detect clipping. This asserts real arranged geometry instead.
+    //
+    // Show() + RunJobs() is required rather than Measure/Arrange: DetailContent starts
+    // collapsed, and a manual Measure with an unchanged constraint returns the cached
+    // empty-state desired size, leaving the entire detail header arranged at zero.
+    [AvaloniaTheory]
+    [InlineData(1080.0)]
+    [InlineData(900.0)]
+    [InlineData(1400.0)]
+    public void ActionBarControls_AreArrangedInsideTheDetailPanel(double width)
+    {
+        var control = new ConnectionManager();
+        var host = new Grid();
+        host.Children.Add(control);
+        var window = new Window { Width = width, Height = 720, Content = host };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        var list = FindControl<ListBox>(control, "ConnectionsList");
+        list.SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = FindControl<Grid>(control, "DetailColumn");
+        Assert.True(panel.Bounds.Width > 0, "detail panel was not arranged");
+
+        string[] actionTips =
+        {
+            "Open in current pane",
+            "Toggle favorite",
+            "Edit connection",
+            "Copy launch command",
+            "Connection details",
+            "Delete connection"
+        };
+
+        foreach (string tip in actionTips)
+        {
+            Button? button = FindButtonByToolTip(control, tip);
+            Assert.NotNull(button);
+
+            Point origin = button!.TranslatePoint(new Point(0, 0), panel)
+                ?? throw new Xunit.Sdk.XunitException($"'{tip}' is not connected to the detail panel.");
+
+            Assert.True(
+                button.Bounds.Width > 0 && button.Bounds.Height > 0,
+                $"'{tip}' arranged with an empty rect ({button.Bounds}).");
+
+            double right = origin.X + button.Bounds.Width;
+            Assert.True(
+                right <= panel.Bounds.Width + 0.5,
+                $"'{tip}' is clipped at width {width}: right edge {right:F1} exceeds detail panel width {panel.Bounds.Width:F1}.");
+        }
     }
 
     private static ConnectionManager CreateMeasuredConnectionManager(double width = 1080, double height = 720)
