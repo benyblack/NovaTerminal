@@ -53,6 +53,10 @@ public static class BackupCatalog
         "vault.dat",
         Path.Combine(CommandAssist, "history.jsonl"),
         Path.Combine(CommandAssist, "history.json"),
+
+        // JsonlHistoryStore renames history.json to history.json.bak once migrated to JSONL.
+        // Same privacy-sensitive command history under a different name — never back it up.
+        Path.Combine(CommandAssist, "history.json.bak"),
     };
 
     public static IReadOnlyList<BackupCategory> AllCategories { get; } =

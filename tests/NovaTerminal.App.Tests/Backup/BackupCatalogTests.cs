@@ -6,6 +6,8 @@ namespace NovaTerminal.Tests.Backup;
 
 public sealed class BackupCatalogTests
 {
+    private const string CommandAssistRelativeDirectory = "command-assist";
+
     [Fact]
     public void Entries_CoverEveryCategory()
     {
@@ -50,6 +52,49 @@ public sealed class BackupCatalogTests
             Assert.False(Path.IsPathRooted(entry.BundlePath));
             Assert.DoesNotContain('\\', entry.BundlePath);
         }
+    }
+
+    /// <summary>
+    /// The other half of the drift guard's promise: paths that are NOT backed up or excluded
+    /// must return false, and near-misses that share a textual prefix with a classified path
+    /// (but are a different file/directory) must not be swept in by an overly loose prefix
+    /// check. Without this, IsClassified could degenerate to "return true" and every other
+    /// test in this file would still pass.
+    /// </summary>
+    [Fact]
+    public void IsClassified_RejectsUnrelatedAndNearMissPaths()
+    {
+        // Positive boundary, for contrast.
+        Assert.True(BackupCatalog.IsClassified(Path.Combine("themes", "nested", "deep.json")));
+        Assert.True(BackupCatalog.IsClassified("ssh")); // parent of a backed-up file
+        Assert.True(BackupCatalog.IsClassified(Path.Combine("logs", "debug.log"))); // excluded tree
+
+        // Unrelated paths.
+        Assert.False(BackupCatalog.IsClassified(Path.Combine("some", "unrelated", "path")));
+        Assert.False(BackupCatalog.IsClassified("telemetry.json"));
+
+        // Near-misses: share a textual prefix with a classified path but are a different
+        // file/directory. A future "simplification" to a bare StartsWith(ancestor) must fail
+        // these.
+        Assert.False(BackupCatalog.IsClassified("settings.jsonx"));
+        Assert.False(BackupCatalog.IsClassified("themes-backup"));
+
+        // Same trick against an excluded path with a suffix, e.g. history.json vs history.jsonx.
+        Assert.False(BackupCatalog.IsClassified(Path.Combine(CommandAssistRelativeDirectory, "history.jsonx")));
+    }
+
+    /// <summary>
+    /// JsonlHistoryStore renames history.json to history.json.bak once migrated. It is not an
+    /// AppPaths member, so the drift guard never sees it directly, but it is still
+    /// privacy-sensitive command history that must never end up in a bundle.
+    /// </summary>
+    [Fact]
+    public void HistoryJsonBak_IsExcluded()
+    {
+        Assert.True(BackupCatalog.IsClassified(Path.Combine(CommandAssistRelativeDirectory, "history.json.bak")));
+        Assert.DoesNotContain(
+            Path.Combine(CommandAssistRelativeDirectory, "history.json.bak"),
+            BackupCatalog.Entries.Select(e => e.SourceRelativePath));
     }
 
     /// <summary>
