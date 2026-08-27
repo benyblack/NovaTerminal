@@ -479,6 +479,22 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- ── Title bar section ── -->
+                            <TextBlock Name="TitleBarSectionHeader" Classes="SectionHeader" Text="TITLE BAR" Margin="0,24,0,14"/>
+
+                            <StackPanel Spacing="10" Margin="0,0,0,16">
+                                <TextBlock Classes="RowDesc"
+                                           TextWrapping="Wrap"
+                                           Text="Pinned actions get their own icon in the title bar. Overflow actions live in the … menu. Hidden actions stay reachable by shortcut and from the command palette."/>
+                                <TextBlock Name="TitleBarValidationMessage"
+                                           Foreground="{StaticResource NtRed}"
+                                           FontSize="12"
+                                           IsVisible="False"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <StackPanel Name="TitleBarItemsPanel" Spacing="8"/>
+
                             <!-- ── Window section ── -->
                             <TextBlock Classes="SectionHeader" Text="WINDOW" Margin="0,0,0,14"/>
 

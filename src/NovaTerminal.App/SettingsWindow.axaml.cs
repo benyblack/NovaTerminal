@@ -21,6 +21,7 @@ using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.CommandAssist.ShellIntegration.Remote;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.Shell.Shortcuts;
+using NovaTerminal.Shell.TitleBar;
 
 namespace NovaTerminal
 {
@@ -32,6 +33,12 @@ namespace NovaTerminal
         private TerminalProfile? _selectedProfile;
         private System.Collections.Generic.List<TerminalProfile> _profilesList = new();
         private Dictionary<string, string> _shortcutDraftBindings = new(StringComparer.OrdinalIgnoreCase);
+        private readonly TitleBarDraftState _titleBarDraft = new();
+
+        // Shared style-class name (see SettingsWindow.axaml's "TextBlock.RowDesc" selector) used
+        // across several row-building methods below; a const avoids the literal drifting out of
+        // sync with the selector in one of its several call sites.
+        private const string RowDescStyleClass = "RowDesc";
 
         public event Action<double>? OnOpacityChanged;
         public event Action<string>? OnBlurChanged;
@@ -86,9 +93,19 @@ namespace NovaTerminal
         /// <summary>The rules behind the snippet rows. Built on first use from the injected store.</summary>
         private SnippetEditor? _snippetEditor;
 
+        /// <summary>The Appearance tab's index in <c>MainTabs</c> - where every <see cref="SettingsSection"/> currently lives.</summary>
+        private const int AppearanceTabIndex = 0;
+
+        /// <summary>
+        /// The section this window was asked to bring into view once opened (PR #342 Codex round 6),
+        /// in addition to whatever tab it selects. Recorded even when it is <see cref="SettingsSection.None"/>
+        /// so a test (or a future second caller) can confirm what was actually requested.
+        /// </summary>
+        private readonly SettingsSection _targetSection;
+
         public SettingsWindow() : this(0, null) { }
 
-        public SettingsWindow(int initialTab = 0, Guid? initialProfileId = null)
+        public SettingsWindow(int initialTab = 0, Guid? initialProfileId = null, SettingsSection section = SettingsSection.None)
         {
             InitializeComponent();
             _settings = TerminalSettings.Load();
@@ -99,8 +116,28 @@ namespace NovaTerminal
             }
             ApplyTheme();
 
+            _targetSection = section;
+
             var tabs = this.FindControl<TabControl>("MainTabs");
-            if (tabs != null) tabs.SelectedIndex = initialTab;
+            // Every SettingsSection currently lives on Appearance, so a section target overrides
+            // whatever tab index the caller passed - a caller asking for the TITLE BAR section
+            // with the wrong tab index is a bug, not something this window should surface as "the
+            // section silently didn't scroll".
+            if (tabs != null) tabs.SelectedIndex = section == SettingsSection.None ? initialTab : AppearanceTabIndex;
+
+            if (section == SettingsSection.TitleBar)
+            {
+                // BringIntoView is a no-op before layout has measured/arranged the target and the
+                // ScrollViewer above it - which has not happened yet at construction time (the
+                // window is not even shown). DispatcherPriority.Loaded runs after the initial
+                // layout/render pass completes, which is the same "wait for real layout" idiom
+                // already used elsewhere in this window (see WireCommandAssistSnippetsRow's Opened
+                // handler) and in MainWindow.AddTab's LayoutUpdated-based deferral. Hooking this on
+                // Opened rather than firing immediately from the constructor also keeps it out of
+                // the way of every other constructor caller (tests included) that never shows the
+                // window at all.
+                Opened += (_, _) => Dispatcher.UIThread.Post(ScrollToTitleBarSection, DispatcherPriority.Loaded);
+            }
 
             // Keep the sidebar list boxes in sync with the tab control. The previous single
             // list box drove selection via a direct SelectedIndex binding; that breaks once the
@@ -391,6 +428,8 @@ namespace NovaTerminal
             LoadCurrentSettings();
             PopulateProfilesList();
             InitializeShortcutEditor();
+            LoadTitleBarDraft();
+            RebuildTitleBarRows();
             ApplyTheme();
 
             _statusTimer = new DispatcherTimer
@@ -907,6 +946,23 @@ namespace NovaTerminal
             }
         }
 
+        /// <summary>
+        /// Brings the Appearance tab's "TITLE BAR" section header into view, so the user opening
+        /// Settings via the title bar's right-click "Customize Title Bar..." lands on the section
+        /// itself instead of the theme editor/preview above it (PR #342 Codex round 6).
+        /// </summary>
+        /// <remarks>
+        /// Targets <c>TitleBarSectionHeader</c> - the <c>SectionHeader</c>-classed "TITLE BAR"
+        /// <see cref="TextBlock"/> - rather than <c>TitleBarItemsPanel</c> (the rows themselves),
+        /// so the user sees the section title and its description first, not a mid-list row with
+        /// no context above it.
+        /// </remarks>
+        private void ScrollToTitleBarSection()
+        {
+            var header = this.FindControl<TextBlock>("TitleBarSectionHeader");
+            header?.BringIntoView();
+        }
+
         private void PopulateFonts()
         {
             var fontList = this.FindControl<ComboBox>("FontList");
@@ -1262,6 +1318,203 @@ namespace NovaTerminal
                 .ToList();
         }
 
+        private void LoadTitleBarDraft()
+        {
+            // Resolve once and let TitleBarDraftState derive both the per-entry draft state and
+            // the pinned order from that single result, rather than re-reading
+            // _settings.TitleBarItems a second time with a separate lookup. The resolver is the
+            // sole owner of state resolution -- including normalizing settings keys to
+            // OrdinalIgnoreCase so a hand-edited settings.json entry like "Find" still matches the
+            // catalog id "find" -- and a second, independent reader here would inevitably drift
+            // from it and silently disagree about a case-variant id.
+            var layout = TitleBarLayoutResolver.Resolve(
+                _settings.TitleBarItems, _settings.TitleBarOrder, null);
+
+            _titleBarDraft.SeedFrom(layout);
+        }
+
+        private void RebuildTitleBarRows()
+        {
+            var panel = this.FindControl<StackPanel>("TitleBarItemsPanel");
+            if (panel == null)
+            {
+                return;
+            }
+
+            panel.Children.Clear();
+
+            // Pinned entries first, in their configured order, so the ▲/▼ buttons act on a list
+            // that reads top-to-bottom the way the bar reads left-to-right. Then the rest in
+            // catalog order.
+            var ordered = _titleBarDraft.GetDisplayOrder();
+
+            var byId = TitleBarCatalog.GetEntries()
+                .ToDictionary(e => e.Id, StringComparer.OrdinalIgnoreCase);
+
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                panel.Children.Add(CreateTitleBarRow(byId[ordered[i]], i));
+            }
+        }
+
+        private Control CreateTitleBarRow(
+            TitleBarCatalogEntry entry,
+            int index)
+        {
+            var state = _titleBarDraft.GetState(entry.Id);
+            bool isPinned = state == TitleBarItemState.Pinned;
+
+            var row = new Border
+            {
+                Background = new SolidColorBrush(Color.Parse("#23272f")),
+                BorderBrush = new SolidColorBrush(Color.Parse("#2a2f38")),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12),
+            };
+
+            var icon = new PathIcon
+            {
+                Data = Geometry.Parse(entry.IconGeometry),
+                Width = entry.IconSize,
+                Height = entry.IconSize,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            string shortcut = TitleBarShortcuts.Resolve(entry.ShortcutKey, _shortcutDraftBindings);
+
+            var labels = new StackPanel
+            {
+                Spacing = 2,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children =
+                {
+                    new TextBlock { Text = entry.Title },
+                    new TextBlock
+                    {
+                        Text = string.IsNullOrWhiteSpace(shortcut) ? "No shortcut" : shortcut,
+                        Classes = { RowDescStyleClass },
+                    },
+                },
+            };
+
+            Control placement;
+            if (entry.IsLocked)
+            {
+                // Locked: New Tab is the primary action and hosts the flyout with
+                // "New SSH Connection…" / "Manage Profiles…" / "Agent Activity…". Letting it be
+                // hidden would lose that flyout entirely.
+                placement = new TextBlock
+                {
+                    Text = "Always pinned",
+                    Classes = { RowDescStyleClass },
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+            }
+            else
+            {
+                var combo = new ComboBox
+                {
+                    MinWidth = 140,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    ItemsSource = new[] { "Pinned", "Overflow", "Hidden" },
+                    SelectedItem = state.ToString(),
+                };
+
+                // Assigning combo.SelectedItem below (to snap a rejected pick back) re-raises
+                // SelectionChanged synchronously. Without this guard, the re-entrant call would see
+                // the reverted (old) value as "picked", write it into draft state again, and
+                // immediately clear the validation message this same handler just showed.
+                bool suppressSelectionChanged = false;
+
+                combo.SelectionChanged += (s, e) =>
+                {
+                    if (suppressSelectionChanged)
+                    {
+                        return;
+                    }
+
+                    if (combo.SelectedItem is not string picked ||
+                        !Enum.TryParse(picked, out TitleBarItemState next))
+                    {
+                        return;
+                    }
+
+                    if (!_titleBarDraft.TrySetState(entry.Id, next))
+                    {
+                        // Explicit placement with no width-driven spill means nothing else stops a
+                        // pinned set from running into the tab strip.
+                        ShowTitleBarValidationMessage(
+                            $"At most {TitleBarCatalog.MaxPinned} actions can be pinned. Move one to Overflow or Hidden first.");
+
+                        suppressSelectionChanged = true;
+                        combo.SelectedItem = _titleBarDraft.GetState(entry.Id).ToString();
+                        suppressSelectionChanged = false;
+                        return;
+                    }
+
+                    ClearTitleBarValidationMessage();
+                    RebuildTitleBarRows();
+                };
+
+                placement = combo;
+            }
+
+            var up = new Button
+            {
+                Content = "▲",
+                Classes = { "Pill" },
+                IsEnabled = isPinned && !entry.IsLocked && index > 1,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            up.Click += (s, e) => MoveDraftPinned(entry.Id, -1);
+
+            var down = new Button
+            {
+                Content = "▼",
+                Classes = { "Pill" },
+                IsEnabled = isPinned && !entry.IsLocked && index < _titleBarDraft.CountPinned() - 1,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            down.Click += (s, e) => MoveDraftPinned(entry.Id, +1);
+
+            row.Child = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto,Auto"),
+                ColumnSpacing = 12,
+                Children = { icon, labels, placement, up, down },
+            };
+
+            Grid.SetColumn(icon, 0);
+            Grid.SetColumn(labels, 1);
+            Grid.SetColumn(placement, 2);
+            Grid.SetColumn(up, 3);
+            Grid.SetColumn(down, 4);
+
+            return row;
+        }
+
+        private void MoveDraftPinned(string id, int delta)
+        {
+            _titleBarDraft.MovePinned(id, delta);
+            RebuildTitleBarRows();
+        }
+
+        private void ShowTitleBarValidationMessage(string message)
+        {
+            var label = this.FindControl<TextBlock>("TitleBarValidationMessage");
+            if (label == null) return;
+            label.Text = message;
+            label.IsVisible = true;
+        }
+
+        private void ClearTitleBarValidationMessage()
+        {
+            var label = this.FindControl<TextBlock>("TitleBarValidationMessage");
+            if (label == null) return;
+            label.IsVisible = false;
+        }
+
         private void InitializeShortcutEditor()
         {
             var shortcutSearchInput = this.FindControl<TextBox>("ShortcutSearchInput");
@@ -1312,7 +1565,7 @@ namespace NovaTerminal
                 panel.Children.Add(new TextBlock
                 {
                     Text = "No shortcuts match the current filter.",
-                    Classes = { "RowDesc" },
+                    Classes = { RowDescStyleClass },
                 });
             }
         }
@@ -1361,6 +1614,10 @@ namespace NovaTerminal
                 bindingEditor.Text = entry.DefaultBinding;
                 errorText.IsVisible = false;
                 ClearShortcutValidationMessage();
+                // The title bar rows (Appearance tab) show the same effective shortcut text and
+                // read straight from _shortcutDraftBindings; without this they'd keep showing the
+                // binding that was just reset until the window is closed and reopened.
+                RebuildTitleBarRows();
             };
 
             row.Child = new StackPanel
@@ -1387,7 +1644,7 @@ namespace NovaTerminal
                                     new TextBlock
                                     {
                                         Text = $"{entry.Category} · {FormatScopeLabel(entry.Scope)} · Default {entry.DefaultBinding}",
-                                        Classes = { "RowDesc" },
+                                        Classes = { RowDescStyleClass },
                                     },
                                 },
                             },
@@ -1457,6 +1714,15 @@ namespace NovaTerminal
             errorText.IsVisible = false;
             ClearShortcutValidationMessage();
             e.Handled = true;
+
+            // Keep the Appearance tab's title bar rows in sync: they render the same effective
+            // shortcut (TitleBarShortcuts.Resolve over _shortcutDraftBindings) but only did so at
+            // RebuildTitleBarRows's last call, so without this refresh they'd show the old binding
+            // until Settings is closed and reopened even though Save will persist the new one.
+            // This rebuilds a different panel (TitleBarItemsPanel, not ShortcutBindingsPanel) than
+            // the one bindingEditor lives in, so it does not touch bindingEditor's focus or
+            // re-enter this handler.
+            RebuildTitleBarRows();
         }
 
         private static bool IsModifierKey(Key key)
@@ -1809,7 +2075,7 @@ namespace NovaTerminal
                     Text = CommandAssistSnippetStore == null
                         ? "Snippets are not available in this window."
                         : "No snippets yet. Pin a suggestion with Ctrl+Shift+S, or add one here.",
-                    Classes = { "RowDesc" },
+                    Classes = { RowDescStyleClass },
                 });
                 return;
             }
@@ -2317,6 +2583,11 @@ namespace NovaTerminal
             // Sync local profiles list back to settings (SSH connections are store-backed separately).
             _settings.Profiles = NormalizeSettingsProfilesForSave(_profilesList);
             _settings.DefaultProfileId = ResolveDefaultLocalProfileId(_settings.DefaultProfileId, _settings.Profiles);
+
+            // Deltas only: an id at its catalog default is omitted, so a future catalog change
+            // reaches existing users without a migration.
+            _settings.TitleBarItems = _titleBarDraft.BuildSaveDelta();
+            _settings.TitleBarOrder = _titleBarDraft.BuildSaveOrder();
 
             _settings.Save();
             Close(true); // Return true to indicate saved

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Server;
@@ -87,6 +88,8 @@ public static class SettingsTools
         | `TabTemplateRules` | array | Tab template rule objects (not deep-validated here). |
         | `Profiles` | array | Terminal profile objects (not deep-validated here). |
         | `DefaultProfileId` | string (GUID) | Must be a valid GUID. |
+        | `TitleBarItems` | object | Map of title bar action id → "Pinned"/"Overflow"/"Hidden". Only entries that differ from the catalog default are stored. |
+        | `TitleBarOrder` | array | Display order (ids) of the pinned title bar actions. Ids it does not name follow in catalog order. |
 
         Enum-like string values above are non-authoritative guidance — the runtime parses them
         case-insensitively with fallbacks, so the validator only checks they are strings.
@@ -115,6 +118,8 @@ public static class SettingsTools
           "ShellExitPolicy": "Graceful",
           "Keybindings": { "Ctrl+Shift+C": "copy" },
           "TabTemplateRules": [],
+          "TitleBarItems": { "open_tab_list": "Overflow" },
+          "TitleBarOrder": ["new_tab"],
           "BackgroundImagePath": "",
           "BackgroundImageOpacity": 0.5,
           "BackgroundImageStretch": "UniformToFill",
@@ -165,7 +170,7 @@ public static class SettingsTools
         "BlurEffect", "CursorStyle", "PaneClosePolicy", "ShellExitPolicy", "BackgroundImageStretch",
     };
 
-    internal static readonly string[] ArrayFields = { "Profiles", "TabTemplateRules" };
+    internal static readonly string[] ArrayFields = { "Profiles", "TabTemplateRules", "TitleBarOrder" };
 
     // Every recognized top-level field (union of all groups). Source of truth: TerminalSettings.cs.
     internal static readonly HashSet<string> KnownFields = new(StringComparer.Ordinal)
@@ -182,7 +187,7 @@ public static class SettingsTools
         "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "AgentReplayExportEnabled",
         "AgentScreenshotEnabled", "AgentAccessActEnabled", "LongCommandNotificationsEnabled",
         "AutomaticUpdateChecks",
-        "Profiles", "DefaultProfileId",
+        "Profiles", "DefaultProfileId", "TitleBarItems", "TitleBarOrder",
     };
 
     [McpServerTool(Name = "novaterminal.validate_settings_json"),
@@ -277,6 +282,42 @@ public static class SettingsTools
                     {
                         errors.Add($"Keybindings['{entry.Name}'] must be a string, but was {entry.Value.ValueKind}.");
                     }
+                }
+            }
+        }
+
+        // TitleBarItems: object of string -> string (action id -> "Pinned"/"Overflow"/"Hidden").
+        // Values are not validated against the enum here — an unrecognized value falls back to the
+        // catalog default at load time rather than failing, same posture as the other enum-like fields.
+        if (root.TryGetProperty("TitleBarItems", out var tbEl))
+        {
+            if (tbEl.ValueKind != JsonValueKind.Object)
+            {
+                errors.Add($"Field 'TitleBarItems' must be a JSON object (string -> string), but was {tbEl.ValueKind}.");
+            }
+            else
+            {
+                foreach (var entry in tbEl.EnumerateObject())
+                {
+                    if (entry.Value.ValueKind != JsonValueKind.String)
+                    {
+                        errors.Add($"TitleBarItems['{entry.Name}'] must be a string, but was {entry.Value.ValueKind}.");
+                    }
+                }
+            }
+        }
+
+        // TitleBarOrder: array of string ids. RequireArray (above) only checks the container is a
+        // JSON array; the runtime deserializes this property as List<string> in TerminalSettings,
+        // so a non-string element (e.g. [1]) passes the container check but throws at load time,
+        // sending settings.json through the corrupt-file backup/default recovery path.
+        if (root.TryGetProperty("TitleBarOrder", out var tboEl) && tboEl.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var (kind, index) in tboEl.EnumerateArray().Select((element, i) => (element.ValueKind, i)))
+            {
+                if (kind != JsonValueKind.String)
+                {
+                    errors.Add($"TitleBarOrder[{index}] must be a string, but was {kind}.");
                 }
             }
         }

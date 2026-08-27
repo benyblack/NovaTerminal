@@ -61,6 +61,16 @@ namespace NovaTerminal.Shell
         // destructive than the default.
         public string ShellExitPolicy { get; set; } = "Graceful";
         public System.Collections.Generic.Dictionary<string, string> Keybindings { get; set; } = new();
+
+        // Title bar customization. Deltas only: an id absent here takes its TitleBarCatalog default,
+        // so a catalog entry added in a later version appears for existing users without a migration.
+        // Values are TitleBarItemState names ("Pinned" / "Overflow" / "Hidden"); anything unparseable
+        // falls back to the entry's default rather than throwing.
+        public System.Collections.Generic.Dictionary<string, string> TitleBarItems { get; set; } = new();
+
+        // Display order for the pinned set. Ids it does not name follow in catalog order.
+        public System.Collections.Generic.List<string> TitleBarOrder { get; set; } = new();
+
         public System.Collections.Generic.List<TabTemplateRule> TabTemplateRules { get; set; } = new();
 
         // Background Image Settings
