@@ -896,6 +896,20 @@ namespace NovaTerminal
         }
 
         /// <summary>
+        /// Flips <see cref="TerminalSettings.TabStripOrientation"/> between Horizontal and
+        /// Vertical, persists it, and re-applies the tab layout - the same effect as changing
+        /// the setting from the Settings window, but reachable via shortcut/command palette.
+        /// </summary>
+        private void ToggleTabOrientation()
+        {
+            _settings.TabStripOrientation = TabStripLayout.IsVertical(_settings.TabStripOrientation)
+                ? "Horizontal"
+                : "Vertical";
+            _settings.Save();
+            ApplyTabLayout();
+        }
+
+        /// <summary>
         /// Wires the sidebar's resize grip (PART_TabStripResizeGrip). The grip is a permanent
         /// part of the single inline template (see ApplyTabLayout's remarks) - it is never
         /// re-templated in/out, only shown/hidden via IsVisible. So wiring happens once per
@@ -2865,6 +2879,13 @@ namespace NovaTerminal
                 {
                     RecordCommandUsage("new_tab");
                     AddTab();
+                    e.Handled = true;
+                    return;
+                }
+                if (IsShortcut(e, "toggle_tab_orientation", "Ctrl+Alt+B"))
+                {
+                    RecordCommandUsage("toggle_tab_orientation");
+                    ToggleTabOrientation();
                     e.Handled = true;
                     return;
                 }
@@ -5504,6 +5525,7 @@ namespace NovaTerminal
             CommandRegistry.Register("Tab: Next (MRU)", "General", () => SwitchTabByMru(reverse: false), GetEffectiveShortcutBinding("next_tab", "Ctrl+Tab"), "next_tab");
             CommandRegistry.Register("Tab: Previous (MRU)", "General", () => SwitchTabByMru(reverse: true), GetEffectiveShortcutBinding("prev_tab", "Ctrl+Shift+Tab"), "prev_tab");
             CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), GetEffectiveShortcutBinding(TitleBarCatalog.OpenTabListId, "Ctrl+Shift+O"), TitleBarCatalog.OpenTabListId);
+            CommandRegistry.Register("Tabs: Toggle Vertical Tab Sidebar", "General", () => ToggleTabOrientation(), GetEffectiveShortcutBinding("toggle_tab_orientation", "Ctrl+Alt+B"), "toggle_tab_orientation");
             CommandRegistry.Register("Tab: Rename Current", "General", () => _ = RenameSelectedTabAsync(), "");
             CommandRegistry.Register("Tab: Copy Current Title", "General", () => _ = CopySelectedTabTitleAsync(), "");
             CommandRegistry.Register("Tab: Close Others", "General", () => _ = CloseOtherTabsAsync(), "");
