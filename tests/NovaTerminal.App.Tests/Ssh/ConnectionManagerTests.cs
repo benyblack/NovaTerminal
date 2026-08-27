@@ -3,7 +3,9 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.VisualTree;
 using NovaTerminal.Controls;
 using NovaTerminal.Platform;
@@ -32,19 +34,41 @@ public sealed class ConnectionManagerTests
         Assert.True(raised);
     }
 
+    // Asserts ARRANGED bounds, not Button.Width/Height. Those are the style-set
+    // StyledProperties: they read 30 from the IconBtn style even when the button was
+    // arranged into an empty rect, so the original version of this test could not tell a
+    // real hit target from no layout at all.
+    //
+    // Scope, precisely: this covers hit-target SIZE. It does not detect clipping — the
+    // delete button that was invisible in the running app was arranged 30x30 at X=520
+    // inside a 468px parent, so these assertions would have passed. Position relative to
+    // the panel is ActionBarControls_AreArrangedInsideTheDetailPanel's job. The two
+    // together cover size and placement.
+    //
+    // Show() + RunJobs() is what produces a real layout pass: the detail panel starts
+    // collapsed, and Measure with an unchanged constraint returns the cached empty-state
+    // desired size, leaving the whole detail header arranged at zero.
     [AvaloniaFact]
     public void SecondaryActionButtons_ReserveSquareHitTargets()
     {
-        var control = CreateMeasuredConnectionManager(800, 500);
+        var control = new ConnectionManager();
+        var host = new Grid();
+        host.Children.Add(control);
+        var window = new Window { Width = 1080, Height = 720, Content = host };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
         control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: true) });
-        SelectFirstRow(control);
+        FindControl<ListBox>(control, "ConnectionsList").SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
 
         string[] actionTips =
         {
             "Toggle favorite",
             "Edit connection",
             "Copy launch command",
-            "Connection details"
+            "Connection details",
+            "Delete connection"
         };
 
         var actionButtons = control.GetVisualDescendants()
@@ -52,11 +76,15 @@ public sealed class ConnectionManagerTests
             .Where(button => ToolTip.GetTip(button) is string tip && actionTips.Contains(tip))
             .ToList();
 
-        Assert.Equal(4, actionButtons.Count);
+        Assert.Equal(5, actionButtons.Count);
         Assert.All(actionButtons, button =>
         {
-            Assert.True(button.Width >= 30, $"Expected '{ToolTip.GetTip(button)}' width >= 30 but was {button.Width}.");
-            Assert.True(button.Height >= 30, $"Expected '{ToolTip.GetTip(button)}' height >= 30 but was {button.Height}.");
+            Assert.True(
+                button.Bounds.Width >= 30,
+                $"Expected '{ToolTip.GetTip(button)}' arranged width >= 30 but was {button.Bounds.Width}.");
+            Assert.True(
+                button.Bounds.Height >= 30,
+                $"Expected '{ToolTip.GetTip(button)}' arranged height >= 30 but was {button.Bounds.Height}.");
         });
     }
 
@@ -83,6 +111,144 @@ public sealed class ConnectionManagerTests
         Assert.NotNull(receivedProfile);
         Assert.Equal("Prod", receivedProfile!.Name);
         Assert.Equal(SshDiagnosticsLevel.None, receivedLevel);
+    }
+
+    [AvaloniaFact]
+    public void DeleteAction_RaisesDeleteProfileRequested_ForSelectedRow()
+    {
+        var control = CreateMeasuredConnectionManager();
+        TerminalProfile profile = CreateSshProfile("Prod", favorite: false);
+        control.LoadProfiles(new[] { profile });
+        SelectFirstRow(control);
+
+        TerminalProfile? receivedProfile = null;
+        control.OnDeleteProfileRequested += p => receivedProfile = p;
+
+        var deleteButton = FindButtonByToolTip(control, "Delete connection");
+        Assert.NotNull(deleteButton);
+
+        deleteButton!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Same(profile, receivedProfile);
+    }
+
+    [AvaloniaFact]
+    public void DeleteAction_DoesNotRaise_WhenNoRowSelected()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+
+        bool raised = false;
+        control.OnDeleteProfileRequested += _ => raised = true;
+
+        var deleteButton = FindButtonByToolTip(control, "Delete connection");
+        Assert.NotNull(deleteButton);
+
+        deleteButton!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.False(raised);
+    }
+
+    [AvaloniaFact]
+    public void DeleteAction_DoesNotRemoveRowItself()
+    {
+        // The control only raises; MainWindow owns the store delete and the refresh.
+        var control = CreateMeasuredConnectionManager();
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        SelectFirstRow(control);
+        control.OnDeleteProfileRequested += _ => { };
+
+        FindButtonByToolTip(control, "Delete connection")!
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Equal(1, GetListItemCount(control));
+        Assert.Single(control.GetAllProfiles());
+    }
+
+    [AvaloniaFact]
+    public void SavedPasswordRow_ShowsYes_AndEnablesForget_WhenPasswordStored()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.SavedPasswordAccess = new FakeSavedPasswordAccess { Saved = true };
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        SelectFirstRow(control);
+
+        Assert.Equal("Yes", FindControl<TextBlock>(control, "KvSavedPassword").Text);
+        var forget = FindControl<Button>(control, "BtnForgetSavedPassword");
+        Assert.True(forget.IsVisible);
+        Assert.True(forget.IsEnabled);
+    }
+
+    [AvaloniaFact]
+    public void SavedPasswordRow_ShowsNo_AndDisablesForget_WhenNothingStored()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.SavedPasswordAccess = new FakeSavedPasswordAccess { Saved = false };
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        SelectFirstRow(control);
+
+        Assert.Equal("No", FindControl<TextBlock>(control, "KvSavedPassword").Text);
+        Assert.False(FindControl<Button>(control, "BtnForgetSavedPassword").IsEnabled);
+    }
+
+    [AvaloniaFact]
+    public void SavedPasswordRow_ShowsVaultUnavailable_WhenStoreIsUnavailable()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.SavedPasswordAccess = new FakeSavedPasswordAccess { IsVaultAvailable = false, Saved = true };
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        SelectFirstRow(control);
+
+        Assert.Equal("Vault unavailable", FindControl<TextBlock>(control, "KvSavedPassword").Text);
+        Assert.False(FindControl<Button>(control, "BtnForgetSavedPassword").IsEnabled);
+    }
+
+    [AvaloniaFact]
+    public void SavedPasswordRow_HidesForget_WhenNoAccessorInjected()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        SelectFirstRow(control);
+
+        Assert.Equal("—", FindControl<TextBlock>(control, "KvSavedPassword").Text);
+        Assert.False(FindControl<Button>(control, "BtnForgetSavedPassword").IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void ForgetSavedPassword_FlipsRowToNo_DisablesButton_AndKeepsSelection()
+    {
+        var control = CreateMeasuredConnectionManager();
+        var access = new FakeSavedPasswordAccess { Saved = true };
+        control.SavedPasswordAccess = access;
+        TerminalProfile profile = CreateSshProfile("Prod", favorite: false);
+        control.LoadProfiles(new[] { profile });
+        SelectFirstRow(control);
+
+        var forget = FindControl<Button>(control, "BtnForgetSavedPassword");
+        forget.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Equal(1, access.ForgetCallCount);
+        Assert.Same(profile, access.LastForgotten);
+        Assert.Equal("No", FindControl<TextBlock>(control, "KvSavedPassword").Text);
+        Assert.False(forget.IsEnabled);
+
+        // No LoadProfiles reload — the selection must survive.
+        var list = FindControl<ListBox>(control, "ConnectionsList");
+        Assert.Equal(0, list.SelectedIndex);
+    }
+
+    [AvaloniaFact]
+    public void ForgetSavedPassword_DoesNothing_WhenNoRowSelected()
+    {
+        var control = CreateMeasuredConnectionManager();
+        var access = new FakeSavedPasswordAccess { Saved = true };
+        control.SavedPasswordAccess = access;
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+
+        FindControl<Button>(control, "BtnForgetSavedPassword")
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Equal(0, access.ForgetCallCount);
     }
 
     [AvaloniaFact]
@@ -227,6 +393,101 @@ public sealed class ConnectionManagerTests
         Assert.True(control.Bounds.Height <= 520, $"Expected height <= 520 but was {control.Bounds.Height}.");
     }
 
+
+    // Regression guard for the delete/details icons being arranged outside the detail
+    // panel and clipped away (invisible in the running app while every behavioural test
+    // passed). Note SecondaryActionButtons_ReserveSquareHitTargets asserts Button.Width,
+    // which is the STYLE-SET property and reads 30 even when the arranged width is 0 —
+    // it cannot detect clipping. This asserts real arranged geometry instead.
+    //
+    // Show() + RunJobs() is required rather than Measure/Arrange: DetailContent starts
+    // collapsed, and a manual Measure with an unchanged constraint returns the cached
+    // empty-state desired size, leaving the entire detail header arranged at zero.
+    [AvaloniaTheory]
+    [InlineData(1080.0)]
+    [InlineData(900.0)]
+    [InlineData(1400.0)]
+    public void ActionBarControls_AreArrangedInsideTheDetailPanel(double width)
+    {
+        var control = new ConnectionManager();
+        var host = new Grid();
+        host.Children.Add(control);
+        var window = new Window { Width = width, Height = 720, Content = host };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        var list = FindControl<ListBox>(control, "ConnectionsList");
+        list.SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = FindControl<Grid>(control, "DetailColumn");
+        Assert.True(panel.Bounds.Width > 0, "detail panel was not arranged");
+
+        string[] actionTips =
+        {
+            "Open in current pane",
+            "Toggle favorite",
+            "Edit connection",
+            "Copy launch command",
+            "Connection details",
+            "Delete connection"
+        };
+
+        foreach (string tip in actionTips)
+        {
+            Button? button = FindButtonByToolTip(control, tip);
+            Assert.NotNull(button);
+
+            Point origin = button!.TranslatePoint(new Point(0, 0), panel)
+                ?? throw new Xunit.Sdk.XunitException($"'{tip}' is not connected to the detail panel.");
+
+            Assert.True(
+                button.Bounds.Width > 0 && button.Bounds.Height > 0,
+                $"'{tip}' arranged with an empty rect ({button.Bounds}).");
+
+            double right = origin.X + button.Bounds.Width;
+            Assert.True(
+                right <= panel.Bounds.Width + 0.5,
+                $"'{tip}' is clipped at width {width}: right edge {right:F1} exceeds detail panel width {panel.Bounds.Width:F1}.");
+        }
+    }
+
+
+    // The favourite star is now the toggle button's own icon carrying both action and state
+    // (it replaced a separate yellow indicator that would have sat beside it in the title row).
+    // Nothing covered the old indicator, so this pins the new mechanism.
+    [AvaloniaFact]
+    public void FavoriteToggle_IconCarriesFavoriteState()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        SelectFirstRow(control);
+
+        var star = FindControl<PathIcon>(control, "DetailFavStar");
+        Assert.False(star.Classes.Contains("favOn"), "a non-favorite connection should not show the lit star.");
+
+        FindButtonByToolTip(control, "Toggle favorite")!
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.True(star.Classes.Contains("favOn"), "toggling on should light the star.");
+
+        FindButtonByToolTip(control, "Toggle favorite")!
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.False(star.Classes.Contains("favOn"), "toggling off should unlight the star.");
+    }
+
+    [AvaloniaFact]
+    public void FavoriteToggle_IconIsLit_ForAnAlreadyFavoriteConnection()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: true) });
+        SelectFirstRow(control);
+
+        Assert.True(
+            FindControl<PathIcon>(control, "DetailFavStar").Classes.Contains("favOn"),
+            "selecting a favorite connection should render the star lit.");
+    }
+
     private static ConnectionManager CreateMeasuredConnectionManager(double width = 1080, double height = 720)
     {
         var control = new ConnectionManager();
@@ -311,6 +572,25 @@ public sealed class ConnectionManagerTests
         };
 
         handler!.Invoke(control, new object?[] { toggle, new RoutedEventArgs(ToggleButton.ClickEvent) });
+    }
+
+    private sealed class FakeSavedPasswordAccess : NovaTerminal.Shell.ISavedPasswordAccess
+    {
+        public bool IsVaultAvailable { get; set; } = true;
+        public bool Saved { get; set; }
+        public int ForgetCallCount { get; private set; }
+        public TerminalProfile? LastForgotten { get; private set; }
+
+        public bool HasSavedPassword(TerminalProfile profile) => Saved;
+
+        public bool ForgetSavedPassword(TerminalProfile profile)
+        {
+            ForgetCallCount++;
+            LastForgotten = profile;
+            bool had = Saved;
+            Saved = false;
+            return had;
+        }
     }
 
     private static Button? FindButtonByToolTip(ConnectionManager control, string tip)

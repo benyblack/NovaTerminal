@@ -5679,6 +5679,7 @@ namespace NovaTerminal
 
             var connManager = new ConnectionManager();
             connManager.ApplyTheme(_settings.ActiveTheme);
+            connManager.SavedPasswordAccess = Vault;
             connManager.OnQuickOpenRequested += (profile, target, diagnosticsLevel) =>
             {
                 HandleSshQuickOpen(profile, target, diagnosticsLevel);
@@ -5704,6 +5705,10 @@ namespace NovaTerminal
             connManager.OnEditProfile += async (profile) =>
             {
                 await ShowNewSshConnectionDialogAsync(profile);
+            };
+            connManager.OnDeleteProfileRequested += async (profile) =>
+            {
+                await DeleteSshProfileAsync(profile);
             };
 
             host.Content = connManager;
@@ -6025,6 +6030,125 @@ namespace NovaTerminal
             {
                 System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to save SSH connection: {ex.Message}");
             }
+        }
+
+        private async Task DeleteSshProfileAsync(TerminalProfile profile)
+        {
+            if (profile == null)
+            {
+                return;
+            }
+
+            string trimmedName = string.IsNullOrWhiteSpace(profile.Name) ? string.Empty : profile.Name.Trim();
+            const int maxLabelLength = 60;
+            string displayName = trimmedName.Length > maxLabelLength
+                ? trimmedName[..maxLabelLength] + "…"
+                : trimmedName;
+            string label = string.IsNullOrWhiteSpace(displayName)
+                ? "this connection"
+                : $"\"{displayName}\"";
+
+            if (!await ShowDeleteConnectionConfirmationAsync(label))
+            {
+                return;
+            }
+
+            try
+            {
+                _sshConnectionService.DeleteProfile(profile.Id);
+
+                // Two orderings matter here and they pull in opposite directions, so the
+                // purge is sequenced and the refresh is guaranteed:
+                //   * the purge runs AFTER the store delete, so if the delete throws the
+                //     secret stays put rather than being orphaned from a profile that
+                //     still exists;
+                //   * the refresh runs in a finally, so a throwing purge cannot leave the
+                //     deleted connection sitting in the list.
+                // Ordering them without the finally forces a choice between an orphaned
+                // secret and a stale row; this way neither failure mode exists.
+                try
+                {
+                    Vault?.ForgetSavedPassword(profile);
+                }
+                finally
+                {
+                    RefreshProfileUIs();
+                }
+            }
+            catch (Exception ex)
+            {
+                await ShowSimpleMessageDialogAsync("Delete connection", ex.Message);
+            }
+        }
+
+        private async Task<bool> ShowDeleteConnectionConfirmationAsync(string label)
+        {
+            bool confirmed = false;
+
+            var dialog = CreateThemedDialogWindow("Delete connection?", 480, 210, canResize: false);
+
+            var cancelButton = new Button
+            {
+                Content = "Cancel",
+                Width = 92,
+                IsCancel = true
+            };
+            cancelButton.Click += (_, __) =>
+            {
+                confirmed = false;
+                dialog.Close();
+            };
+
+            var deleteButton = new Button
+            {
+                Content = "Delete",
+                Width = 92
+            };
+            deleteButton.Click += (_, __) =>
+            {
+                confirmed = true;
+                dialog.Close();
+            };
+
+            // Give Cancel initial focus: combined with IsCancel above, Escape reliably backs
+            // out of a dialog the user may have opened by accident. Delete intentionally has
+            // no IsDefault, so Enter never triggers the destructive action.
+            dialog.Opened += (_, __) => cancelButton.Focus();
+
+            dialog.Content = new Border
+            {
+                Padding = new Thickness(16),
+                Child = new StackPanel
+                {
+                    Spacing = 12,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = $"Delete {label}?",
+                            FontWeight = FontWeight.SemiBold,
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new TextBlock
+                        {
+                            Text = "The saved connection and any password stored for it are removed. "
+                                 + "Panes already connected keep running until you close them.",
+                            Opacity = 0.8,
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new StackPanel
+                        {
+                            Orientation = Avalonia.Layout.Orientation.Horizontal,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Spacing = 8,
+                            Children = { cancelButton, deleteButton }
+                        }
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
+            return confirmed;
         }
 
         private async Task CopySshLaunchCommandAsync(TerminalProfile profile, SshDiagnosticsLevel diagnosticsLevel)
