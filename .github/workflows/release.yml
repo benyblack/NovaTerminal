@@ -368,16 +368,33 @@ jobs:
 
           # Make a re-run idempotent. `vpk download github` picks the max-version full out of
           # the union feed; for an already-published tag that is the tag's OWN
-          # NovaTerminal-$ver-full.nupkg, and `vpk pack` then hard-fails with
+          # NovaTerminalApp-$ver-full.nupkg, and `vpk pack` then hard-fails with
           # "[FTL] There is a release in channel win which is equal or greater to the current
           # version $ver". Because the portable zips upload in an earlier step, that leaves a
           # half-published release behind a red job. This workflow supports workflow_dispatch
           # re-runs by design, so dropping this version's own artifacts first is required, not
           # defensive.
-          Get-ChildItem artifacts/velopack -Filter "NovaTerminal-$ver-*.nupkg" -ErrorAction SilentlyContinue | Remove-Item -Force
+          Get-ChildItem artifacts/velopack -Filter "NovaTerminalApp-$ver-*.nupkg" -ErrorAction SilentlyContinue | Remove-Item -Force
 
+          # --packId is deliberately NOT "NovaTerminal", and this must not be "tidied" back.
+          # Velopack installs to %LocalAppData%\<packId> and its uninstall routine deletes
+          # that ENTIRE directory ("any data stored within it, such as settings or logs, will
+          # be lost" - Velopack's own uninstalling docs). AppPaths.RootDirectory is
+          # %LocalAppData%\NovaTerminal, so a packId of "NovaTerminal" makes the install root
+          # and the config root the same folder: uninstalling would silently destroy
+          # settings.json, ssh/profiles.json, native_known_hosts.json, command-assist history,
+          # workspaces, themes and recordings. Updates alone are safe (only `current` is
+          # replaced) - it is uninstall that is destructive, which is why testing never
+          # surfaced it.
+          #
+          # Only the nupkg file names and the install directory derive from packId; --packTitle
+          # below is what the user actually sees in shortcuts and Add/Remove Programs, and the
+          # config root is left exactly where every existing 0.4.0 user already has it, so no
+          # migration is needed. Changing packId AFTER a stable release ships would orphan
+          # every installed client (a different packId is a different app to the updater), so
+          # this had to land before v0.5.0 or not at all.
           vpk pack `
-            --packId NovaTerminal `
+            --packId NovaTerminalApp `
             --packVersion $ver `
             --packDir artifacts/publish/win-x64 `
             --mainExe NovaTerminal.exe `
@@ -404,11 +421,11 @@ jobs:
           # release legitimately produces no delta, so flipping it would break exactly the
           # case it is meant to protect. The signal belongs here instead, where "was a delta
           # expected?" is known from GitHub rather than guessed from an empty directory.
-          if (-not (Test-Path "artifacts/velopack/NovaTerminal-$ver-full.nupkg")) {
-            throw "vpk pack produced no NovaTerminal-$ver-full.nupkg - the update feed would be unusable."
+          if (-not (Test-Path "artifacts/velopack/NovaTerminalApp-$ver-full.nupkg")) {
+            throw "vpk pack produced no NovaTerminalApp-$ver-full.nupkg - the update feed would be unusable."
           }
-          if ($expectDelta -and -not (Test-Path "artifacts/velopack/NovaTerminal-$ver-delta.nupkg")) {
-            throw "A prior Velopack release exists but vpk pack produced no NovaTerminal-$ver-delta.nupkg - delta generation silently failed."
+          if ($expectDelta -and -not (Test-Path "artifacts/velopack/NovaTerminalApp-$ver-delta.nupkg")) {
+            throw "A prior Velopack release exists but vpk pack produced no NovaTerminalApp-$ver-delta.nupkg - delta generation silently failed."
           }
 
       # Known and benign: the uploaded releases.win.json lists the PREVIOUS release's full
@@ -426,7 +443,7 @@ jobs:
       # clients on the previous version are actually reading.
       #
       # The version-scoped globs below are what keep stale nupkgs from being re-UPLOADED onto
-      # this release; do not broaden them to `NovaTerminal-*.nupkg`.
+      # this release; do not broaden them to `NovaTerminalApp-*.nupkg`.
       - name: Upload Windows installer and update feed
         if: matrix.rid == 'win-x64'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
@@ -434,8 +451,8 @@ jobs:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: |
             artifacts/velopack/NovaTerminal-Setup-win-x64-${{ needs.release_metadata.outputs.release_tag }}.exe
-            artifacts/velopack/NovaTerminal-${{ needs.release_metadata.outputs.release_version }}-full.nupkg
-            artifacts/velopack/NovaTerminal-${{ needs.release_metadata.outputs.release_version }}-delta.nupkg
+            artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-full.nupkg
+            artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-delta.nupkg
             artifacts/velopack/releases.win.json
 
   # Opens a submission PR to microsoft/winget-pkgs for the just-published Windows

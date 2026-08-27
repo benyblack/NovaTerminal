@@ -43,7 +43,7 @@ Push a tag (or `workflow_dispatch` with `tag_name`), then check the release carr
 
 - the three existing zips, **`NovaTerminal-win-x64-<tag>.zip` unchanged in name** — `packaging/winget/` pins that URL and its SHA256;
 - `NovaTerminal-Setup-win-x64-<tag>.exe`;
-- `NovaTerminal-<version>-full.nupkg`;
+- `NovaTerminalApp-<version>-full.nupkg` (the `App` suffix is deliberate - see the packId note below);
 - `releases.win.json`.
 
 **No `*-delta.nupkg` on the first release** — there was no prior Velopack release to diff against. The `Download previous Velopack release` step is expected to log a miss without failing.
@@ -64,7 +64,7 @@ Bump `Version` in `Directory.Build.props`, push the next tag, then in the **inst
 
 ## Release-day gotchas (found during review — read before B2)
 
-- **"Was the delta used?" cannot be answered from the releases page.** A full-only release publishes green and looks identical. Confirm from the client's Velopack log at `%LocalAppData%\velopack\velopack_NovaTerminal.log` — note this is *not* the app's own debug log, and the app's update-failure toasts point at the latter.
+- **"Was the delta used?" cannot be answered from the releases page.** A full-only release publishes green and looks identical. Confirm from the client's Velopack log at `%LocalAppData%\velopack\velopack_NovaTerminalApp.log` — note this is *not* the app's own debug log, and the app's update-failure toasts point at the latter.
 - **`releases.win.json` legitimately lists the previous release's `full.nupkg`**, which is not an asset on the current release. `vpk pack` re-indexes the whole output directory. Nothing on the happy path selects that entry (only a downgrade would, and `AllowVersionDowngrade` is off). It is known and benign — do not chase it.
 - **Re-dispatching the workflow for an already-published tag** deletes and rebuilds that version's nupkg, so the re-run republishes `releases.win.json` **without a delta entry** even if a delta was uploaded the first time. Clients fall back to the full package: degraded, not broken. This is inherent to making re-runs work at all.
 - **A prerelease tag stays off stable users' update path** only because `create_release` now sets GitHub's `prerelease` flag from the tag's SemVer suffix. `GithubSource` filters on that flag alone — it does not look at the version string — so if that expression is ever removed, a `-beta` tag will update everyone.
