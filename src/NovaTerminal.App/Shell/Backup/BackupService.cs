@@ -189,21 +189,64 @@ public sealed class BackupService
     }
 
     /// <summary>
+    /// Where Import stages its scratch tree. Deliberately a sibling of the live tree under
+    /// <see cref="RootDirectory"/>, never under <see cref="Path.GetTempPath"/>: Phase 2's commit
+    /// moves directories with <see cref="Directory.Move"/>, which is a bare rename and throws
+    /// <see cref="IOException"/> across a volume boundary on both Windows and Unix — unlike
+    /// <see cref="File.Move"/>, which falls back to copy+delete. TEMP is commonly on a different
+    /// drive from an app-data root on Windows, so staging there made every directory-category
+    /// import fail outright on an ordinary machine. Neither <see cref="ComputeContentHash"/> nor
+    /// <see cref="HasContent"/> walk anything but <see cref="BackupCatalog.Entries"/>, so a
+    /// dot-prefixed scratch directory here is invisible to both, and it is always removed before
+    /// this method returns except on the (already-logged) rollback-failure path. A fresh GUID per
+    /// call also means a leftover from a killed process can never be picked up or reused by a
+    /// later run. <c>internal</c> rather than <c>private</c> so tests can pin the "always under
+    /// RootDirectory" invariant directly, since a cross-volume TEMP regression is otherwise
+    /// invisible to any test whose whole tree lives under one temp root already.
+    /// </summary>
+    internal string ResolveImportStagingRoot() => Path.Combine(RootDirectory, $".import-{Guid.NewGuid():N}");
+
+    /// <summary>
     /// Does the actual two-phase apply. Never snapshots — callers (<see cref="Import"/> and
     /// <see cref="Restore"/>) each take exactly one forced snapshot under their own reason before
     /// calling this, so a Restore does not also write a redundant pre-import snapshot.
     /// </summary>
     private BackupOutcome ImportCore(string bundlePath, ImportMode mode, BackupCategory[] selected)
     {
-        string staging = Path.Combine(Path.GetTempPath(), $"nova_import_{Guid.NewGuid():N}");
+        string staging = ResolveImportStagingRoot();
         string extracted = Path.Combine(staging, "extracted");
         string final = Path.Combine(staging, "final");
         string undo = Path.Combine(staging, "undo");
 
+        // Set when the automatic rollback itself could not fully restore every step — staging
+        // (specifically undo/, which then holds the only surviving copy of whatever the rollback
+        // could not put back) must not be deleted on that path, or the cheaper recovery route is
+        // destroyed right after the failure message points at it.
+        bool preserveStagingForManualRecovery = false;
+
         try
         {
-            Directory.CreateDirectory(extracted);
-            BundleReader.ExtractTo(bundlePath, extracted, selected);
+            try
+            {
+                Directory.CreateDirectory(extracted);
+                BundleReader.ExtractTo(bundlePath, extracted, selected);
+            }
+            catch (InvalidDataException ex)
+            {
+                // BundleReader's own zip-slip guard, or a corrupt per-entry deflate stream.
+                // Inspect() only reads the manifest and central directory, so this is the first
+                // point either can surface — and it must come back as a typed failure, not an
+                // exception escaping Import/Restore.
+                return BackupOutcome.Fail(
+                    BackupFailureKind.CorruptArchive,
+                    $"Could not extract bundle: {ex.Message}");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                return BackupOutcome.Fail(
+                    BackupFailureKind.WriteFailed,
+                    $"Could not extract bundle: {ex.Message}");
+            }
 
             List<SwapStep> plan;
             try
@@ -224,6 +267,21 @@ public sealed class BackupService
             }
             catch (ImportCommitException ex)
             {
+                if (!ex.RollbackSucceeded)
+                {
+                    preserveStagingForManualRecovery = true;
+                    AppLogger.Log(
+                        $"[backup] rollback for category '{ex.Category}' did not fully succeed; " +
+                        $"preserving staging directory '{staging}' for manual recovery.");
+
+                    return BackupOutcome.Fail(
+                        BackupFailureKind.WriteFailed,
+                        $"Import failed while applying category '{ex.Category}', and the automatic rollback did " +
+                        $"not fully restore every changed item: {ex.InnerException?.Message ?? ex.Message}. " +
+                        $"The originals may still be recoverable from '{staging}' — restoring the pre-import " +
+                        "snapshot is the safer path.");
+                }
+
                 return BackupOutcome.Fail(
                     BackupFailureKind.WriteFailed,
                     $"Import failed while applying category '{ex.Category}' and was rolled back: " +
@@ -243,8 +301,11 @@ public sealed class BackupService
         }
         finally
         {
-            try { if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true); }
-            catch (Exception ex) { AppLogger.Log($"[backup] could not clean up import staging directory: {ex.Message}"); }
+            if (!preserveStagingForManualRecovery)
+            {
+                try { if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true); }
+                catch (Exception ex) { AppLogger.Log($"[backup] could not clean up import staging directory '{staging}': {ex.Message}"); }
+            }
         }
     }
 
@@ -258,11 +319,15 @@ public sealed class BackupService
         public BackupCategory Category { get; } = category;
     }
 
-    /// <summary>Carries which category was being committed when Phase 2 failed.</summary>
-    private sealed class ImportCommitException(BackupCategory category, Exception inner)
+    /// <summary>
+    /// Carries which category was being committed when Phase 2 failed, and whether the
+    /// automatic rollback that followed actually managed to restore everything it touched.
+    /// </summary>
+    private sealed class ImportCommitException(BackupCategory category, Exception inner, bool rollbackSucceeded)
         : Exception(inner.Message, inner)
     {
         public BackupCategory Category { get; } = category;
+        public bool RollbackSucceeded { get; } = rollbackSucceeded;
     }
 
     /// <summary>Phase 1: compute every selected category's result under <paramref name="final"/>, touching nothing live.</summary>
@@ -363,8 +428,13 @@ public sealed class BackupService
             if (!stagedHasContent) return null; // nothing new to overlay; leave live untouched
 
             Directory.CreateDirectory(finalDirectory);
-            if (liveExists) CopyDirectoryContents(liveDirectory, finalDirectory);
-            CopyDirectoryContents(stagedDirectory, finalDirectory); // bundle overwrites same-named files
+            // Skip ".bak" only on the staged (bundle) pass — a user's own local ".bak" sibling
+            // is local-only content and must survive a Merge like any other local-only file.
+            // Skipping it on the bundle side still stops a ".bak" the bundle carried (e.g.
+            // exported from a machine where some other subsystem left one) from being carried
+            // forward and compounding on a future export/import round trip.
+            if (liveExists) CopyDirectoryContents(liveDirectory, finalDirectory, skipBakFiles: false);
+            CopyDirectoryContents(stagedDirectory, finalDirectory, skipBakFiles: true); // bundle overwrites same-named files
             return finalDirectory;
         }
 
@@ -375,14 +445,11 @@ public sealed class BackupService
         return finalDirectory;
     }
 
-    private static void CopyDirectoryContents(string sourceDirectory, string destinationDirectory)
+    private static void CopyDirectoryContents(string sourceDirectory, string destinationDirectory, bool skipBakFiles)
     {
         foreach (string file in Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories))
         {
-            // Never carry an AtomicFile ".bak" sibling into a merged result — it would compound
-            // by one file on every future export/import round trip, and it perturbs the content
-            // hash Snapshot() dedupes against.
-            if (file.EndsWith(".bak", StringComparison.OrdinalIgnoreCase)) continue;
+            if (skipBakFiles && file.EndsWith(".bak", StringComparison.OrdinalIgnoreCase)) continue;
 
             string relative = Path.GetRelativePath(sourceDirectory, file);
             string destination = Path.Combine(destinationDirectory, relative);
@@ -427,14 +494,17 @@ public sealed class BackupService
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
             {
-                RollBack(journal);
-                throw new ImportCommitException(step.Category, ex);
+                bool rollbackSucceeded = RollBack(journal);
+                throw new ImportCommitException(step.Category, ex, rollbackSucceeded);
             }
         }
     }
 
-    private static void RollBack(List<(string LivePath, string UndoPath, bool IsDirectory, bool HadOriginal)> journal)
+    /// <summary>Undoes every journaled step, in reverse. Returns false if any step could not be fully restored.</summary>
+    private static bool RollBack(List<(string LivePath, string UndoPath, bool IsDirectory, bool HadOriginal)> journal)
     {
+        bool allSucceeded = true;
+
         for (int i = journal.Count - 1; i >= 0; i--)
         {
             var (livePath, undoPath, isDirectory, hadOriginal) = journal[i];
@@ -453,9 +523,12 @@ public sealed class BackupService
             }
             catch (Exception ex)
             {
-                AppLogger.Log($"[backup] rollback could not restore '{livePath}': {ex.Message}");
+                allSucceeded = false;
+                AppLogger.Log($"[backup] rollback could not restore '{livePath}' from '{undoPath}': {ex.Message}");
             }
         }
+
+        return allSucceeded;
     }
 
     /// <summary>
@@ -540,8 +613,10 @@ public sealed class BackupService
         var merged = new JsonArray();
         foreach (string id in order) merged.Add(byId[id]);
 
-        existing.Remove(key);
-        existing.Add(key, merged);
+        // key is the real key text FindKeyOrDefault located (or "Profiles" for a brand-new
+        // document), so a plain indexer assignment both updates and preserves the property's
+        // original position — unlike Remove-then-Add, which would move it to the end.
+        existing[key] = merged;
 
         WriteJson(finalPath, existing);
         return finalPath;

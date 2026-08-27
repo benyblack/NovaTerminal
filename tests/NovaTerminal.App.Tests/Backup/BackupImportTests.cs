@@ -38,6 +38,28 @@ public sealed class BackupImportTests
         Assert.False(merged.RootElement.GetProperty("CursorBlink").GetBoolean());
     }
 
+    /// <summary>
+    /// I4: malformed LOCAL content must not abort the import — it is treated as absent so the
+    /// bundle wins wholesale, exactly as if the file did not exist. (Malformed BUNDLE content is
+    /// the opposite case — see Import_RejectsBundleWithZipSlipEntry_AsTypedFailureNotThrow for a
+    /// bundle-side corruption — and correctly aborts instead.)
+    /// </summary>
+    [Fact]
+    public void Merge_Settings_CorruptLocalJson_BundleWinsWholesale()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        source.WriteFile("settings.json", """{"FontSize":42}""");
+        using var target = BackupTestTree.CreatePopulated();
+        target.WriteFile("settings.json", "{not json");
+        string bundle = ExportFrom(source);
+
+        var outcome = new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Merge);
+
+        Assert.True(outcome.Success, outcome.Message);
+        using var settings = target.ReadJson("settings.json");
+        Assert.Equal(42, settings.RootElement.GetProperty("FontSize").GetInt32());
+    }
+
     [Fact]
     public void Replace_Settings_DropsLocalOnlyKeys()
     {
@@ -79,6 +101,27 @@ public sealed class BackupImportTests
         new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
 
         Assert.False(target.Exists(Path.Combine("themes", "local-only.json")));
+        Assert.True(target.Exists(Path.Combine("themes", "solarized.json")));
+    }
+
+    /// <summary>
+    /// N4: a Merge must keep the user's own local-only ".bak" sibling like any other local-only
+    /// file. Skipping ".bak" is only meant to stop the bundle from propagating one forward — it
+    /// must not be applied to the live side too, or the whole point of "local-only survives" is
+    /// defeated for exactly the files AtomicFile itself creates.
+    /// </summary>
+    [Fact]
+    public void Merge_Themes_KeepsLocalOnlyBakFile()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        using var target = BackupTestTree.CreatePopulated();
+        target.WriteFile(Path.Combine("themes", "mytheme.json.bak"), """{"name":"Backup"}""");
+        string bundle = ExportFrom(source);
+
+        var outcome = new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Merge);
+
+        Assert.True(outcome.Success, outcome.Message);
+        Assert.True(target.Exists(Path.Combine("themes", "mytheme.json.bak")));
         Assert.True(target.Exists(Path.Combine("themes", "solarized.json")));
     }
 
@@ -395,6 +438,30 @@ public sealed class BackupImportTests
         Assert.Contains(service.ListSnapshots(), s => s.Reason == SnapshotReason.PreImport);
     }
 
+    /// <summary>
+    /// N1: pins the invariant that makes a cross-volume import failure structurally impossible.
+    /// The scratch staging tree must be a descendant of RootDirectory, never of
+    /// Path.GetTempPath() — Phase 2's commit moves directories with Directory.Move, which is a
+    /// bare rename and throws IOException across a volume boundary on both Windows and Unix
+    /// (unlike File.Move, which falls back to copy+delete). TEMP commonly sits on a different
+    /// drive from an app-data root on Windows, so staging there made every directory-category
+    /// import fail outright on an ordinary machine — and no test whose whole tree lives under
+    /// one temp root already (as BackupTestTree's does) can see that regression by exercising
+    /// Import's outward behavior alone, hence pinning the structural property directly.
+    /// </summary>
+    [Fact]
+    public void ImportStagingRoot_ResolvesUnderRootDirectory_NotUnderTempDirectory()
+    {
+        using var target = BackupTestTree.CreatePopulated();
+        var service = new BackupService(target.Root, Clock());
+
+        string staging = service.ResolveImportStagingRoot();
+
+        string relative = Path.GetRelativePath(target.Root, staging);
+        Assert.False(relative.StartsWith("..", StringComparison.Ordinal), $"staging '{staging}' escaped RootDirectory '{target.Root}'");
+        Assert.False(Path.IsPathRooted(relative), $"staging '{staging}' escaped RootDirectory '{target.Root}'");
+    }
+
     [Fact]
     public void Import_RejectsCorruptBundleWithoutTouchingDisk()
     {
@@ -429,6 +496,32 @@ public sealed class BackupImportTests
         Assert.Equal(original, target.ReadFile("settings.json"));
         // Validation happens before anything is touched, so no snapshot was needed.
         Assert.Empty(service.ListSnapshots());
+    }
+
+    /// <summary>
+    /// N2: BundleReader.ExtractTo throws InvalidDataException from its own zip-slip guard (and
+    /// would from a corrupt per-entry deflate stream too), but Inspect only reads the manifest
+    /// and central directory, so it cannot catch this. Extraction happens inside ImportCore, so
+    /// this must come back as a typed CorruptArchive failure, not an exception escaping Import —
+    /// these methods have a return-typed-outcome contract, not a throwing one. Reuses the same
+    /// zip-slip entry shape BundleReader's own tests use, wrapped in a bundle whose manifest is
+    /// otherwise entirely valid, so Inspect's manifest/count checks pass and extraction is what
+    /// actually fails.
+    /// </summary>
+    [Fact]
+    public void Import_RejectsBundleWithZipSlipEntry_AsTypedFailureNotThrow()
+    {
+        using var target = BackupTestTree.CreatePopulated();
+        string original = target.ReadFile("settings.json");
+        string bundle = Path.Combine(target.Root, "zip-slip.novabackup");
+        WriteZipSlipBundle(bundle);
+
+        var service = new BackupService(target.Root, Clock());
+        var outcome = service.Import(bundle, ImportMode.Replace);
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.CorruptArchive, outcome.Failure);
+        Assert.Equal(original, target.ReadFile("settings.json"));
     }
 
     /// <summary>
@@ -677,5 +770,30 @@ public sealed class BackupImportTests
         using var writer = new StreamWriter(entry.Open());
         writer.Write(
             $$"""{"schemaVersion":{{BackupManifest.CurrentSchemaVersion + 1}},"appVersion":"9.9.9","createdUtc":"2030-01-01T00:00:00+00:00","machine":"F","categories":["settings"]}""");
+    }
+
+    /// <summary>
+    /// A manifest that is otherwise entirely valid (current schema, "themes" declared and
+    /// backed by a real entry count) paired with a raw zip entry name that climbs out of the
+    /// destination on extraction — the same shape BundleReader's own zip-slip tests use. The raw
+    /// entry name literally starts with "themes/", so it also satisfies Inspect's per-category
+    /// item-count check; the escape is only caught later, during ExtractTo.
+    /// </summary>
+    private static void WriteZipSlipBundle(string path)
+    {
+        using var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create);
+
+        var manifestEntry = zip.CreateEntry("manifest.json");
+        using (var writer = new StreamWriter(manifestEntry.Open()))
+        {
+            writer.Write(
+                $$"""{"schemaVersion":{{BackupManifest.CurrentSchemaVersion}},"appVersion":"1.0.0","createdUtc":"2026-08-27T00:00:00+00:00","machine":"X","categories":["themes"]}""");
+        }
+
+        var escapingEntry = zip.CreateEntry("themes/../../evil.txt");
+        using (var stream = escapingEntry.Open())
+        {
+            stream.Write(System.Text.Encoding.UTF8.GetBytes("payload"));
+        }
     }
 }
