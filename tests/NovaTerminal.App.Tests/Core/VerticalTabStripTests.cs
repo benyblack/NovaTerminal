@@ -179,4 +179,30 @@ public sealed class VerticalTabStripTests
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(Avalonia.Media.Brushes.Transparent, dot.Fill);
     }
+
+    // The grip control is a permanent part of the single inline template (Task 6) - it is
+    // never re-templated in/out. What differs by mode is IsVisible, toggled by
+    // UpdateTabHeaderViewport. So: horizontal keeps the grip present but hidden; vertical
+    // (after a layout pass) makes it visible.
+    [AvaloniaFact]
+    public void VerticalMode_ShowsResizeGrip_HorizontalHidesIt()
+    {
+        var window = CreateShownWindow(); // default settings = horizontal
+        var gripHorizontal = FindResizeGrip(window);
+        Assert.NotNull(gripHorizontal);
+        Assert.False(gripHorizontal!.IsVisible);
+
+        GetSettings(window).TabStripOrientation = "Vertical";
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        var gripVertical = FindResizeGrip(window);
+        Assert.NotNull(gripVertical);
+        Assert.True(gripVertical!.IsVisible);
+    }
+
+    private static Border? FindResizeGrip(NovaTerminal.MainWindow window)
+        => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window)
+            .OfType<Border>()
+            .FirstOrDefault(b => b.Name == "PART_TabStripResizeGrip");
 }

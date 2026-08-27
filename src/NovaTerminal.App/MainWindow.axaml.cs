@@ -873,7 +873,58 @@ namespace NovaTerminal
 
             // Sizing/part reconfiguration needs a layout pass to have measured the template
             // parts, so defer - same pattern as RebuildTitleBar.
-            Dispatcher.UIThread.Post(() => UpdateTabVisuals(), DispatcherPriority.Background);
+            Dispatcher.UIThread.Post(() =>
+            {
+                WireTabStripResizeGrip();
+                UpdateTabVisuals();
+            }, DispatcherPriority.Background);
+        }
+
+        /// <summary>
+        /// Wires the sidebar's resize grip (PART_TabStripResizeGrip). The grip is a permanent
+        /// part of the single inline template (see ApplyTabLayout's remarks) - it is never
+        /// re-templated in/out, only shown/hidden via IsVisible. So wiring happens once per
+        /// window instance (guarded by a "wired" Tag) and survives every mode flip; a hidden
+        /// grip in horizontal mode is not hit-tested, so the handlers are inert there. Width is
+        /// only persisted to settings on pointer release, not on every PointerMoved.
+        /// </summary>
+        private void WireTabStripResizeGrip()
+        {
+            if (!_isVerticalTabStrip) return;
+
+            var grip = this.GetVisualDescendants().OfType<Border>()
+                .FirstOrDefault(b => b.Name == "PART_TabStripResizeGrip");
+            var scrollViewer = FindTabHeaderScrollViewer();
+            if (grip == null || scrollViewer == null || Equals(grip.Tag, "wired")) return;
+            grip.Tag = "wired";
+
+            double startWidth = 0;
+            double startX = 0;
+
+            grip.PointerPressed += (_, e) =>
+            {
+                startWidth = scrollViewer.Bounds.Width;
+                startX = e.GetPosition(this).X;
+                e.Pointer.Capture(grip);
+                e.Handled = true;
+            };
+
+            grip.PointerMoved += (_, e) =>
+            {
+                if (!ReferenceEquals(e.Pointer.Captured, grip)) return;
+                scrollViewer.Width = TabStripLayout.ComputeDraggedWidth(startWidth, startX, e.GetPosition(this).X);
+            };
+
+            grip.PointerReleased += (_, e) =>
+            {
+                if (!ReferenceEquals(e.Pointer.Captured, grip)) return;
+                e.Pointer.Capture(null);
+                if (double.IsFinite(scrollViewer.Width))
+                {
+                    _settings.VerticalTabStripWidth = scrollViewer.Width;
+                    _settings.Save();
+                }
+            };
         }
 
         /// <summary>
