@@ -67,8 +67,32 @@ public sealed class BundleRoundTripTests
         Assert.True(outcome.Success, outcome.Message);
         Assert.NotNull(outcome.Inspection);
         Assert.Equal(BackupManifest.CurrentSchemaVersion, outcome.Inspection!.Manifest.SchemaVersion);
+        Assert.Equal("1.0.0-test", outcome.Inspection.Manifest.AppVersion);
+        Assert.Equal(new DateTimeOffset(2026, 8, 27, 9, 14, 0, TimeSpan.Zero), outcome.Inspection.Manifest.CreatedUtc);
+        Assert.Equal("TEST", outcome.Inspection.Manifest.Machine);
+        Assert.Equal(
+            BackupCatalog.AllCategories.Select(c => c.ToString().ToLowerInvariant()),
+            outcome.Inspection.Manifest.Categories);
         Assert.Equal(1, outcome.Inspection.ItemCounts[BackupCategory.Themes]);
         Assert.Equal(2, outcome.Inspection.ItemCounts[BackupCategory.Connections]);
+    }
+
+    [Fact]
+    public void Open_WithCategorySubset_SucceedsAndCountsOnlyWrittenCategories()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        string bundle = Path.Combine(tree.Root, "themes-only.novabackup");
+        var manifest = NewManifest() with { Categories = new[] { "themes" } };
+
+        BundleWriter.Write(tree.Root, bundle, new[] { BackupCategory.Themes }, manifest);
+
+        var outcome = BundleReader.Open(bundle);
+
+        Assert.True(outcome.Success, outcome.Message);
+        Assert.NotNull(outcome.Inspection);
+        Assert.Equal(new[] { "themes" }, outcome.Inspection!.Manifest.Categories);
+        Assert.Equal(1, outcome.Inspection.ItemCounts[BackupCategory.Themes]);
+        Assert.Equal(0, outcome.Inspection.ItemCounts[BackupCategory.Connections]);
     }
 
     [Fact]
@@ -88,6 +112,48 @@ public sealed class BundleRoundTripTests
         Assert.Equal(
             source.ReadFile(Path.Combine("ssh", "profiles.json")),
             target.ReadFile(Path.Combine("ssh", "profiles.json")));
+    }
+
+    [Fact]
+    public void ExtractTo_RejectsEntryThatEscapesUpward()
+    {
+        using var stage = BackupTestTree.CreateEmpty();
+        string bundle = Path.Combine(stage.Root, "malicious.novabackup");
+        WriteBundleWithRawEntry(bundle, "themes/../../evil.txt", "payload");
+
+        string destinationRoot = Path.Combine(stage.Root, "dest");
+        Directory.CreateDirectory(destinationRoot);
+
+        Assert.Throws<InvalidDataException>(() =>
+            BundleReader.ExtractTo(bundle, destinationRoot, new[] { BackupCategory.Themes }));
+
+        // Two "../" from destinationRoot/themes lands in stage.Root — assert nothing was written there.
+        string escapedFile = Path.Combine(stage.Root, "evil.txt");
+        Assert.False(File.Exists(escapedFile));
+    }
+
+    [Fact]
+    public void ExtractTo_RejectsSamePrefixSiblingEscape()
+    {
+        // Regression test for the bare-StartsWith zip-slip bypass: a destination whose full path
+        // begins with the same characters as the root, but is actually an unrelated sibling
+        // directory, must still be rejected.
+        using var stage = BackupTestTree.CreateEmpty();
+        string parent = Path.Combine(stage.Root, "parent");
+        Directory.CreateDirectory(parent);
+        string destinationRoot = Path.Combine(parent, "root");
+        Directory.CreateDirectory(destinationRoot);
+
+        string bundle = Path.Combine(stage.Root, "malicious-sibling.novabackup");
+        // "rootEvil" starts with "root" as a string — this is exactly what
+        // fullDestination.StartsWith(fullRoot) let through before the fix.
+        WriteBundleWithRawEntry(bundle, "themes/../../rootEvil/evil.txt", "payload");
+
+        Assert.Throws<InvalidDataException>(() =>
+            BundleReader.ExtractTo(bundle, destinationRoot, new[] { BackupCategory.Themes }));
+
+        string escapedFile = Path.Combine(parent, "rootEvil", "evil.txt");
+        Assert.False(File.Exists(escapedFile));
     }
 
     [Fact]
@@ -209,5 +275,17 @@ public sealed class BundleRoundTripTests
         var entry = zip.CreateEntry("manifest.json");
         using var stream = entry.Open();
         stream.Write(Encoding.UTF8.GetBytes(manifestJson));
+    }
+
+    /// <summary>
+    /// Builds a zip with a single hand-crafted entry name and no manifest — for exercising
+    /// <see cref="BundleReader.ExtractTo"/> directly against a malicious archive.
+    /// </summary>
+    private static void WriteBundleWithRawEntry(string path, string entryName, string contents)
+    {
+        using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
+        var entry = zip.CreateEntry(entryName);
+        using var stream = entry.Open();
+        stream.Write(Encoding.UTF8.GetBytes(contents));
     }
 }

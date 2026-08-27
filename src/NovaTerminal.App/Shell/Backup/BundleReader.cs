@@ -114,9 +114,19 @@ public static class BundleReader
                     : Path.Combine(destinationRoot, catalogEntry.SourceRelativePath);
 
                 // Zip-slip guard: a hand-edited archive must not write outside the destination.
+                // A bare StartsWith on the full paths is bypassable — "D:\tmp\xevil" starts with
+                // "D:\tmp\x" as a string even though it is a sibling, not a descendant. Comparing
+                // the relative path's shape (does it climb out with "..", or land on another
+                // root entirely) is immune to that. Path.GetRelativePath already resolves ".."
+                // segments and already picks the platform-appropriate comparer (case-insensitive
+                // on Windows, case-sensitive elsewhere) — the same rule BackupCatalog.IsSameOrUnder
+                // follows for the same reason.
                 string fullDestination = Path.GetFullPath(destination);
                 string fullRoot = Path.GetFullPath(destinationRoot);
-                if (!fullDestination.StartsWith(fullRoot, StringComparison.Ordinal))
+                string relativeToRoot = Path.GetRelativePath(fullRoot, fullDestination);
+                if (relativeToRoot == ".."
+                    || relativeToRoot.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                    || Path.IsPathRooted(relativeToRoot))
                 {
                     throw new InvalidDataException($"Bundle entry '{zipEntry.FullName}' escapes the destination tree.");
                 }
@@ -140,8 +150,7 @@ public static class BundleReader
         string prefix = catalogEntry.BundlePath + "/";
         foreach (var entry in zip.Entries)
         {
-            if (entry.FullName.StartsWith(prefix, StringComparison.Ordinal) && entry.Length >= 0
-                && !entry.FullName.EndsWith('/'))
+            if (entry.FullName.StartsWith(prefix, StringComparison.Ordinal) && !entry.FullName.EndsWith('/'))
             {
                 yield return entry;
             }
