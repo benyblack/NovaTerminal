@@ -67,6 +67,14 @@ namespace NovaTerminal
         private readonly Dictionary<TabItem, PaneLayoutModel> _layoutModelByTab = new();
         private readonly List<TabItem> _tabMru = new();
         private bool _windowIconLoaded;
+
+        // The window half of the agent attention machines' focus signal; see
+        // PushAgentWindowVisibility. Two fields because the two inputs arrive
+        // from different places (Activated/Deactivated vs. the WindowState
+        // property) and neither can be read reliably from inside the other's
+        // notification: Avalonia raises Activated *before* it sets IsActive.
+        private bool _agentWindowActivated;
+        private bool _agentWindowVisible;
         private readonly Dictionary<TabItem, TabRuntimeState> _tabStateByTab = new();
         private readonly HashSet<TabItem> _pendingVisualRefreshTabs = new();
         private bool _suppressMruTouchOnSelection;
@@ -2093,7 +2101,9 @@ namespace NovaTerminal
             AgentHost.AgentSessionRegistry.Instance.SessionUnregistered += OnAgentSessionUnregisteredForAttention;
             foreach (var registration in AgentHost.AgentSessionRegistry.Instance.GetRegistrations())
             {
-                registration.AttentionMachine.Changed += OnAgentAttentionChangedForTabs;
+                // Same wiring the lifecycle event applies, so a session that
+                // beat the subscription also gets the window-visibility seed.
+                OnAgentSessionRegisteredForAttention(registration);
             }
 
             // Ensure visual tree is ready for initial tab border
@@ -2117,6 +2127,13 @@ namespace NovaTerminal
                 }, DispatcherPriority.Input);
             };
             this.Activated += (s, e) => FocusCurrentTerminal(defer: true);
+            // Window activation feeds the agent attention machines' focus
+            // signal (see PushAgentWindowVisibility). Deliberately separate
+            // subscriptions rather than folded into the focus handler above:
+            // this half must also run on Deactivated, which has no terminal to
+            // focus.
+            this.Activated += (_, _) => SetAgentWindowActivated(true);
+            this.Deactivated += (_, _) => SetAgentWindowActivated(false);
             this.SizeChanged += (_, __) => Dispatcher.UIThread.Post(UpdateTabHeaderViewport, DispatcherPriority.Background);
             _recordingToastTimer.Tick += (_, __) =>
             {
@@ -3974,8 +3991,85 @@ namespace NovaTerminal
             RefreshTabAgentAttention();
         }
 
+        /// <summary>
+        /// Pushes "the user can actually see this window" to every live
+        /// registration, which ANDs it with the pane's own selected-ness to
+        /// produce the attention machines' focus signal.
+        ///
+        /// Focus is what retires the sticky "agent typed" mark, and it is
+        /// supposed to mean "the user has plausibly seen it". IsActivePane
+        /// alone does not: it means "selected inside the app" and stays true
+        /// while NovaTerminal is minimized or behind another application. An
+        /// agent typing into that pane would then have its mark retired by the
+        /// periodic tick <see cref="AgentHost.AgentAttentionMachine.WriteFloorSeconds"/>
+        /// later, with nobody looking — the one signal built to survive until
+        /// seen, disappearing in exactly the scenario it exists for.
+        ///
+        /// This has to be a push of its own rather than a term inside
+        /// <c>UpdateSnapshot</c>: that runs on pane-level changes (title,
+        /// profile, selection), and a window losing focus is not one, so
+        /// nothing would ever re-evaluate the AND. Only the *window* half is
+        /// re-pushed here; each registration keeps its own pane half, so this
+        /// does not have to know or recompute which pane is selected where.
+        ///
+        /// Deduplicated twice — once here on the composed value, once in
+        /// <see cref="AgentHost.AgentSessionRegistration.NoteWindowVisibilityChanged"/>
+        /// — so the WindowState property notification (which fires for
+        /// unrelated reasons) cannot turn into a push storm.
+        /// </summary>
+        private void PushAgentWindowVisibility()
+        {
+            bool visible = _agentWindowActivated && this.WindowState != WindowState.Minimized;
+            if (visible == _agentWindowVisible) return;
+            _agentWindowVisible = visible;
+
+            foreach (var registration in AgentHost.AgentSessionRegistry.Instance.GetRegistrations())
+            {
+                registration.NoteWindowVisibilityChanged(visible);
+            }
+        }
+
+        /// <summary>
+        /// Records window activation and re-pushes. Separate from
+        /// <see cref="PushAgentWindowVisibility"/> because Avalonia raises
+        /// <c>Activated</c> before it assigns <c>IsActive</c>, so the handler
+        /// cannot recompute activation from the property.
+        /// </summary>
+        private void SetAgentWindowActivated(bool activated)
+        {
+            _agentWindowActivated = activated;
+            PushAgentWindowVisibility();
+        }
+
+        /// <summary>
+        /// Minimizing is the other way the window stops being visible while the
+        /// selected pane stays selected. On Windows it usually deactivates too,
+        /// but that is a platform courtesy, not a guarantee, so the state is
+        /// watched directly.
+        /// </summary>
+        protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+        {
+            base.OnPropertyChanged(change);
+            if (change.Property == WindowStateProperty)
+            {
+                PushAgentWindowVisibility();
+            }
+        }
+
+        /// <summary>Test seam for the window-visibility push, which no headless test can raise for real.</summary>
+        internal void SetAgentWindowActivatedForTesting(bool activated) => SetAgentWindowActivated(activated);
+
         private void OnAgentSessionRegisteredForAttention(AgentHost.AgentSessionRegistration registration)
-            => registration.AttentionMachine.Changed += OnAgentAttentionChangedForTabs;
+        {
+            registration.AttentionMachine.Changed += OnAgentAttentionChangedForTabs;
+
+            // A pane can be born while the window is not front — session
+            // restore runs before the window is activated, and a split can be
+            // made by an agent while the user is in another app. Seed the
+            // window half now so the registration's optimistic default never
+            // survives into a live window.
+            registration.NoteWindowVisibilityChanged(_agentWindowVisible);
+        }
 
         private void OnAgentSessionUnregisteredForAttention(AgentHost.AgentSessionRegistration registration)
         {

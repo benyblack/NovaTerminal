@@ -50,6 +50,16 @@ namespace NovaTerminal.AgentHost
         private Guid? _profileId;
         private bool _isAgentActable;
 
+        // The window half of "the user can see this pane". Focus pushed to the
+        // attention machine is the AND of this and _isActive: being the
+        // selected pane only means "selected inside the app", which stays true
+        // while the app is alt-tabbed away or minimized. Optimistic default so
+        // a registration nobody tells about the window (every test that builds
+        // one directly) behaves as it did before; MainWindow pushes the real
+        // value the moment the registration reaches the registry, so the
+        // default never survives into a running app.
+        private bool _isWindowVisible = true;
+
         public AgentSessionRegistration(
             Guid paneId,
             TerminalBuffer buffer,
@@ -487,6 +497,7 @@ namespace NovaTerminal.AgentHost
         /// <summary>Atomically replaces the pane-owned metadata. Called on the UI thread by the pane.</summary>
         public void UpdateSnapshot(string title, string profileName, string kind, bool isActive, Guid? profileId = null)
         {
+            bool effectiveFocus;
             lock (_gate)
             {
                 _title = title;
@@ -494,11 +505,43 @@ namespace NovaTerminal.AgentHost
                 _kind = kind;
                 _isActive = isActive;
                 _profileId = profileId;
+                effectiveFocus = isActive && _isWindowVisible;
             }
 
-            // Focus feeds the write-acknowledgement rule. Pushed after the gate
-            // is released: the machine locks internally and raises Changed.
-            AttentionMachine.NoteFocusChanged(isActive);
+            // Focus feeds the write-acknowledgement rule, and it means "the
+            // user is plausibly looking at this pane" — being the selected pane
+            // of a window that is minimized or behind another application does
+            // not qualify. Pushed after the gate is released: the machine locks
+            // internally and raises Changed.
+            AttentionMachine.NoteFocusChanged(effectiveFocus);
+        }
+
+        /// <summary>
+        /// The owning window became front-and-visible, or stopped being so
+        /// (deactivated, minimized). Pushed by MainWindow from the UI thread.
+        ///
+        /// This exists because <see cref="UpdateSnapshot"/> is driven by
+        /// pane-level changes only, and a window losing focus is not one: with
+        /// focus meaning nothing but <c>IsActivePane</c>, an agent write into
+        /// the selected pane of an alt-tabbed-away app would be retired by the
+        /// periodic tick ten seconds later, with the user never having seen the
+        /// one mark in this feature that is designed to survive until seen.
+        ///
+        /// Like <see cref="UpdateSnapshot"/>, the machine is signalled outside
+        /// <see cref="_gate"/>: it locks internally and raises Changed to
+        /// subscribers who may call back into this registration.
+        /// </summary>
+        public void NoteWindowVisibilityChanged(bool isWindowVisible)
+        {
+            bool effectiveFocus;
+            lock (_gate)
+            {
+                if (_isWindowVisible == isWindowVisible) return;
+                _isWindowVisible = isWindowVisible;
+                effectiveFocus = _isActive && isWindowVisible;
+            }
+
+            AttentionMachine.NoteFocusChanged(effectiveFocus);
         }
     }
 }
