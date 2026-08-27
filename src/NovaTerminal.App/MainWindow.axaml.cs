@@ -80,6 +80,7 @@ namespace NovaTerminal
         private readonly HashSet<TabItem> _pendingVisualRefreshTabs = new();
         private bool _suppressMruTouchOnSelection;
         private bool _tabVisualRefreshScheduled;
+        private DispatcherTimer? _tabStatusTimer;
         private TerminalSettings _settings;
         private GlobalHotkey? _globalHotkey;
         // Ids of stateful title bar toggles that are currently ON. An overflowed toggle in this set
@@ -373,6 +374,29 @@ namespace NovaTerminal
 
             _tabStateByTab[tab] = state;
             return state;
+        }
+
+        internal TabStatusTracker GetTabStatusTracker(TabItem tab) => GetOrCreateTabState(tab).Status;
+
+        /// <summary>Timer-driven decay pass: re-evaluates every tab's heuristic status and queues a
+        /// visual refresh only for tabs whose rendered status changed. Vertical mode only.</summary>
+        internal void RefreshTabStatuses()
+        {
+            if (!_isVerticalTabStrip) return;
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            var now = DateTime.UtcNow;
+            foreach (TabItem tab in tabs.Items.Cast<TabItem>())
+            {
+                var state = GetOrCreateTabState(tab);
+                var status = state.Status.Evaluate(now, isSelected: tab.IsSelected);
+                if (status != state.RenderedStatus)
+                {
+                    state.RenderedStatus = status;
+                    QueueTabVisualRefresh(tab);
+                }
+            }
         }
 
         internal string? GetTabUserTitle(TabItem tab)
@@ -834,6 +858,17 @@ namespace NovaTerminal
             foreach (var tab in tabs.Items.Cast<TabItem>())
             {
                 ConfigureTabHeader(tab, GetTabHeaderText(tab));
+            }
+
+            if (vertical && _tabStatusTimer == null)
+            {
+                _tabStatusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+                _tabStatusTimer.Tick += (_, _) => RefreshTabStatuses();
+            }
+
+            if (_tabStatusTimer != null)
+            {
+                _tabStatusTimer.IsEnabled = vertical;
             }
 
             // Sizing/part reconfiguration needs a layout pass to have measured the template
@@ -2498,6 +2533,7 @@ namespace NovaTerminal
                         }
                         GetOrCreateTabState(ti);
                         ClearTabAttention(ti);
+                        GetOrCreateTabState(ti).Status.NoteSelected();
                         var pane = ResolvePaneForTab(ti);
                         if (pane != null)
                         {
@@ -3159,6 +3195,8 @@ namespace NovaTerminal
             var tab = ResolveOwningTabForPane(pane);
             if (tab == null) return;
 
+            GetOrCreateTabState(tab).Status.NoteOutput(DateTime.UtcNow);
+
             if (TryGetSelectedTab(out var selectedTabForStartup) && selectedTabForStartup == tab && ResolvePaneForTab(selectedTabForStartup) == pane)
             {
                 _startup.Mark(StartupPhase.FirstTerminalReady);
@@ -3195,6 +3233,7 @@ namespace NovaTerminal
 
                 state.LastBellUtc = now;
                 state.HasBell = true;
+                state.Status.NoteBell();
                 QueueTabVisualRefresh(tab);
             }
         }

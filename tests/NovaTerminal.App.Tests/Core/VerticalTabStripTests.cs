@@ -148,4 +148,35 @@ public sealed class VerticalTabStripTests
         var tab = tabs.Items.Cast<TabItem>().First();
         Assert.Null(NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine"));
     }
+
+    [AvaloniaFact]
+    public void RefreshTabStatuses_WorkingTracker_PaintsThemeDot_AndIdleClearsIt()
+    {
+        var window = CreateShownWindow();
+        GetSettings(window).TabStripOrientation = "Vertical";
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        // Use an UNSELECTED tab: selection clears attention and this test must control state exactly.
+        var tab = new TabItem { Content = new Border() };
+        tabs.Items.Add(tab);
+        window.ApplyTabLayout(); // rebuild headers so the new tab gets a vertical row
+        Dispatcher.UIThread.RunJobs();
+
+        window.GetTabStatusTracker(tab).NoteOutput(DateTime.UtcNow);
+        window.RefreshTabStatuses();
+        Dispatcher.UIThread.RunJobs();
+
+        var dot = NovaTerminal.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot");
+        Assert.NotNull(dot);
+        Assert.NotEqual(Avalonia.Media.Brushes.Transparent, dot!.Fill);
+
+        // 2s later with no output the burst is over (too short for Attention) → dot clears.
+        window.GetTabStatusTracker(tab).NoteSelected(); // belt-and-braces: no stale attention
+        System.Threading.Thread.Sleep(2100);
+        window.RefreshTabStatuses();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(Avalonia.Media.Brushes.Transparent, dot.Fill);
+    }
 }
