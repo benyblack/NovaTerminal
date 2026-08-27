@@ -69,5 +69,50 @@ namespace NovaTerminal.Platform.Tests.Export
             Assert.Contains("\x1b[31mA", ansi);
             Assert.Contains("\x1b[38;2;255;0;0mB", ansi);
         }
+
+        [Fact]
+        public void GetLastNonEmptyRowText_ReturnsBottomMostNonEmptyRow()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            WriteRow(buffer, 0, "alpha");
+            WriteRow(buffer, 1, "beta");
+
+            string text = TerminalExporter.GetLastNonEmptyRowText(buffer);
+
+            Assert.Equal("beta", text);
+        }
+
+        [Fact]
+        public void GetLastNonEmptyRowText_EmptyScreen_ReturnsEmptyString()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+
+            string text = TerminalExporter.GetLastNonEmptyRowText(buffer);
+
+            Assert.Equal(string.Empty, text);
+        }
+
+        [Fact]
+        public void GetLastNonEmptyRowText_TrimsTrailingWhitespace()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            WriteRow(buffer, 0, "hello   ");
+
+            string text = TerminalExporter.GetLastNonEmptyRowText(buffer);
+
+            Assert.Equal("hello", text);
+        }
+
+        // Writes each character of `text` directly into row `row`'s cells, starting at column 0 —
+        // mirrors the direct ViewportRows[].Cells[] construction used above for precise per-cell
+        // control (buffer.WriteContent doesn't interpret \r/\n as cursor motion, so it can't be
+        // used to populate distinct rows).
+        private static void WriteRow(TerminalBuffer buffer, int row, string text)
+        {
+            for (int c = 0; c < text.Length; c++)
+            {
+                buffer.ViewportRows[row].Cells[c] = new TerminalCell(text[c], 0, 0, (ushort)(TerminalCellFlags.DefaultForeground | TerminalCellFlags.DefaultBackground));
+            }
+        }
     }
 }

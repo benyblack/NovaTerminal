@@ -47,6 +47,49 @@ namespace NovaTerminal.VT.Export
             }
         }
 
+        /// <summary>
+        /// Bottom-most viewport row that has any visible text, trimmed of trailing whitespace —
+        /// used as the tab sidebar's one-line output preview. Acquires the buffer read lock
+        /// itself; callers must NOT already hold it (<see cref="TerminalBuffer.Lock"/> is a
+        /// <see cref="System.Threading.ReaderWriterLockSlim"/> with <see cref="System.Threading.LockRecursionPolicy.NoRecursion"/>,
+        /// so re-entering it throws).
+        /// </summary>
+        public static string GetLastNonEmptyRowText(TerminalBuffer buffer)
+        {
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                for (int r = buffer.Rows - 1; r >= 0; r--)
+                {
+                    int lastNonEmpty = -1;
+                    var rowSb = new StringBuilder();
+                    for (int c = 0; c < buffer.Cols; c++)
+                    {
+                        var cell = buffer.GetCell(c, r);
+                        if (cell.IsWideContinuation) continue;
+
+                        string text = buffer.GetGrapheme(c, r);
+                        rowSb.Append(text);
+                        if (!string.IsNullOrWhiteSpace(text) && text != "\0")
+                        {
+                            lastNonEmpty = rowSb.Length;
+                        }
+                    }
+
+                    if (lastNonEmpty >= 0)
+                    {
+                        return rowSb.ToString().Substring(0, lastNonEmpty);
+                    }
+                }
+
+                return string.Empty;
+            }
+            finally
+            {
+                buffer.Lock.ExitReadLock();
+            }
+        }
+
         public static string ExportToAnsi(TerminalBuffer buffer)
         {
             buffer.Lock.EnterReadLock();
