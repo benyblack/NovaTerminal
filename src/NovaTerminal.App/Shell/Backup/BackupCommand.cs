@@ -41,7 +41,7 @@ public static class BackupCommand
             return 2;
         }
 
-        var service = new BackupService(rootOverride ?? AppPaths.RootDirectory);
+        var service = new BackupService(rootOverride ?? AppPaths.RootDirectory, log: AppLogger.Log);
 
         return args[1].ToLowerInvariant() switch
         {

@@ -24,12 +24,14 @@ public sealed class BackupService
     public const string BundleExtension = ".novabackup";
 
     private readonly TimeProvider _timeProvider;
+    private readonly Action<string> _log;
 
-    public BackupService(string rootDirectory, TimeProvider? timeProvider = null)
+    public BackupService(string rootDirectory, TimeProvider? timeProvider = null, Action<string>? log = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
         RootDirectory = Path.GetFullPath(rootDirectory);
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _log = log ?? (static _ => { });
     }
 
     public string RootDirectory { get; }
@@ -153,7 +155,7 @@ public sealed class BackupService
         finally
         {
             try { if (File.Exists(tempBundle)) File.Delete(tempBundle); }
-            catch (Exception ex) { AppLogger.Log($"[backup] could not clean up restore staging copy: {ex.Message}"); }
+            catch (Exception ex) { _log($"[backup] could not clean up restore staging copy: {ex.Message}"); }
         }
     }
 
@@ -263,14 +265,14 @@ public sealed class BackupService
 
             try
             {
-                CommitWithUndo(plan, undo);
+                CommitWithUndo(plan, undo, _log);
             }
             catch (ImportCommitException ex)
             {
                 if (!ex.RollbackSucceeded)
                 {
                     preserveStagingForManualRecovery = true;
-                    AppLogger.Log(
+                    _log(
                         $"[backup] rollback for category '{ex.Category}' did not fully succeed; " +
                         $"preserving staging directory '{staging}' for manual recovery.");
 
@@ -304,7 +306,7 @@ public sealed class BackupService
             if (!preserveStagingForManualRecovery)
             {
                 try { if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true); }
-                catch (Exception ex) { AppLogger.Log($"[backup] could not clean up import staging directory '{staging}': {ex.Message}"); }
+                catch (Exception ex) { _log($"[backup] could not clean up import staging directory '{staging}': {ex.Message}"); }
             }
         }
     }
@@ -464,7 +466,7 @@ public sealed class BackupService
     /// already-committed step back — a "self-healing" import, not just "recoverable via a
     /// separate Restore of the pre-import snapshot".
     /// </summary>
-    private static void CommitWithUndo(IReadOnlyList<SwapStep> plan, string undoRoot)
+    private static void CommitWithUndo(IReadOnlyList<SwapStep> plan, string undoRoot, Action<string> log)
     {
         Directory.CreateDirectory(undoRoot);
         var journal = new List<(string LivePath, string UndoPath, bool IsDirectory, bool HadOriginal)>();
@@ -494,14 +496,15 @@ public sealed class BackupService
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
             {
-                bool rollbackSucceeded = RollBack(journal);
+                bool rollbackSucceeded = RollBack(journal, log);
                 throw new ImportCommitException(step.Category, ex, rollbackSucceeded);
             }
         }
     }
 
     /// <summary>Undoes every journaled step, in reverse. Returns false if any step could not be fully restored.</summary>
-    private static bool RollBack(List<(string LivePath, string UndoPath, bool IsDirectory, bool HadOriginal)> journal)
+    private static bool RollBack(
+        List<(string LivePath, string UndoPath, bool IsDirectory, bool HadOriginal)> journal, Action<string> log)
     {
         bool allSucceeded = true;
 
@@ -524,7 +527,7 @@ public sealed class BackupService
             catch (Exception ex)
             {
                 allSucceeded = false;
-                AppLogger.Log($"[backup] rollback could not restore '{livePath}' from '{undoPath}': {ex.Message}");
+                log($"[backup] rollback could not restore '{livePath}' from '{undoPath}': {ex.Message}");
             }
         }
 
@@ -759,7 +762,7 @@ public sealed class BackupService
             var outcome = Export(path);
             if (!outcome.Success)
             {
-                AppLogger.Log($"[backup] snapshot failed: {outcome.Message}");
+                _log($"[backup] snapshot failed: {outcome.Message}");
                 return null;
             }
 
@@ -774,14 +777,14 @@ public sealed class BackupService
             }
             catch (Exception ex)
             {
-                AppLogger.Log($"[backup] snapshot pruning failed: {ex.Message}");
+                _log($"[backup] snapshot pruning failed: {ex.Message}");
             }
 
             return new SnapshotInfo(id, reason, now, new FileInfo(path).Length, hashPrefix, path);
         }
         catch (Exception ex)
         {
-            AppLogger.Log($"[backup] snapshot failed: {ex.Message}");
+            _log($"[backup] snapshot failed: {ex.Message}");
             return null;
         }
     }
@@ -872,7 +875,7 @@ public sealed class BackupService
         foreach (var snapshot in snapshots.Where(s => !keep.Contains(s.Id)))
         {
             try { File.Delete(snapshot.FilePath); }
-            catch (Exception ex) { AppLogger.Log($"[backup] could not prune {snapshot.Id}: {ex.Message}"); }
+            catch (Exception ex) { _log($"[backup] could not prune {snapshot.Id}: {ex.Message}"); }
         }
     }
 

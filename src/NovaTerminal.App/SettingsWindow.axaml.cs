@@ -990,7 +990,7 @@ namespace NovaTerminal
         /// </summary>
         private void WireBackupSection()
         {
-            var service = new BackupService(AppPaths.RootDirectory);
+            var service = new BackupService(AppPaths.RootDirectory, log: AppLogger.Log);
 
             var btnExport = this.FindControl<Button>("BtnBackupExport");
             var btnImport = this.FindControl<Button>("BtnBackupImport");

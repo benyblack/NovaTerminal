@@ -2589,7 +2589,7 @@ namespace NovaTerminal
             // Snapshot scheduling starts with the app, not with the first palette open - see the
             // field's remarks. Start() is best-effort (never throws even if a watch target is
             // missing), so this can't fail the constructor.
-            _snapshotScheduler = new SnapshotScheduler(new BackupService(AppPaths.RootDirectory));
+            _snapshotScheduler = new SnapshotScheduler(new BackupService(AppPaths.RootDirectory, log: AppLogger.Log), log: AppLogger.Log);
             _snapshotScheduler.Start();
 
             _startup.Checkpoint("MainWindow.CtorComplete");

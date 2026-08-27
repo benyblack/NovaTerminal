@@ -22,6 +22,7 @@ public sealed class SnapshotScheduler : IDisposable
     private readonly BackupService _service;
     private readonly TimeSpan _debounce;
     private readonly string _backupsPrefix;
+    private readonly Action<string> _log;
     private readonly List<FileSystemWatcher> _watchers = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _timerLock = new();
@@ -40,10 +41,11 @@ public sealed class SnapshotScheduler : IDisposable
     /// </summary>
     internal Action? BeforeSnapshotForTest;
 
-    public SnapshotScheduler(BackupService service, TimeSpan? debounce = null)
+    public SnapshotScheduler(BackupService service, TimeSpan? debounce = null, Action<string>? log = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _debounce = debounce ?? DefaultDebounce;
+        _log = log ?? (static _ => { });
         // Anchored with a trailing separator so a sibling like "backups2/" or "backups-legacy/"
         // is never mistaken for our own snapshot directory.
         _backupsPrefix = Path.Combine(_service.RootDirectory, "backups") + Path.DirectorySeparatorChar;
@@ -77,13 +79,13 @@ public sealed class SnapshotScheduler : IDisposable
                 watcher.Created += OnFileSystemEvent;
                 watcher.Deleted += OnFileSystemEvent;
                 watcher.Renamed += OnFileSystemEvent;
-                watcher.Error += (_, e) => AppLogger.Log($"[backup] watcher error: {e.GetException().Message}");
+                watcher.Error += (_, e) => _log($"[backup] watcher error: {e.GetException().Message}");
 
                 _watchers.Add(watcher);
             }
             catch (Exception ex)
             {
-                AppLogger.Log($"[backup] could not watch {directory}: {ex.Message}");
+                _log($"[backup] could not watch {directory}: {ex.Message}");
             }
         }
     }
