@@ -139,6 +139,92 @@ public sealed class ConnectionManagerTests
     }
 
     [AvaloniaFact]
+    public void SavedPasswordRow_ShowsYes_AndEnablesForget_WhenPasswordStored()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.SavedPasswordAccess = new FakeSavedPasswordAccess { Saved = true };
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        SelectFirstRow(control);
+
+        Assert.Equal("Yes", FindControl<TextBlock>(control, "KvSavedPassword").Text);
+        var forget = FindControl<Button>(control, "BtnForgetSavedPassword");
+        Assert.True(forget.IsVisible);
+        Assert.True(forget.IsEnabled);
+    }
+
+    [AvaloniaFact]
+    public void SavedPasswordRow_ShowsNo_AndDisablesForget_WhenNothingStored()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.SavedPasswordAccess = new FakeSavedPasswordAccess { Saved = false };
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        SelectFirstRow(control);
+
+        Assert.Equal("No", FindControl<TextBlock>(control, "KvSavedPassword").Text);
+        Assert.False(FindControl<Button>(control, "BtnForgetSavedPassword").IsEnabled);
+    }
+
+    [AvaloniaFact]
+    public void SavedPasswordRow_ShowsVaultUnavailable_WhenStoreIsUnavailable()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.SavedPasswordAccess = new FakeSavedPasswordAccess { IsVaultAvailable = false, Saved = true };
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        SelectFirstRow(control);
+
+        Assert.Equal("Vault unavailable", FindControl<TextBlock>(control, "KvSavedPassword").Text);
+        Assert.False(FindControl<Button>(control, "BtnForgetSavedPassword").IsEnabled);
+    }
+
+    [AvaloniaFact]
+    public void SavedPasswordRow_HidesForget_WhenNoAccessorInjected()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        SelectFirstRow(control);
+
+        Assert.Equal("—", FindControl<TextBlock>(control, "KvSavedPassword").Text);
+        Assert.False(FindControl<Button>(control, "BtnForgetSavedPassword").IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void ForgetSavedPassword_FlipsRowToNo_DisablesButton_AndKeepsSelection()
+    {
+        var control = CreateMeasuredConnectionManager();
+        var access = new FakeSavedPasswordAccess { Saved = true };
+        control.SavedPasswordAccess = access;
+        TerminalProfile profile = CreateSshProfile("Prod", favorite: false);
+        control.LoadProfiles(new[] { profile });
+        SelectFirstRow(control);
+
+        var forget = FindControl<Button>(control, "BtnForgetSavedPassword");
+        forget.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Equal(1, access.ForgetCallCount);
+        Assert.Same(profile, access.LastForgotten);
+        Assert.Equal("No", FindControl<TextBlock>(control, "KvSavedPassword").Text);
+        Assert.False(forget.IsEnabled);
+
+        // No LoadProfiles reload — the selection must survive.
+        var list = FindControl<ListBox>(control, "ConnectionsList");
+        Assert.Equal(0, list.SelectedIndex);
+    }
+
+    [AvaloniaFact]
+    public void ForgetSavedPassword_DoesNothing_WhenNoRowSelected()
+    {
+        var control = CreateMeasuredConnectionManager();
+        var access = new FakeSavedPasswordAccess { Saved = true };
+        control.SavedPasswordAccess = access;
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+
+        FindControl<Button>(control, "BtnForgetSavedPassword")
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Equal(0, access.ForgetCallCount);
+    }
+
+    [AvaloniaFact]
     public void DetailPane_ShowsTypedIdentityFileAuthDescription()
     {
         var control = CreateMeasuredConnectionManager();
@@ -364,6 +450,25 @@ public sealed class ConnectionManagerTests
         };
 
         handler!.Invoke(control, new object?[] { toggle, new RoutedEventArgs(ToggleButton.ClickEvent) });
+    }
+
+    private sealed class FakeSavedPasswordAccess : NovaTerminal.Shell.ISavedPasswordAccess
+    {
+        public bool IsVaultAvailable { get; set; } = true;
+        public bool Saved { get; set; }
+        public int ForgetCallCount { get; private set; }
+        public TerminalProfile? LastForgotten { get; private set; }
+
+        public bool HasSavedPassword(TerminalProfile profile) => Saved;
+
+        public bool ForgetSavedPassword(TerminalProfile profile)
+        {
+            ForgetCallCount++;
+            LastForgotten = profile;
+            bool had = Saved;
+            Saved = false;
+            return had;
+        }
     }
 
     private static Button? FindButtonByToolTip(ConnectionManager control, string tip)

@@ -566,7 +566,7 @@
                         <!-- Connection details -->
                         <StackPanel Spacing="10">
                             <TextBlock Classes="SectionHeader" Text="CONNECTION"/>
-                            <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,0">
+                            <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,0">
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Host"        Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
                                 <TextBlock Grid.Row="0" Grid.Column="1" Name="KvHost"  Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" Margin="0,4"/>
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Port"        Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
@@ -577,6 +577,15 @@
                                 <TextBlock Grid.Row="3" Grid.Column="1" Name="KvGroup" Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" Margin="0,4"/>
                                 <TextBlock Grid.Row="4" Grid.Column="0" Text="Auth"        Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
                                 <TextBlock Grid.Row="4" Grid.Column="1" Name="KvAuth"  Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" Margin="0,4"/>
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="Saved password" Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
+                                <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Spacing="10" Margin="0,4" VerticalAlignment="Center">
+                                    <TextBlock Name="KvSavedPassword" Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" VerticalAlignment="Center"/>
+                                    <Button Name="BtnForgetSavedPassword"
+                                            Classes="Pill"
+                                            Content="Forget saved password"
+                                            Click="OnForgetSavedPasswordClick"
+                                            ToolTip.Tip="Remove this connection's password from the OS credential store"/>
+                                </StackPanel>
                             </Grid>
                         </StackPanel>
 

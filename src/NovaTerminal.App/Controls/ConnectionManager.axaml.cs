@@ -120,6 +120,12 @@ namespace NovaTerminal.Controls
             set => SetValue(SecondaryForegroundProperty, value);
         }
 
+        /// <summary>
+        /// Vault access used to show and clear the selected connection's saved password.
+        /// Left null in tests and design-time; the row then reads "—" and Forget is hidden.
+        /// </summary>
+        public ISavedPasswordAccess? SavedPasswordAccess { get; set; }
+
         // Preserved for source compatibility with MainWindow's theme refresh path.
         public void ApplyTheme(TerminalTheme theme)
         {
@@ -394,6 +400,7 @@ namespace NovaTerminal.Controls
             var notes = this.FindControl<TextBlock>("DetailNotes");
             if (notes != null) notes.Text = string.IsNullOrWhiteSpace(row.Notes) ? "(no notes)" : row.Notes;
 
+            RenderSavedPasswordState(row);
             UpdateLaunchPreview();
         }
 
@@ -411,6 +418,53 @@ namespace NovaTerminal.Controls
             }
 
             return "agent";
+        }
+
+        private void RenderSavedPasswordState(SshProfileRowViewModel row)
+        {
+            var forgetButton = this.FindControl<Button>("BtnForgetSavedPassword");
+
+            if (SavedPasswordAccess == null)
+            {
+                SetText("KvSavedPassword", "—");
+                if (forgetButton != null)
+                {
+                    forgetButton.IsVisible = false;
+                    forgetButton.IsEnabled = false;
+                }
+                return;
+            }
+
+            if (forgetButton != null)
+            {
+                forgetButton.IsVisible = true;
+            }
+
+            if (!SavedPasswordAccess.IsVaultAvailable)
+            {
+                SetText("KvSavedPassword", "Vault unavailable");
+                if (forgetButton != null) forgetButton.IsEnabled = false;
+                return;
+            }
+
+            bool saved = SavedPasswordAccess.HasSavedPassword(row.Profile);
+            SetText("KvSavedPassword", saved ? "Yes" : "No");
+            if (forgetButton != null) forgetButton.IsEnabled = saved;
+        }
+
+        private void OnForgetSavedPasswordClick(object? sender, RoutedEventArgs e)
+        {
+            if (SavedPasswordAccess == null || !TryGetRow(sender, out var row))
+            {
+                return;
+            }
+
+            e.Handled = true;
+            SavedPasswordAccess.ForgetSavedPassword(row.Profile);
+
+            // Re-render this row in place rather than reloading: LoadProfiles rebuilds every
+            // SshProfileRowViewModel, so ApplyFilters' identity check drops the selection.
+            RenderSavedPasswordState(row);
         }
 
         private void UpdateLaunchPreview()
