@@ -104,6 +104,22 @@ public sealed class Osc7PathExtractionTests
         Assert.Equal("/home/you", Extract($"file://{Environment.MachineName}.lan/home/you"));
     }
 
+    /// <summary>
+    /// The same legacy escaped-backslash Windows emission, but from a genuinely foreign authority - a
+    /// remote Windows SSH host still running the snippet it was given months ago. This has to normalize
+    /// to a real Windows path exactly like the local case above, not the mixed-separator string a naive
+    /// "only normalize the local branch" split would produce, which is neither a valid Windows path nor
+    /// a valid POSIX one and breaks the SFTP sidebar's listing call the same way the original UNC bug did
+    /// (Codex review, PR #351, third pass).
+    /// </summary>
+    [Fact]
+    public void LegacyEmissionWithForeignWindowsHostname_DecodesToAWindowsPath()
+    {
+        string payload = "file://windows-build-host/C:%5CUsers%5Cyou";
+
+        Assert.Equal(@"C:\Users\you", Extract(payload));
+    }
+
     // ---------------------------------------------------------------- foreign authority (PR #351)
 
     /// <summary>
