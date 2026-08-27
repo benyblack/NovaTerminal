@@ -391,8 +391,7 @@ namespace NovaTerminal.Controls
             SetText("KvGroup", string.IsNullOrWhiteSpace(row.GroupPath) ? "Ungrouped" : row.GroupPath);
             SetText("KvAuth", DescribeAuth(row.Profile));
 
-            var fav = this.FindControl<PathIcon>("DetailFavStar");
-            if (fav != null) fav.IsVisible = row.IsFavorite;
+            SetFavoriteIndicator(row.IsFavorite);
 
             var tagsControl = this.FindControl<ItemsControl>("DetailTags");
             if (tagsControl != null) tagsControl.ItemsSource = row.Tags.Where(t => !string.Equals(t, "favorite", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -408,6 +407,15 @@ namespace NovaTerminal.Controls
         {
             var tb = this.FindControl<TextBlock>(controlName);
             if (tb != null) tb.Text = text;
+        }
+
+        // The favourite star is the toggle button's own icon, not a separate indicator:
+        // both live in the title row now, so one control carries the action and the state.
+        // Unset, the icon falls back to IconBtn's Foreground via the style.
+        private void SetFavoriteIndicator(bool isFavorite)
+        {
+            var fav = this.FindControl<PathIcon>("DetailFavStar");
+            fav?.Classes.Set("favOn", isFavorite);
         }
 
         private static string DescribeAuth(TerminalProfile profile)
@@ -564,8 +572,7 @@ namespace NovaTerminal.Controls
             UpdateGroupCounts();
             RebuildTags();
 
-            var fav = this.FindControl<PathIcon>("DetailFavStar");
-            if (fav != null) fav.IsVisible = row.IsFavorite;
+            SetFavoriteIndicator(row.IsFavorite);
 
             OnProfilesChanged?.Invoke();
         }

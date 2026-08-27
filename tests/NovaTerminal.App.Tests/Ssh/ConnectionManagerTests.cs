@@ -5,6 +5,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.VisualTree;
 using NovaTerminal.Controls;
 using NovaTerminal.Platform;
@@ -425,6 +426,41 @@ public sealed class ConnectionManagerTests
                 right <= panel.Bounds.Width + 0.5,
                 $"'{tip}' is clipped at width {width}: right edge {right:F1} exceeds detail panel width {panel.Bounds.Width:F1}.");
         }
+    }
+
+
+    // The favourite star is now the toggle button's own icon carrying both action and state
+    // (it replaced a separate yellow indicator that would have sat beside it in the title row).
+    // Nothing covered the old indicator, so this pins the new mechanism.
+    [AvaloniaFact]
+    public void FavoriteToggle_IconCarriesFavoriteState()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        SelectFirstRow(control);
+
+        var star = FindControl<PathIcon>(control, "DetailFavStar");
+        Assert.False(star.Classes.Contains("favOn"), "a non-favorite connection should not show the lit star.");
+
+        FindButtonByToolTip(control, "Toggle favorite")!
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.True(star.Classes.Contains("favOn"), "toggling on should light the star.");
+
+        FindButtonByToolTip(control, "Toggle favorite")!
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.False(star.Classes.Contains("favOn"), "toggling off should unlight the star.");
+    }
+
+    [AvaloniaFact]
+    public void FavoriteToggle_IconIsLit_ForAnAlreadyFavoriteConnection()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: true) });
+        SelectFirstRow(control);
+
+        Assert.True(
+            FindControl<PathIcon>(control, "DetailFavStar").Classes.Contains("favOn"),
+            "selecting a favorite connection should render the star lit.");
     }
 
     private static ConnectionManager CreateMeasuredConnectionManager(double width = 1080, double height = 720)
