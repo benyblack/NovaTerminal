@@ -19,7 +19,45 @@ namespace NovaTerminal.AgentHost
     public sealed class AgentSessionRegistry
     {
         /// <summary>Process-wide instance used by the app wiring. Tests construct their own.</summary>
-        public static AgentSessionRegistry Instance { get; } = new();
+        public static AgentSessionRegistry Instance => _instanceOverride ?? ProcessInstance;
+
+        private static readonly AgentSessionRegistry ProcessInstance = new();
+
+        // Thread-local, not a plain static: the override exists so one test can
+        // isolate the panes it constructs, and a plain static would redirect
+        // panes any other test happens to be constructing at the same moment —
+        // recreating the exact cross-test interference it is here to remove.
+        [ThreadStatic]
+        private static AgentSessionRegistry? _instanceOverride;
+
+        /// <summary>
+        /// Redirects <see cref="Instance"/> on the current thread to
+        /// <paramref name="registry"/> until the returned scope is disposed.
+        ///
+        /// Test seam (#357): TerminalPane hard-wires <see cref="Instance"/>, a
+        /// process-wide singleton shared by every concurrently-running test.
+        /// Anything subscribed there — a leaked MainWindow, the agent-host
+        /// endpoint another test's window started from the developer's real
+        /// settings — hears a test pane's registration and publishes actability
+        /// onto it, so tests about a pane's birth state need panes registered
+        /// somewhere nothing else is listening. Scope it synchronously around
+        /// construction: the pane captures the registry it registered with, so
+        /// the override does not need to survive past the constructor.
+        /// </summary>
+        internal static IDisposable OverrideInstanceForTesting(AgentSessionRegistry registry)
+        {
+            ArgumentNullException.ThrowIfNull(registry);
+            var scope = new InstanceOverrideScope(_instanceOverride);
+            _instanceOverride = registry;
+            return scope;
+        }
+
+        private sealed class InstanceOverrideScope : IDisposable
+        {
+            private readonly AgentSessionRegistry? _previous;
+            public InstanceOverrideScope(AgentSessionRegistry? previous) => _previous = previous;
+            public void Dispose() => _instanceOverride = _previous;
+        }
 
         private readonly ConcurrentDictionary<Guid, AgentSessionRegistration> _sessions = new();
 

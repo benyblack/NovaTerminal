@@ -96,7 +96,7 @@ namespace NovaTerminal.Controls
             {
                 if (_paneId == value) return;
                 var oldId = _paneId;
-                if (NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Rekey(oldId, value))
+                if ((_agentRegistry ?? NovaTerminal.AgentHost.AgentSessionRegistry.Instance).Rekey(oldId, value))
                 {
                     _paneId = value;
                 }
@@ -121,6 +121,11 @@ namespace NovaTerminal.Controls
         private bool _isUpdatingScroll = false;
         private bool _disposed;
         private NovaTerminal.AgentHost.AgentSessionRegistration? _agentRegistration;
+        // The registry this pane registered with, captured at SetupCommon so
+        // Rekey and Unregister always target the same registry Register did —
+        // even when a test redirected AgentSessionRegistry.Instance for the
+        // construction (#357). Pane and registry must never disagree.
+        private NovaTerminal.AgentHost.AgentSessionRegistry? _agentRegistry;
         private bool _agentActable;
         // Whether UpdateStatusBarUI has rendered the SSH forwarding half of the
         // status bar at least once. See UpdateForwardingStatus.
@@ -579,7 +584,8 @@ namespace NovaTerminal.Controls
                 profileId: Profile?.Id);
             // A3 act: an agent typing into this pane is text the keyboard path never saw.
             _agentRegistration.InputInjected = NotifyExternalInputSent;
-            NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(_agentRegistration);
+            _agentRegistry = NovaTerminal.AgentHost.AgentSessionRegistry.Instance;
+            _agentRegistry.Register(_agentRegistration);
             // Seed act-reachability from the registration instead of waiting for
             // the first ActabilityChanged. AgentHostService.OnSessionRegistered
             // publishes it synchronously inside Register above — i.e. one line
@@ -3933,7 +3939,7 @@ namespace NovaTerminal.Controls
             if (_disposed) return null;
             _disposed = true;
 
-            NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Unregister(PaneId);
+            (_agentRegistry ?? NovaTerminal.AgentHost.AgentSessionRegistry.Instance).Unregister(PaneId);
             if (_agentRegistration != null)
             {
                 _agentRegistration.AttentionMachine.Changed -= OnAgentAttentionChanged;
