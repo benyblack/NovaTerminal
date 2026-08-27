@@ -1937,6 +1937,38 @@ public sealed class BackupImportTests
         Assert.Equal("""{"local":true}""", target.ReadFile(Path.Combine("policy", "workspace_policy.json")));
     }
 
+    /// <summary>
+    /// A bundle carries no secret material, so an imported SSH profile looks complete but
+    /// cannot authenticate. Every caller that only sees the outcome string — the CLI above all —
+    /// must be told, or the failure is silent.
+    /// </summary>
+    [Fact]
+    public void Import_WithConnections_OutcomeMentionsMissingPasswords()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        using var target = BackupTestTree.CreatePopulated();
+        string bundle = ExportFrom(source);
+
+        var outcome = new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
+
+        Assert.True(outcome.Success, outcome.Message);
+        Assert.Contains("passwords", outcome.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Import_WithoutConnections_OutcomeOmitsPasswordNote()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        using var target = BackupTestTree.CreatePopulated();
+        string bundle = Path.Combine(source.Root, "themes-only.novabackup");
+        new BackupService(source.Root, Clock()).Export(bundle, new[] { BackupCategory.Themes });
+
+        var outcome = new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
+
+        Assert.True(outcome.Success, outcome.Message);
+        Assert.DoesNotContain("passwords", outcome.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void Import_TakesPreImportSnapshotBeforeWriting()
     {
@@ -2161,7 +2193,15 @@ Add the following members to the `BackupService` class:
                 ApplyCategory(category, staging, mode);
             }
 
-            return BackupOutcome.Ok($"Imported {selected.Length} categories ({mode}).");
+            // Name the credential gap in the outcome itself. Bundles carry no secret material,
+            // so imported SSH profiles look complete but cannot authenticate until the user
+            // re-enters passwords — a silent partial failure if nothing says so. The Settings
+            // page has copy for this; the CLI and any other caller only ever see this string.
+            string credentialNote = selected.Contains(BackupCategory.Connections)
+                ? " Connection passwords are not included in a bundle — re-enter them on first connect."
+                : string.Empty;
+
+            return BackupOutcome.Ok($"Imported {selected.Length} categories ({mode}).{credentialNote}");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
         {
@@ -2362,7 +2402,7 @@ Add the following members to the `BackupService` class:
 scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BackupImportTests"
 ```
 
-Expected: PASS, 16 tests.
+Expected: PASS, 18 tests.
 
 - [ ] **Step 5: Re-run the whole Backup namespace to confirm no regression**
 
