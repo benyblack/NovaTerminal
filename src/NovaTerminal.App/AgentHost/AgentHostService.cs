@@ -479,7 +479,7 @@ namespace NovaTerminal.AgentHost
             // terminal row shrinks — reflowing the PTY about a second after the
             // pane opened, right on top of whatever full-screen TUI the user
             // just started. The design allows exactly one reflow, at
-            // permission-toggle time, and that is a deliberate user action;
+            // permission-toggle time, which is a deliberate user action — and
             // this is not.
             //
             // Guarded for the same reason SweepStatuses guards its call: this
