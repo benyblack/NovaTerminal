@@ -3659,7 +3659,98 @@ git commit -m "feat(backup): palette entries and snapshot scheduler startup"
 
 ---
 
-### Task 10: MCP export and list tools
+### Task 10a: Move the backup module to Platform
+
+`NovaTerminal.McpServer` references only `NovaTerminal.AgentHost.Contracts` — never `NovaTerminal.App` — so the MCP tools in Task 10b cannot reach `BackupService` where it currently lives. Referencing the Avalonia app from a stdio MCP server is the wrong fix; it would drag the whole GUI into the server and break its publish story.
+
+Move the module to `NovaTerminal.Platform`, which is the shared non-UI layer and is already referenced by both `NovaTerminal.App` and (transitively, once added) anything else that needs it. Backup is non-UI logic operating on files, so this is where it belonged all along.
+
+This is a pure refactor: **no behavior changes, no new features, no test-semantics changes.** Every existing test must still pass, unmodified except for `using` directives.
+
+**Files:**
+- Move: `src/NovaTerminal.App/Shell/Backup/*.cs` → `src/NovaTerminal.Platform/Backup/`, namespace `NovaTerminal.Shell.Backup` → `NovaTerminal.Platform.Backup`
+- Modify: `src/NovaTerminal.McpServer/NovaTerminal.McpServer.csproj` — add a `ProjectReference` to `NovaTerminal.Platform`
+- Modify: every consumer's `using` — `SettingsWindow.axaml.cs`, `MainWindow.axaml.cs`, `src/NovaTerminal.Cli/Program.cs`, `src/NovaTerminal.App/Program.cs`
+- Modify: `tests/NovaTerminal.App.Tests/Backup/*.cs` and `tests/NovaTerminal.App.Tests/Core/SettingsWindow*Tests.cs`, `MainWindowBackupPaletteTests.cs` — `using` only
+- Modify: `tests/NovaTerminal.Architecture.Tests` if a boundary rule needs updating
+
+**Interfaces:**
+- Consumes: `NovaTerminal.Platform`'s existing conventions.
+- Produces: the same public surface under `NovaTerminal.Platform.Backup`, plus an injectable logger replacing the static `AppLogger` dependency.
+
+**What stays behind:** `BackupCommand` may stay in `NovaTerminal.App/Shell/Backup/` if moving it is awkward — it is the only file that touches `AppPaths`, and the CLI already lives in App. Decide based on what keeps the layering clean, and say which you chose and why. Everything else moves.
+
+**The two couplings to break:**
+
+1. **`AppLogger.Log`** — 10 call sites across `BackupService.cs` and `SnapshotScheduler.cs`. `AppLogger` is App-only. Replace with an injected delegate: add an optional `Action<string>? log = null` to `BackupService`'s and `SnapshotScheduler`'s constructors, defaulting to a no-op, and have App's call sites pass `AppLogger.Log`. Do **not** create a new logging abstraction or interface — a delegate is enough and matches the existing constructor-injection style (`TimeProvider`).
+
+2. **`AppPaths`** — referenced only by `BackupCommand`. If `BackupCommand` stays in App, this needs no change.
+
+**`AtomicFile` is no longer a blocker.** Task 5's two-phase-commit rework removed every `AtomicFile` call from the backup module; verify with a grep before assuming otherwise.
+
+- [ ] **Step 1: Establish the baseline**
+
+Record the exact pass count you are preserving.
+
+```bash
+scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Backup|FullyQualifiedName~Settings|FullyQualifiedName~CommandPalette"
+scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests
+```
+
+Write both totals into your report. They are the contract for this task: the same tests must pass afterward.
+
+- [ ] **Step 2: Confirm the couplings**
+
+```bash
+grep -rn "AtomicFile\|AppLogger\|AppPaths" src/NovaTerminal.App/Shell/Backup/
+```
+
+Expect `AppLogger` in `BackupService.cs` and `SnapshotScheduler.cs`, `AppPaths` in `BackupCommand.cs`, and no `AtomicFile`. If reality differs, report it before proceeding — an unexpected coupling changes the shape of this task.
+
+- [ ] **Step 3: Break the `AppLogger` coupling in place, before moving anything**
+
+Add the optional logger parameter to `BackupService` and `SnapshotScheduler`, replace the `AppLogger.Log(...)` calls with the injected delegate, and pass `AppLogger.Log` from App's construction sites. Run the baseline filter again and confirm the same totals. Commit this separately — it is behavior-preserving and easy to review on its own.
+
+- [ ] **Step 4: Move the files and rename the namespace**
+
+`git mv` each file so history follows it, change the namespace declarations, and fix every `using`. Add the `ProjectReference` from `NovaTerminal.McpServer` to `NovaTerminal.Platform`.
+
+- [ ] **Step 5: Build everything that could be affected**
+
+```bash
+scripts/build.ps1 build src/NovaTerminal.Platform
+scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/NovaTerminal.Cli
+scripts/build.ps1 build src/NovaTerminal.McpServer
+```
+
+- [ ] **Step 6: Re-run the baseline and the architecture tests**
+
+```bash
+scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Backup|FullyQualifiedName~Settings|FullyQualifiedName~CommandPalette"
+scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests
+```
+
+Both totals must match Step 1 exactly. A changed count means you altered behavior or lost a test — find out which before continuing. `NovaTerminal.Architecture.Tests` enforces module boundaries; if it now fails, that is the layering telling you something, not a test to weaken.
+
+Note the CLI-dispatch guard test added in Task 7 reflects over the App assembly for types with the CLI-command shape. If `BackupCommand` moved, that guard may need its search widened — fix the guard, do not delete it.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add -A
+git commit -m "refactor(backup): move the backup module to Platform
+
+NovaTerminal.McpServer references only AgentHost.Contracts, so the MCP
+tools cannot reach BackupService in the App assembly, and referencing an
+Avalonia GUI app from a stdio server is the wrong fix. Backup is non-UI
+file logic, so Platform is its right home. The static AppLogger
+dependency becomes an injected delegate; no behavior changes."
+```
+
+---
+
+### Task 10b: MCP export and list tools
 
 Read-only by design. No import, no restore: the MCP server is out-of-process and its existing tools are schema/validation helpers, so an agent silently replacing live connection profiles is a destructive action the user never sees.
 
@@ -3668,23 +3759,10 @@ Read-only by design. No import, no restore: the MCP server is out-of-process and
 - Test: `tests/NovaTerminal.McpServer.Tests/BackupToolsTests.cs`
 
 **Interfaces:**
-- Consumes: nothing from `NovaTerminal.App` — check whether `NovaTerminal.McpServer.csproj` references it. If it does not, **do not add the reference**; instead reimplement the two operations against the same zip format by referencing the shared logic, or move `Shell/Backup/` to `NovaTerminal.Platform` first. Confirm before writing code:
-
-```bash
-grep -n "ProjectReference" src/NovaTerminal.McpServer/NovaTerminal.McpServer.csproj
-```
-
+- Consumes: `NovaTerminal.Platform.Backup` — Task 10a moved the module there and added the `ProjectReference`. Use `BackupService` directly; do not reimplement anything.
 - Produces: MCP tools `novaterminal.backup_export` and `novaterminal.backup_list`.
 
 **Pattern to follow:** `src/NovaTerminal.McpServer/Tools/SettingsTools.cs` — `[McpServerToolType]` on a static class, `[McpServerTool(Name = "...")]` plus `[Description(...)]` on each static method, returning a string.
-
-- [ ] **Step 1: Confirm the project reference situation**
-
-```bash
-grep -n "ProjectReference" src/NovaTerminal.McpServer/NovaTerminal.McpServer.csproj
-```
-
-If `NovaTerminal.App` is **not** referenced, stop and move `src/NovaTerminal.App/Shell/Backup/` into `src/NovaTerminal.Platform/Backup/` (namespace `NovaTerminal.Platform.Backup`), update the `using` directives in every file from Tasks 1–9, re-run the whole Backup suite, and commit that move as its own commit before continuing. `AtomicFile` is `internal` to `NovaTerminal.App`, so the move also needs an equivalent in Platform — `JsonSshProfileStore` already has the same temp-write-then-move pattern; extract or duplicate it there.
 
 - [ ] **Step 2: Write the failing test**
 
