@@ -1,4 +1,4 @@
-namespace NovaTerminal.Platform.Backup;
+namespace NovaTerminal.Backup;
 
 /// <summary>
 /// A unit of configuration a bundle can carry. The manifest stores these as

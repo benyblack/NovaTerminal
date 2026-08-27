@@ -168,6 +168,57 @@ invariant changes.
 
 ---
 
+## NovaTerminal.Backup (`src/NovaTerminal.Backup/`)
+
+**Namespace:** `NovaTerminal.Backup`
+**Depends on:** *(leaf — only BCL)*
+**Public surface:** `BackupService`, `SnapshotScheduler`, `BackupCatalog`, `BackupCategory`, `BackupManifest`, `BackupOutcome`, `InspectOutcome`, `BundleInspection`, `SnapshotInfo`, `SnapshotReason`, `ImportMode`, `BundleReader`, `BundleWriter`
+**Internals exposed to:** `NovaTerminal.App.Tests` only (`BackupService.ResolveImportStagingRoot`, `SnapshotScheduler.HasPendingChange`/`BeforeSnapshotForTest`/`NotifyFileSystemEvent` — test seams, same shape as `CommandAssist`'s grant below)
+
+**Owns**
+- Export/import/snapshot/restore of NovaTerminal configuration into `.novabackup` bundles (a zip with a manifest)
+- The category→path catalog (`BackupCatalog`) that decides what a bundle contains
+- The debounced snapshot scheduler that watches the backed-up paths and writes an automatic snapshot after changes go quiet
+
+**Non-responsibilities**
+- Resolving the app-data root. `BackupService` takes it as a constructor argument rather than
+  reading `AppPaths` itself, so both the App and a test can point it at whatever tree they like.
+  The one caller that does read `AppPaths` (`BackupCommand`, the `backup` CLI verb) stays in
+  `NovaTerminal.App/Shell/Backup/` rather than moving here — see the invariants below.
+- Logging. Nothing here calls a static logger; callers pass an optional `Action<string>? log`
+  into `BackupService`'s and `SnapshotScheduler`'s constructors (defaulting to a no-op), mirroring
+  the existing `TimeProvider?` injection style.
+
+**Invariants** (enforced by `Backup_csproj_has_no_project_references` and
+`McpServer_csproj_only_references_AgentHostContractsAndBackup`)
+- **Leaf assembly — no project references, ever.** This is what makes it safe for
+  `NovaTerminal.McpServer` to reference: a leaf cannot smuggle in App, VT, Pty, or Rendering no
+  matter what it depends on, because it depends on nothing. Task 10a's first attempt routed the
+  MCP backup tools through `NovaTerminal.Platform` instead — which itself has no App/VT
+  dependency, but does reference `NovaTerminal.Pty`, so McpServer → Platform → Pty transitively
+  broke McpServer's "does not reference Pty" invariant with the reasoning fully intact. Extracting
+  this leaf closes that hole by construction, not by remembering to re-check every transitive hop
+  Platform might one day pick up.
+- No secret material. A bundle carries connection profiles with their `RememberPasswordInVault`
+  flag but never password/key material (issue #100) — `BackupService` never reads secret storage.
+- `BackupCommand` (the `backup` CLI verb) is the one caller-facing piece that stays behind in
+  `NovaTerminal.App/Shell/Backup/`: it is the only consumer that needs `AppPaths`, and the CLI
+  already lives in App (see the Task 7 dispatch guard on `NovaTerminal.App`, below). Moving it here
+  would have bought nothing, since App already references this assembly.
+
+**Test authority**
+- `tests/NovaTerminal.App.Tests/Backup/`
+- Palette/scheduler wiring: `tests/NovaTerminal.App.Tests/Core/MainWindowBackupPaletteTests.cs`
+- Settings UI: `tests/NovaTerminal.App.Tests/Core/SettingsWindowBackupSectionTests.cs`
+- Leaf-boundary invariants: `tests/NovaTerminal.Architecture.Tests/`
+
+> **Note:** extracted from `NovaTerminal.App/Shell/Backup/` in Task 10a (2026-08-27), then
+> re-extracted from a one-round stop at `NovaTerminal.Platform/Backup/` into its own leaf project
+> in Task 10a fix round 1, once review found the Platform routing broke McpServer's
+> Pty-independence invariant.
+
+---
+
 ## NovaTerminal.CommandAssist (`src/NovaTerminal.CommandAssist/`)
 
 **Namespace:** `NovaTerminal.CommandAssist` (+ `.Application`, `.Domain`, `.Models`, `.Storage`, `.ShellIntegration`, `.ViewModels`)
@@ -234,16 +285,25 @@ requires public test classes.
 ## NovaTerminal.McpServer (`src/NovaTerminal.McpServer/`)
 
 **Namespace:** `NovaTerminal.McpServer` (+ `.Tools`)
-**Depends on:** AgentHost.Contracts
+**Depends on:** AgentHost.Contracts, Backup (both zero-reference leaves — see below)
 **Public surface:** `Program` (stdio entry point), `AgentHostClient`, `RepoContext`, and the tool groups under `Tools/` (`SessionTools`, `VtTools`, `ThemeTools`, `SettingsTools`, `ConnectionProfileTools`, `ProjectTools`, `WorkflowTools`)
 
 **Owns**
 - The opt-in MCP server that lets external agents observe live terminal sessions, and — behind a separate opt-in — drive them
 - Tool schemas exposed over MCP, and their validation of caller input
 - Talking to the running app through `AgentHostClient` over the AgentHost protocol
+- The read-only backup tools (Task 10b) built on `NovaTerminal.Backup`'s `BackupService`
 
 **Invariants**
-- **Does not reference App, VT, Pty, or Rendering.** It is a client of the running app over the wire, not an in-process consumer — so it can never reach into terminal state directly.
+- **Does not reference App, VT, Pty, Rendering, or `NovaTerminal.Platform`.** It is a client of the
+  running app over the wire, not an in-process consumer — so it can never reach into terminal state
+  directly. `NovaTerminal.Platform` is named explicitly (not just "the UI layer") because it is the
+  one non-obvious way in: Platform itself has no App/VT dependency, but it does reference
+  `NovaTerminal.Pty`, so a McpServer → Platform reference would transitively break "does not
+  reference Pty" while looking, at the csproj level, like a small and unrelated addition (Task 10a
+  fix round 1 shipped exactly this and caught it in review). `AgentHost.Contracts` and
+  `NovaTerminal.Backup` are the only two references allowed, and both are leaves enforced to have
+  zero project references of their own, so neither can ever become a backdoor to the forbidden set.
 - Observe and act are separately gated. A tool that mutates session state belongs behind the act opt-in.
 - Tool schemas are part of the public contract: `ConnectionProfileDriftGuardTests` exists to catch schema drift against the app's real profile shape.
 
@@ -261,7 +321,7 @@ requires public test classes.
 ## NovaTerminal.App (`src/NovaTerminal.App/`)
 
 **Namespace:** `NovaTerminal` (NOT `NovaTerminal.App` — see test-root-namespace note in `NovaTerminal.App.Tests`)
-**Depends on:** Platform, VT, Rendering, Pty, Replay, AgentHost.Contracts, CommandAssist, Avalonia 12.0.4, SkiaSharp 3.119.4
+**Depends on:** Platform, VT, Rendering, Pty, Replay, AgentHost.Contracts, CommandAssist, Backup, Avalonia 12.0.4, SkiaSharp 3.119.4
 **Public surface:** `App`, `MainWindow`, `TerminalPane`, settings window, theme manager, command palette, command-assist controller, profile importers, startup orchestrator
 
 **Owns**

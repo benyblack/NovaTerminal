@@ -29,7 +29,7 @@ using NovaTerminal.Pty;
 
 using NovaTerminal.Controls;
 using NovaTerminal.Services.Ssh;
-using NovaTerminal.Platform.Backup;
+using NovaTerminal.Backup;
 using NovaTerminal.Platform.Ssh.Launch;
 using NovaTerminal.Shell.Shortcuts;
 using NovaTerminal.Models;

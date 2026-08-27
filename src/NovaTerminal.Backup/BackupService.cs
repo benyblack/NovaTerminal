@@ -8,12 +8,12 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace NovaTerminal.Platform.Backup;
+namespace NovaTerminal.Backup;
 
 /// <summary>
 /// Export, import, snapshot, and restore of NovaTerminal configuration.
 ///
-/// Takes its app-data root as a constructor argument rather than reading <see cref="AppPaths"/>
+/// Takes its app-data root as a constructor argument rather than reading the app's data root
 /// statically, so tests drive it against a temp tree without touching the real profile.
 ///
 /// Never reads secret storage. A bundle carries connection profiles with their

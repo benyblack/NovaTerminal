@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Platform.Backup;
+namespace NovaTerminal.Backup;
 
 /// <summary>
 /// Watches the backed-up paths and writes one snapshot after changes go quiet.

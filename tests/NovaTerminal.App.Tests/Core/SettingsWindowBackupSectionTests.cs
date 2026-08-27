@@ -4,7 +4,7 @@ using System.Security.Principal;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.LogicalTree;
-using NovaTerminal.Platform.Backup;
+using NovaTerminal.Backup;
 using NovaTerminal.Tests.Backup;
 using Xunit;
 

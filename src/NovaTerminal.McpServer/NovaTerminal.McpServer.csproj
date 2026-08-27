@@ -5,10 +5,13 @@
     coding agents, plus — per the agent-host direction (docs/agent-host/DIRECTION.md, A1) —
     opt-in, observe-only access to live terminal sessions, proxied over the app's local IPC
     endpoint. Solution dependencies are the zero-reference contracts leaf
-    (NovaTerminal.AgentHost.Contracts) and NovaTerminal.Platform, the shared non-UI layer
-    (e.g. BackupService for the read-only backup MCP tools); this server must never
-    reference App/VT, and must never touch SSH or credentials. Session access is read-only
-    and exists only while the user has "Agent access (observe)" enabled in the running app.
+    (NovaTerminal.AgentHost.Contracts) and NovaTerminal.Backup, a second zero-reference leaf
+    (BackupService for the read-only backup MCP tools). This server must never reference
+    App, VT, Pty, Rendering, or NovaTerminal.Platform (Platform pulls in Pty transitively,
+    which would silently reopen the same hole a direct Pty reference would - see
+    docs/MODULE_OWNERSHIP.md), and must never touch SSH or credentials. Session access is
+    read-only and exists only while the user has "Agent access (observe)" enabled in the
+    running app.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -25,7 +28,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NovaTerminal.AgentHost.Contracts\NovaTerminal.AgentHost.Contracts.csproj" />
-    <ProjectReference Include="..\NovaTerminal.Platform\NovaTerminal.Platform.csproj" />
+    <ProjectReference Include="..\NovaTerminal.Backup\NovaTerminal.Backup.csproj" />
   </ItemGroup>
 
   <ItemGroup>

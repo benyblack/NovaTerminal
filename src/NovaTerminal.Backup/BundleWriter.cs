@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 
-namespace NovaTerminal.Platform.Backup;
+namespace NovaTerminal.Backup;
 
 /// <summary>Writes a <c>.novabackup</c> zip from an app-data root.</summary>
 public static class BundleWriter

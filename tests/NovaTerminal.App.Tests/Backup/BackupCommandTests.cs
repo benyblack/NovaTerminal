@@ -1,4 +1,4 @@
-using NovaTerminal.Platform.Backup;
+using NovaTerminal.Backup;
 using NovaTerminal.Shell.Backup;
 
 namespace NovaTerminal.Tests.Backup;

@@ -1,5 +1,5 @@
 using System.Text.Json;
-using NovaTerminal.Platform.Backup;
+using NovaTerminal.Backup;
 
 namespace NovaTerminal.Tests.Backup;
 

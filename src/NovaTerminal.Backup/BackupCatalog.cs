@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-namespace NovaTerminal.Platform.Backup;
+namespace NovaTerminal.Backup;
 
 /// <summary>One backed-up path: where it lives in the app data tree, where it goes in the zip.</summary>
 /// <param name="Category">Owning category.</param>
@@ -18,8 +18,8 @@ public sealed record CatalogEntry(
 
 /// <summary>
 /// The single mapping from <see cref="BackupCategory"/> to on-disk paths, plus the list of
-/// app-data paths that are deliberately NOT backed up. Adding a new persisted path to
-/// <see cref="AppPaths"/> means adding it here too — <c>BackupCatalogTests</c> fails otherwise.
+/// app-data paths that are deliberately NOT backed up. Adding a new persisted path to the
+/// app's data root means adding it here too — <c>BackupCatalogTests</c> fails otherwise.
 /// </summary>
 public static class BackupCatalog
 {
