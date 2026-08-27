@@ -6039,9 +6039,14 @@ namespace NovaTerminal
                 return;
             }
 
-            string label = string.IsNullOrWhiteSpace(profile.Name)
+            string trimmedName = string.IsNullOrWhiteSpace(profile.Name) ? string.Empty : profile.Name.Trim();
+            const int maxLabelLength = 60;
+            string displayName = trimmedName.Length > maxLabelLength
+                ? trimmedName[..maxLabelLength] + "…"
+                : trimmedName;
+            string label = string.IsNullOrWhiteSpace(displayName)
                 ? "this connection"
-                : $"\"{profile.Name.Trim()}\"";
+                : $"\"{displayName}\"";
 
             if (!await ShowDeleteConnectionConfirmationAsync(label))
             {
@@ -6052,11 +6057,13 @@ namespace NovaTerminal
             {
                 _sshConnectionService.DeleteProfile(profile.Id);
 
-                // Purge AFTER the store delete: if the delete throws, the secret stays put
-                // rather than being orphaned from a profile that still exists.
-                Vault?.ForgetSavedPassword(profile);
-
+                // Refresh right after the store delete so the UI drops the deleted connection
+                // even if the vault purge below throws. Purge still runs AFTER the store
+                // delete: if the delete itself throws, the secret stays put rather than being
+                // orphaned from a profile that still exists.
                 RefreshProfileUIs();
+
+                Vault?.ForgetSavedPassword(profile);
             }
             catch (Exception ex)
             {
@@ -6073,7 +6080,8 @@ namespace NovaTerminal
             var cancelButton = new Button
             {
                 Content = "Cancel",
-                Width = 92
+                Width = 92,
+                IsCancel = true
             };
             cancelButton.Click += (_, __) =>
             {
@@ -6091,6 +6099,11 @@ namespace NovaTerminal
                 confirmed = true;
                 dialog.Close();
             };
+
+            // Give Cancel initial focus: combined with IsCancel above, Escape reliably backs
+            // out of a dialog the user may have opened by accident. Delete intentionally has
+            // no IsDefault, so Enter never triggers the destructive action.
+            dialog.Opened += (_, __) => cancelButton.Focus();
 
             dialog.Content = new Border
             {
