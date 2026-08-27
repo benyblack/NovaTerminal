@@ -12,8 +12,8 @@
         Background="Transparent">
     <Window.Resources>
         <DataTemplate x:Key="TabHeaderTemplate">
-            <TextBlock Text="{Binding}" Foreground="White" 
-                       FontSize="10" VerticalAlignment="Center" 
+            <TextBlock Text="{Binding}" Foreground="White"
+                       FontSize="10" VerticalAlignment="Center"
                        HorizontalAlignment="Center"
                        Padding="6,1,6,1"
                        Margin="0,0,0,0"/>
@@ -42,6 +42,12 @@
         </Style>
         <Style Selector="TabItem:selected /template/ Border#PART_Border">
              <Setter Property="Background" Value="#33FFFFFF"/>
+        </Style>
+
+        <Style Selector="TabControl.vertical-tabs TabItem">
+            <Setter Property="MinHeight" Value="44"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         </Style>
 
         <!-- GridSplitter Custom Template for thinner lines with larger hit area -->
@@ -85,16 +91,32 @@
                     <Setter Property="Template">
                         <ControlTemplate>
                             <DockPanel>
-                                <ScrollViewer Name="PART_TabHeaderScrollViewer"
-                                              DockPanel.Dock="Top"
-                                              Margin="0,0,440,0"
-                                              Height="36"
-                                              HorizontalScrollBarVisibility="Hidden"
-                                              VerticalScrollBarVisibility="Disabled">
-                                    <ItemsPresenter Name="PART_ItemsPresenter"
-                                                  ClipToBounds="True"
-                                                  ItemsPanel="{TemplateBinding ItemsPanel}" />
-                                </ScrollViewer>
+                                <!-- Keep the 36px title band clear in vertical mode: the title-bar
+                                     button overlay and the window-drag area live there (drag
+                                     bubbles to MainRoot's handler). Height 0 in horizontal mode
+                                     collapses this to a no-op. Reconfigured at runtime by
+                                     UpdateTabHeaderViewport - never by swapping Theme/ItemsPanel. -->
+                                <Border Name="PART_TitleBandSpacer"
+                                        DockPanel.Dock="Top"
+                                        Height="0"
+                                        Background="Transparent" />
+                                <Grid Name="PART_TabSidebar" DockPanel.Dock="Top">
+                                    <ScrollViewer Name="PART_TabHeaderScrollViewer"
+                                                  Margin="0,0,440,0"
+                                                  Height="36"
+                                                  HorizontalScrollBarVisibility="Hidden"
+                                                  VerticalScrollBarVisibility="Disabled">
+                                        <ItemsPresenter Name="PART_ItemsPresenter"
+                                                      ClipToBounds="True"
+                                                      ItemsPanel="{TemplateBinding ItemsPanel}" />
+                                    </ScrollViewer>
+                                    <Border Name="PART_TabStripResizeGrip"
+                                            Width="5"
+                                            HorizontalAlignment="Right"
+                                            Background="Transparent"
+                                            Cursor="SizeWestEast"
+                                            IsVisible="False" />
+                                </Grid>
                                 <ContentPresenter Name="PART_SelectedContentHost"
                                                 Margin="0"
                                                 Background="Transparent"

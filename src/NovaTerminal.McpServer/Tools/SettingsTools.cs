@@ -40,6 +40,8 @@ public static class SettingsTools
         | `EnableComplexShaping` | bool | Default true. |
         | `CursorStyle` | string (enum-like) | e.g. "Underline", "Block", "Bar"/"Beam". Type-checked only. |
         | `CursorBlink` | bool | Default true. |
+        | `TabStripOrientation` | string (enum-like) | "Horizontal"/"Vertical". Default "Horizontal". Places the tab strip in the title bar (horizontal) or in a left sidebar with per-tab agent status and a last-output preview line (vertical). Type-checked only; unrecognised values behave as "Horizontal". |
+        | `VerticalTabStripWidth` | number | Sidebar width in px when `TabStripOrientation` is "Vertical". Default 220; applied clamped to 140–600. |
 
         ## Behavior
         | Field | Type | Notes |
@@ -108,6 +110,8 @@ public static class SettingsTools
           "EnableComplexShaping": true,
           "CursorStyle": "Underline",
           "CursorBlink": true,
+          "TabStripOrientation": "Horizontal",
+          "VerticalTabStripWidth": 220,
           "BellAudioEnabled": true,
           "BellVisualEnabled": true,
           "SmoothScrolling": true,
@@ -170,7 +174,7 @@ public static class SettingsTools
     {
         "FontFamily", "ThemeName", "BackgroundImagePath", "GlobalHotkey",
         "BlurEffect", "CursorStyle", "PaneClosePolicy", "ShellExitPolicy", "AgentIndicatorTabRollup",
-        "BackgroundImageStretch",
+        "BackgroundImageStretch", "TabStripOrientation",
     };
 
     internal static readonly string[] ArrayFields = { "Profiles", "TabTemplateRules", "TitleBarOrder" };
@@ -179,7 +183,7 @@ public static class SettingsTools
     internal static readonly HashSet<string> KnownFields = new(StringComparer.Ordinal)
     {
         "FontSize", "MaxHistory", "FontFamily", "ThemeName", "WindowOpacity", "BlurEffect",
-        "EnableLigatures", "EnableComplexShaping", "CursorStyle", "CursorBlink",
+        "EnableLigatures", "EnableComplexShaping", "CursorStyle", "CursorBlink", "TabStripOrientation", "VerticalTabStripWidth",
         "BellAudioEnabled", "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection",
         "EnableKittyKeyboardProtocol", "AllowOsc52ClipboardWrite",
         "WheelLinesPerNotch", "PaneClosePolicy", "ShellExitPolicy", "AgentIndicatorTabRollup",
@@ -240,6 +244,7 @@ public static class SettingsTools
         CheckNumber(root, "FontSize", v => v > 0, "must be > 0", errors);
         CheckNumber(root, "WindowOpacity", v => v >= 0 && v <= 1, "must be between 0 and 1", errors);
         CheckNumber(root, "BackgroundImageOpacity", v => v >= 0 && v <= 1, "must be between 0 and 1", errors);
+        CheckNumber(root, "VerticalTabStripWidth", v => v >= 140 && v <= 600, "must be between 140 and 600", errors);
 
         // WheelLinesPerNotch: a non-number is an error; <= 0 is only a warning (runtime falls back).
         if (root.TryGetProperty("WheelLinesPerNotch", out var wheelEl))

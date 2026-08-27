@@ -80,6 +80,7 @@ namespace NovaTerminal
         private readonly HashSet<TabItem> _pendingVisualRefreshTabs = new();
         private bool _suppressMruTouchOnSelection;
         private bool _tabVisualRefreshScheduled;
+        private DispatcherTimer? _tabStatusTimer;
         private TerminalSettings _settings;
         private GlobalHotkey? _globalHotkey;
         // Ids of stateful title bar toggles that are currently ON. An overflowed toggle in this set
@@ -107,6 +108,26 @@ namespace NovaTerminal
         internal const double MinimumTabHeaderRightReserve = 440;
         internal const double MacOsTrafficLightReserve = 92;
         internal const double TabHeaderViewportPadding = 16;
+        // Hoisted out of UpdateVerticalTabExtras: that method runs per tab per visual-refresh
+        // pass, and allocating a new SolidColorBrush per tab per pass adds up.
+        private static readonly IBrush TabAttentionBrush = new SolidColorBrush(Color.Parse("#FFD25A"));
+        private bool _isVerticalTabStrip;
+        internal bool IsVerticalTabStripActive => _isVerticalTabStrip;
+
+        // True for the duration of a sidebar grip drag (PointerPressed on the grip through its
+        // PointerReleased/PointerCaptureLost). UpdateTabHeaderViewport - invoked continuously
+        // during a drag from activity-driven paths (QueueTabVisualRefresh on pane output/bell,
+        // the 1s tab-status timer) - must not stomp scrollViewer.Width with the stale persisted
+        // setting value while this is true, or a live drag gets silently reverted mid-gesture.
+        private bool _isTabStripGripDragging;
+
+        /// <summary>Test-only seam: simulates the mid-drag state without needing real pointer
+        /// event simulation in a headless test host.</summary>
+        internal bool IsTabStripGripDraggingForTest
+        {
+            get => _isTabStripGripDragging;
+            set => _isTabStripGripDragging = value;
+        }
         private bool _isDraggingTransferOverlay;
         private Point _transferOverlayDragStart;
         private Point _transferOverlayOffsetStart;
@@ -152,6 +173,8 @@ namespace NovaTerminal
             public bool HasBell { get; set; }
             public DateTime LastBellUtc { get; set; }
             public AgentHost.AgentAttentionTier AgentTier { get; set; }
+            public TabStatusTracker Status { get; } = new();
+            public TabTrackerStatus RenderedStatus { get; set; }
         }
 
         internal enum TabHeaderPointerAction
@@ -371,6 +394,29 @@ namespace NovaTerminal
             return state;
         }
 
+        internal TabStatusTracker GetTabStatusTracker(TabItem tab) => GetOrCreateTabState(tab).Status;
+
+        /// <summary>Timer-driven decay pass: re-evaluates every tab's heuristic status and queues a
+        /// visual refresh only for tabs whose rendered status changed. Vertical mode only.</summary>
+        internal void RefreshTabStatuses()
+        {
+            if (!_isVerticalTabStrip) return;
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            var now = DateTime.UtcNow;
+            foreach (TabItem tab in tabs.Items.Cast<TabItem>())
+            {
+                var state = GetOrCreateTabState(tab);
+                var status = state.Status.Evaluate(now, isSelected: tab.IsSelected);
+                if (status != state.RenderedStatus)
+                {
+                    state.RenderedStatus = status;
+                    QueueTabVisualRefresh(tab);
+                }
+            }
+        }
+
         internal string? GetTabUserTitle(TabItem tab)
         {
             return GetOrCreateTabState(tab).UserTitle;
@@ -445,11 +491,11 @@ namespace NovaTerminal
                 var toRefresh = _pendingVisualRefreshTabs.ToList();
                 _pendingVisualRefreshTabs.Clear();
 
+                // UpdateTabVisuals ignores its specificTab parameter and always does a full
+                // all-tabs pass, so calling it once per queued tab makes K queued tabs = K
+                // identical full passes. One call per batch is enough.
                 if (toRefresh.Count == 0) return;
-                foreach (var item in toRefresh)
-                {
-                    UpdateTabVisuals(item);
-                }
+                UpdateTabVisuals();
             }, DispatcherPriority.Background);
         }
 
@@ -558,9 +604,80 @@ namespace NovaTerminal
             return headerHost;
         }
 
+        private Border CreateVerticalTabHeaderHost(TabItem tab, string text)
+        {
+            var statusDot = new Avalonia.Controls.Shapes.Ellipse
+            {
+                Name = "TabStatusDot",
+                Width = 8,
+                Height = 8,
+                Fill = Brushes.Transparent,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+
+            var headerText = new TextBlock
+            {
+                Text = text,
+                Foreground = Brushes.White,
+                FontSize = 12,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var previewText = new TextBlock
+            {
+                Name = "TabPreviewLine",
+                Text = string.Empty,
+                Foreground = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)),
+                FontSize = 10,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 2, 0, 0)
+            };
+
+            // Title BEFORE preview: FindTabHeaderTextBlock takes the first TextBlock as the
+            // title, and UpdateTabVisuals rewrites that one with the display label.
+            var textColumn = new StackPanel { Orientation = Avalonia.Layout.Orientation.Vertical };
+            textColumn.Children.Add(headerText);
+            textColumn.Children.Add(previewText);
+
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+            Grid.SetColumn(statusDot, 0);
+            Grid.SetColumn(textColumn, 1);
+            row.Children.Add(statusDot);
+            row.Children.Add(textColumn);
+
+            var headerHost = new Border
+            {
+                Background = Brushes.Transparent,
+                Padding = new Thickness(10, 6),
+                Child = row
+            };
+
+            headerHost.ContextFlyout = new MenuFlyout();
+            headerHost.PointerPressed += (_, e) => OnTabHeaderPointerPressed(tab, e);
+            ToolTip.SetTip(headerHost, text);
+            return headerHost;
+        }
+
+        /// <summary>Walks a code-built header object graph by part name (constructed headers
+        /// have no name scope, so FindControl can't see inside them).</summary>
+        internal static T? FindTabHeaderDescendant<T>(object? node, string name) where T : Control
+            => node switch
+            {
+                T match when match.Name == name => match,
+                Border border => FindTabHeaderDescendant<T>(border.Child, name),
+                Panel panel => panel.Children.Select(c => FindTabHeaderDescendant<T>(c, name)).FirstOrDefault(c => c != null),
+                Decorator decorator => FindTabHeaderDescendant<T>(decorator.Child, name),
+                ContentControl contentControl => FindTabHeaderDescendant<T>(contentControl.Content, name),
+                _ => null,
+            };
+
         private void ConfigureTabHeader(TabItem tab, string text)
         {
-            tab.Header = CreateTabHeaderHost(tab, text);
+            tab.Header = _isVerticalTabStrip
+                ? CreateVerticalTabHeaderHost(tab, text)
+                : CreateTabHeaderHost(tab, text);
         }
 
         private void OnTabHeaderPointerPressed(TabItem tab, PointerPressedEventArgs e)
@@ -733,11 +850,189 @@ namespace NovaTerminal
             return new Thickness(reservedLeft, 0, reservedRight, 0);
         }
 
+        /// <summary>
+        /// Applies the TabStripOrientation setting. There is exactly ONE TabControl template
+        /// (see MainWindow.axaml) - it is never swapped, because swapping Theme/ItemsPanel at
+        /// runtime while a tab has live content makes the new template's PART_SelectedContentHost
+        /// fight the old one for ownership of that content (Avalonia 12.0.4 throws "already has a
+        /// visual parent" - see task-6-report.md). Instead this only flips the "vertical-tabs"
+        /// class and defers to UpdateTabHeaderViewport, which reconfigures the existing template
+        /// parts (dock side, spacer height, grip visibility, items-panel orientation, sizing) in
+        /// place. The same TabItem instances (and their pane content) are reused throughout - a
+        /// layout swap must never dispose or recreate sessions.
+        /// </summary>
+        internal void ApplyTabLayout()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            bool vertical = TabStripLayout.IsVertical(_settings.TabStripOrientation);
+            _isVerticalTabStrip = vertical;
+            tabs.Classes.Set("vertical-tabs", vertical);
+
+            // ConfigureTabHeader is mode-aware (plain header vs. rich status/title/preview
+            // row), so a layout swap must rebuild every tab's header content in place - the
+            // same TabItem instances are reused, only their Header content changes.
+            foreach (var tab in tabs.Items.Cast<TabItem>())
+            {
+                ConfigureTabHeader(tab, GetTabHeaderText(tab));
+            }
+
+            if (vertical && _tabStatusTimer == null)
+            {
+                _tabStatusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+                _tabStatusTimer.Tick += (_, _) => RefreshTabStatuses();
+            }
+
+            if (_tabStatusTimer != null)
+            {
+                _tabStatusTimer.IsEnabled = vertical;
+            }
+
+            // Sizing/part reconfiguration needs a layout pass to have measured the template
+            // parts, so defer - same pattern as RebuildTitleBar.
+            Dispatcher.UIThread.Post(() =>
+            {
+                WireTabStripResizeGrip();
+                UpdateTabVisuals();
+            }, DispatcherPriority.Background);
+        }
+
+        /// <summary>
+        /// Flips <see cref="TerminalSettings.TabStripOrientation"/> between Horizontal and
+        /// Vertical, persists it, and re-applies the tab layout - the same effect as changing
+        /// the setting from the Settings window, but reachable via shortcut/command palette.
+        /// </summary>
+        private void ToggleTabOrientation()
+        {
+            _settings.TabStripOrientation = TabStripLayout.IsVertical(_settings.TabStripOrientation)
+                ? "Horizontal"
+                : "Vertical";
+            _settings.Save();
+            ApplyTabLayout();
+        }
+
+        /// <summary>
+        /// Wires the sidebar's resize grip (PART_TabStripResizeGrip). The grip is a permanent
+        /// part of the single inline template (see ApplyTabLayout's remarks) - it is never
+        /// re-templated in/out, only shown/hidden via IsVisible. So wiring happens once per
+        /// window instance (guarded by a "wired" Tag) and survives every mode flip; a hidden
+        /// grip in horizontal mode is not hit-tested, so the handlers are inert there. Width is
+        /// only persisted to settings on pointer release, not on every PointerMoved.
+        /// </summary>
+        private void WireTabStripResizeGrip()
+        {
+            if (!_isVerticalTabStrip) return;
+
+            var grip = this.GetVisualDescendants().OfType<Border>()
+                .FirstOrDefault(b => b.Name == "PART_TabStripResizeGrip");
+            var scrollViewer = FindTabHeaderScrollViewer();
+            if (grip == null || scrollViewer == null || Equals(grip.Tag, "wired")) return;
+            grip.Tag = "wired";
+
+            double startWidth = 0;
+            double startX = 0;
+
+            grip.PointerPressed += (_, e) =>
+            {
+                startWidth = scrollViewer.Bounds.Width;
+                startX = e.GetPosition(this).X;
+                _isTabStripGripDragging = true;
+                e.Pointer.Capture(grip);
+                e.Handled = true;
+            };
+
+            grip.PointerMoved += (_, e) =>
+            {
+                if (!ReferenceEquals(e.Pointer.Captured, grip)) return;
+                scrollViewer.Width = TabStripLayout.ComputeDraggedWidth(startWidth, startX, e.GetPosition(this).X);
+            };
+
+            grip.PointerReleased += (_, e) =>
+            {
+                if (!ReferenceEquals(e.Pointer.Captured, grip)) return;
+                e.Pointer.Capture(null);
+                _isTabStripGripDragging = false;
+                if (double.IsFinite(scrollViewer.Width))
+                {
+                    _settings.VerticalTabStripWidth = scrollViewer.Width;
+                    _settings.Save();
+                }
+            };
+
+            // Involuntary capture loss (e.g. another control steals it, window deactivates
+            // mid-drag) must not leave the flag stuck - that would permanently freeze
+            // scrollViewer.Width against future viewport passes. Clear WITHOUT persisting: the
+            // next UpdateTabHeaderViewport pass restores the last-persisted width, which is the
+            // correct recovery for an aborted drag (mirrors PointerReleased's persist path being
+            // skipped, not duplicated).
+            grip.PointerCaptureLost += (_, _) =>
+            {
+                _isTabStripGripDragging = false;
+            };
+        }
+
+        /// <summary>
+        /// Locates a named part inside the (single, never-swapped) Tabs TabControl template.
+        /// </summary>
+        private T? FindTabTemplatePart<T>(string name) where T : Control
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return null;
+
+            return tabs.GetVisualDescendants()
+                .OfType<T>()
+                .FirstOrDefault(c => c.Name == name);
+        }
+
         private void UpdateTabHeaderViewport()
         {
             var scrollViewer = FindTabHeaderScrollViewer();
-            var titleBar = this.FindControl<Grid>("TitleBar");
             if (scrollViewer == null) return;
+
+            var sidebar = FindTabTemplatePart<Grid>("PART_TabSidebar");
+            var spacer = FindTabTemplatePart<Border>("PART_TitleBandSpacer");
+            var grip = FindTabTemplatePart<Border>("PART_TabStripResizeGrip");
+            var panel = FindTabItemsPresenter()?.Panel as StackPanel;
+
+            if (_isVerticalTabStrip)
+            {
+                if (sidebar != null) DockPanel.SetDock(sidebar, Dock.Left);
+                if (spacer != null) spacer.Height = 36;
+                if (grip != null) grip.IsVisible = true;
+                if (panel != null) panel.Orientation = Orientation.Vertical;
+
+                scrollViewer.Margin = new Thickness(0);
+                scrollViewer.Height = double.NaN;
+                // A live grip drag owns scrollViewer.Width via PointerMoved - a viewport pass
+                // firing mid-drag (activity-driven: QueueTabVisualRefresh on pane output/bell,
+                // the 1s tab-status timer) must not reset it back to the stale persisted value,
+                // or the in-progress drag is silently discarded (visible snap-back, and a
+                // release without another move would persist the reverted width).
+                if (!_isTabStripGripDragging)
+                {
+                    scrollViewer.Width = TabStripLayout.ClampSidebarWidth(_settings.VerticalTabStripWidth);
+                }
+                scrollViewer.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+                scrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                scrollViewer.ClipToBounds = true;
+
+                // Horizontal overflow math is meaningless in a scrolling sidebar; route through
+                // UpdateTabOverflowIndicator's own vertical guard so the reset logic (badge,
+                // tab-list button tooltip/foreground) lives in one place.
+                UpdateTabOverflowIndicator();
+                return;
+            }
+
+            if (sidebar != null) DockPanel.SetDock(sidebar, Dock.Top);
+            if (spacer != null) spacer.Height = 0;
+            if (grip != null) grip.IsVisible = false;
+            if (panel != null) panel.Orientation = Orientation.Horizontal;
+
+            scrollViewer.Width = double.NaN;
+            scrollViewer.HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden;
+            scrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            var titleBar = this.FindControl<Grid>("TitleBar");
 
             scrollViewer.Margin = GetTabHeaderViewportMargin(
                 RuntimeInformation.IsOSPlatform(OSPlatform.OSX),
@@ -782,7 +1077,11 @@ namespace NovaTerminal
                 tabListEntry?.ShortcutKey ?? TitleBarCatalog.OpenTabListId, _settings.Keybindings);
             string baseTooltip = TitleBarShortcuts.FormatTooltip(tabListEntry?.Title ?? "Tab List", tabListShortcut);
 
-            double viewportWidth = scrollViewer.Bounds.Width;
+            // In vertical mode the sidebar scrolls its own overflow, so viewportWidth (≈ sidebar
+            // width, not "space for N tabs") is meaningless here. Force it through the same
+            // zero-hidden reset branch used when the viewport has no measured width yet, rather
+            // than duplicating the badge/tooltip/foreground reset.
+            double viewportWidth = _isVerticalTabStrip ? 0 : scrollViewer.Bounds.Width;
             if (viewportWidth <= 0)
             {
                 badge.IsVisible = false;
@@ -823,6 +1122,12 @@ namespace NovaTerminal
 
         private void EnsureSelectedTabHeaderVisible()
         {
+            if (_isVerticalTabStrip)
+            {
+                (this.FindControl<TabControl>("Tabs")?.SelectedItem as Control)?.BringIntoView();
+                return;
+            }
+
             var tabs = this.FindControl<TabControl>("Tabs");
             var scrollViewer = FindTabHeaderScrollViewer();
             if (tabs?.SelectedItem is not TabItem selected || scrollViewer == null) return;
@@ -2337,6 +2642,7 @@ namespace NovaTerminal
                         }
                         GetOrCreateTabState(ti);
                         ClearTabAttention(ti);
+                        GetOrCreateTabState(ti).Status.NoteSelected();
                         var pane = ResolvePaneForTab(ti);
                         if (pane != null)
                         {
@@ -2584,6 +2890,13 @@ namespace NovaTerminal
                     e.Handled = true;
                     return;
                 }
+                if (IsShortcut(e, "toggle_tab_orientation", "Ctrl+Shift+L"))
+                {
+                    RecordCommandUsage("toggle_tab_orientation");
+                    ToggleTabOrientation();
+                    e.Handled = true;
+                    return;
+                }
                 if (IsShortcut(e, "close_tab", "Ctrl+W"))
                 {
                     RecordCommandUsage("close_tab");
@@ -2713,6 +3026,10 @@ namespace NovaTerminal
             {
                 System.Diagnostics.Debug.WriteLine($"[Vault] Init failed: {ex.Message}");
             }
+
+            // Applies TabStripOrientation for the initial window. Like RebuildTitleBar below,
+            // this cannot wait for SetupCommandPalette() — that is lazy and never runs at startup.
+            ApplyTabLayout();
 
             // Built here rather than from SetupCommandPalette(), which is lazy and does not run at
             // startup: the initial window's title bar has to exist before the user opens anything.
@@ -2994,6 +3311,8 @@ namespace NovaTerminal
             var tab = ResolveOwningTabForPane(pane);
             if (tab == null) return;
 
+            GetOrCreateTabState(tab).Status.NoteOutput(DateTime.UtcNow);
+
             if (TryGetSelectedTab(out var selectedTabForStartup) && selectedTabForStartup == tab && ResolvePaneForTab(selectedTabForStartup) == pane)
             {
                 _startup.Mark(StartupPhase.FirstTerminalReady);
@@ -3030,6 +3349,7 @@ namespace NovaTerminal
 
                 state.LastBellUtc = now;
                 state.HasBell = true;
+                state.Status.NoteBell();
                 QueueTabVisualRefresh(tab);
             }
         }
@@ -4801,6 +5121,11 @@ namespace NovaTerminal
                 {
                     ToolTip.SetTip(headerControl, BuildFullTabLabel(ti));
                 }
+
+                if (_isVerticalTabStrip)
+                {
+                    UpdateVerticalTabExtras(ti, GetOrCreateTabState(ti), borderBrush);
+                }
             }
 
             UpdateTabAutomationLabels();
@@ -4808,6 +5133,44 @@ namespace NovaTerminal
             UpdateTabHeaderViewport();
             sw.Stop();
             RendererStatistics.RecordTabVisualUpdateTime(sw.ElapsedMilliseconds);
+        }
+
+        private void UpdateVerticalTabExtras(TabItem tab, TabRuntimeState state, IBrush workingBrush)
+        {
+            if (FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot") is { } dot)
+            {
+                dot.Fill = state.RenderedStatus switch
+                {
+                    TabTrackerStatus.Working => workingBrush,
+                    TabTrackerStatus.Attention => TabAttentionBrush,
+                    _ => Brushes.Transparent,
+                };
+            }
+
+            if (FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine") is { } preview)
+            {
+                preview.Text = ReadPaneLastLine(ResolvePaneForTab(tab));
+            }
+        }
+
+        private static string ReadPaneLastLine(TerminalPane? pane)
+        {
+            var buffer = pane?.Buffer;
+            if (buffer == null) return string.Empty;
+
+            // GetLastNonEmptyRowText takes the buffer read lock itself (NoRecursion —
+            // do NOT wrap this call in another Lock.EnterReadLock).
+            string text = NovaTerminal.VT.Export.TerminalExporter.GetLastNonEmptyRowText(buffer);
+
+            // Unwritten mid-row cells can surface as raw NUL graphemes; a NUL reaching the
+            // preview TextBlock renders as invisible garbage, so swap it for a space and re-trim
+            // (the exporter's own TrimEnd may no longer be meaningful once NULs become spaces).
+            if (text.IndexOf('\0') >= 0)
+            {
+                text = text.Replace('\0', ' ').TrimEnd();
+            }
+
+            return text;
         }
 
         private void SplitPane(Avalonia.Layout.Orientation orientation)
@@ -5180,6 +5543,7 @@ namespace NovaTerminal
             CommandRegistry.Register("Tab: Next (MRU)", "General", () => SwitchTabByMru(reverse: false), GetEffectiveShortcutBinding("next_tab", "Ctrl+Tab"), "next_tab");
             CommandRegistry.Register("Tab: Previous (MRU)", "General", () => SwitchTabByMru(reverse: true), GetEffectiveShortcutBinding("prev_tab", "Ctrl+Shift+Tab"), "prev_tab");
             CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), GetEffectiveShortcutBinding(TitleBarCatalog.OpenTabListId, "Ctrl+Shift+O"), TitleBarCatalog.OpenTabListId);
+            CommandRegistry.Register("Tabs: Toggle Vertical Tab Sidebar", "General", () => ToggleTabOrientation(), GetEffectiveShortcutBinding("toggle_tab_orientation", "Ctrl+Shift+L"), "toggle_tab_orientation");
             CommandRegistry.Register("Tab: Rename Current", "General", () => _ = RenameSelectedTabAsync(), "");
             CommandRegistry.Register("Tab: Copy Current Title", "General", () => _ = CopySelectedTabTitleAsync(), "");
             CommandRegistry.Register("Tab: Close Others", "General", () => _ = CloseOtherTabsAsync(), "");
@@ -5958,6 +6322,7 @@ namespace NovaTerminal
                 ApplyThemeToUI();
                 ApplySettingsToAllTabs();
                 RebuildTitleBar();
+                ApplyTabLayout();
                 UpdateTransparencyHints();
                 ApplyAgentHostSettingsLive();
 
@@ -5981,6 +6346,7 @@ namespace NovaTerminal
                 ApplySettingsToAllTabs();
                 UpdateTransparencyHints();
                 UpdateTabVisuals();
+                ApplyTabLayout();
             }
         }
 
@@ -6567,6 +6933,7 @@ namespace NovaTerminal
             }
             _recordingToastTimer.Stop();
             _updateCheckTimer.Stop();
+            _tabStatusTimer?.Stop();
             _globalHotkey?.Dispose();
             AgentHost.AgentHostService.Instance.ObserveActivityChanged -= OnAgentObserveActivityChanged;
             AgentHost.AgentSessionRegistry.Instance.SessionRegistered -= OnAgentSessionRegisteredForAttention;
