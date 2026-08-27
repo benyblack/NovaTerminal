@@ -1,6 +1,7 @@
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
+using System.Text.RegularExpressions;
 
 namespace NovaTerminal.Architecture.Tests;
 
@@ -203,5 +204,57 @@ public class ProjectFileLayeringTests
             Assert.False(string.IsNullOrWhiteSpace((string?)item.Element("CopyToPublishDirectory")),
                 $"Content '{(string?)item.Attribute("Include")}' must declare CopyToPublishDirectory.");
         }
+    }
+
+    // Same CA1861 reasoning as VtOnly above.
+    private static readonly string[] ProjectsAllowedToReferenceVelopack =
+        ["src/NovaTerminal.App/NovaTerminal.App.csproj"];
+
+    /// <summary>
+    /// Velopack is the Windows install/update host. It is referenced for exactly one reason -
+    /// <c>VelopackApp.Build().Run()</c> and the update seam in <c>NovaTerminal.App/Update</c> - and
+    /// must not spread. A second project taking the reference would put install-location and
+    /// restart-the-process concerns behind a library boundary where nothing can see them, and would
+    /// drag an unsigned-updater dependency into layers that are meant to be host-agnostic.
+    /// </summary>
+    [Fact]
+    public void Velopack_is_referenced_only_by_the_App()
+    {
+        var offenders = Directory
+            .EnumerateFiles(Path.Combine(RepoRoot(), "src"), "*.csproj", SearchOption.AllDirectories)
+            .Select(p => Path.GetRelativePath(RepoRoot(), p).Replace('\\', '/'))
+            .Where(rel => PackageReferences(rel).Any(
+                p => p.Equals("Velopack", StringComparison.OrdinalIgnoreCase)))
+            .Where(rel => !ProjectsAllowedToReferenceVelopack.Contains(rel))
+            .ToArray();
+
+        Assert.Empty(offenders);
+    }
+
+    /// <summary>
+    /// The Velopack NuGet package and the <c>vpk</c> CLI must be the same version. <c>vpk pack</c>
+    /// writes the package format and the <c>releases.win.json</c> feed that the in-app SDK then
+    /// reads, so a mismatch is a compatibility question nobody wants to answer at release time.
+    /// Until this test existed the coupling was enforced only by a comment in
+    /// <c>Directory.Packages.props</c> - which a version bump of either side would sail straight
+    /// past. Now bumping one without the other fails a gating test instead of shipping.
+    /// </summary>
+    [Fact]
+    public void Velopack_package_and_vpk_cli_versions_agree()
+    {
+        var props = XDocument.Load(Path.Combine(RepoRoot(), "Directory.Packages.props"));
+        var packageVersion = props.Descendants("PackageVersion")
+            .Where(e => string.Equals((string?)e.Attribute("Include"), "Velopack", StringComparison.OrdinalIgnoreCase))
+            .Select(e => (string?)e.Attribute("Version"))
+            .SingleOrDefault();
+        Assert.False(string.IsNullOrWhiteSpace(packageVersion),
+            "Directory.Packages.props declares no Velopack PackageVersion.");
+
+        var workflow = File.ReadAllText(Path.Combine(RepoRoot(), ".github/workflows/release.yml"));
+        var match = Regex.Match(workflow, @"dotnet\s+tool\s+install\s+-g\s+vpk\s+--version\s+(?<ver>[0-9][^\s""']*)");
+        Assert.True(match.Success,
+            "release.yml no longer contains a version-pinned 'dotnet tool install -g vpk --version <ver>' step.");
+
+        Assert.Equal(packageVersion, match.Groups["ver"].Value);
     }
 }

