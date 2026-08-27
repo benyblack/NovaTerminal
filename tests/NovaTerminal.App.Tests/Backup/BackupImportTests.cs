@@ -83,6 +83,85 @@ public sealed class BackupImportTests
     }
 
     [Fact]
+    public void Merge_Workspaces_KeepsLocalOnlyWorkspace()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        using var target = BackupTestTree.CreatePopulated();
+        target.WriteFile(Path.Combine("workspaces", "local-only.json"), """{"name":"LocalOnly"}""");
+        string bundle = ExportFrom(source);
+
+        new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Merge);
+
+        Assert.True(target.Exists(Path.Combine("workspaces", "local-only.json")));
+        Assert.True(target.Exists(Path.Combine("workspaces", "default.json")));
+    }
+
+    [Fact]
+    public void Replace_Workspaces_DropsLocalOnlyWorkspace()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        using var target = BackupTestTree.CreatePopulated();
+        target.WriteFile(Path.Combine("workspaces", "local-only.json"), """{"name":"LocalOnly"}""");
+        string bundle = ExportFrom(source);
+
+        new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
+
+        Assert.False(target.Exists(Path.Combine("workspaces", "local-only.json")));
+        Assert.True(target.Exists(Path.Combine("workspaces", "default.json")));
+    }
+
+    [Fact]
+    public void Merge_Policy_KeepsLocalOnlyPolicyFile()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        using var target = BackupTestTree.CreatePopulated();
+        target.WriteFile(Path.Combine("policy", "local-only.json"), """{"name":"LocalOnly"}""");
+        string bundle = ExportFrom(source);
+
+        new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Merge);
+
+        Assert.True(target.Exists(Path.Combine("policy", "local-only.json")));
+        Assert.True(target.Exists(Path.Combine("policy", "workspace_policy.json")));
+    }
+
+    [Fact]
+    public void Replace_Policy_DropsLocalOnlyPolicyFile()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        using var target = BackupTestTree.CreatePopulated();
+        target.WriteFile(Path.Combine("policy", "local-only.json"), """{"name":"LocalOnly"}""");
+        string bundle = ExportFrom(source);
+
+        new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
+
+        Assert.False(target.Exists(Path.Combine("policy", "local-only.json")));
+        Assert.True(target.Exists(Path.Combine("policy", "workspace_policy.json")));
+    }
+
+    /// <summary>
+    /// I6: Replace must clear a live directory even when the bundle donates nothing for it — an
+    /// absent/empty staged directory still means "the bundle is the truth: nothing", not "leave
+    /// local content alone". Workspaces still exports/imports as a category here because its
+    /// sibling directory (workspaces/) has content, even though workspace_templates/ is empty.
+    /// </summary>
+    [Fact]
+    public void Replace_EmptySourceDirectory_ClearsLiveDirectory()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        Directory.Delete(Path.Combine(source.Root, "workspace_templates"), recursive: true);
+        using var target = BackupTestTree.CreatePopulated();
+        Assert.True(target.Exists(Path.Combine("workspace_templates", "dev.json")));
+        string bundle = ExportFrom(source);
+
+        var outcome = new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
+
+        Assert.True(outcome.Success, outcome.Message);
+        Assert.False(target.Exists(Path.Combine("workspace_templates", "dev.json")));
+        // The sibling directory in the same category, which the bundle DID carry, still landed.
+        Assert.True(target.Exists(Path.Combine("workspaces", "default.json")));
+    }
+
+    [Fact]
     public void Merge_Connections_MatchesProfilesById()
     {
         string sharedId = "11111111-1111-1111-1111-111111111111";
@@ -91,14 +170,14 @@ public sealed class BackupImportTests
 
         using var source = BackupTestTree.CreatePopulated();
         source.WriteFile(Path.Combine("ssh", "profiles.json"), $$"""
-            {"schemaVersion":1,"profiles":[
+            {"SchemaVersion":1,"Profiles":[
               {"Id":"{{sharedId}}","Name":"From Bundle","Host":"bundle.example"},
               {"Id":"{{bundleOnlyId}}","Name":"Bundle Only","Host":"only.example"}]}
             """);
 
         using var target = BackupTestTree.CreatePopulated();
         target.WriteFile(Path.Combine("ssh", "profiles.json"), $$"""
-            {"schemaVersion":1,"profiles":[
+            {"SchemaVersion":1,"Profiles":[
               {"Id":"{{sharedId}}","Name":"Local Version","Host":"local.example"},
               {"Id":"{{localOnlyId}}","Name":"Local Only","Host":"keep.example"}]}
             """);
@@ -107,7 +186,7 @@ public sealed class BackupImportTests
         new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Merge);
 
         using var doc = target.ReadJson(Path.Combine("ssh", "profiles.json"));
-        var profiles = doc.RootElement.GetProperty("profiles").EnumerateArray().ToArray();
+        var profiles = doc.RootElement.GetProperty("Profiles").EnumerateArray().ToArray();
 
         Assert.Equal(3, profiles.Length);
         Assert.Equal(
@@ -122,20 +201,109 @@ public sealed class BackupImportTests
     {
         using var source = BackupTestTree.CreatePopulated();
         source.WriteFile(Path.Combine("ssh", "profiles.json"), """
-            {"schemaVersion":1,"profiles":[{"Id":"22222222-2222-2222-2222-222222222222","Name":"Bundle Only"}]}
+            {"SchemaVersion":1,"Profiles":[{"Id":"22222222-2222-2222-2222-222222222222","Name":"Bundle Only"}]}
             """);
         using var target = BackupTestTree.CreatePopulated();
         target.WriteFile(Path.Combine("ssh", "profiles.json"), """
-            {"schemaVersion":1,"profiles":[{"Id":"33333333-3333-3333-3333-333333333333","Name":"Local Only"}]}
+            {"SchemaVersion":1,"Profiles":[{"Id":"33333333-3333-3333-3333-333333333333","Name":"Local Only"}]}
             """);
         string bundle = ExportFrom(source);
 
         new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
 
         using var doc = target.ReadJson(Path.Combine("ssh", "profiles.json"));
-        var profiles = doc.RootElement.GetProperty("profiles").EnumerateArray().ToArray();
+        var profiles = doc.RootElement.GetProperty("Profiles").EnumerateArray().ToArray();
         Assert.Single(profiles);
         Assert.Equal("Bundle Only", profiles[0].GetProperty("Name").GetString());
+    }
+
+    /// <summary>
+    /// C1: the real profiles.json on disk is PascalCase ("SchemaVersion"/"Profiles" —
+    /// JsonSshProfileStore's SshJsonContext sets no naming policy) and JsonNode's indexer is
+    /// case-sensitive. A hardcoded lowercase "profiles" read/write would silently miss the real
+    /// property and add a second, empty one next to it, discarding every bundle profile while
+    /// still reporting success. This proves a legacy/foreign-tool lowercase shape is normalized
+    /// in place instead — exactly one profiles key survives, not two.
+    /// </summary>
+    [Fact]
+    public void Merge_Connections_LegacyLowercaseProfilesKey_IsNormalizedNotDuplicated()
+    {
+        string localOnlyId = "33333333-3333-3333-3333-333333333333";
+        string bundleOnlyId = "22222222-2222-2222-2222-222222222222";
+
+        using var source = BackupTestTree.CreatePopulated();
+        source.WriteFile(Path.Combine("ssh", "profiles.json"), $$"""
+            {"SchemaVersion":1,"Profiles":[{"Id":"{{bundleOnlyId}}","Name":"Bundle Only"}]}
+            """);
+
+        using var target = BackupTestTree.CreatePopulated();
+        // Legacy/foreign shape: lowercase "profiles" — real files are never actually shaped
+        // this way (JsonSshProfileStore only ever writes PascalCase), but nothing should
+        // silently corrupt the file if one is ever encountered.
+        target.WriteFile(Path.Combine("ssh", "profiles.json"), $$"""
+            {"schemaVersion":1,"profiles":[{"Id":"{{localOnlyId}}","Name":"Local Only"}]}
+            """);
+
+        string bundle = ExportFrom(source);
+        var outcome = new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Merge);
+        Assert.True(outcome.Success, outcome.Message);
+
+        using var doc = JsonDocument.Parse(target.ReadFile(Path.Combine("ssh", "profiles.json")));
+        var profilesProperties = doc.RootElement.EnumerateObject()
+            .Where(p => string.Equals(p.Name, "profiles", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        Assert.Single(profilesProperties);
+
+        var profiles = profilesProperties[0].Value.EnumerateArray().ToArray();
+        Assert.Equal(2, profiles.Length);
+        Assert.Contains(profiles, p => p.GetProperty("Id").GetString() == localOnlyId);
+        Assert.Contains(profiles, p => p.GetProperty("Id").GetString() == bundleOnlyId);
+    }
+
+    [Fact]
+    public void Merge_NativeKnownHosts_UnionsAndDedupes()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        source.WriteFile(Path.Combine("ssh", "native_known_hosts.json"), """[{"Host":"b"},{"Host":"c"}]""");
+        using var target = BackupTestTree.CreatePopulated();
+        target.WriteFile(Path.Combine("ssh", "native_known_hosts.json"), """[{"Host":"a"},{"Host":"b"}]""");
+        string bundle = ExportFrom(source);
+
+        var outcome = new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Merge);
+        Assert.True(outcome.Success, outcome.Message);
+
+        using var doc = target.ReadJson(Path.Combine("ssh", "native_known_hosts.json"));
+        var hosts = doc.RootElement.EnumerateArray().Select(e => e.GetProperty("Host").GetString()).ToArray();
+
+        Assert.Equal(3, hosts.Length);
+        Assert.Equal(1, hosts.Count(h => h == "b"));
+        Assert.Contains("a", hosts);
+        Assert.Contains("c", hosts);
+    }
+
+    /// <summary>
+    /// Snippets is a flat array with no stable id, so merge and replace are deliberately the
+    /// same operation: wholesale bundle-replaces-local in both modes. This is what would catch
+    /// someone later "improving" it into an array merge — a merge would keep "local-only" too.
+    /// </summary>
+    [Theory]
+    [InlineData(ImportMode.Merge)]
+    [InlineData(ImportMode.Replace)]
+    public void Snippets_AlwaysReplacedWholesale(ImportMode mode)
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        source.WriteFile(Path.Combine("command-assist", "snippets.json"), """[{"name":"from-bundle"}]""");
+        using var target = BackupTestTree.CreatePopulated();
+        target.WriteFile(Path.Combine("command-assist", "snippets.json"), """[{"name":"local-only"}]""");
+        string bundle = ExportFrom(source);
+
+        var outcome = new BackupService(target.Root, Clock()).Import(bundle, mode);
+        Assert.True(outcome.Success, outcome.Message);
+
+        Assert.Equal(
+            source.ReadFile(Path.Combine("command-assist", "snippets.json")),
+            target.ReadFile(Path.Combine("command-assist", "snippets.json")));
     }
 
     [Fact]
@@ -253,17 +421,52 @@ public sealed class BackupImportTests
         string future = Path.Combine(target.Root, "future.novabackup");
         WriteFutureSchemaBundle(future);
 
-        var outcome = new BackupService(target.Root, Clock()).Import(future, ImportMode.Replace);
+        var service = new BackupService(target.Root, Clock());
+        var outcome = service.Import(future, ImportMode.Replace);
 
         Assert.False(outcome.Success);
         Assert.Equal(BackupFailureKind.UnsupportedSchemaVersion, outcome.Failure);
         Assert.Equal(original, target.ReadFile("settings.json"));
+        // Validation happens before anything is touched, so no snapshot was needed.
+        Assert.Empty(service.ListSnapshots());
+    }
+
+    /// <summary>
+    /// C2: if the forced pre-import snapshot cannot be written (e.g. the backups directory
+    /// cannot even be created), Import must refuse rather than proceed without a rollback point
+    /// — otherwise the failure-path message "a pre-import snapshot was taken" would be a lie,
+    /// and a mid-write failure would have nothing to roll back to. Snapshot() is documented to
+    /// never throw and to return null on failure instead, so this is reachable, not theoretical.
+    /// </summary>
+    [Fact]
+    public void Import_RefusesWhenPreImportSnapshotCannotBeWritten()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        string bundle = ExportFrom(source);
+
+        using var target = BackupTestTree.CreatePopulated();
+        string originalSettings = target.ReadFile("settings.json");
+
+        // Park a FILE at the backups path, so Snapshot()'s Directory.CreateDirectory throws
+        // internally and Snapshot() swallows it, returning null.
+        File.WriteAllText(Path.Combine(target.Root, "backups"), "blocking file");
+
+        var service = new BackupService(target.Root, Clock());
+        var outcome = service.Import(bundle, ImportMode.Replace);
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+        Assert.Equal(originalSettings, target.ReadFile("settings.json"));
     }
 
     /// <summary>
     /// A mid-write failure must still leave a pre-import snapshot to roll back to. A directory
-    /// parked on a destination file path blocks the write on every OS — unlike a FileShare.None
-    /// lock, which does not block rename or delete on POSIX.
+    /// parked on a destination FILE path blocks the write on every OS — unlike a FileShare.None
+    /// lock, which does not block rename or delete on POSIX. This targets ssh/profiles.json (a
+    /// per-file swap) rather than a file inside themes/ (a directory category): under the
+    /// rename-based commit, a whole catalog directory is swapped in one Directory.Move, so an
+    /// obstruction nested inside it no longer blocks anything — it just gets renamed away along
+    /// with everything else.
     /// </summary>
     [Fact]
     public void Import_FailingMidWrite_LeavesPreImportSnapshot()
@@ -274,8 +477,7 @@ public sealed class BackupImportTests
         using var target = BackupTestTree.CreatePopulated();
         var service = new BackupService(target.Root, Clock());
 
-        // Park a directory where a theme file must be written.
-        string blocked = Path.Combine(target.Root, "themes", "solarized.json");
+        string blocked = Path.Combine(target.Root, "ssh", "profiles.json");
         File.Delete(blocked);
         Directory.CreateDirectory(blocked);
 
@@ -287,11 +489,75 @@ public sealed class BackupImportTests
     }
 
     /// <summary>
-    /// The pre-import snapshot is not just present — it is a genuine rollback: restoring it
-    /// after a failed mid-write import must bring back the exact pre-import bytes, including
-    /// whatever this same failed Import already managed to overwrite before it hit the blocked
-    /// file. This is the difference between "an error was returned" and "the original state is
-    /// actually recoverable".
+    /// C3: a mid-write failure is now a self-healing, in-call rollback — not merely "recoverable
+    /// via a separate Restore of the pre-import snapshot". Settings and Themes both sort before
+    /// Connections (the blocked category) and so both get committed to the live tree before the
+    /// failure; the automatic rollback must revert both, proving it walks the whole journal
+    /// rather than stopping at the first entry.
+    /// </summary>
+    [Fact]
+    public void Import_FailingMidWrite_SelfHealsWithoutExplicitRestore()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        source.WriteFile("settings.json", """{"FontSize":999}""");
+        string bundle = ExportFrom(source);
+
+        using var target = BackupTestTree.CreatePopulated();
+        string originalSettings = target.ReadFile("settings.json");
+        string originalTheme = target.ReadFile(Path.Combine("themes", "solarized.json"));
+        var service = new BackupService(target.Root, Clock());
+
+        string blocked = Path.Combine(target.Root, "ssh", "profiles.json");
+        File.Delete(blocked);
+        Directory.CreateDirectory(blocked);
+
+        var outcome = service.Import(bundle, ImportMode.Merge);
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+        Assert.Equal(originalSettings, target.ReadFile("settings.json"));
+        Assert.Equal(originalTheme, target.ReadFile(Path.Combine("themes", "solarized.json")));
+    }
+
+    /// <summary>
+    /// I5: Replace must not delete live content before the replacement is ready to take its
+    /// place. The rename-based commit renames the old directory aside rather than deleting it
+    /// outright, so even in Replace mode — which is SUPPOSED to drop local-only themes on
+    /// success — a rolled-back failure must restore the original directory in full (local-only
+    /// file included), not leave the user with an empty or half-replaced themes directory.
+    /// </summary>
+    [Fact]
+    public void Import_ReplaceFailingMidWrite_RollsBackThemesRatherThanLeavingItEmpty()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        string bundle = ExportFrom(source);
+
+        using var target = BackupTestTree.CreatePopulated();
+        target.WriteFile(Path.Combine("themes", "local-only.json"), """{"name":"LocalOnly"}""");
+        string originalTheme = target.ReadFile(Path.Combine("themes", "solarized.json"));
+        var service = new BackupService(target.Root, Clock());
+
+        string blocked = Path.Combine(target.Root, "ssh", "profiles.json");
+        File.Delete(blocked);
+        Directory.CreateDirectory(blocked);
+
+        var outcome = service.Import(bundle, ImportMode.Replace);
+
+        Assert.False(outcome.Success);
+        // Rolled back to the exact original directory, including the local-only file a
+        // successful Replace would have dropped — proving nothing was deleted-then-abandoned.
+        Assert.True(target.Exists(Path.Combine("themes", "local-only.json")));
+        Assert.Equal(originalTheme, target.ReadFile(Path.Combine("themes", "solarized.json")));
+    }
+
+    /// <summary>
+    /// Even though a mid-write failure now self-heals within the same Import call (see
+    /// <see cref="Import_FailingMidWrite_SelfHealsWithoutExplicitRestore"/>), the pre-import
+    /// snapshot it also takes must still be a genuine, independent rollback in its own right —
+    /// restoring it must reproduce the exact pre-import bytes, not merely "not error". This is
+    /// the difference between "an error was returned" and "the original state is actually
+    /// recoverable", including through a completely separate code path (Restore) than the one
+    /// that already healed it.
     /// </summary>
     [Fact]
     public void Import_FailingMidWrite_PreImportSnapshotRestoresOriginalSettings()
@@ -305,19 +571,15 @@ public sealed class BackupImportTests
         var clock = Clock();
         var service = new BackupService(target.Root, clock);
 
-        // Park a directory where a theme file must be written, so Themes (which sorts after
-        // Settings in BackupCategory order) fails mid-import, after Settings has already been
-        // merged onto the live tree.
-        string blocked = Path.Combine(target.Root, "themes", "solarized.json");
+        string blocked = Path.Combine(target.Root, "ssh", "profiles.json");
         File.Delete(blocked);
         Directory.CreateDirectory(blocked);
 
         var importOutcome = service.Import(bundle, ImportMode.Merge);
         Assert.False(importOutcome.Success);
 
-        // Settings really was overwritten by the partial import — proving the snapshot is doing
-        // real work, not just existing alongside an untouched tree.
-        Assert.NotEqual(originalSettings, target.ReadFile("settings.json"));
+        // The in-call rollback already healed this by the time Import returned.
+        Assert.Equal(originalSettings, target.ReadFile("settings.json"));
 
         var preImport = service.ListSnapshots().Single(s => s.Reason == SnapshotReason.PreImport);
         Directory.Delete(blocked);
@@ -392,6 +654,9 @@ public sealed class BackupImportTests
 
         Assert.False(outcome.Success);
         Assert.Equal(BackupFailureKind.NotFound, outcome.Failure);
+        // An unknown id must fail before touching anything, including before taking the
+        // pre-restore snapshot that a real restore would take.
+        Assert.DoesNotContain(service.ListSnapshots(), s => s.Reason == SnapshotReason.PreRestore);
     }
 
     private static string ExportFrom(BackupTestTree tree)

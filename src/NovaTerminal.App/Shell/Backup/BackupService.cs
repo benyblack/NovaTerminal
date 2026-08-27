@@ -75,9 +75,16 @@ public sealed class BackupService
     /// <summary>Reads a bundle's manifest and item counts without extracting anything.</summary>
     public InspectOutcome Inspect(string bundlePath) => BundleReader.Open(bundlePath);
 
+    private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
+
     /// <summary>
-    /// Applies a bundle to the live tree. Extracts to a staging directory first and commits
-    /// only once every category succeeded, so a mid-import failure leaves the original intact.
+    /// Applies a bundle to the live tree in two phases. Phase 1 extracts the bundle and computes
+    /// every category's result under a scratch directory, touching nothing live — a corrupt
+    /// entry or a merge failure aborts here with the live tree untouched. Phase 2 commits each
+    /// computed result with a rename-based undo journal: the current live path is renamed aside
+    /// before the new content is moved into place, so a mid-commit failure (e.g. a destination
+    /// blocked by something on disk) rolls every already-committed category back to exactly what
+    /// it was before this call, not just "recoverable via a separate Restore."
     /// </summary>
     /// <param name="categories">Null means every category the bundle contains.</param>
     public BackupOutcome Import(
@@ -85,59 +92,17 @@ public sealed class BackupService
         ImportMode mode,
         IReadOnlyCollection<BackupCategory>? categories = null)
     {
-        var inspection = Inspect(bundlePath);
-        if (!inspection.Success)
-        {
-            return BackupOutcome.Fail(inspection.Failure, inspection.Message);
-        }
+        var (earlyReturn, selected) = ValidateAndSelect(bundlePath, categories);
+        if (earlyReturn is not null) return earlyReturn;
 
-        var available = inspection.Inspection!.Manifest.Categories
-            .Select(name => Enum.TryParse<BackupCategory>(name, ignoreCase: true, out var parsed)
-                ? (BackupCategory?)parsed
-                : null)
-            .OfType<BackupCategory>()
-            .ToArray();
-
-        var selected = (categories is null ? available : available.Intersect(categories)).ToArray();
-        if (selected.Length == 0)
-        {
-            return BackupOutcome.Ok("Nothing to import — the bundle has none of the requested categories.");
-        }
-
-        Snapshot(SnapshotReason.PreImport);
-
-        string staging = Path.Combine(Path.GetTempPath(), $"nova_import_{Guid.NewGuid():N}");
-
-        try
-        {
-            Directory.CreateDirectory(staging);
-            BundleReader.ExtractTo(bundlePath, staging, selected);
-
-            foreach (var category in selected)
-            {
-                ApplyCategory(category, staging, mode);
-            }
-
-            // Name the credential gap in the outcome itself. Bundles carry no secret material,
-            // so imported SSH profiles look complete but cannot authenticate until the user
-            // re-enters passwords — a silent partial failure if nothing says so. The Settings
-            // page has copy for this; the CLI and any other caller only ever see this string.
-            string credentialNote = selected.Contains(BackupCategory.Connections)
-                ? " Connection passwords are not included in a bundle — re-enter them on first connect."
-                : string.Empty;
-
-            return BackupOutcome.Ok($"Imported {selected.Length} categories ({mode}).{credentialNote}");
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
+        if (Snapshot(SnapshotReason.PreImport) is null)
         {
             return BackupOutcome.Fail(
                 BackupFailureKind.WriteFailed,
-                $"Import failed: {ex.Message}. A pre-import snapshot was taken — restore it to roll back.");
+                "Could not write a pre-import snapshot; refusing to import without a rollback point.");
         }
-        finally
-        {
-            try { if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true); } catch { }
-        }
+
+        return ImportCore(bundlePath, mode, selected!);
     }
 
     /// <summary>
@@ -154,84 +119,364 @@ public sealed class BackupService
             return BackupOutcome.Fail(BackupFailureKind.NotFound, $"No snapshot with id '{snapshotId}'.");
         }
 
-        Snapshot(SnapshotReason.PreRestore);
-        return Import(snapshot.FilePath, ImportMode.Replace);
-    }
-
-    private void ApplyCategory(BackupCategory category, string staging, ImportMode mode)
-    {
-        switch (category)
+        // Copy the target bundle aside before taking the pre-restore snapshot (which prunes) or
+        // touching the live tree. Otherwise pruning triggered by that very snapshot could delete
+        // the snapshot being restored (a target at the retention edge gets pushed out by the new
+        // one), and reading straight from BackupsDirectory risks aliasing the source bundle with
+        // the live tree Import is about to overwrite.
+        string tempBundle = Path.Combine(Path.GetTempPath(), $"nova_restore_{Guid.NewGuid():N}{BundleExtension}");
+        try
         {
-            case BackupCategory.Settings when mode == ImportMode.Merge:
-                MergeJsonObjectFile(
-                    Path.Combine(staging, "settings.json"),
-                    Path.Combine(RootDirectory, "settings.json"));
-                break;
-
-            case BackupCategory.Connections when mode == ImportMode.Merge:
-                MergeProfilesFile(
-                    Path.Combine(staging, "ssh", "profiles.json"),
-                    Path.Combine(RootDirectory, "ssh", "profiles.json"));
-                MergeJsonArrayFile(
-                    Path.Combine(staging, "ssh", "native_known_hosts.json"),
-                    Path.Combine(RootDirectory, "ssh", "native_known_hosts.json"));
-                break;
-
-            default:
-                foreach (var entry in BackupCatalog.EntriesFor(category))
-                {
-                    string stagedPath = Path.Combine(staging, entry.SourceRelativePath);
-                    string livePath = Path.Combine(RootDirectory, entry.SourceRelativePath);
-
-                    if (entry.IsDirectory)
-                    {
-                        ApplyDirectory(stagedPath, livePath, mode);
-                    }
-                    else if (File.Exists(stagedPath))
-                    {
-                        Directory.CreateDirectory(Path.GetDirectoryName(livePath)!);
-                        AtomicFile.WriteAllBytes(livePath, File.ReadAllBytes(stagedPath));
-                    }
-                }
-                break;
+            File.Copy(snapshot.FilePath, tempBundle, overwrite: true);
         }
-    }
-
-    /// <summary>Merge copies file-by-file; replace clears the live directory first.</summary>
-    private static void ApplyDirectory(string stagedDirectory, string liveDirectory, ImportMode mode)
-    {
-        if (!Directory.Exists(stagedDirectory)) return;
-
-        if (mode == ImportMode.Replace && Directory.Exists(liveDirectory))
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Directory.Delete(liveDirectory, recursive: true);
+            return BackupOutcome.Fail(
+                BackupFailureKind.WriteFailed,
+                $"Could not stage snapshot '{snapshotId}' for restore: {ex.Message}");
         }
 
-        Directory.CreateDirectory(liveDirectory);
-
-        foreach (string staged in Directory.GetFiles(stagedDirectory, "*", SearchOption.AllDirectories))
+        try
         {
-            string relative = Path.GetRelativePath(stagedDirectory, staged);
-            string live = Path.Combine(liveDirectory, relative);
-            Directory.CreateDirectory(Path.GetDirectoryName(live)!);
-            AtomicFile.WriteAllBytes(live, File.ReadAllBytes(staged));
+            var (earlyReturn, selected) = ValidateAndSelect(tempBundle, categories: null);
+            if (earlyReturn is not null) return earlyReturn;
+
+            if (Snapshot(SnapshotReason.PreRestore) is null)
+            {
+                return BackupOutcome.Fail(
+                    BackupFailureKind.WriteFailed,
+                    "Could not write a pre-restore snapshot; refusing to restore without a rollback point.");
+            }
+
+            return ImportCore(tempBundle, ImportMode.Replace, selected!);
+        }
+        finally
+        {
+            try { if (File.Exists(tempBundle)) File.Delete(tempBundle); }
+            catch (Exception ex) { AppLogger.Log($"[backup] could not clean up restore staging copy: {ex.Message}"); }
         }
     }
 
     /// <summary>
-    /// Key-by-key merge of two JSON objects, bundle winning per key. Operates on
-    /// <see cref="JsonNode"/> rather than a typed model so unknown and future keys survive and
-    /// settings.json keeps its PascalCase names.
+    /// Validates the bundle and resolves which categories will actually be touched. Returns a
+    /// non-null <c>EarlyReturn</c> for both failure (bad bundle) and the no-op "nothing
+    /// requested is present" case — either way, the caller must return it without taking a
+    /// snapshot or writing anything.
     /// </summary>
-    private static void MergeJsonObjectFile(string stagedPath, string livePath)
+    private (BackupOutcome? EarlyReturn, BackupCategory[]? Selected) ValidateAndSelect(
+        string bundlePath, IReadOnlyCollection<BackupCategory>? categories)
     {
-        if (!File.Exists(stagedPath)) return;
+        var inspection = Inspect(bundlePath);
+        if (!inspection.Success)
+        {
+            return (BackupOutcome.Fail(inspection.Failure, inspection.Message), null);
+        }
 
-        var incoming = JsonNode.Parse(File.ReadAllText(stagedPath)) as JsonObject;
-        if (incoming is null) return;
+        var available = inspection.Inspection!.Manifest.Categories
+            .Select(name => Enum.TryParse<BackupCategory>(name, ignoreCase: true, out var parsed)
+                ? (BackupCategory?)parsed
+                : null)
+            .OfType<BackupCategory>()
+            .ToArray();
+
+        var selected = (categories is null ? available : available.Intersect(categories)).ToArray();
+        if (selected.Length == 0)
+        {
+            return (BackupOutcome.Ok("Nothing to import — the bundle has none of the requested categories."), null);
+        }
+
+        return (null, selected);
+    }
+
+    /// <summary>
+    /// Does the actual two-phase apply. Never snapshots — callers (<see cref="Import"/> and
+    /// <see cref="Restore"/>) each take exactly one forced snapshot under their own reason before
+    /// calling this, so a Restore does not also write a redundant pre-import snapshot.
+    /// </summary>
+    private BackupOutcome ImportCore(string bundlePath, ImportMode mode, BackupCategory[] selected)
+    {
+        string staging = Path.Combine(Path.GetTempPath(), $"nova_import_{Guid.NewGuid():N}");
+        string extracted = Path.Combine(staging, "extracted");
+        string final = Path.Combine(staging, "final");
+        string undo = Path.Combine(staging, "undo");
+
+        try
+        {
+            Directory.CreateDirectory(extracted);
+            BundleReader.ExtractTo(bundlePath, extracted, selected);
+
+            List<SwapStep> plan;
+            try
+            {
+                plan = BuildFullPlan(selected, extracted, final, mode);
+            }
+            catch (CategoryPrepareException ex)
+            {
+                return BackupOutcome.Fail(
+                    BackupFailureKind.WriteFailed,
+                    $"Import failed while preparing category '{ex.Category}': {ex.InnerException?.Message ?? ex.Message}. " +
+                    "Nothing was written to the live tree.");
+            }
+
+            try
+            {
+                CommitWithUndo(plan, undo);
+            }
+            catch (ImportCommitException ex)
+            {
+                return BackupOutcome.Fail(
+                    BackupFailureKind.WriteFailed,
+                    $"Import failed while applying category '{ex.Category}' and was rolled back: " +
+                    $"{ex.InnerException?.Message ?? ex.Message}.");
+            }
+
+            // Name the credential gap in the outcome itself. Bundles carry no secret material,
+            // so imported SSH profiles look complete but cannot authenticate until the user
+            // re-enters passwords — a silent partial failure if nothing says so. The Settings
+            // page has copy for this; the CLI and any other caller only ever see this string.
+            string credentialNote = selected.Contains(BackupCategory.Connections)
+                ? " Connection passwords are not included in a bundle — re-enter them on first connect."
+                : string.Empty;
+
+            string categoryWord = selected.Length == 1 ? "category" : "categories";
+            return BackupOutcome.Ok($"Imported {selected.Length} {categoryWord} ({mode}).{credentialNote}");
+        }
+        finally
+        {
+            try { if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true); }
+            catch (Exception ex) { AppLogger.Log($"[backup] could not clean up import staging directory: {ex.Message}"); }
+        }
+    }
+
+    /// <summary>One live path that Phase 2 will swap for computed/extracted content.</summary>
+    private sealed record SwapStep(BackupCategory Category, string LivePath, string SourcePath, bool IsDirectory);
+
+    /// <summary>Carries which category was being prepared when Phase 1 failed.</summary>
+    private sealed class CategoryPrepareException(BackupCategory category, Exception inner)
+        : Exception(inner.Message, inner)
+    {
+        public BackupCategory Category { get; } = category;
+    }
+
+    /// <summary>Carries which category was being committed when Phase 2 failed.</summary>
+    private sealed class ImportCommitException(BackupCategory category, Exception inner)
+        : Exception(inner.Message, inner)
+    {
+        public BackupCategory Category { get; } = category;
+    }
+
+    /// <summary>Phase 1: compute every selected category's result under <paramref name="final"/>, touching nothing live.</summary>
+    private List<SwapStep> BuildFullPlan(
+        BackupCategory[] selected, string extracted, string final, ImportMode mode)
+    {
+        var plan = new List<SwapStep>();
+        foreach (var category in selected)
+        {
+            try
+            {
+                plan.AddRange(BuildPlan(category, extracted, final, mode));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
+                or JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
+            {
+                throw new CategoryPrepareException(category, ex);
+            }
+        }
+
+        return plan;
+    }
+
+    private List<SwapStep> BuildPlan(BackupCategory category, string extracted, string final, ImportMode mode)
+    {
+        var steps = new List<SwapStep>();
+
+        switch (category)
+        {
+            case BackupCategory.Settings when mode == ImportMode.Merge:
+            {
+                string livePath = Path.Combine(RootDirectory, "settings.json");
+                string? computed = MergeJsonObjectFile(
+                    Path.Combine(extracted, "settings.json"),
+                    livePath,
+                    Path.Combine(final, "settings.json"));
+                if (computed is not null) steps.Add(new SwapStep(category, livePath, computed, IsDirectory: false));
+                break;
+            }
+
+            case BackupCategory.Connections when mode == ImportMode.Merge:
+            {
+                string profilesLive = Path.Combine(RootDirectory, "ssh", "profiles.json");
+                string? profilesFinal = MergeProfilesFile(
+                    Path.Combine(extracted, "ssh", "profiles.json"),
+                    profilesLive,
+                    Path.Combine(final, "ssh", "profiles.json"));
+                if (profilesFinal is not null) steps.Add(new SwapStep(category, profilesLive, profilesFinal, false));
+
+                string hostsLive = Path.Combine(RootDirectory, "ssh", "native_known_hosts.json");
+                string? hostsFinal = MergeJsonArrayFile(
+                    Path.Combine(extracted, "ssh", "native_known_hosts.json"),
+                    hostsLive,
+                    Path.Combine(final, "ssh", "native_known_hosts.json"));
+                if (hostsFinal is not null) steps.Add(new SwapStep(category, hostsLive, hostsFinal, false));
+                break;
+            }
+
+            default:
+                foreach (var entry in BackupCatalog.EntriesFor(category))
+                {
+                    string stagedPath = Path.Combine(extracted, entry.SourceRelativePath);
+                    string livePath = Path.Combine(RootDirectory, entry.SourceRelativePath);
+
+                    if (entry.IsDirectory)
+                    {
+                        string finalDir = Path.Combine(final, entry.SourceRelativePath);
+                        string? computed = BuildDirectoryPlan(stagedPath, livePath, finalDir, mode);
+                        if (computed is not null) steps.Add(new SwapStep(category, livePath, computed, IsDirectory: true));
+                    }
+                    else if (File.Exists(stagedPath))
+                    {
+                        // No merge needed — replace and the file-copy path (Snippets in either
+                        // mode; Settings/Connections in Replace mode) both hand the raw extracted
+                        // file straight to Phase 2, unmodified.
+                        steps.Add(new SwapStep(category, livePath, stagedPath, IsDirectory: false));
+                    }
+                }
+                break;
+        }
+
+        return steps;
+    }
+
+    /// <summary>
+    /// Computes the final content of one catalog directory without touching the live one.
+    /// Merge: local-only files survive, bundle files win per-name. Replace: the bundle becomes
+    /// the truth for this directory, including when it donates nothing — an absent or empty
+    /// staged directory still means "clear the live directory" (not "leave it alone").
+    /// </summary>
+    private static string? BuildDirectoryPlan(string stagedDirectory, string liveDirectory, string finalDirectory, ImportMode mode)
+    {
+        bool stagedHasContent = Directory.Exists(stagedDirectory) && Directory.EnumerateFileSystemEntries(stagedDirectory).Any();
+        bool liveExists = Directory.Exists(liveDirectory);
+
+        if (mode == ImportMode.Merge)
+        {
+            if (!stagedHasContent) return null; // nothing new to overlay; leave live untouched
+
+            Directory.CreateDirectory(finalDirectory);
+            if (liveExists) CopyDirectoryContents(liveDirectory, finalDirectory);
+            CopyDirectoryContents(stagedDirectory, finalDirectory); // bundle overwrites same-named files
+            return finalDirectory;
+        }
+
+        if (!stagedHasContent && !liveExists) return null; // both empty: genuinely nothing to do
+        if (stagedHasContent) return stagedDirectory; // move the extracted directory straight into place
+
+        Directory.CreateDirectory(finalDirectory); // staged absent/empty but live has content: swap in empty
+        return finalDirectory;
+    }
+
+    private static void CopyDirectoryContents(string sourceDirectory, string destinationDirectory)
+    {
+        foreach (string file in Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            // Never carry an AtomicFile ".bak" sibling into a merged result — it would compound
+            // by one file on every future export/import round trip, and it perturbs the content
+            // hash Snapshot() dedupes against.
+            if (file.EndsWith(".bak", StringComparison.OrdinalIgnoreCase)) continue;
+
+            string relative = Path.GetRelativePath(sourceDirectory, file);
+            string destination = Path.Combine(destinationDirectory, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(file, destination, overwrite: true);
+        }
+    }
+
+    /// <summary>
+    /// Phase 2: commits every step with an undo journal. Each destination is renamed aside
+    /// before the new content is moved into place, so a mid-commit failure rolls every
+    /// already-committed step back — a "self-healing" import, not just "recoverable via a
+    /// separate Restore of the pre-import snapshot".
+    /// </summary>
+    private static void CommitWithUndo(IReadOnlyList<SwapStep> plan, string undoRoot)
+    {
+        Directory.CreateDirectory(undoRoot);
+        var journal = new List<(string LivePath, string UndoPath, bool IsDirectory, bool HadOriginal)>();
+        int counter = 0;
+
+        foreach (var step in plan)
+        {
+            string undoPath = Path.Combine(undoRoot, (counter++).ToString(CultureInfo.InvariantCulture));
+
+            try
+            {
+                bool hadOriginal = step.IsDirectory ? Directory.Exists(step.LivePath) : File.Exists(step.LivePath);
+
+                if (hadOriginal)
+                {
+                    if (step.IsDirectory) Directory.Move(step.LivePath, undoPath);
+                    else File.Move(step.LivePath, undoPath);
+                }
+
+                // Recorded before the risky move below, so a failure on THIS step still rolls
+                // its own rename-aside back, not just the steps that came before it.
+                journal.Add((step.LivePath, undoPath, step.IsDirectory, hadOriginal));
+
+                Directory.CreateDirectory(Path.GetDirectoryName(step.LivePath)!);
+                if (step.IsDirectory) Directory.Move(step.SourcePath, step.LivePath);
+                else File.Move(step.SourcePath, step.LivePath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                RollBack(journal);
+                throw new ImportCommitException(step.Category, ex);
+            }
+        }
+    }
+
+    private static void RollBack(List<(string LivePath, string UndoPath, bool IsDirectory, bool HadOriginal)> journal)
+    {
+        for (int i = journal.Count - 1; i >= 0; i--)
+        {
+            var (livePath, undoPath, isDirectory, hadOriginal) = journal[i];
+            try
+            {
+                // Remove whatever the forward move managed to place at livePath before this (or
+                // a later) step failed.
+                if (isDirectory) { if (Directory.Exists(livePath)) Directory.Delete(livePath, recursive: true); }
+                else { if (File.Exists(livePath)) File.Delete(livePath); }
+
+                if (hadOriginal)
+                {
+                    if (isDirectory) Directory.Move(undoPath, livePath);
+                    else File.Move(undoPath, livePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Log($"[backup] rollback could not restore '{livePath}': {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Key-by-key merge of two JSON objects, bundle winning per key, computed into
+    /// <paramref name="finalPath"/> — never live. Operates on <see cref="JsonNode"/> rather than
+    /// a typed model so unknown and future keys survive and settings.json keeps its PascalCase
+    /// names. Malformed local content is treated as absent so the bundle wins wholesale; a
+    /// malformed staged (bundle) file is a genuine bundle defect and throws, aborting Phase 1
+    /// before any live write.
+    /// </summary>
+    private static string? MergeJsonObjectFile(string stagedPath, string livePath, string finalPath)
+    {
+        if (!File.Exists(stagedPath)) return null;
+
+        var incoming = ParseObjectOrThrow(stagedPath);
+        if (incoming is null) return null;
+
+        var existing = TryParseObject(livePath);
 
         JsonObject merged;
-        if (File.Exists(livePath) && JsonNode.Parse(File.ReadAllText(livePath)) is JsonObject existing)
+        if (existing is not null)
         {
             merged = existing;
             foreach (var pair in incoming)
@@ -244,31 +489,42 @@ public sealed class BackupService
             merged = incoming;
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(livePath)!);
-        AtomicFile.WriteAllText(livePath, merged.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        WriteJson(finalPath, merged);
+        return finalPath;
     }
 
-    /// <summary>Merges <c>profiles.json</c>'s profile array by <c>Id</c>, bundle winning on conflict.</summary>
-    private static void MergeProfilesFile(string stagedPath, string livePath)
+    /// <summary>
+    /// Merges <c>profiles.json</c>'s profile array by <c>Id</c>, bundle winning on conflict,
+    /// computed into <paramref name="finalPath"/> — never live. The real file on disk is
+    /// PascalCase (<c>SchemaVersion</c>/<c>Profiles</c> — <c>JsonSshProfileStore</c>'s
+    /// <c>SshJsonContext</c> sets no naming policy), so the profiles array is located
+    /// case-insensitively on both sides and written back through whichever key text was actually
+    /// found — never a hardcoded literal — so a legacy-cased document is normalized in place
+    /// rather than gaining a second, duplicate key.
+    /// </summary>
+    private static string? MergeProfilesFile(string stagedPath, string livePath, string finalPath)
     {
-        if (!File.Exists(stagedPath)) return;
+        if (!File.Exists(stagedPath)) return null;
 
-        var incoming = JsonNode.Parse(File.ReadAllText(stagedPath)) as JsonObject;
-        if (incoming is null) return;
+        var incoming = ParseObjectOrThrow(stagedPath);
+        if (incoming is null) return null;
 
-        if (!File.Exists(livePath) || JsonNode.Parse(File.ReadAllText(livePath)) is not JsonObject existing)
+        var existing = TryParseObject(livePath);
+        if (existing is null)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(livePath)!);
-            AtomicFile.WriteAllText(livePath, incoming.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            return;
+            WriteJson(finalPath, incoming);
+            return finalPath;
         }
+
+        string key = FindKeyOrDefault(existing, "profiles", "Profiles");
 
         var byId = new Dictionary<string, JsonNode>(StringComparer.OrdinalIgnoreCase);
         var order = new List<string>();
 
         void Absorb(JsonObject document)
         {
-            if (document["profiles"] is not JsonArray array) return;
+            var array = GetPropertyArray(document, "profiles");
+            if (array is null) return;
             foreach (var element in array)
             {
                 string? id = element?["Id"]?.GetValue<string>();
@@ -283,17 +539,24 @@ public sealed class BackupService
 
         var merged = new JsonArray();
         foreach (string id in order) merged.Add(byId[id]);
-        existing["profiles"] = merged;
 
-        AtomicFile.WriteAllText(livePath, existing.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        existing.Remove(key);
+        existing.Add(key, merged);
+
+        WriteJson(finalPath, existing);
+        return finalPath;
     }
 
-    /// <summary>Union of two JSON arrays, deduped by each element's serialized form.</summary>
-    private static void MergeJsonArrayFile(string stagedPath, string livePath)
+    /// <summary>
+    /// Union of two JSON arrays, deduped by each element's serialized form, computed into
+    /// <paramref name="finalPath"/> — never live.
+    /// </summary>
+    private static string? MergeJsonArrayFile(string stagedPath, string livePath, string finalPath)
     {
-        if (!File.Exists(stagedPath)) return;
+        if (!File.Exists(stagedPath)) return null;
 
-        if (JsonNode.Parse(File.ReadAllText(stagedPath)) is not JsonArray incoming) return;
+        var incoming = ParseArrayOrThrow(stagedPath);
+        if (incoming is null) return null;
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var merged = new JsonArray();
@@ -307,15 +570,61 @@ public sealed class BackupService
             }
         }
 
-        if (File.Exists(livePath) && JsonNode.Parse(File.ReadAllText(livePath)) is JsonArray existing)
-        {
-            Absorb(existing);
-        }
-
+        var existing = TryParseArray(livePath);
+        if (existing is not null) Absorb(existing);
         Absorb(incoming);
 
-        Directory.CreateDirectory(Path.GetDirectoryName(livePath)!);
-        AtomicFile.WriteAllText(livePath, merged.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        WriteJson(finalPath, merged);
+        return finalPath;
+    }
+
+    /// <summary>Finds a property case-insensitively, returning its exact key text, or <paramref name="fallback"/> if absent.</summary>
+    private static string FindKeyOrDefault(JsonObject document, string caseInsensitiveName, string fallback)
+    {
+        foreach (var pair in document)
+        {
+            if (string.Equals(pair.Key, caseInsensitiveName, StringComparison.OrdinalIgnoreCase)) return pair.Key;
+        }
+
+        return fallback;
+    }
+
+    private static JsonArray? GetPropertyArray(JsonObject document, string caseInsensitiveName)
+    {
+        foreach (var pair in document)
+        {
+            if (string.Equals(pair.Key, caseInsensitiveName, StringComparison.OrdinalIgnoreCase)) return pair.Value as JsonArray;
+        }
+
+        return null;
+    }
+
+    /// <summary>Bundle content must be well-formed. Lets a parse failure propagate so Phase 1 aborts before any live write (I4).</summary>
+    private static JsonObject? ParseObjectOrThrow(string path) => JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+
+    /// <summary>Bundle content must be well-formed. Lets a parse failure propagate so Phase 1 aborts before any live write (I4).</summary>
+    private static JsonArray? ParseArrayOrThrow(string path) => JsonNode.Parse(File.ReadAllText(path)) as JsonArray;
+
+    /// <summary>Malformed or absent LOCAL content must not abort the import — treated as absent so the bundle wins wholesale (I4).</summary>
+    private static JsonObject? TryParseObject(string path)
+    {
+        if (!File.Exists(path)) return null;
+        try { return JsonNode.Parse(File.ReadAllText(path)) as JsonObject; }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>Malformed or absent LOCAL content must not abort the import — treated as absent so the bundle wins wholesale (I4).</summary>
+    private static JsonArray? TryParseArray(string path)
+    {
+        if (!File.Exists(path)) return null;
+        try { return JsonNode.Parse(File.ReadAllText(path)) as JsonArray; }
+        catch (JsonException) { return null; }
+    }
+
+    private static void WriteJson(string path, JsonNode node)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, node.ToJsonString(IndentedJson));
     }
 
     /// <summary>Snapshots kept regardless of age.</summary>

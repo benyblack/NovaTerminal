@@ -20,7 +20,10 @@ public sealed class BackupTestTree : IDisposable
 
         tree.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Default"}""");
         tree.WriteFile(Path.Combine("themes", "solarized.json"), """{"name":"Solarized"}""");
-        tree.WriteFile(Path.Combine("ssh", "profiles.json"), """{"schemaVersion":1,"profiles":[]}""");
+        // PascalCase: SshJsonContext sets no naming policy, so JsonSshProfileStore's
+        // SshStoreDocument (SchemaVersion, Profiles) round-trips through the CLR property
+        // names verbatim. A lowercase shape here would be a fixture nothing could produce.
+        tree.WriteFile(Path.Combine("ssh", "profiles.json"), """{"SchemaVersion":1,"Profiles":[]}""");
         tree.WriteFile(Path.Combine("ssh", "native_known_hosts.json"), "[]");
         tree.WriteFile(Path.Combine("workspaces", "default.json"), """{"name":"default"}""");
         tree.WriteFile(Path.Combine("workspace_templates", "dev.json"), """{"name":"dev"}""");
