@@ -379,6 +379,48 @@ public class AgentObserveIndicatorTests
         return tab;
     }
 
+    [AvaloniaFact]
+    public void Entering_and_leaving_pane_zoom_refreshes_the_indicator()
+    {
+        // The predicate consults the zoom maps, but consulting them is worth
+        // nothing if nothing re-runs it: EnterPaneZoom and ExitPaneZoom change
+        // which panes are on screen with no attention event behind them, the
+        // same way a tab switch does. Without a refresh here, a sibling read
+        // while it is zoomed away has its segment hidden and the light never
+        // recomputed — so it stays dark, the tab glyph is suppressed under the
+        // default WritesOnly rollup, and the rest of that read appears nowhere.
+        //
+        // Observed the same way Switching_tabs_refreshes_the_indicator observes
+        // it: RefreshAgentObserveIndicator always assigns indicator.IsVisible
+        // from AgentHostService.Instance.IsRunning, which is false in this
+        // isolated window, so forcing the control visible and watching it snap
+        // back is proof the refresh ran.
+        RunIsolated(window =>
+        {
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            var indicator = window.FindControl<Button>("AgentObserveIndicator")!;
+            var splitTab = AddSplitTab(window, out var zoomedPane, out _);
+            tabs.SelectedItem = splitTab;
+
+            indicator.IsVisible = true;
+            EnterZoom(window, splitTab, zoomedPane);
+            Assert.False(indicator.IsVisible);
+
+            indicator.IsVisible = true;
+            ExitZoom(window, splitTab);
+            Assert.False(indicator.IsVisible);
+        });
+    }
+
+    /// <summary>Drives the production un-zoom path the zoom command uses.</summary>
+    private static void ExitZoom(MainWindow window, TabItem tab)
+    {
+        var exited = (bool)typeof(MainWindow)
+            .GetMethod("ExitPaneZoom", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(window, new object[] { tab, true })!;
+        Assert.True(exited, "Test setup failed: ExitPaneZoom refused to un-zoom the tab.");
+    }
+
     /// <summary>Drives the production zoom path the zoom command uses.</summary>
     private static void EnterZoom(MainWindow window, TabItem tab, TerminalPane pane)
     {

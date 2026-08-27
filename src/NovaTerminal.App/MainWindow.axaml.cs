@@ -1864,6 +1864,14 @@ namespace NovaTerminal
             FocusPaneTerminal(pane, defer: true);
             UpdatePaneAutomationLabels();
             RefreshLayoutModelForTab(tabItem);
+            // Zoom changes which panes are on screen, so it changes the window
+            // light's answer with no attention event behind it - exactly like a
+            // tab switch. Without this, a sibling being read while it is zoomed
+            // away keeps its now-invisible segment as its only report: the
+            // light stays dark and, under the default WritesOnly rollup, the
+            // tab glyph is suppressed too, so the rest of that read is shown
+            // nowhere and the Watched tier decays in ~3 s.
+            RefreshAgentObserveIndicator();
 
             if (publishEvent)
             {
@@ -1910,6 +1918,10 @@ namespace NovaTerminal
             FocusPaneTerminal(zoomedPane, defer: true);
             UpdatePaneAutomationLabels();
             RefreshLayoutModelForTab(tabItem);
+            // The other direction, and it matters just as much: the siblings
+            // that come back on screen carry their own segments again, so a
+            // light still lit for them would double-report.
+            RefreshAgentObserveIndicator();
 
             if (publishEvent)
             {
