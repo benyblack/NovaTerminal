@@ -135,6 +135,13 @@ namespace NovaTerminal.Shell
         // In-app toast when a command that ran ≥30s finishes in an unfocused
         // pane (A2 PR4, absorbs ROADMAP §5.2). Off by default.
         public bool LongCommandNotificationsEnabled { get; set; } = false;
+        // Governs the once-per-launch background update check (#91). Default on: an installed
+        // build that never learns about a fix is worse than a single anonymous request to
+        // GitHub's releases API 10 seconds after launch. Off stops all background traffic; the
+        // command palette's "Check for updates" still works, because that is the user asking
+        // rather than the app polling. Ignored entirely when the app was not installed by
+        // Velopack (portable zip, winget, dev runs) - there is nothing to update.
+        public bool AutomaticUpdateChecks { get; set; } = true;
 
         public System.Collections.Generic.List<TerminalProfile> Profiles { get; set; } = new();
         public Guid DefaultProfileId { get; set; }

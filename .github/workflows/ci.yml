@@ -192,7 +192,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        # Same dispatch-conditional shape as `build` above, and for the same reason: macOS is
+        # not worth the minutes on every PR, but it must be reachable WITHOUT cutting a
+        # release. Until now `build` compiled on macOS while nothing ever ran the tests there,
+        # so macOS's only test coverage was release.yml's release_tests — meaning a
+        # macOS-only defect could surface exactly once, at release time, where it blocks the
+        # release. That is how #325's port-forward backpressure test went three months
+        # unverified on macOS and then failed the first release that ran it.
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["windows-latest","ubuntu-latest","macos-latest"]' || '["windows-latest","ubuntu-latest"]') }}
 
     steps:
       - uses: actions/checkout@v4
@@ -224,21 +231,27 @@ jobs:
 
       # zip artifacts don't preserve Unix execute bits; restore them so the test host and
       # any app/CLI binaries referenced by tests (NovaTerminal.App, NovaTerminal.Cli) can run.
-      - name: Restore execute permissions (Linux)
-        if: runner.os == 'Linux'
+      #
+      # Every POSIX runner needs this, not just Linux. While this job was windows+ubuntu only,
+      # "Linux" and "not Windows" were the same set; adding macOS separated them, and macOS
+      # skipping it failed the whole job with "Win32Exception (13) ... Permission denied" trying
+      # to launch the xunit v3 test host. `-exec … +` rather than `| xargs`, because xargs with
+      # no matches still invokes chmod with no operands, which fails on BSD/macOS.
+      - name: Restore execute permissions (POSIX)
+        if: runner.os != 'Windows'
         run: |
           find tests -path "*/bin/Release/net*" -type f \
             ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
             ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
-            | xargs chmod +x
+            -exec chmod +x {} +
 
       # VtReportCliTests.cs looks for app/CLI binaries in src/*/bin/Release/net10.0/.
       # Every file there is already present in the test output (MSBuild copies all
       # referenced DLLs and the host executable), so we mirror it locally with
       # hardlinks (Linux) or robocopy (Windows) instead of duplicating 1.1 GB in
       # the artifact. Local disk copy is fast; network upload/download is not.
-      - name: Reconstruct src bin dirs from test output (Linux)
-        if: runner.os == 'Linux'
+      - name: Reconstruct src bin dirs from test output (POSIX)
+        if: runner.os != 'Windows'
         run: |
           mkdir -p src/NovaTerminal.App/bin/Release src/NovaTerminal.Cli/bin/Release
           cp -rl tests/NovaTerminal.App.Tests/bin/Release/net10.0 src/NovaTerminal.App/bin/Release/net10.0

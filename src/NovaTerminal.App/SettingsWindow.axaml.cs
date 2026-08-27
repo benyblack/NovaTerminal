@@ -2244,6 +2244,8 @@ namespace NovaTerminal
             if (agentAccessActToggle != null) agentAccessActToggle.IsChecked = _settings.AgentAccessActEnabled;
             var longCommandNotificationsToggle = this.FindControl<CheckBox>("LongCommandNotificationsToggle");
             if (longCommandNotificationsToggle != null) longCommandNotificationsToggle.IsChecked = _settings.LongCommandNotificationsEnabled;
+            var automaticUpdateChecksToggle = this.FindControl<CheckBox>("AutomaticUpdateChecksToggle");
+            if (automaticUpdateChecksToggle != null) automaticUpdateChecksToggle.IsChecked = _settings.AutomaticUpdateChecks;
             if (fontSizeInput != null) fontSizeInput.Value = (decimal)_settings.FontSize;
             if (scrollbackInput != null) scrollbackInput.Value = (decimal)_settings.MaxHistory;
             if (opacitySlider != null)
@@ -2499,6 +2501,8 @@ namespace NovaTerminal
             if (agentAccessActToggle != null) _settings.AgentAccessActEnabled = agentAccessActToggle.IsChecked == true;
             var longCommandNotificationsToggle = this.FindControl<CheckBox>("LongCommandNotificationsToggle");
             if (longCommandNotificationsToggle != null) _settings.LongCommandNotificationsEnabled = longCommandNotificationsToggle.IsChecked == true;
+            var automaticUpdateChecksToggle = this.FindControl<CheckBox>("AutomaticUpdateChecksToggle");
+            if (automaticUpdateChecksToggle != null) _settings.AutomaticUpdateChecks = automaticUpdateChecksToggle.IsChecked == true;
 
             if (fontList?.SelectedItem is ComboBoxItem fontItem)
                 _settings.FontFamily = fontItem.Content?.ToString() ?? BundledFontCatalog.DefaultTerminalFontFamily;

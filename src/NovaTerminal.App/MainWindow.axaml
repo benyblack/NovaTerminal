@@ -213,6 +213,56 @@
             </Grid>
         </Border>
 
+        <!-- Update-ready notice (#91). Deliberately not the RecordingToast: a recording toast and
+             an update notice can be live simultaneously, and this one has no auto-hide timer -
+             dismissing it leaves the update staged for the next restart. -->
+        <Border Name="UpdateToast"
+                IsVisible="False"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="0,0,16,16"
+                MinWidth="320"
+                MaxWidth="440"
+                Padding="12"
+                Background="#20242C"
+                BorderBrush="#3A404A"
+                BorderThickness="1"
+                CornerRadius="8"
+                ZIndex="180">
+            <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="*,Auto">
+                <TextBlock Name="UpdateToastTitle"
+                           Text="Update ready"
+                           Foreground="White"
+                           FontWeight="SemiBold" />
+                <Button Name="UpdateToastClose"
+                        Grid.Column="1"
+                        Content="✕"
+                        Width="28"
+                        Height="28"
+                        Margin="8,0,0,0"
+                        Background="Transparent"
+                        Foreground="#C9CFD9"
+                        BorderThickness="0"
+                        Focusable="False"/>
+                <TextBlock Name="UpdateToastMessage"
+                           Grid.Row="1"
+                           Grid.ColumnSpan="2"
+                           Margin="0,8,0,0"
+                           Foreground="#C9CFD9"
+                           TextWrapping="Wrap" />
+                <StackPanel Grid.Row="2"
+                            Grid.ColumnSpan="2"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            Margin="0,10,0,0"
+                            Spacing="8">
+                    <Button Name="UpdateToastRestart"
+                            Content="Restart now"
+                            Focusable="False"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
         <!-- Search Overlay -->
         <Border Name="SearchPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Right" 
                 Margin="0,50,20,0" Background="#383838" CornerRadius="4" Padding="6" Width="420"

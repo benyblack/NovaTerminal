@@ -359,6 +359,87 @@ public sealed class NativePortForwardSessionTests
     }
 
     [Fact]
+    public async Task ForwardChannelData_ArrivingBeforeRegistration_IsNotDropped()
+    {
+        // The production race behind the macOS flake, and the more serious half of it.
+        // nova_ssh_open_direct_tcpip blocks until the server confirms the channel
+        // (rusty_ssh/src/lib.rs: it waits on reply_rx.recv()), so by the time the accept loop
+        // learns the channel id the server may ALREADY have sent data — and the poll loop
+        // delivers that on a different thread, which can beat the accept loop to
+        // _channels.TryAdd. HandleEvent used to return silently for an unknown id, so those bytes
+        // vanished with no error anywhere. The head of the stream is the worst possible thing to
+        // lose: for any protocol where the server speaks first (SMTP, MySQL, IMAP greetings) the
+        // forward fails in a way that looks like a broken server.
+        //
+        // The fake fires OnOpenDirectTcpIp from inside the open call, which is exactly that
+        // window, making the race deterministic instead of a 1-in-5 CI coin flip.
+        var interop = new FakeNativeSshInterop();
+        int listenPort = GetFreePort();
+        byte[] payload = Encoding.ASCII.GetBytes("server-speaks-first");
+
+        NativePortForwardSession? session = null;
+        interop.OnOpenDirectTcpIp = channelId =>
+            session!.HandleEvent(NativeSshEvent.ForwardChannelData(channelId, payload));
+
+        session = new NativePortForwardSession(
+            FakeHandle(41),
+            [CreateForward(listenPort, "svc.internal", 9100)],
+            interop);
+
+        using (session)
+        {
+            using TcpClient client = await ConnectLoopbackAsync(listenPort);
+
+            byte[] received = await ReadExactlyAsync(
+                client.GetStream(), payload.Length, TimeSpan.FromSeconds(10));
+
+            Assert.Equal(payload, received);
+        }
+    }
+
+    [Fact]
+    public async Task PreRegistrationData_OverTheBudget_ClosesTheChannelRatherThanTruncatingIt()
+    {
+        // The parked-event buffer is bounded, so a server that floods faster than we can register
+        // the channel will eventually exceed it. What must NOT happen then is publishing the
+        // channel and replaying only the prefix: from the peer's view a port forward is a plain TCP
+        // connection, and a stream with a hole in it is far worse than one that fails. This mirrors
+        // EnqueueOutbound, which closes on overflow for exactly that reason.
+        var interop = new FakeNativeSshInterop();
+        int listenPort = GetFreePort();
+
+        // 17 x 64 KB clears the 1 MB budget with the first chunk admitted into an empty buffer.
+        byte[] chunk = new byte[64 * 1024];
+        NativePortForwardSession? session = null;
+        interop.OnOpenDirectTcpIp = channelId =>
+        {
+            for (int i = 0; i < 17; i++)
+            {
+                session!.HandleEvent(NativeSshEvent.ForwardChannelData(channelId, chunk));
+            }
+        };
+
+        session = new NativePortForwardSession(
+            FakeHandle(43),
+            [CreateForward(listenPort, "svc.internal", 9200)],
+            interop);
+
+        using (session)
+        {
+            using TcpClient client = await ConnectLoopbackAsync(listenPort);
+
+            // The SSH channel is closed rather than left live with a truncated stream.
+            await WaitUntilAsync(() => interop.ClosedChannelIds.Count == 1);
+
+            // And the local peer sees the connection end instead of receiving a prefix. Reading
+            // returns 0 (or throws) once the session disposes the socket; either way it is not
+            // handed a partial stream.
+            long drained = await DrainAvailableAsync(client, TimeSpan.FromSeconds(5));
+            Assert.Equal(0, drained);
+        }
+    }
+
+    [Fact]
     public async Task HandleEvent_WithALocalPeerThatNeverReads_DoesNotBlockTheCaller()
     {
         // The regression this pins: HandleEvent used to write straight to the local socket from
@@ -368,16 +449,52 @@ public sealed class NativePortForwardSessionTests
         var interop = new FakeNativeSshInterop();
         int listenPort = GetFreePort();
 
+        // Collect the session's diagnostics. Without this the only failure signal is
+        // "Condition was not met before timeout" from WaitUntilAsync, which cannot distinguish
+        // "the budget was never exceeded" from "it was exceeded but the close did not land" -
+        // and this test's only coverage is a CI runner you cannot attach a debugger to.
+        var sessionLog = new ConcurrentQueue<string>();
+
         using var session = new NativePortForwardSession(
             FakeHandle(23),
             [CreateForward(listenPort, "svc.internal", 9000)],
-            interop);
+            interop,
+            log: sessionLog.Enqueue);
 
         using TcpClient client = await ConnectLoopbackAsync(listenPort);
         client.ReceiveBufferSize = 1024;
 
         await WaitUntilAsync(() => interop.OpenedChannelIds.Count == 1);
         int channelId = interop.OpenedChannelIds[0];
+
+        // Waiting on OpenedChannelIds alone is not enough to start sending, and this is the whole
+        // reason the test used to fail ~20% of the time on macOS. The fake records that id inside
+        // OpenDirectTcpIp, which the accept loop calls BEFORE _channels.TryAdd registers the
+        // channel - and HandleEvent silently returns for an id it cannot find. So there is a window
+        // where this thread believes the channel is ready while the session would discard
+        // everything sent to it, and a dropped event is gone for good: nothing is queued, the
+        // outbound budget is never exceeded, no close ever happens, and the wait at the end of this
+        // test burns its full ceiling. A three-core runner loses that window often, because this
+        // thread's continuation and the accept loop compete for a core and the flood below never
+        // yields.
+        //
+        // Probe until a byte actually surfaces at the peer. That is the first observable moment the
+        // channel is registered AND its pump is running, and it needs no hook into the session.
+        byte[] probe = [0x2A];
+        await WaitUntilAsync(() =>
+        {
+            session.HandleEvent(NativeSshEvent.ForwardChannelData(channelId, probe));
+            return client.Available > 0;
+        });
+
+        // Drain the probes so the flood below still meets an idle peer with an empty buffer, which
+        // is the condition this test is actually about.
+        NetworkStream probeStream = client.GetStream();
+        byte[] discard = new byte[64];
+        while (client.Available > 0)
+        {
+            probeStream.ReadExactly(discard, 0, Math.Min(discard.Length, client.Available));
+        }
 
         byte[] chunk = new byte[64 * 1024];
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -395,7 +512,25 @@ public sealed class NativePortForwardSessionTests
             $"HandleEvent blocked for {stopwatch.Elapsed} while the local peer was not reading.");
 
         // And the channel that could not keep up is closed rather than buffered without limit.
-        await WaitUntilAsync(() => interop.ClosedChannelIds.Contains(channelId));
+        //
+        // Diagnostics on failure rather than a bare timeout: this test's premise is that the
+        // kernel cannot absorb 16 MB destined for a peer that never reads, and that premise is
+        // platform-dependent. When it does not hold, the pump keeps draining, the queue never
+        // reaches its budget, and nothing closes - which looks identical to a lost close unless
+        // the failure says which happened. So report the session's own log (it logs the
+        // overflow) and how much the local peer could actually still drain.
+        if (!await TryWaitUntilAsync(() => interop.ClosedChannelIds.Contains(channelId)))
+        {
+            long drained = await DrainAvailableAsync(client, TimeSpan.FromSeconds(3));
+            Assert.Fail(
+                $"Channel {channelId} was never closed after queueing 16 MB at a peer that never reads. " +
+                $"Bytes the local peer could still drain afterwards: {drained:N0}. " +
+                $"Closed channels: [{string.Join(", ", interop.ClosedChannelIds)}]. " +
+                $"Session log: [{string.Join(" | ", sessionLog)}]. " +
+                "An empty session log means the outbound budget was never exceeded - i.e. this " +
+                "host buffered the writes instead of blocking them, so the test's premise, not " +
+                "the backpressure code, is what failed.");
+        }
     }
 
     [Fact]
@@ -828,6 +963,59 @@ public sealed class NativePortForwardSessionTests
         return client;
     }
 
+    /// <summary>
+    /// Like <see cref="WaitUntilAsync"/> but reports the outcome instead of asserting, so the
+    /// caller can attach its own diagnostics to the failure.
+    /// </summary>
+    private static async Task<bool> TryWaitUntilAsync(Func<bool> predicate, int timeoutSeconds = 30)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (predicate())
+            {
+                return true;
+            }
+
+            await Task.Delay(20);
+        }
+
+        return predicate();
+    }
+
+    /// <summary>
+    /// Reads whatever the peer can currently supply, up to <paramref name="budget"/>, and returns
+    /// the byte count. Diagnostic only: how much a host was willing to buffer is the thing worth
+    /// knowing when a backpressure test fails to see backpressure.
+    /// </summary>
+    private static async Task<long> DrainAvailableAsync(TcpClient client, TimeSpan budget)
+    {
+        long total = 0;
+        byte[] buffer = new byte[64 * 1024];
+        using var cts = new CancellationTokenSource(budget);
+
+        try
+        {
+            NetworkStream stream = client.GetStream();
+            while (true)
+            {
+                int read = await stream.ReadAsync(buffer, cts.Token);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                total += read;
+            }
+        }
+        catch (Exception)
+        {
+            // Timeout, reset, disposed - all fine. The count so far is the diagnostic.
+        }
+
+        return total;
+    }
+
     private static async Task SendSocksGreetingAsync(NetworkStream stream)
     {
         byte[] greeting = [0x05, 0x01, 0x00];
@@ -1014,6 +1202,14 @@ public sealed class NativePortForwardSessionTests
         {
         }
 
+        /// <summary>
+        /// Invoked with the new channel id from inside <see cref="OpenDirectTcpIp"/>, after the id
+        /// exists and before the caller can register it. That is where the real implementation
+        /// leaves the window: nova_ssh_open_direct_tcpip blocks until the server confirms the
+        /// channel, so the server's first bytes can already be waiting for the poll loop.
+        /// </summary>
+        public Action<int>? OnOpenDirectTcpIp { get; set; }
+
         public int OpenDirectTcpIp(NovaSshSafeHandle sessionHandle, NativePortForwardOpenOptions options)
         {
             int channelId = Interlocked.Increment(ref _nextChannelId);
@@ -1022,6 +1218,10 @@ public sealed class NativePortForwardSessionTests
                 _openRequests.Add(options);
                 _openedChannelIds.Add(channelId);
             }
+
+            // Outside the lock: the callback re-enters the session, which can call back into this
+            // fake (CloseChannel takes the same lock).
+            OnOpenDirectTcpIp?.Invoke(channelId);
             return channelId;
         }
 

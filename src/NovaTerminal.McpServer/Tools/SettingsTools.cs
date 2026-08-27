@@ -62,6 +62,7 @@ public static class SettingsTools
         | `AgentScreenshotEnabled` | bool | Default false. Sub-gate on top of the observe toggle: allows agents to render a session to a PNG image (novaterminal.capture_screen). |
         | `AgentAccessActEnabled` | bool | Default false. Separate opt-in on top of observe: allows agents to type into, spawn, and close sessions. SSH sessions additionally require per-profile allowlisting. |
         | `LongCommandNotificationsEnabled` | bool | Default false. In-app toast when a command that ran ≥30s finishes in an unfocused pane. |
+        | `AutomaticUpdateChecks` | bool | Default **true**. Background update check ~10s after launch, downloading quietly and applying on the next restart the user accepts. Off stops background traffic only — the palette's manual "Check for updates" still works. Ignored entirely unless the app was installed by the Velopack installer (portable zip, winget and dev runs have nothing to update). |
 
         ## Background
         | Field | Type | Notes |
@@ -136,6 +137,7 @@ public static class SettingsTools
           "AgentScreenshotEnabled": false,
           "AgentAccessActEnabled": false,
           "LongCommandNotificationsEnabled": false,
+          "AutomaticUpdateChecks": true,
           "Profiles": [
             { "Id": "00000000-0000-0000-0000-000000000001", "Name": "Command Prompt", "Command": "cmd.exe", "Type": 0 }
           ],
@@ -158,6 +160,7 @@ public static class SettingsTools
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
         "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "AgentReplayExportEnabled",
         "AgentScreenshotEnabled", "AgentAccessActEnabled", "LongCommandNotificationsEnabled",
+        "AutomaticUpdateChecks",
     };
 
     // Plain + enum-like strings; enum-like values are NOT value-validated (type-check only).
@@ -183,6 +186,7 @@ public static class SettingsTools
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
         "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "AgentReplayExportEnabled",
         "AgentScreenshotEnabled", "AgentAccessActEnabled", "LongCommandNotificationsEnabled",
+        "AutomaticUpdateChecks",
         "Profiles", "DefaultProfileId", "TitleBarItems", "TitleBarOrder",
     };
 
