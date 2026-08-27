@@ -381,7 +381,7 @@ public sealed class BackupTestTree : IDisposable
 
         tree.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Default"}""");
         tree.WriteFile(Path.Combine("themes", "solarized.json"), """{"name":"Solarized"}""");
-        tree.WriteFile(Path.Combine("ssh", "profiles.json"), """{"schemaVersion":1,"profiles":[]}""");
+        tree.WriteFile(Path.Combine("ssh", "profiles.json"), """{"SchemaVersion":1,"Profiles":[]}""");
         tree.WriteFile(Path.Combine("ssh", "native_known_hosts.json"), "[]");
         tree.WriteFile(Path.Combine("workspaces", "default.json"), """{"name":"default"}""");
         tree.WriteFile(Path.Combine("workspace_templates", "dev.json"), """{"name":"dev"}""");
@@ -1904,14 +1904,14 @@ public sealed class BackupImportTests
 
         using var source = BackupTestTree.CreatePopulated();
         source.WriteFile(Path.Combine("ssh", "profiles.json"), $$"""
-            {"schemaVersion":1,"profiles":[
+            {"SchemaVersion":1,"Profiles":[
               {"Id":"{{sharedId}}","Name":"From Bundle","Host":"bundle.example"},
               {"Id":"{{bundleOnlyId}}","Name":"Bundle Only","Host":"only.example"}]}
             """);
 
         using var target = BackupTestTree.CreatePopulated();
         target.WriteFile(Path.Combine("ssh", "profiles.json"), $$"""
-            {"schemaVersion":1,"profiles":[
+            {"SchemaVersion":1,"Profiles":[
               {"Id":"{{sharedId}}","Name":"Local Version","Host":"local.example"},
               {"Id":"{{localOnlyId}}","Name":"Local Only","Host":"keep.example"}]}
             """);
@@ -1920,7 +1920,7 @@ public sealed class BackupImportTests
         new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Merge);
 
         using var doc = target.ReadJson(Path.Combine("ssh", "profiles.json"));
-        var profiles = doc.RootElement.GetProperty("profiles").EnumerateArray().ToArray();
+        var profiles = doc.RootElement.GetProperty("Profiles").EnumerateArray().ToArray();
 
         Assert.Equal(3, profiles.Length);
         Assert.Equal(
@@ -1935,18 +1935,18 @@ public sealed class BackupImportTests
     {
         using var source = BackupTestTree.CreatePopulated();
         source.WriteFile(Path.Combine("ssh", "profiles.json"), """
-            {"schemaVersion":1,"profiles":[{"Id":"22222222-2222-2222-2222-222222222222","Name":"Bundle Only"}]}
+            {"SchemaVersion":1,"Profiles":[{"Id":"22222222-2222-2222-2222-222222222222","Name":"Bundle Only"}]}
             """);
         using var target = BackupTestTree.CreatePopulated();
         target.WriteFile(Path.Combine("ssh", "profiles.json"), """
-            {"schemaVersion":1,"profiles":[{"Id":"33333333-3333-3333-3333-333333333333","Name":"Local Only"}]}
+            {"SchemaVersion":1,"Profiles":[{"Id":"33333333-3333-3333-3333-333333333333","Name":"Local Only"}]}
             """);
         string bundle = ExportFrom(source);
 
         new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
 
         using var doc = target.ReadJson(Path.Combine("ssh", "profiles.json"));
-        var profiles = doc.RootElement.GetProperty("profiles").EnumerateArray().ToArray();
+        var profiles = doc.RootElement.GetProperty("Profiles").EnumerateArray().ToArray();
         Assert.Single(profiles);
         Assert.Equal("Bundle Only", profiles[0].GetProperty("Name").GetString());
     }
@@ -2370,9 +2370,20 @@ Add the following members to the `BackupService` class:
         var byId = new Dictionary<string, JsonNode>(StringComparer.OrdinalIgnoreCase);
         var order = new List<string>();
 
+        // The real file is PascalCase — JsonSshProfileStore serializes SshStoreDocument
+        // ({ SchemaVersion, Profiles }) through SshJsonContext, which sets no naming policy.
+        // JsonNode's indexer is case-SENSITIVE, so a hardcoded "profiles" silently matches
+        // nothing, discards every incoming profile, and adds a junk second key alongside the
+        // real one. Find the key as it actually appears and write back through that same key,
+        // so a legacy lowercase file is normalized rather than duplicated.
+        static string? FindProfilesKey(JsonObject document) => document
+            .Select(pair => pair.Key)
+            .FirstOrDefault(key => string.Equals(key, "Profiles", StringComparison.OrdinalIgnoreCase));
+
         void Absorb(JsonObject document)
         {
-            if (document["profiles"] is not JsonArray array) return;
+            string? key = FindProfilesKey(document);
+            if (key is null || document[key] is not JsonArray array) return;
             foreach (var element in array)
             {
                 string? id = element?["Id"]?.GetValue<string>();
@@ -2387,7 +2398,7 @@ Add the following members to the `BackupService` class:
 
         var merged = new JsonArray();
         foreach (string id in order) merged.Add(byId[id]);
-        existing["profiles"] = merged;
+        existing[FindProfilesKey(existing) ?? "Profiles"] = merged;
 
         AtomicFile.WriteAllText(livePath, existing.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
