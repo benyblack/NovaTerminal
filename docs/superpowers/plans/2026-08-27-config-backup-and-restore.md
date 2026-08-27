@@ -1381,7 +1381,7 @@ Snapshots come before import so that `Import` can call a real `Snapshot`, and `R
 
 The hash in the id is the **first 16 hex characters** of the SHA-256, and `ListSnapshots` recovers it by parsing the file name — so the dedupe comparison must use that same 16-char prefix on both sides. Comparing a full 64-char digest against the parsed prefix is a length mismatch that can never be true, which silently disables dedupe. 16 hex chars is 64 bits, and each call compares against exactly one snapshot, so a false dedupe is ~1 in 2^64. Do not shorten it further: a collision means a genuinely changed configuration silently gets no snapshot.
 
-**Content hash:** SHA-256 over the ordered concatenation of each backed-up file's bundle path and bytes — computed from the live tree, not the zip, because zip bytes vary with entry timestamps. First 8 hex chars go in the id.
+**Content hash:** SHA-256 over the ordered concatenation of each backed-up file's bundle path and bytes — computed from the live tree, not the zip, because zip bytes vary with entry timestamps. First 16 hex chars go in the id.
 
 - [ ] **Step 1: Write the failing test**
 
