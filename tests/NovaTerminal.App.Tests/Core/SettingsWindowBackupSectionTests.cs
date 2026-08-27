@@ -272,6 +272,88 @@ public sealed class SettingsWindowBackupSectionTests
     }
 
     /// <summary>
+    /// Fix round 2 (Important finding): the confirmation gate added in round 1 for
+    /// <c>BuildRestoreConfirmationText</c>'s wording left the actual wiring uncovered - does
+    /// confirming really trigger the restore? Pins the "confirmed" branch through
+    /// <c>RestoreConfirmationOverride</c>, the injectable seam <c>WireBackupSection</c>'s Restore
+    /// click handler falls back from (production always uses the real, untestable
+    /// <c>ConfirmRestoreAsync</c>/<c>ShowDialog</c>). Verifies the tracked file actually rolls back
+    /// on disk (not just that some outcome was reported) and that a PreRestore snapshot appears.
+    /// </summary>
+    [AvaloniaFact]
+    public void RestoreSelected_WhenConfirmationReturnsTrue_CallsRestore_AndRollsBackTheTrackedFile()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root);
+        var snapshot = service.Snapshot(SnapshotReason.Auto);
+        Assert.NotNull(snapshot);
+
+        // Drift after the snapshot, so restoring has something real to roll back - proves
+        // service.Restore actually ran, not just that some status text changed.
+        tree.WriteFile("settings.json", """{"FontSize":99,"ThemeName":"Changed"}""");
+
+        using var _ = OverrideAppDataRoot(tree.Root);
+        var window = new NovaTerminal.SettingsWindow { RestoreConfirmationOverride = _ => Task.FromResult(true) };
+
+        var snapshotList = window.FindControl<ListBox>("SnapshotList")!;
+        var btnRestore = window.FindControl<Button>("BtnRestoreSnapshot")!;
+        var status = window.FindControl<TextBlock>("BackupStatusText")!;
+
+        snapshotList.SelectedIndex = 0;
+        btnRestore.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Equal("Restored. Restart NovaTerminal to pick up all changes.", status.Text);
+
+        // The tracked file rolled back to the snapshot's content on disk.
+        using var restoredSettings = tree.ReadJson("settings.json");
+        Assert.Equal(14, restoredSettings.RootElement.GetProperty("FontSize").GetInt32());
+
+        // Restore forces a pre-restore snapshot before applying.
+        var reasons = service.ListSnapshots().Select(s => s.Reason).ToArray();
+        Assert.Contains(SnapshotReason.PreRestore, reasons);
+    }
+
+    /// <summary>
+    /// Fix round 2 (Important finding): the other half of the same gap - does declining actually
+    /// prevent the restore? This is the assertion that matters most: proving no PreRestore
+    /// snapshot appears is what rules out Cancel being a no-op that silently restores anyway.
+    /// </summary>
+    [AvaloniaFact]
+    public void RestoreSelected_WhenConfirmationReturnsFalse_DoesNotCallRestore_AndAddsNoPreRestoreSnapshot()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root);
+        var snapshot = service.Snapshot(SnapshotReason.Auto);
+        Assert.NotNull(snapshot);
+
+        tree.WriteFile("settings.json", """{"FontSize":99,"ThemeName":"Changed"}""");
+
+        using var _ = OverrideAppDataRoot(tree.Root);
+        var window = new NovaTerminal.SettingsWindow { RestoreConfirmationOverride = _ => Task.FromResult(false) };
+
+        var snapshotList = window.FindControl<ListBox>("SnapshotList")!;
+        var btnRestore = window.FindControl<Button>("BtnRestoreSnapshot")!;
+        var status = window.FindControl<TextBlock>("BackupStatusText")!;
+
+        snapshotList.SelectedIndex = 0;
+        btnRestore.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        // Declining is a genuine no-op: the handler returns before SetStatus, so the status text
+        // set at construction (empty) is untouched.
+        Assert.Equal(string.Empty, status.Text);
+
+        // The tracked file was never touched.
+        using var currentSettings = tree.ReadJson("settings.json");
+        Assert.Equal(99, currentSettings.RootElement.GetProperty("FontSize").GetInt32());
+
+        // The assertion that matters: no PreRestore snapshot was written, proving Restore itself
+        // never ran - Cancel is not a no-op that silently restores anyway.
+        var reasons = service.ListSnapshots().Select(s => s.Reason).ToArray();
+        Assert.DoesNotContain(SnapshotReason.PreRestore, reasons);
+        Assert.Single(reasons);
+    }
+
+    /// <summary>
     /// Fix round 1 (Important finding): the "passwords are not included, re-enter them" copy is
     /// the user-facing half of a guarantee the whole feature is built around. Nothing asserted on
     /// it before this - a future rewording or accidental deletion would still pass every other

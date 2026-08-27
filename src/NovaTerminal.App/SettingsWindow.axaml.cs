@@ -948,6 +948,19 @@ namespace NovaTerminal
         }
 
         /// <summary>
+        /// Test seam for the "confirm before restoring" gate. Null (the default, and always the
+        /// case in production) uses the real <see cref="ConfirmRestoreAsync"/>, which shows an
+        /// actual modal <see cref="Window.ShowDialog"/> - not drivable headlessly without risking
+        /// a hang (see <see cref="ConfirmRestoreAsync"/>'s remarks). Tests substitute a synchronous
+        /// fake here instead, so both the "confirmed" and "declined" branches of the Restore click
+        /// handler are covered by something that actually runs in CI, without ever touching
+        /// ShowDialog. Internal rather than public: this exists solely so
+        /// NovaTerminal.App.Tests (an InternalsVisibleTo friend) can reach it - it is a test seam,
+        /// not new public API.
+        /// </summary>
+        internal Func<SnapshotRow, System.Threading.Tasks.Task<bool>>? RestoreConfirmationOverride;
+
+        /// <summary>
         /// Wires the Backup &amp; Restore page. All work goes through <see cref="BackupService"/>;
         /// this method only picks files and renders outcomes.
         /// </summary>
@@ -1082,8 +1095,10 @@ namespace NovaTerminal
                     // offers Merge/Replace) it previously asked nothing at all — the more
                     // surprising of the two destructive actions on this page got the weaker gate.
                     // Cancel must mean no restore; there is no default "yes" other than the
-                    // affirmative button.
-                    bool confirmed = await ConfirmRestoreAsync(row);
+                    // affirmative button. RestoreConfirmationOverride is a test seam (see its own
+                    // doc comment) - production always falls through to the real ConfirmRestoreAsync.
+                    Func<SnapshotRow, System.Threading.Tasks.Task<bool>> confirm = RestoreConfirmationOverride ?? ConfirmRestoreAsync;
+                    bool confirmed = await confirm(row);
                     if (!confirmed) return;
 
                     var outcome = service.Restore(row.Id);
@@ -1105,7 +1120,7 @@ namespace NovaTerminal
             _ => "automatic"
         };
 
-        private sealed record SnapshotRow(string Id, string Display, SnapshotReason Reason, DateTimeOffset CreatedUtc);
+        internal sealed record SnapshotRow(string Id, string Display, SnapshotReason Reason, DateTimeOffset CreatedUtc);
 
         /// <summary>
         /// The restore confirmation dialog's headline and body text for <paramref name="row"/>.
