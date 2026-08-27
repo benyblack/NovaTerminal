@@ -17,6 +17,20 @@ namespace NovaTerminal.Shell
         public string ThemeName { get; set; } = "Default";
         public double WindowOpacity { get; set; } = 1.0;
         public string BlurEffect { get; set; } = "Acrylic";
+
+        /// <summary>
+        /// Where the tab strip lives: "Horizontal" (title-bar strip, the default) or
+        /// "Vertical" (left sidebar with per-tab agent status and output preview).
+        /// Parsed case-insensitively; unrecognized values behave as "Horizontal".
+        /// </summary>
+        public string TabStripOrientation { get; set; } = "Horizontal";
+
+        /// <summary>
+        /// Sidebar width in px when <see cref="TabStripOrientation"/> is "Vertical".
+        /// Clamped to 140–600 at apply time.
+        /// </summary>
+        public double VerticalTabStripWidth { get; set; } = 220;
+
         public bool EnableLigatures { get; set; } = false;
         public bool EnableComplexShaping { get; set; } = true;
         public string CursorStyle { get; set; } = "Underline";
