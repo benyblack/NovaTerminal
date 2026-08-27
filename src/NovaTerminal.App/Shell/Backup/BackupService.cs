@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 
 namespace NovaTerminal.Shell.Backup;
 
@@ -70,6 +72,200 @@ public sealed class BackupService
 
     /// <summary>Reads a bundle's manifest and item counts without extracting anything.</summary>
     public InspectOutcome Inspect(string bundlePath) => BundleReader.Open(bundlePath);
+
+    /// <summary>Snapshots kept regardless of age.</summary>
+    public const int MaxSnapshots = 20;
+
+    /// <summary>Snapshots newer than this are kept regardless of count.</summary>
+    public static readonly TimeSpan SnapshotRetentionWindow = TimeSpan.FromDays(7);
+
+    private const string SnapshotTimestampFormat = "yyyyMMdd'T'HHmmss'Z'";
+
+    /// <summary>
+    /// Writes a snapshot of the current configuration into <see cref="BackupsDirectory"/>.
+    /// Returns null when an <see cref="SnapshotReason.Auto"/> snapshot was skipped because the
+    /// content is byte-identical to the newest existing snapshot. Forced reasons always write.
+    /// </summary>
+    /// <remarks>
+    /// Never throws. A failing backup must not block a settings save, so failures are logged
+    /// and reported as a null return.
+    /// </remarks>
+    public SnapshotInfo? Snapshot(SnapshotReason reason)
+    {
+        try
+        {
+            // Only the first 8 hex chars survive on disk (they're embedded in the file name),
+            // so that's the granularity ListSnapshots can ever recover. Comparing against the
+            // full 64-char hash here would compare unequal length strings and never match,
+            // silently disabling dedupe - so the comparison (and the stored ContentHash) must
+            // use the same truncated form that TryParseSnapshot parses back out of the id.
+            string hashPrefix = ComputeContentHash()[..8];
+
+            if (reason == SnapshotReason.Auto)
+            {
+                var newest = ListSnapshots().FirstOrDefault();
+                if (newest is not null && string.Equals(newest.ContentHash, hashPrefix, StringComparison.Ordinal))
+                {
+                    return null;
+                }
+            }
+
+            var now = _timeProvider.GetUtcNow();
+            string id = $"{ReasonToken(reason)}-{now.UtcDateTime.ToString(SnapshotTimestampFormat, CultureInfo.InvariantCulture)}-{hashPrefix}";
+            string path = Path.Combine(BackupsDirectory, id + BundleExtension);
+
+            Directory.CreateDirectory(BackupsDirectory);
+
+            var outcome = Export(path);
+            if (!outcome.Success)
+            {
+                AppLogger.Log($"[backup] snapshot failed: {outcome.Message}");
+                return null;
+            }
+
+            PruneSnapshots();
+
+            return new SnapshotInfo(id, reason, now, new FileInfo(path).Length, hashPrefix, path);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Log($"[backup] snapshot failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>Snapshots on disk, newest first. Unparseable file names are ignored.</summary>
+    public IReadOnlyList<SnapshotInfo> ListSnapshots()
+    {
+        if (!Directory.Exists(BackupsDirectory)) return Array.Empty<SnapshotInfo>();
+
+        var results = new List<SnapshotInfo>();
+        foreach (string path in Directory.GetFiles(BackupsDirectory, "*" + BundleExtension))
+        {
+            if (TryParseSnapshot(path, out var info)) results.Add(info!);
+        }
+
+        return results
+            .OrderByDescending(s => s.CreatedUtc)
+            .ThenByDescending(s => s.Id, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// SHA-256 over every backed-up file's bundle path and bytes, in catalog order. Computed
+    /// from the live tree rather than the zip: zip bytes carry entry timestamps, so two
+    /// archives of identical content do not compare equal.
+    /// </summary>
+    private string ComputeContentHash()
+    {
+        using var sha = SHA256.Create();
+        using var buffer = new MemoryStream();
+
+        foreach (var entry in BackupCatalog.Entries)
+        {
+            string source = BackupCatalog.ResolveSource(RootDirectory, entry);
+
+            if (entry.IsDirectory)
+            {
+                if (!Directory.Exists(source)) continue;
+                foreach (string file in Directory.GetFiles(source, "*", SearchOption.AllDirectories)
+                             .OrderBy(f => f, StringComparer.Ordinal))
+                {
+                    string relative = Path.GetRelativePath(source, file).Replace('\\', '/');
+                    AppendToHash(buffer, $"{entry.BundlePath}/{relative}", File.ReadAllBytes(file));
+                }
+            }
+            else if (File.Exists(source))
+            {
+                AppendToHash(buffer, entry.BundlePath, File.ReadAllBytes(source));
+            }
+        }
+
+        buffer.Position = 0;
+        return Convert.ToHexString(sha.ComputeHash(buffer)).ToLowerInvariant();
+    }
+
+    private static void AppendToHash(Stream target, string path, byte[] content)
+    {
+        byte[] pathBytes = System.Text.Encoding.UTF8.GetBytes(path + "\n");
+        target.Write(pathBytes);
+        target.Write(content);
+    }
+
+    /// <summary>Keeps the union of the newest <see cref="MaxSnapshots"/> and everything inside the retention window.</summary>
+    private void PruneSnapshots()
+    {
+        var snapshots = ListSnapshots();
+        if (snapshots.Count <= MaxSnapshots) return;
+
+        var cutoff = _timeProvider.GetUtcNow() - SnapshotRetentionWindow;
+
+        var keep = new HashSet<string>(
+            snapshots.Take(MaxSnapshots).Select(s => s.Id),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var snapshot in snapshots.Where(s => s.CreatedUtc >= cutoff))
+        {
+            keep.Add(snapshot.Id);
+        }
+
+        foreach (var snapshot in snapshots.Where(s => !keep.Contains(s.Id)))
+        {
+            try { File.Delete(snapshot.FilePath); }
+            catch (Exception ex) { AppLogger.Log($"[backup] could not prune {snapshot.Id}: {ex.Message}"); }
+        }
+    }
+
+    private static string ReasonToken(SnapshotReason reason) => reason switch
+    {
+        SnapshotReason.Auto => "auto",
+        SnapshotReason.PreImport => "pre-import",
+        SnapshotReason.PreRestore => "pre-restore",
+        _ => "auto"
+    };
+
+    private static bool TryParseReason(string token, out SnapshotReason reason)
+    {
+        switch (token)
+        {
+            case "auto": reason = SnapshotReason.Auto; return true;
+            case "pre-import": reason = SnapshotReason.PreImport; return true;
+            case "pre-restore": reason = SnapshotReason.PreRestore; return true;
+            default: reason = SnapshotReason.Auto; return false;
+        }
+    }
+
+    /// <summary>Parses <c>&lt;reason&gt;-&lt;timestamp&gt;-&lt;hash8&gt;</c>. The reason itself may contain a dash.</summary>
+    private static bool TryParseSnapshot(string path, out SnapshotInfo? info)
+    {
+        info = null;
+        string id = Path.GetFileNameWithoutExtension(path);
+
+        int hashSeparator = id.LastIndexOf('-');
+        if (hashSeparator <= 0) return false;
+
+        int timestampSeparator = id.LastIndexOf('-', hashSeparator - 1);
+        if (timestampSeparator <= 0) return false;
+
+        string reasonToken = id[..timestampSeparator];
+        string timestampToken = id[(timestampSeparator + 1)..hashSeparator];
+        string hashToken = id[(hashSeparator + 1)..];
+
+        if (!TryParseReason(reasonToken, out var reason)) return false;
+
+        if (!DateTimeOffset.TryParseExact(
+                timestampToken,
+                SnapshotTimestampFormat,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var created))
+        {
+            return false;
+        }
+
+        info = new SnapshotInfo(id, reason, created, new FileInfo(path).Length, hashToken, path);
+        return true;
+    }
 
     /// <summary>True when at least one file exists on disk for this category.</summary>
     private bool HasContent(BackupCategory category)
