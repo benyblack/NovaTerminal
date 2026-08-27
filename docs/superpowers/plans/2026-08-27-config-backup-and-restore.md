@@ -1348,17 +1348,423 @@ git commit -m "feat(backup): BackupService export and inspect"
 
 ---
 
-### Task 4: Import with merge and replace
+### Task 4: Snapshots — write, list, dedupe, retention
 
-The riskiest task — it writes over live config. Staging plus a rollback copy is what makes it safe.
+Snapshots come before import so that `Import` can call a real `Snapshot`, and `Restore` (Task 5) can call a real `Import`. No stubs, no circular dependency.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/Backup/BackupService.cs` (add `Import` and its private helpers)
+- Modify: `src/NovaTerminal.App/Shell/Backup/BackupService.cs` (add `Snapshot`, `ListSnapshots`, retention, hashing)
+- Test: `tests/NovaTerminal.App.Tests/Backup/SnapshotTests.cs`
+
+**Interfaces:**
+- Consumes: `BackupService` from Task 3, `SnapshotInfo` and `SnapshotReason` from Tasks 1–2.
+- Produces: `SnapshotInfo? Snapshot(SnapshotReason reason)`; `IReadOnlyList<SnapshotInfo> ListSnapshots()`; `const int MaxSnapshots = 20`; `static readonly TimeSpan SnapshotRetentionWindow = TimeSpan.FromDays(7)`. Task 5 adds `Restore`, which builds on both.
+
+**Snapshot id format:** `<reason>-<yyyyMMddTHHmmssZ>-<hash8>`, e.g. `auto-20260827T091400Z-a1b2c3d4`. Reason encodes as `auto`, `pre-import`, `pre-restore`.
+
+**Content hash:** SHA-256 over the ordered concatenation of each backed-up file's bundle path and bytes — computed from the live tree, not the zip, because zip bytes vary with entry timestamps. First 8 hex chars go in the id.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/NovaTerminal.App.Tests/Backup/SnapshotTests.cs`:
+
+```csharp
+using NovaTerminal.Shell.Backup;
+
+namespace NovaTerminal.Tests.Backup;
+
+public sealed class SnapshotTests
+{
+    [Fact]
+    public void Snapshot_WritesBundleIntoBackupsDirectory()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = Clock();
+        var service = new BackupService(tree.Root, clock);
+
+        var info = service.Snapshot(SnapshotReason.Auto);
+
+        Assert.NotNull(info);
+        Assert.StartsWith("auto-20260827T091400Z-", info!.Id);
+        Assert.True(File.Exists(info.FilePath));
+        Assert.Equal(
+            Path.GetFullPath(Path.Combine(tree.Root, "backups")),
+            Path.GetFullPath(Path.GetDirectoryName(info.FilePath)!));
+    }
+
+    [Fact]
+    public void Snapshot_ReasonEncodedInIdPrefix()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+
+        Assert.StartsWith("pre-import-", service.Snapshot(SnapshotReason.PreImport)!.Id);
+        Assert.StartsWith("pre-restore-", service.Snapshot(SnapshotReason.PreRestore)!.Id);
+    }
+
+    [Fact]
+    public void Snapshot_Auto_SkipsWhenContentUnchanged()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = Clock();
+        var service = new BackupService(tree.Root, clock);
+
+        var first = service.Snapshot(SnapshotReason.Auto);
+        clock.Advance(TimeSpan.FromMinutes(5));
+        var second = service.Snapshot(SnapshotReason.Auto);
+
+        Assert.NotNull(first);
+        Assert.Null(second);
+        Assert.Single(service.ListSnapshots());
+    }
+
+    [Fact]
+    public void Snapshot_Auto_WritesWhenContentChanged()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = Clock();
+        var service = new BackupService(tree.Root, clock);
+
+        service.Snapshot(SnapshotReason.Auto);
+        tree.WriteFile("settings.json", """{"FontSize":22}""");
+        clock.Advance(TimeSpan.FromMinutes(5));
+        var second = service.Snapshot(SnapshotReason.Auto);
+
+        Assert.NotNull(second);
+        Assert.Equal(2, service.ListSnapshots().Count);
+    }
+
+    /// <summary>
+    /// A forced snapshot records the pre-state of a destructive operation even when that state
+    /// is byte-identical to the newest auto snapshot. Deduping it away would mean a failed
+    /// import had no snapshot of its own to point the user at.
+    /// </summary>
+    [Fact]
+    public void Snapshot_Forced_IgnoresDedupe()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = Clock();
+        var service = new BackupService(tree.Root, clock);
+
+        service.Snapshot(SnapshotReason.Auto);
+        clock.Advance(TimeSpan.FromMinutes(1));
+        var forced = service.Snapshot(SnapshotReason.PreImport);
+
+        Assert.NotNull(forced);
+        Assert.Equal(2, service.ListSnapshots().Count);
+    }
+
+    [Fact]
+    public void ListSnapshots_ReturnsNewestFirstWithParsedMetadata()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = Clock();
+        var service = new BackupService(tree.Root, clock);
+
+        service.Snapshot(SnapshotReason.Auto);
+        tree.WriteFile("settings.json", """{"FontSize":22}""");
+        clock.Advance(TimeSpan.FromHours(1));
+        service.Snapshot(SnapshotReason.Auto);
+
+        var snapshots = service.ListSnapshots();
+
+        Assert.Equal(2, snapshots.Count);
+        Assert.True(snapshots[0].CreatedUtc > snapshots[1].CreatedUtc);
+        Assert.All(snapshots, s => Assert.True(s.SizeBytes > 0));
+        Assert.All(snapshots, s => Assert.Equal(SnapshotReason.Auto, s.Reason));
+    }
+
+    [Fact]
+    public void Retention_KeepsNewestTwentyWhenAllAreOld()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = Clock();
+        var service = new BackupService(tree.Root, clock);
+
+        for (int i = 0; i < 25; i++)
+        {
+            tree.WriteFile("settings.json", $$"""{"FontSize":{{i}}}""");
+            clock.Advance(TimeSpan.FromDays(30)); // every snapshot ages out of the 7-day window
+            service.Snapshot(SnapshotReason.Auto);
+        }
+
+        Assert.Equal(BackupService.MaxSnapshots, service.ListSnapshots().Count);
+    }
+
+    [Fact]
+    public void Retention_KeepsMoreThanTwentyWhenAllAreRecent()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = Clock();
+        var service = new BackupService(tree.Root, clock);
+
+        for (int i = 0; i < 25; i++)
+        {
+            tree.WriteFile("settings.json", $$"""{"FontSize":{{i}}}""");
+            clock.Advance(TimeSpan.FromMinutes(1)); // all inside the 7-day window
+            service.Snapshot(SnapshotReason.Auto);
+        }
+
+        Assert.Equal(25, service.ListSnapshots().Count);
+    }
+
+    [Fact]
+    public void Snapshot_NeverContainsAnotherSnapshot()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = Clock();
+        var service = new BackupService(tree.Root, clock);
+
+        service.Snapshot(SnapshotReason.Auto);
+        tree.WriteFile("settings.json", """{"FontSize":22}""");
+        clock.Advance(TimeSpan.FromMinutes(1));
+        var second = service.Snapshot(SnapshotReason.Auto);
+
+        using var zip = System.IO.Compression.ZipFile.OpenRead(second!.FilePath);
+        Assert.DoesNotContain(zip.Entries, e => e.FullName.Contains("backups", StringComparison.Ordinal));
+        Assert.DoesNotContain(zip.Entries, e => e.FullName.EndsWith(".novabackup", StringComparison.Ordinal));
+    }
+
+    private static FixedTimeProvider Clock() =>
+        new(new DateTimeOffset(2026, 8, 27, 9, 14, 0, TimeSpan.Zero));
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~SnapshotTests"
+```
+
+Expected: compile failure — `Snapshot`, `ListSnapshots`, `MaxSnapshots` do not exist.
+
+- [ ] **Step 3: Add snapshot support to BackupService**
+
+In `src/NovaTerminal.App/Shell/Backup/BackupService.cs`, add `using System.Globalization;` and `using System.Security.Cryptography;` at the top, then add these members after `Inspect`:
+
+```csharp
+    /// <summary>Snapshots kept regardless of age.</summary>
+    public const int MaxSnapshots = 20;
+
+    /// <summary>Snapshots newer than this are kept regardless of count.</summary>
+    public static readonly TimeSpan SnapshotRetentionWindow = TimeSpan.FromDays(7);
+
+    private const string SnapshotTimestampFormat = "yyyyMMdd'T'HHmmss'Z'";
+
+    /// <summary>
+    /// Writes a snapshot of the current configuration into <see cref="BackupsDirectory"/>.
+    /// Returns null when an <see cref="SnapshotReason.Auto"/> snapshot was skipped because the
+    /// content is byte-identical to the newest existing snapshot. Forced reasons always write.
+    /// </summary>
+    /// <remarks>
+    /// Never throws. A failing backup must not block a settings save, so failures are logged
+    /// and reported as a null return.
+    /// </remarks>
+    public SnapshotInfo? Snapshot(SnapshotReason reason)
+    {
+        try
+        {
+            string hash = ComputeContentHash();
+
+            if (reason == SnapshotReason.Auto)
+            {
+                var newest = ListSnapshots().FirstOrDefault();
+                if (newest is not null && string.Equals(newest.ContentHash, hash, StringComparison.Ordinal))
+                {
+                    return null;
+                }
+            }
+
+            var now = _timeProvider.GetUtcNow();
+            string id = $"{ReasonToken(reason)}-{now.UtcDateTime.ToString(SnapshotTimestampFormat, CultureInfo.InvariantCulture)}-{hash[..8]}";
+            string path = Path.Combine(BackupsDirectory, id + BundleExtension);
+
+            Directory.CreateDirectory(BackupsDirectory);
+
+            var outcome = Export(path);
+            if (!outcome.Success)
+            {
+                AppLogger.Log($"[backup] snapshot failed: {outcome.Message}");
+                return null;
+            }
+
+            PruneSnapshots();
+
+            return new SnapshotInfo(id, reason, now, new FileInfo(path).Length, hash, path);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Log($"[backup] snapshot failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>Snapshots on disk, newest first. Unparseable file names are ignored.</summary>
+    public IReadOnlyList<SnapshotInfo> ListSnapshots()
+    {
+        if (!Directory.Exists(BackupsDirectory)) return Array.Empty<SnapshotInfo>();
+
+        var results = new List<SnapshotInfo>();
+        foreach (string path in Directory.GetFiles(BackupsDirectory, "*" + BundleExtension))
+        {
+            if (TryParseSnapshot(path, out var info)) results.Add(info!);
+        }
+
+        return results
+            .OrderByDescending(s => s.CreatedUtc)
+            .ThenByDescending(s => s.Id, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// SHA-256 over every backed-up file's bundle path and bytes, in catalog order. Computed
+    /// from the live tree rather than the zip: zip bytes carry entry timestamps, so two
+    /// archives of identical content do not compare equal.
+    /// </summary>
+    private string ComputeContentHash()
+    {
+        using var sha = SHA256.Create();
+        using var buffer = new MemoryStream();
+
+        foreach (var entry in BackupCatalog.Entries)
+        {
+            string source = BackupCatalog.ResolveSource(RootDirectory, entry);
+
+            if (entry.IsDirectory)
+            {
+                if (!Directory.Exists(source)) continue;
+                foreach (string file in Directory.GetFiles(source, "*", SearchOption.AllDirectories)
+                             .OrderBy(f => f, StringComparer.Ordinal))
+                {
+                    string relative = Path.GetRelativePath(source, file).Replace('\\', '/');
+                    AppendToHash(buffer, $"{entry.BundlePath}/{relative}", File.ReadAllBytes(file));
+                }
+            }
+            else if (File.Exists(source))
+            {
+                AppendToHash(buffer, entry.BundlePath, File.ReadAllBytes(source));
+            }
+        }
+
+        buffer.Position = 0;
+        return Convert.ToHexString(sha.ComputeHash(buffer)).ToLowerInvariant();
+    }
+
+    private static void AppendToHash(Stream target, string path, byte[] content)
+    {
+        byte[] pathBytes = System.Text.Encoding.UTF8.GetBytes(path + "\n");
+        target.Write(pathBytes);
+        target.Write(content);
+    }
+
+    /// <summary>Keeps the union of the newest <see cref="MaxSnapshots"/> and everything inside the retention window.</summary>
+    private void PruneSnapshots()
+    {
+        var snapshots = ListSnapshots();
+        if (snapshots.Count <= MaxSnapshots) return;
+
+        var cutoff = _timeProvider.GetUtcNow() - SnapshotRetentionWindow;
+
+        var keep = new HashSet<string>(
+            snapshots.Take(MaxSnapshots).Select(s => s.Id),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var snapshot in snapshots.Where(s => s.CreatedUtc >= cutoff))
+        {
+            keep.Add(snapshot.Id);
+        }
+
+        foreach (var snapshot in snapshots.Where(s => !keep.Contains(s.Id)))
+        {
+            try { File.Delete(snapshot.FilePath); }
+            catch (Exception ex) { AppLogger.Log($"[backup] could not prune {snapshot.Id}: {ex.Message}"); }
+        }
+    }
+
+    private static string ReasonToken(SnapshotReason reason) => reason switch
+    {
+        SnapshotReason.Auto => "auto",
+        SnapshotReason.PreImport => "pre-import",
+        SnapshotReason.PreRestore => "pre-restore",
+        _ => "auto"
+    };
+
+    private static bool TryParseReason(string token, out SnapshotReason reason)
+    {
+        switch (token)
+        {
+            case "auto": reason = SnapshotReason.Auto; return true;
+            case "pre-import": reason = SnapshotReason.PreImport; return true;
+            case "pre-restore": reason = SnapshotReason.PreRestore; return true;
+            default: reason = SnapshotReason.Auto; return false;
+        }
+    }
+
+    /// <summary>Parses <c>&lt;reason&gt;-&lt;timestamp&gt;-&lt;hash8&gt;</c>. The reason itself may contain a dash.</summary>
+    private static bool TryParseSnapshot(string path, out SnapshotInfo? info)
+    {
+        info = null;
+        string id = Path.GetFileNameWithoutExtension(path);
+
+        int hashSeparator = id.LastIndexOf('-');
+        if (hashSeparator <= 0) return false;
+
+        int timestampSeparator = id.LastIndexOf('-', hashSeparator - 1);
+        if (timestampSeparator <= 0) return false;
+
+        string reasonToken = id[..timestampSeparator];
+        string timestampToken = id[(timestampSeparator + 1)..hashSeparator];
+        string hashToken = id[(hashSeparator + 1)..];
+
+        if (!TryParseReason(reasonToken, out var reason)) return false;
+
+        if (!DateTimeOffset.TryParseExact(
+                timestampToken,
+                SnapshotTimestampFormat,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var created))
+        {
+            return false;
+        }
+
+        info = new SnapshotInfo(id, reason, created, new FileInfo(path).Length, hashToken, path);
+        return true;
+    }
+```
+
+`AppLogger.Log(string)` is `public static` in `NovaTerminal.Shell` (`src/NovaTerminal.App/Shell/AppLogger.cs`), the parent namespace, so it resolves without an extra `using`.
+
+Two consequences of the hash living in the id: `ListSnapshots` reads `ContentHash` straight from the file name, so no zip is opened to list, and the dedupe check in `Snapshot` compares against the newest snapshot's parsed hash.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~SnapshotTests"
+```
+
+Expected: PASS, 9 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/NovaTerminal.App/Shell/Backup/BackupService.cs tests/NovaTerminal.App.Tests/Backup/SnapshotTests.cs
+git commit -m "feat(backup): snapshots with hash dedupe and retention"
+```
+
+---
+
+### Task 5: Import with merge and replace, plus Restore
+
+The riskiest task — it writes over live config. Staging plus a forced pre-import snapshot is what makes it safe. `Snapshot` already exists from Task 4, so `Import` calls the real thing and `Restore` is a thin wrapper over `Import`.
+
+**Files:**
+- Modify: `src/NovaTerminal.App/Shell/Backup/BackupService.cs` (add `Import`, `Restore`, and their private helpers)
 - Test: `tests/NovaTerminal.App.Tests/Backup/BackupImportTests.cs`
 
 **Interfaces:**
-- Consumes: `BackupService` from Task 3, `BundleReader.ExtractTo` from Task 2, `ImportMode` from Task 1.
-- Produces: `BackupOutcome Import(string bundlePath, ImportMode mode, IReadOnlyCollection<BackupCategory>? categories = null)`.
+- Consumes: `BackupService` with `Export`/`Inspect`/`Snapshot`/`ListSnapshots` from Tasks 3–4, `BundleReader.ExtractTo` from Task 2, `ImportMode` from Task 1.
+- Produces: `BackupOutcome Import(string bundlePath, ImportMode mode, IReadOnlyCollection<BackupCategory>? categories = null)`; `BackupOutcome Restore(string snapshotId)`.
 
 **Semantics to implement exactly:**
 
@@ -1368,6 +1774,8 @@ The riskiest task — it writes over live config. Staging plus a rollback copy i
 | Themes / Workspaces / Policy (directories) | Per-file: bundle file overwrites same-named local file; local-only files survive. | Local directory is emptied, then bundle files written. |
 | Connections (`profiles.json`) | Merge the `profiles` array by `Id`; bundle entry replaces the local one with the same `Id`; local-only ids survive. `native_known_hosts.json` merges by whole-array union, deduped by serialized entry. | Bundle files replace local files wholesale. |
 | Snippets | Bundle file replaces local file wholesale (merge and replace are the same — the file is a flat array with no stable id). | Same. |
+
+**Restore** is always a Replace of the categories the snapshot contains — a rollback, not a merge — and takes a `pre-restore` snapshot first.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1530,6 +1938,21 @@ public sealed class BackupImportTests
     }
 
     [Fact]
+    public void Import_TakesPreImportSnapshotBeforeWriting()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        source.WriteFile("settings.json", """{"FontSize":77}""");
+        string bundle = ExportFrom(source);
+
+        using var target = BackupTestTree.CreatePopulated();
+        var service = new BackupService(target.Root, Clock());
+
+        service.Import(bundle, ImportMode.Replace);
+
+        Assert.Contains(service.ListSnapshots(), s => s.Reason == SnapshotReason.PreImport);
+    }
+
+    [Fact]
     public void Import_RejectsCorruptBundleWithoutTouchingDisk()
     {
         using var target = BackupTestTree.CreatePopulated();
@@ -1537,11 +1960,14 @@ public sealed class BackupImportTests
         string bogus = Path.Combine(target.Root, "bogus.novabackup");
         File.WriteAllText(bogus, "not a zip");
 
-        var outcome = new BackupService(target.Root, Clock()).Import(bogus, ImportMode.Replace);
+        var service = new BackupService(target.Root, Clock());
+        var outcome = service.Import(bogus, ImportMode.Replace);
 
         Assert.False(outcome.Success);
         Assert.Equal(BackupFailureKind.CorruptArchive, outcome.Failure);
         Assert.Equal(original, target.ReadFile("settings.json"));
+        // Validation happens before anything is touched, so no snapshot was needed.
+        Assert.Empty(service.ListSnapshots());
     }
 
     [Fact]
@@ -1585,6 +2011,71 @@ public sealed class BackupImportTests
         Assert.Contains(service.ListSnapshots(), s => s.Reason == SnapshotReason.PreImport);
     }
 
+    [Fact]
+    public void Restore_RollsBackChangedFile()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = Clock();
+        var service = new BackupService(tree.Root, clock);
+
+        tree.WriteFile("settings.json", """{"FontSize":14}""");
+        var snapshot = service.Snapshot(SnapshotReason.Auto);
+        tree.WriteFile("settings.json", """{"FontSize":99}""");
+        clock.Advance(TimeSpan.FromMinutes(1));
+
+        var outcome = service.Restore(snapshot!.Id);
+
+        Assert.True(outcome.Success, outcome.Message);
+        // Restore is a Replace, which copies the file verbatim — assert on the parsed value
+        // rather than formatting, so the test survives a serializer change.
+        using var restored = tree.ReadJson("settings.json");
+        Assert.Equal(14, restored.RootElement.GetProperty("FontSize").GetInt32());
+    }
+
+    [Fact]
+    public void Restore_TakesPreRestoreSnapshotFirst()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = Clock();
+        var service = new BackupService(tree.Root, clock);
+
+        var snapshot = service.Snapshot(SnapshotReason.Auto);
+        tree.WriteFile("settings.json", """{"FontSize":99}""");
+        clock.Advance(TimeSpan.FromMinutes(1));
+
+        service.Restore(snapshot!.Id);
+
+        Assert.Contains(service.ListSnapshots(), s => s.Reason == SnapshotReason.PreRestore);
+    }
+
+    [Fact]
+    public void Restore_DropsLocalOnlyItems()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = Clock();
+        var service = new BackupService(tree.Root, clock);
+
+        var snapshot = service.Snapshot(SnapshotReason.Auto);
+        tree.WriteFile(Path.Combine("themes", "added-later.json"), """{"name":"Later"}""");
+        clock.Advance(TimeSpan.FromMinutes(1));
+
+        service.Restore(snapshot!.Id);
+
+        Assert.False(tree.Exists(Path.Combine("themes", "added-later.json")));
+    }
+
+    [Fact]
+    public void Restore_UnknownIdFails()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+
+        var outcome = service.Restore("auto-19700101T000000Z-deadbeef");
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.NotFound, outcome.Failure);
+    }
+
     private static string ExportFrom(BackupTestTree tree)
     {
         string bundle = Path.Combine(tree.Root, "export.novabackup");
@@ -1593,8 +2084,8 @@ public sealed class BackupImportTests
         return bundle;
     }
 
-    private static TimeProvider Clock() =>
-        new FixedTimeProvider(new DateTimeOffset(2026, 8, 27, 9, 14, 0, TimeSpan.Zero));
+    private static FixedTimeProvider Clock() =>
+        new(new DateTimeOffset(2026, 8, 27, 9, 14, 0, TimeSpan.Zero));
 
     private static void WriteFutureSchemaBundle(string path)
     {
@@ -1613,9 +2104,9 @@ public sealed class BackupImportTests
 scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BackupImportTests"
 ```
 
-Expected: compile failure — `BackupService.Import` does not exist.
+Expected: compile failure — `BackupService.Import` and `BackupService.Restore` do not exist.
 
-- [ ] **Step 3: Add Import to BackupService**
+- [ ] **Step 3: Add Import and Restore to BackupService**
 
 Add these `using` directives at the top of `src/NovaTerminal.App/Shell/Backup/BackupService.cs`:
 
@@ -1624,7 +2115,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 ```
 
-Add the following members to the `BackupService` class, after `Inspect`:
+Add the following members to the `BackupService` class:
 
 ```csharp
     /// <summary>
@@ -1658,9 +2149,7 @@ Add the following members to the `BackupService` class, after `Inspect`:
 
         Snapshot(SnapshotReason.PreImport);
 
-        string staging = Path.Combine(
-            Path.GetTempPath(),
-            $"nova_import_{Guid.NewGuid():N}");
+        string staging = Path.Combine(Path.GetTempPath(), $"nova_import_{Guid.NewGuid():N}");
 
         try
         {
@@ -1684,6 +2173,24 @@ Add the following members to the `BackupService` class, after `Inspect`:
         {
             try { if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true); } catch { }
         }
+    }
+
+    /// <summary>
+    /// Rolls the live tree back to a snapshot. Always a Replace of the categories the snapshot
+    /// contains — a rollback, not a merge. Categories absent from the snapshot are untouched.
+    /// </summary>
+    public BackupOutcome Restore(string snapshotId)
+    {
+        var snapshot = ListSnapshots().FirstOrDefault(s =>
+            string.Equals(s.Id, snapshotId, StringComparison.OrdinalIgnoreCase));
+
+        if (snapshot is null)
+        {
+            return BackupOutcome.Fail(BackupFailureKind.NotFound, $"No snapshot with id '{snapshotId}'.");
+        }
+
+        Snapshot(SnapshotReason.PreRestore);
+        return Import(snapshot.FilePath, ImportMode.Replace);
     }
 
     private void ApplyCategory(BackupCategory category, string staging, ImportMode mode)
@@ -1809,12 +2316,11 @@ Add the following members to the `BackupService` class, after `Inspect`:
         Absorb(existing);
         Absorb(incoming); // bundle wins: absorbed second
 
-        var result = existing;
         var merged = new JsonArray();
         foreach (string id in order) merged.Add(byId[id]);
-        result["profiles"] = merged;
+        existing["profiles"] = merged;
 
-        AtomicFile.WriteAllText(livePath, result.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        AtomicFile.WriteAllText(livePath, existing.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
     /// <summary>Union of two JSON arrays, deduped by each element's serialized form.</summary>
@@ -1848,14 +2354,7 @@ Add the following members to the `BackupService` class, after `Inspect`:
     }
 ```
 
-Note: `Import` calls `Snapshot(SnapshotReason.PreImport)`, which Task 5 implements. To keep this task compiling on its own, add a temporary stub to `BackupService` now and replace it in Task 5:
-
-```csharp
-    // Replaced by the real implementation in Task 5.
-    public SnapshotInfo? Snapshot(SnapshotReason reason) => null;
-```
-
-`AtomicFile` is `internal static` in namespace `NovaTerminal.Shell` — the same assembly, so `BackupService` reaches it with a `using NovaTerminal.Shell;` if needed (it is in a child namespace, so it resolves without one).
+`AtomicFile` is `internal static` in namespace `NovaTerminal.Shell`, the same assembly and the parent namespace, so it resolves without an extra `using`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1863,9 +2362,9 @@ Note: `Import` calls `Snapshot(SnapshotReason.PreImport)`, which Task 5 implemen
 scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BackupImportTests"
 ```
 
-Expected: PASS, 11 tests.
+Expected: PASS, 16 tests.
 
-- [ ] **Step 5: Re-run the earlier suites to confirm no regression**
+- [ ] **Step 5: Re-run the whole Backup namespace to confirm no regression**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~NovaTerminal.Tests.Backup"
@@ -1877,508 +2376,7 @@ Expected: PASS, all Backup tests.
 
 ```bash
 git add src/NovaTerminal.App/Shell/Backup/BackupService.cs tests/NovaTerminal.App.Tests/Backup/BackupImportTests.cs
-git commit -m "feat(backup): staged import with merge and replace semantics"
-```
-
----
-
-### Task 5: Snapshots — write, list, dedupe, retention, restore
-
-**Files:**
-- Modify: `src/NovaTerminal.App/Shell/Backup/BackupService.cs` (replace the `Snapshot` stub; add `ListSnapshots`, `Restore`, retention)
-- Test: `tests/NovaTerminal.App.Tests/Backup/SnapshotTests.cs`
-
-**Interfaces:**
-- Consumes: `BackupService` from Tasks 3–4, `SnapshotInfo` and `SnapshotReason` from Tasks 1–2.
-- Produces: `SnapshotInfo? Snapshot(SnapshotReason reason)`; `IReadOnlyList<SnapshotInfo> ListSnapshots()`; `BackupOutcome Restore(string snapshotId)`; `const int MaxSnapshots = 20`; `static readonly TimeSpan SnapshotRetentionWindow = TimeSpan.FromDays(7)`.
-
-**Snapshot id format:** `<reason>-<yyyyMMddTHHmmssZ>-<hash8>`, e.g. `auto-20260827T091400Z-a1b2c3d4`. Reason encodes as `auto`, `pre-import`, `pre-restore`.
-
-**Content hash:** SHA-256 over the ordered concatenation of each backed-up file's bundle path and bytes — computed from the live tree, not the zip, because zip bytes vary with timestamps. First 8 hex chars go in the id.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `tests/NovaTerminal.App.Tests/Backup/SnapshotTests.cs`:
-
-```csharp
-using NovaTerminal.Shell.Backup;
-
-namespace NovaTerminal.Tests.Backup;
-
-public sealed class SnapshotTests
-{
-    [Fact]
-    public void Snapshot_WritesBundleIntoBackupsDirectory()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var clock = Clock();
-        var service = new BackupService(tree.Root, clock);
-
-        var info = service.Snapshot(SnapshotReason.Auto);
-
-        Assert.NotNull(info);
-        Assert.StartsWith("auto-20260827T091400Z-", info!.Id);
-        Assert.True(File.Exists(info.FilePath));
-        Assert.Equal(
-            Path.GetFullPath(Path.Combine(tree.Root, "backups")),
-            Path.GetFullPath(Path.GetDirectoryName(info.FilePath)!));
-    }
-
-    [Fact]
-    public void Snapshot_ReasonEncodedInIdPrefix()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var service = new BackupService(tree.Root, Clock());
-
-        Assert.StartsWith("pre-import-", service.Snapshot(SnapshotReason.PreImport)!.Id);
-        Assert.StartsWith("pre-restore-", service.Snapshot(SnapshotReason.PreRestore)!.Id);
-    }
-
-    [Fact]
-    public void Snapshot_Auto_SkipsWhenContentUnchanged()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var clock = Clock();
-        var service = new BackupService(tree.Root, clock);
-
-        var first = service.Snapshot(SnapshotReason.Auto);
-        clock.Advance(TimeSpan.FromMinutes(5));
-        var second = service.Snapshot(SnapshotReason.Auto);
-
-        Assert.NotNull(first);
-        Assert.Null(second);
-        Assert.Single(service.ListSnapshots());
-    }
-
-    [Fact]
-    public void Snapshot_Auto_WritesWhenContentChanged()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var clock = Clock();
-        var service = new BackupService(tree.Root, clock);
-
-        service.Snapshot(SnapshotReason.Auto);
-        tree.WriteFile("settings.json", """{"FontSize":22}""");
-        clock.Advance(TimeSpan.FromMinutes(5));
-        var second = service.Snapshot(SnapshotReason.Auto);
-
-        Assert.NotNull(second);
-        Assert.Equal(2, service.ListSnapshots().Count);
-    }
-
-    /// <summary>
-    /// A forced snapshot records the pre-state of a destructive operation even when that state
-    /// is byte-identical to the newest auto snapshot. Deduping it away would mean a failed
-    /// import had no snapshot of its own to point the user at.
-    /// </summary>
-    [Fact]
-    public void Snapshot_Forced_IgnoresDedupe()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var clock = Clock();
-        var service = new BackupService(tree.Root, clock);
-
-        service.Snapshot(SnapshotReason.Auto);
-        clock.Advance(TimeSpan.FromMinutes(1));
-        var forced = service.Snapshot(SnapshotReason.PreImport);
-
-        Assert.NotNull(forced);
-        Assert.Equal(2, service.ListSnapshots().Count);
-    }
-
-    [Fact]
-    public void ListSnapshots_ReturnsNewestFirstWithParsedMetadata()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var clock = Clock();
-        var service = new BackupService(tree.Root, clock);
-
-        service.Snapshot(SnapshotReason.Auto);
-        tree.WriteFile("settings.json", """{"FontSize":22}""");
-        clock.Advance(TimeSpan.FromHours(1));
-        service.Snapshot(SnapshotReason.Auto);
-
-        var snapshots = service.ListSnapshots();
-
-        Assert.Equal(2, snapshots.Count);
-        Assert.True(snapshots[0].CreatedUtc > snapshots[1].CreatedUtc);
-        Assert.All(snapshots, s => Assert.True(s.SizeBytes > 0));
-        Assert.All(snapshots, s => Assert.Equal(SnapshotReason.Auto, s.Reason));
-    }
-
-    [Fact]
-    public void Retention_KeepsNewestTwentyWhenAllAreOld()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var clock = Clock();
-        var service = new BackupService(tree.Root, clock);
-
-        for (int i = 0; i < 25; i++)
-        {
-            tree.WriteFile("settings.json", $$"""{"FontSize":{{i}}}""");
-            clock.Advance(TimeSpan.FromDays(30)); // every snapshot ages out of the 7-day window
-            service.Snapshot(SnapshotReason.Auto);
-        }
-
-        Assert.Equal(BackupService.MaxSnapshots, service.ListSnapshots().Count);
-    }
-
-    [Fact]
-    public void Retention_KeepsMoreThanTwentyWhenAllAreRecent()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var clock = Clock();
-        var service = new BackupService(tree.Root, clock);
-
-        for (int i = 0; i < 25; i++)
-        {
-            tree.WriteFile("settings.json", $$"""{"FontSize":{{i}}}""");
-            clock.Advance(TimeSpan.FromMinutes(1)); // all inside the 7-day window
-            service.Snapshot(SnapshotReason.Auto);
-        }
-
-        Assert.Equal(25, service.ListSnapshots().Count);
-    }
-
-    [Fact]
-    public void Restore_RollsBackChangedFile()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var clock = Clock();
-        var service = new BackupService(tree.Root, clock);
-
-        tree.WriteFile("settings.json", """{"FontSize":14}""");
-        var snapshot = service.Snapshot(SnapshotReason.Auto);
-        tree.WriteFile("settings.json", """{"FontSize":99}""");
-
-        var outcome = service.Restore(snapshot!.Id);
-
-        Assert.True(outcome.Success, outcome.Message);
-        // Restore is a Replace, which copies the file verbatim — assert on the parsed value
-        // rather than formatting, so the test survives a serializer change.
-        using var restored = tree.ReadJson("settings.json");
-        Assert.Equal(14, restored.RootElement.GetProperty("FontSize").GetInt32());
-    }
-
-    [Fact]
-    public void Restore_TakesPreRestoreSnapshotFirst()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var clock = Clock();
-        var service = new BackupService(tree.Root, clock);
-
-        var snapshot = service.Snapshot(SnapshotReason.Auto);
-        tree.WriteFile("settings.json", """{"FontSize":99}""");
-        clock.Advance(TimeSpan.FromMinutes(1));
-
-        service.Restore(snapshot!.Id);
-
-        Assert.Contains(service.ListSnapshots(), s => s.Reason == SnapshotReason.PreRestore);
-    }
-
-    [Fact]
-    public void Restore_DropsLocalOnlyItems()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var clock = Clock();
-        var service = new BackupService(tree.Root, clock);
-
-        var snapshot = service.Snapshot(SnapshotReason.Auto);
-        tree.WriteFile(Path.Combine("themes", "added-later.json"), """{"name":"Later"}""");
-        clock.Advance(TimeSpan.FromMinutes(1));
-
-        service.Restore(snapshot!.Id);
-
-        Assert.False(tree.Exists(Path.Combine("themes", "added-later.json")));
-    }
-
-    [Fact]
-    public void Restore_UnknownIdFails()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var service = new BackupService(tree.Root, Clock());
-
-        var outcome = service.Restore("auto-19700101T000000Z-deadbeef");
-
-        Assert.False(outcome.Success);
-        Assert.Equal(BackupFailureKind.NotFound, outcome.Failure);
-    }
-
-    [Fact]
-    public void Snapshot_NeverContainsAnotherSnapshot()
-    {
-        using var tree = BackupTestTree.CreatePopulated();
-        var clock = Clock();
-        var service = new BackupService(tree.Root, clock);
-
-        service.Snapshot(SnapshotReason.Auto);
-        tree.WriteFile("settings.json", """{"FontSize":22}""");
-        clock.Advance(TimeSpan.FromMinutes(1));
-        var second = service.Snapshot(SnapshotReason.Auto);
-
-        using var zip = System.IO.Compression.ZipFile.OpenRead(second!.FilePath);
-        Assert.DoesNotContain(zip.Entries, e => e.FullName.Contains("backups", StringComparison.Ordinal));
-        Assert.DoesNotContain(zip.Entries, e => e.FullName.EndsWith(".novabackup", StringComparison.Ordinal));
-    }
-
-    private static FixedTimeProvider Clock() =>
-        new(new DateTimeOffset(2026, 8, 27, 9, 14, 0, TimeSpan.Zero));
-}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~SnapshotTests"
-```
-
-Expected: compile failure — `ListSnapshots`, `Restore`, `MaxSnapshots` do not exist; `Snapshot` returns the stub `null`.
-
-- [ ] **Step 3: Replace the Snapshot stub and add the rest**
-
-In `src/NovaTerminal.App/Shell/Backup/BackupService.cs`, add `using System.Globalization;` and `using System.Security.Cryptography;` at the top, then delete the Task 4 stub:
-
-```csharp
-    // Replaced by the real implementation in Task 5.
-    public SnapshotInfo? Snapshot(SnapshotReason reason) => null;
-```
-
-and add these members in its place:
-
-```csharp
-    /// <summary>Snapshots kept regardless of age.</summary>
-    public const int MaxSnapshots = 20;
-
-    /// <summary>Snapshots newer than this are kept regardless of count.</summary>
-    public static readonly TimeSpan SnapshotRetentionWindow = TimeSpan.FromDays(7);
-
-    private const string SnapshotTimestampFormat = "yyyyMMdd'T'HHmmss'Z'";
-
-    /// <summary>
-    /// Writes a snapshot of the current configuration into <see cref="BackupsDirectory"/>.
-    /// Returns null when an <see cref="SnapshotReason.Auto"/> snapshot was skipped because the
-    /// content is byte-identical to the newest existing snapshot. Forced reasons always write.
-    /// </summary>
-    /// <remarks>
-    /// Never throws. A failing backup must not block a settings save, so failures are logged
-    /// and reported as a null return.
-    /// </remarks>
-    public SnapshotInfo? Snapshot(SnapshotReason reason)
-    {
-        try
-        {
-            string hash = ComputeContentHash();
-
-            if (reason == SnapshotReason.Auto)
-            {
-                var newest = ListSnapshots().FirstOrDefault();
-                if (newest is not null && string.Equals(newest.ContentHash, hash, StringComparison.Ordinal))
-                {
-                    return null;
-                }
-            }
-
-            var now = _timeProvider.GetUtcNow();
-            string id = $"{ReasonToken(reason)}-{now.UtcDateTime.ToString(SnapshotTimestampFormat, CultureInfo.InvariantCulture)}-{hash[..8]}";
-            string path = Path.Combine(BackupsDirectory, id + BundleExtension);
-
-            Directory.CreateDirectory(BackupsDirectory);
-
-            var outcome = Export(path);
-            if (!outcome.Success)
-            {
-                AppLogger.Log($"[backup] snapshot failed: {outcome.Message}");
-                return null;
-            }
-
-            PruneSnapshots();
-
-            return new SnapshotInfo(id, reason, now, new FileInfo(path).Length, hash, path);
-        }
-        catch (Exception ex)
-        {
-            AppLogger.Log($"[backup] snapshot failed: {ex.Message}");
-            return null;
-        }
-    }
-
-    /// <summary>Snapshots on disk, newest first. Unparseable file names are ignored.</summary>
-    public IReadOnlyList<SnapshotInfo> ListSnapshots()
-    {
-        if (!Directory.Exists(BackupsDirectory)) return Array.Empty<SnapshotInfo>();
-
-        var results = new List<SnapshotInfo>();
-        foreach (string path in Directory.GetFiles(BackupsDirectory, "*" + BundleExtension))
-        {
-            if (TryParseSnapshot(path, out var info)) results.Add(info!);
-        }
-
-        return results
-            .OrderByDescending(s => s.CreatedUtc)
-            .ThenByDescending(s => s.Id, StringComparer.Ordinal)
-            .ToArray();
-    }
-
-    /// <summary>
-    /// Rolls the live tree back to a snapshot. Always a Replace of the categories the snapshot
-    /// contains — a rollback, not a merge. Categories absent from the snapshot are untouched.
-    /// </summary>
-    public BackupOutcome Restore(string snapshotId)
-    {
-        var snapshot = ListSnapshots().FirstOrDefault(s =>
-            string.Equals(s.Id, snapshotId, StringComparison.OrdinalIgnoreCase));
-
-        if (snapshot is null)
-        {
-            return BackupOutcome.Fail(BackupFailureKind.NotFound, $"No snapshot with id '{snapshotId}'.");
-        }
-
-        Snapshot(SnapshotReason.PreRestore);
-        return Import(snapshot.FilePath, ImportMode.Replace);
-    }
-
-    /// <summary>
-    /// SHA-256 over every backed-up file's bundle path and bytes, in catalog order. Computed
-    /// from the live tree rather than the zip: zip bytes carry entry timestamps, so two
-    /// archives of identical content do not compare equal.
-    /// </summary>
-    private string ComputeContentHash()
-    {
-        using var sha = SHA256.Create();
-        using var buffer = new MemoryStream();
-
-        foreach (var entry in BackupCatalog.Entries)
-        {
-            string source = BackupCatalog.ResolveSource(RootDirectory, entry);
-
-            if (entry.IsDirectory)
-            {
-                if (!Directory.Exists(source)) continue;
-                foreach (string file in Directory.GetFiles(source, "*", SearchOption.AllDirectories)
-                             .OrderBy(f => f, StringComparer.Ordinal))
-                {
-                    string relative = Path.GetRelativePath(source, file).Replace('\\', '/');
-                    AppendToHash(buffer, $"{entry.BundlePath}/{relative}", File.ReadAllBytes(file));
-                }
-            }
-            else if (File.Exists(source))
-            {
-                AppendToHash(buffer, entry.BundlePath, File.ReadAllBytes(source));
-            }
-        }
-
-        buffer.Position = 0;
-        return Convert.ToHexString(sha.ComputeHash(buffer)).ToLowerInvariant();
-    }
-
-    private static void AppendToHash(Stream target, string path, byte[] content)
-    {
-        byte[] pathBytes = System.Text.Encoding.UTF8.GetBytes(path + "\n");
-        target.Write(pathBytes);
-        target.Write(content);
-    }
-
-    /// <summary>Keeps the union of the newest <see cref="MaxSnapshots"/> and everything inside the retention window.</summary>
-    private void PruneSnapshots()
-    {
-        var snapshots = ListSnapshots();
-        if (snapshots.Count <= MaxSnapshots) return;
-
-        var cutoff = _timeProvider.GetUtcNow() - SnapshotRetentionWindow;
-
-        var keep = new HashSet<string>(
-            snapshots.Take(MaxSnapshots).Select(s => s.Id),
-            StringComparer.OrdinalIgnoreCase);
-
-        foreach (var snapshot in snapshots.Where(s => s.CreatedUtc >= cutoff))
-        {
-            keep.Add(snapshot.Id);
-        }
-
-        foreach (var snapshot in snapshots.Where(s => !keep.Contains(s.Id)))
-        {
-            try { File.Delete(snapshot.FilePath); }
-            catch (Exception ex) { AppLogger.Log($"[backup] could not prune {snapshot.Id}: {ex.Message}"); }
-        }
-    }
-
-    private static string ReasonToken(SnapshotReason reason) => reason switch
-    {
-        SnapshotReason.Auto => "auto",
-        SnapshotReason.PreImport => "pre-import",
-        SnapshotReason.PreRestore => "pre-restore",
-        _ => "auto"
-    };
-
-    private static bool TryParseReason(string token, out SnapshotReason reason)
-    {
-        switch (token)
-        {
-            case "auto": reason = SnapshotReason.Auto; return true;
-            case "pre-import": reason = SnapshotReason.PreImport; return true;
-            case "pre-restore": reason = SnapshotReason.PreRestore; return true;
-            default: reason = SnapshotReason.Auto; return false;
-        }
-    }
-
-    /// <summary>Parses <c>&lt;reason&gt;-&lt;timestamp&gt;-&lt;hash8&gt;</c>. The reason itself may contain a dash.</summary>
-    private static bool TryParseSnapshot(string path, out SnapshotInfo? info)
-    {
-        info = null;
-        string id = Path.GetFileNameWithoutExtension(path);
-
-        int hashSeparator = id.LastIndexOf('-');
-        if (hashSeparator <= 0) return false;
-
-        int timestampSeparator = id.LastIndexOf('-', hashSeparator - 1);
-        if (timestampSeparator <= 0) return false;
-
-        string reasonToken = id[..timestampSeparator];
-        string timestampToken = id[(timestampSeparator + 1)..hashSeparator];
-        string hashToken = id[(hashSeparator + 1)..];
-
-        if (!TryParseReason(reasonToken, out var reason)) return false;
-
-        if (!DateTimeOffset.TryParseExact(
-                timestampToken,
-                SnapshotTimestampFormat,
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                out var created))
-        {
-            return false;
-        }
-
-        info = new SnapshotInfo(id, reason, created, new FileInfo(path).Length, hashToken, path);
-        return true;
-    }
-```
-
-`AppLogger.Log(string)` is `public static` in `NovaTerminal.Shell` (`src/NovaTerminal.App/Shell/AppLogger.cs`), the parent namespace, so it resolves without an extra `using`.
-
-Two consequences of the hash living in the id: `ListSnapshots` reads `ContentHash` straight from the file name, so no zip is opened to list, and the dedupe check in `Snapshot` compares against the newest snapshot's parsed hash.
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~SnapshotTests"
-```
-
-Expected: PASS, 13 tests.
-
-- [ ] **Step 5: Re-run the whole Backup namespace**
-
-```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~NovaTerminal.Tests.Backup"
-```
-
-Expected: PASS. `BackupImportTests.Import_*` now exercises a real pre-import snapshot rather than the stub.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/NovaTerminal.App/Shell/Backup/BackupService.cs tests/NovaTerminal.App.Tests/Backup/SnapshotTests.cs
-git commit -m "feat(backup): snapshots with hash dedupe, retention, and restore"
+git commit -m "feat(backup): staged import with merge/replace semantics and snapshot restore"
 ```
 
 ---
