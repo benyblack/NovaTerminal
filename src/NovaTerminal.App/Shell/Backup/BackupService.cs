@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace NovaTerminal.Shell.Backup;
 
@@ -72,6 +74,249 @@ public sealed class BackupService
 
     /// <summary>Reads a bundle's manifest and item counts without extracting anything.</summary>
     public InspectOutcome Inspect(string bundlePath) => BundleReader.Open(bundlePath);
+
+    /// <summary>
+    /// Applies a bundle to the live tree. Extracts to a staging directory first and commits
+    /// only once every category succeeded, so a mid-import failure leaves the original intact.
+    /// </summary>
+    /// <param name="categories">Null means every category the bundle contains.</param>
+    public BackupOutcome Import(
+        string bundlePath,
+        ImportMode mode,
+        IReadOnlyCollection<BackupCategory>? categories = null)
+    {
+        var inspection = Inspect(bundlePath);
+        if (!inspection.Success)
+        {
+            return BackupOutcome.Fail(inspection.Failure, inspection.Message);
+        }
+
+        var available = inspection.Inspection!.Manifest.Categories
+            .Select(name => Enum.TryParse<BackupCategory>(name, ignoreCase: true, out var parsed)
+                ? (BackupCategory?)parsed
+                : null)
+            .OfType<BackupCategory>()
+            .ToArray();
+
+        var selected = (categories is null ? available : available.Intersect(categories)).ToArray();
+        if (selected.Length == 0)
+        {
+            return BackupOutcome.Ok("Nothing to import — the bundle has none of the requested categories.");
+        }
+
+        Snapshot(SnapshotReason.PreImport);
+
+        string staging = Path.Combine(Path.GetTempPath(), $"nova_import_{Guid.NewGuid():N}");
+
+        try
+        {
+            Directory.CreateDirectory(staging);
+            BundleReader.ExtractTo(bundlePath, staging, selected);
+
+            foreach (var category in selected)
+            {
+                ApplyCategory(category, staging, mode);
+            }
+
+            // Name the credential gap in the outcome itself. Bundles carry no secret material,
+            // so imported SSH profiles look complete but cannot authenticate until the user
+            // re-enters passwords — a silent partial failure if nothing says so. The Settings
+            // page has copy for this; the CLI and any other caller only ever see this string.
+            string credentialNote = selected.Contains(BackupCategory.Connections)
+                ? " Connection passwords are not included in a bundle — re-enter them on first connect."
+                : string.Empty;
+
+            return BackupOutcome.Ok($"Imported {selected.Length} categories ({mode}).{credentialNote}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
+        {
+            return BackupOutcome.Fail(
+                BackupFailureKind.WriteFailed,
+                $"Import failed: {ex.Message}. A pre-import snapshot was taken — restore it to roll back.");
+        }
+        finally
+        {
+            try { if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Rolls the live tree back to a snapshot. Always a Replace of the categories the snapshot
+    /// contains — a rollback, not a merge. Categories absent from the snapshot are untouched.
+    /// </summary>
+    public BackupOutcome Restore(string snapshotId)
+    {
+        var snapshot = ListSnapshots().FirstOrDefault(s =>
+            string.Equals(s.Id, snapshotId, StringComparison.OrdinalIgnoreCase));
+
+        if (snapshot is null)
+        {
+            return BackupOutcome.Fail(BackupFailureKind.NotFound, $"No snapshot with id '{snapshotId}'.");
+        }
+
+        Snapshot(SnapshotReason.PreRestore);
+        return Import(snapshot.FilePath, ImportMode.Replace);
+    }
+
+    private void ApplyCategory(BackupCategory category, string staging, ImportMode mode)
+    {
+        switch (category)
+        {
+            case BackupCategory.Settings when mode == ImportMode.Merge:
+                MergeJsonObjectFile(
+                    Path.Combine(staging, "settings.json"),
+                    Path.Combine(RootDirectory, "settings.json"));
+                break;
+
+            case BackupCategory.Connections when mode == ImportMode.Merge:
+                MergeProfilesFile(
+                    Path.Combine(staging, "ssh", "profiles.json"),
+                    Path.Combine(RootDirectory, "ssh", "profiles.json"));
+                MergeJsonArrayFile(
+                    Path.Combine(staging, "ssh", "native_known_hosts.json"),
+                    Path.Combine(RootDirectory, "ssh", "native_known_hosts.json"));
+                break;
+
+            default:
+                foreach (var entry in BackupCatalog.EntriesFor(category))
+                {
+                    string stagedPath = Path.Combine(staging, entry.SourceRelativePath);
+                    string livePath = Path.Combine(RootDirectory, entry.SourceRelativePath);
+
+                    if (entry.IsDirectory)
+                    {
+                        ApplyDirectory(stagedPath, livePath, mode);
+                    }
+                    else if (File.Exists(stagedPath))
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(livePath)!);
+                        AtomicFile.WriteAllBytes(livePath, File.ReadAllBytes(stagedPath));
+                    }
+                }
+                break;
+        }
+    }
+
+    /// <summary>Merge copies file-by-file; replace clears the live directory first.</summary>
+    private static void ApplyDirectory(string stagedDirectory, string liveDirectory, ImportMode mode)
+    {
+        if (!Directory.Exists(stagedDirectory)) return;
+
+        if (mode == ImportMode.Replace && Directory.Exists(liveDirectory))
+        {
+            Directory.Delete(liveDirectory, recursive: true);
+        }
+
+        Directory.CreateDirectory(liveDirectory);
+
+        foreach (string staged in Directory.GetFiles(stagedDirectory, "*", SearchOption.AllDirectories))
+        {
+            string relative = Path.GetRelativePath(stagedDirectory, staged);
+            string live = Path.Combine(liveDirectory, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(live)!);
+            AtomicFile.WriteAllBytes(live, File.ReadAllBytes(staged));
+        }
+    }
+
+    /// <summary>
+    /// Key-by-key merge of two JSON objects, bundle winning per key. Operates on
+    /// <see cref="JsonNode"/> rather than a typed model so unknown and future keys survive and
+    /// settings.json keeps its PascalCase names.
+    /// </summary>
+    private static void MergeJsonObjectFile(string stagedPath, string livePath)
+    {
+        if (!File.Exists(stagedPath)) return;
+
+        var incoming = JsonNode.Parse(File.ReadAllText(stagedPath)) as JsonObject;
+        if (incoming is null) return;
+
+        JsonObject merged;
+        if (File.Exists(livePath) && JsonNode.Parse(File.ReadAllText(livePath)) is JsonObject existing)
+        {
+            merged = existing;
+            foreach (var pair in incoming)
+            {
+                merged[pair.Key] = pair.Value?.DeepClone();
+            }
+        }
+        else
+        {
+            merged = incoming;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(livePath)!);
+        AtomicFile.WriteAllText(livePath, merged.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    /// <summary>Merges <c>profiles.json</c>'s profile array by <c>Id</c>, bundle winning on conflict.</summary>
+    private static void MergeProfilesFile(string stagedPath, string livePath)
+    {
+        if (!File.Exists(stagedPath)) return;
+
+        var incoming = JsonNode.Parse(File.ReadAllText(stagedPath)) as JsonObject;
+        if (incoming is null) return;
+
+        if (!File.Exists(livePath) || JsonNode.Parse(File.ReadAllText(livePath)) is not JsonObject existing)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(livePath)!);
+            AtomicFile.WriteAllText(livePath, incoming.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            return;
+        }
+
+        var byId = new Dictionary<string, JsonNode>(StringComparer.OrdinalIgnoreCase);
+        var order = new List<string>();
+
+        void Absorb(JsonObject document)
+        {
+            if (document["profiles"] is not JsonArray array) return;
+            foreach (var element in array)
+            {
+                string? id = element?["Id"]?.GetValue<string>();
+                if (string.IsNullOrWhiteSpace(id) || element is null) continue;
+                if (!byId.ContainsKey(id)) order.Add(id);
+                byId[id] = element.DeepClone();
+            }
+        }
+
+        Absorb(existing);
+        Absorb(incoming); // bundle wins: absorbed second
+
+        var merged = new JsonArray();
+        foreach (string id in order) merged.Add(byId[id]);
+        existing["profiles"] = merged;
+
+        AtomicFile.WriteAllText(livePath, existing.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    /// <summary>Union of two JSON arrays, deduped by each element's serialized form.</summary>
+    private static void MergeJsonArrayFile(string stagedPath, string livePath)
+    {
+        if (!File.Exists(stagedPath)) return;
+
+        if (JsonNode.Parse(File.ReadAllText(stagedPath)) is not JsonArray incoming) return;
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var merged = new JsonArray();
+
+        void Absorb(JsonArray array)
+        {
+            foreach (var element in array)
+            {
+                string key = element?.ToJsonString() ?? "null";
+                if (seen.Add(key)) merged.Add(element?.DeepClone());
+            }
+        }
+
+        if (File.Exists(livePath) && JsonNode.Parse(File.ReadAllText(livePath)) is JsonArray existing)
+        {
+            Absorb(existing);
+        }
+
+        Absorb(incoming);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(livePath)!);
+        AtomicFile.WriteAllText(livePath, merged.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
 
     /// <summary>Snapshots kept regardless of age.</summary>
     public const int MaxSnapshots = 20;
