@@ -2293,6 +2293,25 @@ namespace NovaTerminal.VT
         /// and the path underneath is read as-is (see PR #351 review below).
         /// </para>
         /// <para>
+        /// <strong>Why not keep rendering a foreign authority as a UNC path for other local consumers
+        /// (Codex review, PR #351, second pass).</strong> Windows UNC syntax and a backslash-preserving
+        /// escape are mutually exclusive - <c>\</c> is Windows' only path separator, so there is no
+        /// string shape that is simultaneously a valid <c>\\host\dir</c> UNC path and losslessly
+        /// preserves a POSIX filename that legally contains a literal backslash. Something has to give,
+        /// and <c>NovaTerminal.CommandAssist.Domain.FileSystemPathSuggestionProvider</c> - the one
+        /// consumer of this cwd that performs real filesystem I/O (<c>Directory.Exists</c>,
+        /// <c>Directory.EnumerateDirectories</c>) - already skips itself whenever the session is remote
+        /// (<c>context.IsRemote</c>, sourced from <c>Profile.Type == ConnectionType.SSH</c>, independent
+        /// of anything OSC 7 reports). Every shipped shell integration only reports a foreign authority
+        /// either for a genuine SSH session (already gated off above) or never at all - PowerShell's
+        /// bootstrap omits the authority entirely, and WSL2's default hostname matches
+        /// <see cref="Environment.MachineName"/>, so it takes the local branch too. A local, non-SSH pane
+        /// reporting a *third-party* UNC host via a raw, non-Nova-emitted OSC 7 sequence is the one
+        /// remaining case this trades away; nothing shipped produces it, and the SFTP sidebar's need for
+        /// a working POSIX path from the one case that is shipped and reachable - an SSH session with a
+        /// backslash in a remote directory name - wins that trade.
+        /// </para>
+        /// <para>
         /// <strong>Why the path text is sliced out of <paramref name="data"/> by hand instead of read
         /// from <see cref="Uri.AbsolutePath"/> or <see cref="Uri.LocalPath"/> (Codex review, PR #351).
         /// </strong> Both properties are computed through .NET's <c>file:</c>-scheme-specific
