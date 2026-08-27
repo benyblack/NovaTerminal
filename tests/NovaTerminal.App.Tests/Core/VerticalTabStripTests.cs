@@ -242,4 +242,60 @@ public sealed class VerticalTabStripTests
         => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window)
             .OfType<Border>()
             .FirstOrDefault(b => b.Name == "PART_TabStripResizeGrip");
+
+    // Regression for the review finding: UpdateTabOverflowIndicator had no vertical guard, so
+    // viewportWidth (≈ sidebar width, NOT "space for N tabs") ran through the same horizontal
+    // clipping math used for the scrolling horizontal strip. With several tabs in the sidebar
+    // that falsely set the overflow badge, turned the tab-list title-bar button amber, and wrote
+    // a "— N hidden" tooltip - even though the vertical sidebar scrolls its own overflow and has
+    // nothing actually hidden. Opening the tab-list flyout (PopulateTabListMenu) calls
+    // UpdateTabOverflowIndicator too, so this drives it through that real caller rather than the
+    // private method directly.
+    [AvaloniaFact]
+    public void PopulateTabListMenu_Vertical_NeverShowsFalseOverflowBadge()
+    {
+        var window = CreateShownWindow();
+        var settings = GetSettings(window);
+        settings.TabStripOrientation = "Vertical";
+        settings.VerticalTabStripWidth = 200;
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        AddWidePlainTabs(window, count: 8);
+
+        InvokePopulateTabListMenu(window);
+        Dispatcher.UIThread.RunJobs();
+
+        var badge = window.FindControl<TextBlock>("TabOverflowBadge");
+        Assert.NotNull(badge);
+        Assert.False(badge!.IsVisible, "vertical mode scrolls its own overflow - nothing should ever be reported as hidden");
+    }
+
+    // Same pattern as MainWindowTitleBarTests.AddWidePlainTabs: plain TabItems with wide
+    // TextBlock headers added directly to the "Tabs" TabControl's Items, bypassing AddTab (which
+    // spawns a real PTY per tab). UpdateTabOverflowIndicator only reads TabItem.Bounds.Width and
+    // the header ScrollViewer's Bounds.Width, so a real, headless-measured header is all this
+    // needs to have historically tripped the (now-guarded) horizontal clipping math.
+    private static void AddWidePlainTabs(NovaTerminal.MainWindow window, int count)
+    {
+        var tabs = window.FindControl<TabControl>("Tabs");
+        Assert.NotNull(tabs);
+
+        for (int i = 0; i < count; i++)
+        {
+            tabs!.Items.Add(new TabItem
+            {
+                Header = new TextBlock { Text = new string('W', 60) + i }
+            });
+        }
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void InvokePopulateTabListMenu(NovaTerminal.MainWindow window)
+    {
+        var method = typeof(NovaTerminal.MainWindow).GetMethod("PopulateTabListMenu", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method!.Invoke(window, new object[] { false });
+    }
 }

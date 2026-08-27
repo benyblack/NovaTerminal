@@ -108,6 +108,9 @@ namespace NovaTerminal
         internal const double MinimumTabHeaderRightReserve = 440;
         internal const double MacOsTrafficLightReserve = 92;
         internal const double TabHeaderViewportPadding = 16;
+        // Hoisted out of UpdateVerticalTabExtras: that method runs per tab per visual-refresh
+        // pass, and allocating a new SolidColorBrush per tab per pass adds up.
+        private static readonly IBrush TabAttentionBrush = new SolidColorBrush(Color.Parse("#FFD25A"));
         private bool _isVerticalTabStrip;
         internal bool IsVerticalTabStripActive => _isVerticalTabStrip;
 
@@ -488,11 +491,11 @@ namespace NovaTerminal
                 var toRefresh = _pendingVisualRefreshTabs.ToList();
                 _pendingVisualRefreshTabs.Clear();
 
+                // UpdateTabVisuals ignores its specificTab parameter and always does a full
+                // all-tabs pass, so calling it once per queued tab makes K queued tabs = K
+                // identical full passes. One call per batch is enough.
                 if (toRefresh.Count == 0) return;
-                foreach (var item in toRefresh)
-                {
-                    UpdateTabVisuals(item);
-                }
+                UpdateTabVisuals();
             }, DispatcherPriority.Background);
         }
 
@@ -1014,9 +1017,10 @@ namespace NovaTerminal
                 scrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
                 scrollViewer.ClipToBounds = true;
 
-                // Horizontal overflow math is meaningless in a scrolling sidebar.
-                var badge = this.FindControl<TextBlock>("TabOverflowBadge");
-                if (badge != null) badge.IsVisible = false;
+                // Horizontal overflow math is meaningless in a scrolling sidebar; route through
+                // UpdateTabOverflowIndicator's own vertical guard so the reset logic (badge,
+                // tab-list button tooltip/foreground) lives in one place.
+                UpdateTabOverflowIndicator();
                 return;
             }
 
@@ -1073,7 +1077,11 @@ namespace NovaTerminal
                 tabListEntry?.ShortcutKey ?? TitleBarCatalog.OpenTabListId, _settings.Keybindings);
             string baseTooltip = TitleBarShortcuts.FormatTooltip(tabListEntry?.Title ?? "Tab List", tabListShortcut);
 
-            double viewportWidth = scrollViewer.Bounds.Width;
+            // In vertical mode the sidebar scrolls its own overflow, so viewportWidth (≈ sidebar
+            // width, not "space for N tabs") is meaningless here. Force it through the same
+            // zero-hidden reset branch used when the viewport has no measured width yet, rather
+            // than duplicating the badge/tooltip/foreground reset.
+            double viewportWidth = _isVerticalTabStrip ? 0 : scrollViewer.Bounds.Width;
             if (viewportWidth <= 0)
             {
                 badge.IsVisible = false;
@@ -5134,7 +5142,7 @@ namespace NovaTerminal
                 dot.Fill = state.RenderedStatus switch
                 {
                     TabTrackerStatus.Working => workingBrush,
-                    TabTrackerStatus.Attention => new SolidColorBrush(Color.Parse("#FFD25A")),
+                    TabTrackerStatus.Attention => TabAttentionBrush,
                     _ => Brushes.Transparent,
                 };
             }
@@ -5152,7 +5160,17 @@ namespace NovaTerminal
 
             // GetLastNonEmptyRowText takes the buffer read lock itself (NoRecursion —
             // do NOT wrap this call in another Lock.EnterReadLock).
-            return NovaTerminal.VT.Export.TerminalExporter.GetLastNonEmptyRowText(buffer);
+            string text = NovaTerminal.VT.Export.TerminalExporter.GetLastNonEmptyRowText(buffer);
+
+            // Unwritten mid-row cells can surface as raw NUL graphemes; a NUL reaching the
+            // preview TextBlock renders as invisible garbage, so swap it for a space and re-trim
+            // (the exporter's own TrimEnd may no longer be meaningful once NULs become spaces).
+            if (text.IndexOf('\0') >= 0)
+            {
+                text = text.Replace('\0', ' ').TrimEnd();
+            }
+
+            return text;
         }
 
         private void SplitPane(Avalonia.Layout.Orientation orientation)
@@ -6915,6 +6933,7 @@ namespace NovaTerminal
             }
             _recordingToastTimer.Stop();
             _updateCheckTimer.Stop();
+            _tabStatusTimer?.Stop();
             _globalHotkey?.Dispose();
             AgentHost.AgentHostService.Instance.ObserveActivityChanged -= OnAgentObserveActivityChanged;
             AgentHost.AgentSessionRegistry.Instance.SessionRegistered -= OnAgentSessionRegisteredForAttention;
