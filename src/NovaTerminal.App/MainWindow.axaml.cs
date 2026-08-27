@@ -107,6 +107,8 @@ namespace NovaTerminal
         internal const double MinimumTabHeaderRightReserve = 440;
         internal const double MacOsTrafficLightReserve = 92;
         internal const double TabHeaderViewportPadding = 16;
+        private bool _isVerticalTabStrip;
+        internal bool IsVerticalTabStripActive => _isVerticalTabStrip;
         private bool _isDraggingTransferOverlay;
         private Point _transferOverlayDragStart;
         private Point _transferOverlayOffsetStart;
@@ -733,11 +735,83 @@ namespace NovaTerminal
             return new Thickness(reservedLeft, 0, reservedRight, 0);
         }
 
+        /// <summary>
+        /// Applies the TabStripOrientation setting. There is exactly ONE TabControl template
+        /// (see MainWindow.axaml) - it is never swapped, because swapping Theme/ItemsPanel at
+        /// runtime while a tab has live content makes the new template's PART_SelectedContentHost
+        /// fight the old one for ownership of that content (Avalonia 12.0.4 throws "already has a
+        /// visual parent" - see task-6-report.md). Instead this only flips the "vertical-tabs"
+        /// class and defers to UpdateTabHeaderViewport, which reconfigures the existing template
+        /// parts (dock side, spacer height, grip visibility, items-panel orientation, sizing) in
+        /// place. The same TabItem instances (and their pane content) are reused throughout - a
+        /// layout swap must never dispose or recreate sessions.
+        /// </summary>
+        internal void ApplyTabLayout()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            bool vertical = TabStripLayout.IsVertical(_settings.TabStripOrientation);
+            _isVerticalTabStrip = vertical;
+            tabs.Classes.Set("vertical-tabs", vertical);
+
+            // Sizing/part reconfiguration needs a layout pass to have measured the template
+            // parts, so defer - same pattern as RebuildTitleBar.
+            Dispatcher.UIThread.Post(() => UpdateTabVisuals(), DispatcherPriority.Background);
+        }
+
+        /// <summary>
+        /// Locates a named part inside the (single, never-swapped) Tabs TabControl template.
+        /// </summary>
+        private T? FindTabTemplatePart<T>(string name) where T : Control
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return null;
+
+            return tabs.GetVisualDescendants()
+                .OfType<T>()
+                .FirstOrDefault(c => c.Name == name);
+        }
+
         private void UpdateTabHeaderViewport()
         {
             var scrollViewer = FindTabHeaderScrollViewer();
-            var titleBar = this.FindControl<Grid>("TitleBar");
             if (scrollViewer == null) return;
+
+            var sidebar = FindTabTemplatePart<Grid>("PART_TabSidebar");
+            var spacer = FindTabTemplatePart<Border>("PART_TitleBandSpacer");
+            var grip = FindTabTemplatePart<Border>("PART_TabStripResizeGrip");
+            var panel = FindTabItemsPresenter()?.Panel as StackPanel;
+
+            if (_isVerticalTabStrip)
+            {
+                if (sidebar != null) DockPanel.SetDock(sidebar, Dock.Left);
+                if (spacer != null) spacer.Height = 36;
+                if (grip != null) grip.IsVisible = true;
+                if (panel != null) panel.Orientation = Orientation.Vertical;
+
+                scrollViewer.Margin = new Thickness(0);
+                scrollViewer.Height = double.NaN;
+                scrollViewer.Width = TabStripLayout.ClampSidebarWidth(_settings.VerticalTabStripWidth);
+                scrollViewer.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+                scrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                scrollViewer.ClipToBounds = true;
+
+                // Horizontal overflow math is meaningless in a scrolling sidebar.
+                var badge = this.FindControl<TextBlock>("TabOverflowBadge");
+                if (badge != null) badge.IsVisible = false;
+                return;
+            }
+
+            if (sidebar != null) DockPanel.SetDock(sidebar, Dock.Top);
+            if (spacer != null) spacer.Height = 0;
+            if (grip != null) grip.IsVisible = false;
+            if (panel != null) panel.Orientation = Orientation.Horizontal;
+
+            scrollViewer.Width = double.NaN;
+            scrollViewer.HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden;
+            scrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            var titleBar = this.FindControl<Grid>("TitleBar");
 
             scrollViewer.Margin = GetTabHeaderViewportMargin(
                 RuntimeInformation.IsOSPlatform(OSPlatform.OSX),
@@ -823,6 +897,12 @@ namespace NovaTerminal
 
         private void EnsureSelectedTabHeaderVisible()
         {
+            if (_isVerticalTabStrip)
+            {
+                (this.FindControl<TabControl>("Tabs")?.SelectedItem as Control)?.BringIntoView();
+                return;
+            }
+
             var tabs = this.FindControl<TabControl>("Tabs");
             var scrollViewer = FindTabHeaderScrollViewer();
             if (tabs?.SelectedItem is not TabItem selected || scrollViewer == null) return;
@@ -2713,6 +2793,10 @@ namespace NovaTerminal
             {
                 System.Diagnostics.Debug.WriteLine($"[Vault] Init failed: {ex.Message}");
             }
+
+            // Applies TabStripOrientation for the initial window. Like RebuildTitleBar below,
+            // this cannot wait for SetupCommandPalette() — that is lazy and never runs at startup.
+            ApplyTabLayout();
 
             // Built here rather than from SetupCommandPalette(), which is lazy and does not run at
             // startup: the initial window's title bar has to exist before the user opens anything.
@@ -5958,6 +6042,7 @@ namespace NovaTerminal
                 ApplyThemeToUI();
                 ApplySettingsToAllTabs();
                 RebuildTitleBar();
+                ApplyTabLayout();
                 UpdateTransparencyHints();
                 ApplyAgentHostSettingsLive();
 
@@ -5981,6 +6066,7 @@ namespace NovaTerminal
                 ApplySettingsToAllTabs();
                 UpdateTransparencyHints();
                 UpdateTabVisuals();
+                ApplyTabLayout();
             }
         }
 
