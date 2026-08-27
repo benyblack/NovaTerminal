@@ -8,7 +8,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace NovaTerminal.Shell.Backup;
+namespace NovaTerminal.Platform.Backup;
 
 /// <summary>
 /// Export, import, snapshot, and restore of NovaTerminal configuration.

@@ -23,8 +23,10 @@ public class ProjectFileLayeringTests
     // TreatWarningsAsErrors, so the analyzer is enforced rather than advisory (#108).
     private static readonly string[] VtOnly = ["NovaTerminal.VT"];
 
-    // Same CA1861 reasoning as VtOnly above.
-    private static readonly string[] AgentHostContractsOnly = ["NovaTerminal.AgentHost.Contracts"];
+    // Same CA1861 reasoning as VtOnly above. Order matches the csproj's own ItemGroup so
+    // Assert.Equal's ordered comparison doesn't need a Sort/OrderBy on either side.
+    private static readonly string[] AgentHostContractsAndPlatform =
+        ["NovaTerminal.AgentHost.Contracts", "NovaTerminal.Platform"];
 
     private static string RepoRoot()
     {
@@ -146,6 +148,11 @@ public class ProjectFileLayeringTests
     /// the protocol, so it is worth an assertion rather than only prose in
     /// <c>docs/MODULE_OWNERSHIP.md</c>.
     ///
+    /// <c>NovaTerminal.Platform</c> is allowed alongside the contracts leaf (Task 10a): the
+    /// read-only backup MCP tools need <c>BackupService</c>, which lives there as shared
+    /// non-UI file logic. App and VT remain forbidden - Platform never references either, so
+    /// this can't become a backdoor into GUI or terminal-buffer state.
+    ///
     /// Asserted at the csproj level only: the IL-level sibling in <see cref="LayeringTests"/>
     /// would need Architecture.Tests to take a ProjectReference on McpServer (an Exe) purely
     /// to load it for inspection. A forbidden *project reference* is the failure mode being
@@ -153,10 +160,10 @@ public class ProjectFileLayeringTests
     /// P2 on PR #245.
     /// </summary>
     [Fact]
-    public void McpServer_csproj_only_references_AgentHostContracts()
+    public void McpServer_csproj_only_references_AgentHostContractsAndPlatform()
     {
         var refs = ProjectReferences("src/NovaTerminal.McpServer/NovaTerminal.McpServer.csproj");
-        Assert.Equal(AgentHostContractsOnly, refs);
+        Assert.Equal(AgentHostContractsAndPlatform, refs);
     }
 
     /// <summary>

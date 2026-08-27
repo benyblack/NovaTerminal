@@ -5,7 +5,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
 
-namespace NovaTerminal.Shell.Backup;
+namespace NovaTerminal.Platform.Backup;
 
 /// <summary>Reads and validates a <c>.novabackup</c> zip.</summary>
 public static class BundleReader

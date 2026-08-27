@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace NovaTerminal.Shell.Backup;
+namespace NovaTerminal.Platform.Backup;
 
 /// <summary>
 /// The <c>manifest.json</c> at the root of every bundle. camelCase on the wire — note this

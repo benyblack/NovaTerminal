@@ -1,6 +1,6 @@
 using System.IO.Compression;
 using System.Text;
-using NovaTerminal.Shell.Backup;
+using NovaTerminal.Platform.Backup;
 
 namespace NovaTerminal.Tests.Backup;
 

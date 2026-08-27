@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-namespace NovaTerminal.Shell.Backup;
+namespace NovaTerminal.Platform.Backup;
 
 /// <summary>One backed-up path: where it lives in the app data tree, where it goes in the zip.</summary>
 /// <param name="Category">Owning category.</param>

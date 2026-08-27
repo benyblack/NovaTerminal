@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using NovaTerminal.Platform.Backup;
 
 namespace NovaTerminal.Shell.Backup;
 

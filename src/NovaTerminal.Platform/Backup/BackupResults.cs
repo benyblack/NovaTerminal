@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.Shell.Backup;
+namespace NovaTerminal.Platform.Backup;
 
 /// <summary>Why a backup operation failed. <see cref="None"/> means it succeeded.</summary>
 public enum BackupFailureKind

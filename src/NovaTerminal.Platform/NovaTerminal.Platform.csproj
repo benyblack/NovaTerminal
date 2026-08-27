@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="NovaTerminal.Platform.Tests" />
+    <InternalsVisibleTo Include="NovaTerminal.App.Tests" />
   </ItemGroup>
 
   <ItemGroup>

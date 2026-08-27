@@ -1,7 +1,7 @@
 using System.Reflection;
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Shell;
-using NovaTerminal.Shell.Backup;
+using NovaTerminal.Platform.Backup;
 
 namespace NovaTerminal.Tests.Core;
 

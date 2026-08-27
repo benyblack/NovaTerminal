@@ -19,8 +19,8 @@ using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.CommandAssist.ShellIntegration.Remote;
+using NovaTerminal.Platform.Backup;
 using NovaTerminal.Services.Ssh;
-using NovaTerminal.Shell.Backup;
 using NovaTerminal.Shell.Shortcuts;
 using NovaTerminal.Shell.TitleBar;
 

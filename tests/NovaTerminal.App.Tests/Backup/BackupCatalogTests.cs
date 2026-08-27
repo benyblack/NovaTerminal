@@ -1,6 +1,6 @@
 using System.Reflection;
 using NovaTerminal.Shell;
-using NovaTerminal.Shell.Backup;
+using NovaTerminal.Platform.Backup;
 
 namespace NovaTerminal.Tests.Backup;
 
