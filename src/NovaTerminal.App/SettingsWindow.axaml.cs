@@ -2373,6 +2373,20 @@ namespace NovaTerminal
                 if (blurList.SelectedItem == null && blurList.ItemCount > 0) blurList.SelectedIndex = 0;
             }
 
+            var tabOrientationList = this.FindControl<ComboBox>("TabOrientationList");
+            if (tabOrientationList != null)
+            {
+                foreach (ComboBoxItem item in tabOrientationList.Items.Cast<ComboBoxItem>())
+                {
+                    if (string.Equals(item.Content?.ToString(), _settings.TabStripOrientation, StringComparison.OrdinalIgnoreCase))
+                    {
+                        tabOrientationList.SelectedItem = item;
+                        break;
+                    }
+                }
+                if (tabOrientationList.SelectedItem == null && tabOrientationList.ItemCount > 0) tabOrientationList.SelectedIndex = 0;
+            }
+
             if (bgStretchList != null)
             {
                 foreach (ComboBoxItem item in bgStretchList.Items.Cast<ComboBoxItem>())
@@ -2572,6 +2586,10 @@ namespace NovaTerminal
 
             if (blurList?.SelectedItem is ComboBoxItem blurItem)
                 _settings.BlurEffect = blurItem.Content?.ToString() ?? "Acrylic";
+
+            var tabOrientationList = this.FindControl<ComboBox>("TabOrientationList");
+            if (tabOrientationList?.SelectedItem is ComboBoxItem tabOrientationItem)
+                _settings.TabStripOrientation = tabOrientationItem.Content?.ToString() ?? "Horizontal";
 
             if (bgPathInput != null) _settings.BackgroundImagePath = bgPathInput.Text ?? "";
             if (bgOpacitySlider != null) _settings.BackgroundImageOpacity = bgOpacitySlider.Value;

@@ -536,6 +536,18 @@
 
                             <Grid ColumnDefinitions="*,360">
                                 <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Tab strip orientation"/>
+                                    <TextBlock Classes="RowDesc"  Text="Vertical shows tabs in a left sidebar with agent status and a last-output preview."/>
+                                </StackPanel>
+                                <ComboBox Name="TabOrientationList" Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                    <ComboBoxItem>Horizontal</ComboBoxItem>
+                                    <ComboBoxItem>Vertical</ComboBoxItem>
+                                </ComboBox>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
                                     <TextBlock Classes="RowLabel" Text="Background image"/>
                                     <TextBlock Classes="RowDesc"  Text="PNG / JPG / BMP, per-theme."/>
                                 </StackPanel>
