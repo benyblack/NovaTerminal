@@ -974,13 +974,27 @@ namespace NovaTerminal
             {
                 if (snapshotList is null) return;
 
-                var rows = service.ListSnapshots()
-                    .Select(s => new SnapshotRow(
-                        s.Id,
-                        $"{s.CreatedUtc.LocalDateTime:yyyy-MM-dd HH:mm}  ·  {ReasonLabel(s.Reason)}  ·  {s.SizeBytes / 1024.0:N0} KB"))
-                    .ToArray();
+                // WireBackupSection runs unconditionally from the constructor, so a locked
+                // backups directory, a permissions error, or a transient antivirus lock during
+                // Directory.GetFiles must not propagate out of here — that would stop Settings
+                // from opening at all. Fall back to an empty list and say so instead.
+                try
+                {
+                    var rows = service.ListSnapshots()
+                        .Select(s => new SnapshotRow(
+                            s.Id,
+                            $"{s.CreatedUtc.LocalDateTime:yyyy-MM-dd HH:mm}  ·  {ReasonLabel(s.Reason)}  ·  {s.SizeBytes / 1024.0:N0} KB",
+                            s.Reason,
+                            s.CreatedUtc))
+                        .ToArray();
 
-                snapshotList.ItemsSource = rows;
+                    snapshotList.ItemsSource = rows;
+                }
+                catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+                {
+                    snapshotList.ItemsSource = Array.Empty<SnapshotRow>();
+                    SetStatus($"Could not read snapshots: {ex.Message}", success: false);
+                }
             }
 
             if (snapshotList is not null)
@@ -1056,13 +1070,21 @@ namespace NovaTerminal
 
             if (btnRestore != null)
             {
-                btnRestore.Click += (_, _) =>
+                btnRestore.Click += async (_, _) =>
                 {
                     if (snapshotList?.SelectedItem is not SnapshotRow row)
                     {
                         SetStatus("Select a snapshot first.", success: false);
                         return;
                     }
+
+                    // Restore overwrites live configuration immediately, and unlike Import (which
+                    // offers Merge/Replace) it previously asked nothing at all — the more
+                    // surprising of the two destructive actions on this page got the weaker gate.
+                    // Cancel must mean no restore; there is no default "yes" other than the
+                    // affirmative button.
+                    bool confirmed = await ConfirmRestoreAsync(row);
+                    if (!confirmed) return;
 
                     var outcome = service.Restore(row.Id);
                     SetStatus(
@@ -1083,7 +1105,90 @@ namespace NovaTerminal
             _ => "automatic"
         };
 
-        private sealed record SnapshotRow(string Id, string Display);
+        private sealed record SnapshotRow(string Id, string Display, SnapshotReason Reason, DateTimeOffset CreatedUtc);
+
+        /// <summary>
+        /// The restore confirmation dialog's headline and body text for <paramref name="row"/>.
+        /// Factored out of <see cref="ConfirmRestoreAsync"/> so the wording — which must name the
+        /// snapshot being restored and describe what happens — is unit-testable on its own.
+        /// </summary>
+        /// <remarks>
+        /// The dialog itself (<see cref="ConfirmRestoreAsync"/>, like <see cref="PromptForImportModeAsync"/>)
+        /// is not: a real modal <c>Window.ShowDialog</c> with no owner ever shown and no button for
+        /// anything to click does not return in this repo's headless test host — confirmed
+        /// previously in <c>MainWindowShellExitTests</c> (a declined-confirmation branch behind the
+        /// same pattern was deleted rather than risk the hang). This split keeps the requirement —
+        /// name the snapshot's timestamp and reason, state that it replaces the categories the
+        /// snapshot contains, and note the pre-restore snapshot taken first — covered by a test
+        /// without driving the modal itself.
+        /// </remarks>
+        private static (string Headline, string Body) BuildRestoreConfirmationText(SnapshotRow row)
+        {
+            string when = $"{row.CreatedUtc.LocalDateTime:yyyy-MM-dd HH:mm}";
+            string headline = $"Restore the snapshot from {when} ({ReasonLabel(row.Reason)})?";
+            string body =
+                "This replaces the categories the snapshot contains with their state at that time. " +
+                "A snapshot of your current configuration is taken first, so this restore itself can be undone.";
+            return (headline, body);
+        }
+
+        /// <summary>
+        /// Confirms before restoring a snapshot. Restore is the more surprising destructive action
+        /// on this page (Import at least offers Merge/Replace); this brings it in line. Returns
+        /// false when the user cancels — there is no default "yes" other than the affirmative
+        /// button.
+        /// </summary>
+        private async System.Threading.Tasks.Task<bool> ConfirmRestoreAsync(SnapshotRow row)
+        {
+            var (headline, body) = BuildRestoreConfirmationText(row);
+
+            bool confirmed = false;
+
+            var dialog = new Window
+            {
+                Title = "Restore configuration",
+                Width = 460,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false
+            };
+
+            var restoreButton = new Button { Content = "Restore", Classes = { "Pill" } };
+            var cancelButton = new Button { Content = "Cancel", Classes = { "Pill" } };
+
+            restoreButton.Click += (_, _) => { confirmed = true; dialog.Close(); };
+            cancelButton.Click += (_, _) => dialog.Close();
+
+            dialog.Content = new StackPanel
+            {
+                Margin = new Thickness(20),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = headline,
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    new TextBlock
+                    {
+                        Text = body,
+                        TextWrapping = TextWrapping.Wrap,
+                        Opacity = 0.75
+                    },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 8,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Children = { cancelButton, restoreButton }
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
+            return confirmed;
+        }
 
         /// <summary>
         /// Asks whether to merge or replace, showing what the bundle contains. Returns null
