@@ -154,6 +154,8 @@ namespace NovaTerminal
             public bool HasBell { get; set; }
             public DateTime LastBellUtc { get; set; }
             public AgentHost.AgentAttentionTier AgentTier { get; set; }
+            public TabStatusTracker Status { get; } = new();
+            public TabTrackerStatus RenderedStatus { get; set; }
         }
 
         internal enum TabHeaderPointerAction
@@ -560,9 +562,80 @@ namespace NovaTerminal
             return headerHost;
         }
 
+        private Border CreateVerticalTabHeaderHost(TabItem tab, string text)
+        {
+            var statusDot = new Avalonia.Controls.Shapes.Ellipse
+            {
+                Name = "TabStatusDot",
+                Width = 8,
+                Height = 8,
+                Fill = Brushes.Transparent,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+
+            var headerText = new TextBlock
+            {
+                Text = text,
+                Foreground = Brushes.White,
+                FontSize = 12,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var previewText = new TextBlock
+            {
+                Name = "TabPreviewLine",
+                Text = string.Empty,
+                Foreground = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)),
+                FontSize = 10,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 2, 0, 0)
+            };
+
+            // Title BEFORE preview: FindTabHeaderTextBlock takes the first TextBlock as the
+            // title, and UpdateTabVisuals rewrites that one with the display label.
+            var textColumn = new StackPanel { Orientation = Avalonia.Layout.Orientation.Vertical };
+            textColumn.Children.Add(headerText);
+            textColumn.Children.Add(previewText);
+
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+            Grid.SetColumn(statusDot, 0);
+            Grid.SetColumn(textColumn, 1);
+            row.Children.Add(statusDot);
+            row.Children.Add(textColumn);
+
+            var headerHost = new Border
+            {
+                Background = Brushes.Transparent,
+                Padding = new Thickness(10, 6),
+                Child = row
+            };
+
+            headerHost.ContextFlyout = new MenuFlyout();
+            headerHost.PointerPressed += (_, e) => OnTabHeaderPointerPressed(tab, e);
+            ToolTip.SetTip(headerHost, text);
+            return headerHost;
+        }
+
+        /// <summary>Walks a code-built header object graph by part name (constructed headers
+        /// have no name scope, so FindControl can't see inside them).</summary>
+        internal static T? FindTabHeaderDescendant<T>(object? node, string name) where T : Control
+            => node switch
+            {
+                T match when match.Name == name => match,
+                Border border => FindTabHeaderDescendant<T>(border.Child, name),
+                Panel panel => panel.Children.Select(c => FindTabHeaderDescendant<T>(c, name)).FirstOrDefault(c => c != null),
+                Decorator decorator => FindTabHeaderDescendant<T>(decorator.Child, name),
+                ContentControl contentControl => FindTabHeaderDescendant<T>(contentControl.Content, name),
+                _ => null,
+            };
+
         private void ConfigureTabHeader(TabItem tab, string text)
         {
-            tab.Header = CreateTabHeaderHost(tab, text);
+            tab.Header = _isVerticalTabStrip
+                ? CreateVerticalTabHeaderHost(tab, text)
+                : CreateTabHeaderHost(tab, text);
         }
 
         private void OnTabHeaderPointerPressed(TabItem tab, PointerPressedEventArgs e)
@@ -754,6 +827,14 @@ namespace NovaTerminal
             bool vertical = TabStripLayout.IsVertical(_settings.TabStripOrientation);
             _isVerticalTabStrip = vertical;
             tabs.Classes.Set("vertical-tabs", vertical);
+
+            // ConfigureTabHeader is mode-aware (plain header vs. rich status/title/preview
+            // row), so a layout swap must rebuild every tab's header content in place - the
+            // same TabItem instances are reused, only their Header content changes.
+            foreach (var tab in tabs.Items.Cast<TabItem>())
+            {
+                ConfigureTabHeader(tab, GetTabHeaderText(tab));
+            }
 
             // Sizing/part reconfiguration needs a layout pass to have measured the template
             // parts, so defer - same pattern as RebuildTitleBar.
@@ -4885,6 +4966,11 @@ namespace NovaTerminal
                 {
                     ToolTip.SetTip(headerControl, BuildFullTabLabel(ti));
                 }
+
+                if (_isVerticalTabStrip)
+                {
+                    UpdateVerticalTabExtras(ti, GetOrCreateTabState(ti), borderBrush);
+                }
             }
 
             UpdateTabAutomationLabels();
@@ -4892,6 +4978,34 @@ namespace NovaTerminal
             UpdateTabHeaderViewport();
             sw.Stop();
             RendererStatistics.RecordTabVisualUpdateTime(sw.ElapsedMilliseconds);
+        }
+
+        private void UpdateVerticalTabExtras(TabItem tab, TabRuntimeState state, IBrush workingBrush)
+        {
+            if (FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot") is { } dot)
+            {
+                dot.Fill = state.RenderedStatus switch
+                {
+                    TabTrackerStatus.Working => workingBrush,
+                    TabTrackerStatus.Attention => new SolidColorBrush(Color.Parse("#FFD25A")),
+                    _ => Brushes.Transparent,
+                };
+            }
+
+            if (FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine") is { } preview)
+            {
+                preview.Text = ReadPaneLastLine(ResolvePaneForTab(tab));
+            }
+        }
+
+        private static string ReadPaneLastLine(TerminalPane? pane)
+        {
+            var buffer = pane?.Buffer;
+            if (buffer == null) return string.Empty;
+
+            // GetLastNonEmptyRowText takes the buffer read lock itself (NoRecursion —
+            // do NOT wrap this call in another Lock.EnterReadLock).
+            return NovaTerminal.VT.Export.TerminalExporter.GetLastNonEmptyRowText(buffer);
         }
 
         private void SplitPane(Avalonia.Layout.Orientation orientation)

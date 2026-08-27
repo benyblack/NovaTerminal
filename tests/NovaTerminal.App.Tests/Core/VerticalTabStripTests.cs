@@ -113,4 +113,39 @@ public sealed class VerticalTabStripTests
         Assert.Equal(tabItemsBefore, tabs.Items.Cast<TabItem>().ToList());
         Assert.Equal(contentBefore, tabs.Items.Cast<TabItem>().Select(t => t.Content).ToList());
     }
+
+    [AvaloniaFact]
+    public void VerticalHeader_TitleIsFirstTextBlock_SoExistingLabelPlumbingStillWorks()
+    {
+        var window = CreateShownWindow();
+        GetSettings(window).TabStripOrientation = "Vertical";
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var tab = tabs.Items.Cast<TabItem>().First();
+
+        // The status dot and preview line exist...
+        Assert.NotNull(NovaTerminal.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot"));
+        var preview = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
+        Assert.NotNull(preview);
+
+        // ...and the title plumbing (first-TextBlock contract) still resolves the TITLE, not the preview.
+        preview!.Text = "PREVIEW_SENTINEL";
+        Assert.NotEqual("PREVIEW_SENTINEL", GetTabHeaderTextOf(window, tab));
+    }
+
+    private static string GetTabHeaderTextOf(NovaTerminal.MainWindow window, TabItem tab)
+        => (string)typeof(NovaTerminal.MainWindow)
+            .GetMethod("GetTabHeaderText", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(window, new object[] { tab })!;
+
+    [AvaloniaFact]
+    public void HorizontalMode_KeepsPlainHeaders()
+    {
+        var window = CreateShownWindow(); // default settings = horizontal
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var tab = tabs.Items.Cast<TabItem>().First();
+        Assert.Null(NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine"));
+    }
 }
