@@ -1354,7 +1354,7 @@ public sealed class BackupService
 scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BackupExportTests"
 ```
 
-Expected: PASS, 6 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2569,10 +2569,48 @@ public sealed class SnapshotSchedulerTests
         scheduler.Start();
     }
 
+    /// <summary>
+    /// The scheduler must ignore its own machinery. Both live under RootDirectory — snapshots in
+    /// backups/, and the import scratch tree in .import-&lt;guid&gt;/ (it sits beside the live tree
+    /// rather than in TEMP because Directory.Move throws across a volume boundary). The watcher
+    /// covers RootDirectory with IncludeSubdirectories = true, so without the filter an import
+    /// would wake the debounce on every file it stages.
+    /// </summary>
+    [Theory]
+    [InlineData("backups")]
+    [InlineData(".import-abc123")]
+    public void SelfWrites_DoNotMarkAChangePending(string selfDirectory)
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+        using var scheduler = new SnapshotScheduler(service, TimeSpan.FromMilliseconds(10));
+
+        scheduler.NotifyFileSystemEvent(Path.Combine(tree.Root, selfDirectory, "whatever.json"));
+
+        Assert.False(scheduler.HasPendingChange);
+    }
+
+    [Fact]
+    public void RealConfigWrite_MarksAChangePending()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+        using var scheduler = new SnapshotScheduler(service, TimeSpan.FromMilliseconds(10));
+
+        scheduler.NotifyFileSystemEvent(Path.Combine(tree.Root, "themes", "solarized.json"));
+
+        Assert.True(scheduler.HasPendingChange);
+    }
+
     private static TimeProvider Clock() =>
         new FixedTimeProvider(new DateTimeOffset(2026, 8, 27, 9, 14, 0, TimeSpan.Zero));
 }
 ```
+
+The two tests above need a seam: expose `internal void NotifyFileSystemEvent(string fullPath)` carrying the
+filter logic that `OnFileSystemEvent` calls, and `internal bool HasPendingChange => _pending;`. Driving the
+filter directly beats waiting on real `FileSystemWatcher` events, which are not deterministic enough to
+assert on and hit inotify limits on CI's ubuntu runners.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -2712,8 +2750,15 @@ public sealed class SnapshotScheduler : IDisposable
 
     private void OnFileSystemEvent(object sender, FileSystemEventArgs e)
     {
-        // Never let a snapshot write re-trigger the scheduler.
+        // Never let the scheduler re-trigger on our own writes. Two sources:
+        //  - backups/       snapshot bundles written by Snapshot()
+        //  - .import-<guid>/ the import scratch tree (extracted/, final/, undo/). It lives beside
+        //    the live tree rather than in TEMP because Directory.Move is a bare rename and throws
+        //    across a volume boundary — so it IS under RootDirectory and the watcher does see it.
+        // WatchedDirectories() resolves RootDirectory itself (it is settings.json's parent) with
+        // IncludeSubdirectories = true, so without this both would wake the debounce on every file.
         if (e.FullPath.Contains(Path.Combine(_service.RootDirectory, "backups"), StringComparison.Ordinal)) return;
+        if (e.FullPath.Contains($"{Path.DirectorySeparatorChar}.import-", StringComparison.Ordinal)) return;
 
         NotifyChanged();
     }
@@ -2747,7 +2792,7 @@ public sealed class SnapshotScheduler : IDisposable
 scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~SnapshotSchedulerTests"
 ```
 
-Expected: PASS, 6 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Commit**
 
