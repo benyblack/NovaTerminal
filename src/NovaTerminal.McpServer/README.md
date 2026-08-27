@@ -144,7 +144,7 @@ dev-companion set:
 | `novaterminal.validate_settings_json` | `settingsJson` | Validates a settings.json string (top-level shape); reports wrong types, out-of-range numerics, malformed `DefaultProfileId`, bad collection shapes, and warns on unknown fields and any stray `Password`. Embedded profiles are not deep-validated. |
 | `novaterminal.generate_codex_prompt_for_issue` | `title`, `description?` | A structured implementation prompt (relevant areas, constraints, PR size, steps, tests, acceptance, risks). |
 | `novaterminal.suggest_relevant_files` | `topic` | The concrete source/test files most relevant to a topic (e.g. `reflow`, `glyph atlas`, `ssh key auth`). |
-| `novaterminal.backup_export` | `destinationPath`, `rootDirectory?` | Exports NovaTerminal's configuration (settings, themes, connections, workspaces, policy, snippets — never passwords) to a `.novabackup` file at `destinationPath`. Use before changing configuration so the user can roll back. |
+| `novaterminal.backup_export` | `destinationPath`, `rootDirectory?` | Exports NovaTerminal's configuration (settings, themes, connections, workspaces, policy, snippets — never passwords) to a `.novabackup` file at `destinationPath`. `destinationPath` must be absolute — a relative path is rejected with a text failure rather than resolved against the server process's own working directory. Use before changing configuration so the user can roll back. |
 | `novaterminal.backup_list` | `rootDirectory?` | Lists automatic configuration snapshots, newest first, with id, reason, timestamp, and size. |
 
 Self-contained tools (no filesystem access): `get_project_summary`, `get_theme_schema`,

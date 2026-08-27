@@ -23,7 +23,16 @@ public static class BackupTools
         [Description("Absolute path for the .novabackup file to write.")] string destinationPath,
         [Description("App data root. Omit to use the current user's NovaTerminal directory.")] string? rootDirectory = null)
     {
-        var service = new BackupService(rootDirectory ?? ResolveDefaultRoot());
+        // An MCP client that treats "not provided" and "" as the same thing for an optional
+        // string parameter is plausible; without this check that "" would reach BackupService's
+        // constructor and throw ArgumentException out of this method, unlike every other failure
+        // mode here, which is reported back as text.
+        if (!Path.IsPathRooted(destinationPath))
+        {
+            return $"Could not write '{destinationPath}': destinationPath must be an absolute path.";
+        }
+
+        var service = new BackupService(ResolveRoot(rootDirectory));
         var outcome = service.Export(destinationPath);
         return outcome.Success
             ? $"Exported configuration to {destinationPath}."
@@ -36,7 +45,7 @@ public static class BackupTools
     public static string BackupList(
         [Description("App data root. Omit to use the current user's NovaTerminal directory.")] string? rootDirectory = null)
     {
-        var snapshots = new BackupService(rootDirectory ?? ResolveDefaultRoot()).ListSnapshots();
+        var snapshots = new BackupService(ResolveRoot(rootDirectory)).ListSnapshots();
         if (snapshots.Count == 0) return "No snapshots yet.";
 
         var builder = new StringBuilder();
@@ -53,6 +62,16 @@ public static class BackupTools
 
         return builder.ToString().TrimEnd();
     }
+
+    /// <summary>
+    /// An empty or whitespace-only <paramref name="rootDirectory"/> (a plausible shape for an
+    /// MCP client that does not distinguish "omitted" from "" on an optional string) falls back
+    /// to <see cref="ResolveDefaultRoot"/> exactly like a null/omitted argument — <c>??</c> alone
+    /// only substitutes on null and would let "" reach <see cref="BackupService"/>'s constructor,
+    /// which throws.
+    /// </summary>
+    private static string ResolveRoot(string? rootDirectory) =>
+        string.IsNullOrWhiteSpace(rootDirectory) ? ResolveDefaultRoot() : rootDirectory;
 
     /// <summary>
     /// Mirrors AppPaths.RootDirectory, including the NOVATERM_APPDATA_ROOT override, without
