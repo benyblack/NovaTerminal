@@ -1785,6 +1785,16 @@ git commit -m "feat(backup): snapshots with hash dedupe and retention"
 
 ### Task 5: Import with merge and replace, plus Restore
 
+> **Superseded in implementation.** The code blocks below describe a single-phase import that
+> applies each category directly to the live tree. Review found that this does not deliver the
+> all-or-nothing guarantee the design spec promises three times, so the shipped implementation
+> replaces it with a rename-based two-phase commit: phase 1 computes every category's result into
+> a scratch tree with nothing live touched, phase 2 moves each live path aside into an undo
+> journal and installs the staged result, unwinding backwards on any failure. The scratch tree
+> must live **adjacent to the app-data root**, not in `Path.GetTempPath()` — `Directory.Move` is a
+> bare rename and throws across a volume boundary. Read `BackupService.cs` for the real thing; the
+> sections below are kept for the merge/replace semantics table and the test matrix, which stand.
+
 The riskiest task — it writes over live config. Staging plus a forced pre-import snapshot is what makes it safe. `Snapshot` already exists from Task 4, so `Import` calls the real thing and `Restore` is a thin wrapper over `Import`.
 
 **Files:**
