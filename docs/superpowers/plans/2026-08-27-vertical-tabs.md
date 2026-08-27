@@ -1557,7 +1557,7 @@ rtk git commit -m "feat(settings): tab strip orientation dropdown in Window sect
 
 **Interfaces:**
 - Consumes: `ApplyTabLayout` (Task 6), `TabStripLayout.IsVertical` (Task 3).
-- Produces: command id `"toggle_tab_orientation"`, default binding `"Ctrl+Alt+B"`.
+- Produces: command id `"toggle_tab_orientation"`, default binding `"Ctrl+Shift+L"` (amended during execution: plan originally said Ctrl+Alt+B, but Ctrl+Alt is AltGr on European layouts and Ctrl+Shift+B is taken by toggle_broadcast_input).
 
 - [ ] **Step 1: Verify the default binding is free**
 
