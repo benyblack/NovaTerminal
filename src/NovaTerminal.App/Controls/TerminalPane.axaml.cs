@@ -4214,6 +4214,7 @@ namespace NovaTerminal.Controls
         {
             if (Profile == null || Profile.Forwards.Count == 0)
             {
+                ClearForwardingStatusUi();
                 UpdateStatusBarVisibility();
                 return;
             }
@@ -4309,6 +4310,35 @@ namespace NovaTerminal.Controls
             {
                 System.Diagnostics.Debug.WriteLine($"[TerminalPane] Failed to export snapshot: {ex}");
             }
+        }
+
+        /// <summary>
+        /// Drops whatever the forwarding half of the status bar last rendered.
+        ///
+        /// Before the agent segment existed, "no forwards" meant the bar itself
+        /// was hidden, so nothing stale could be on screen and
+        /// <see cref="UpdateForwardingStatus"/> could simply return. It cannot
+        /// any more: the bar now also stays up for an agent-actable pane, so an
+        /// SSH profile edited down to zero forwarding rules would keep
+        /// advertising the rules it used to have, indefinitely.
+        ///
+        /// Deliberately does not touch <c>StatusBar.IsVisible</c> —
+        /// <see cref="UpdateStatusBarVisibility"/> is its sole writer, because
+        /// the bar appearing or disappearing reflows the PTY.
+        ///
+        /// The built flag is reset alongside the controls so that a profile
+        /// which regains forwards renders them on the next pass instead of
+        /// waiting for some rule's status to change. The early return keeps
+        /// this off the hot path: the 2 s tick reaches it on every local pane,
+        /// which never built anything to clear.
+        /// </summary>
+        private void ClearForwardingStatusUi()
+        {
+            if (!_forwardingStatusUiBuilt) return;
+
+            _forwardingStatusUiBuilt = false;
+            StatusBarLabel.Text = string.Empty;
+            StatusBarRules.Children.Clear();
         }
 
         private void UpdateStatusBarUI()

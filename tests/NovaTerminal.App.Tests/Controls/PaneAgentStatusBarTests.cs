@@ -370,6 +370,63 @@ public class PaneAgentStatusBarTests
     }
 
     [AvaloniaFact]
+    public void Losing_every_forward_clears_the_forwarding_half_of_an_agent_only_bar()
+    {
+        // Before the agent segment shared this bar, "no forwards" meant the bar
+        // was hidden, so UpdateForwardingStatus could just return: nothing
+        // stale could be on screen. That is no longer true. An agent-actable
+        // pane keeps the bar up on its own, so an SSH profile edited down to
+        // zero forwarding rules went on advertising the rules it used to have,
+        // for as long as the pane lived.
+        using var pane = MakeSshPaneWithForward();
+        pane.UpdateForwardingStatusForTesting();
+        pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: true);
+        Assert.False(string.IsNullOrEmpty(GetStatusBarLabel(pane)));
+        Assert.NotEmpty(GetStatusBarRules(pane).Children);
+
+        // The user edits the profile and removes every forwarding rule.
+        pane.Profile!.Forwards.Clear();
+        pane.UpdateForwardingStatusForTesting();
+
+        Assert.True(string.IsNullOrEmpty(GetStatusBarLabel(pane)));
+        Assert.Empty(GetStatusBarRules(pane).Children);
+
+        // The bar itself stays up, and the agent segment with it: the pane is
+        // still actable, and UpdateStatusBarVisibility remains the sole writer
+        // of IsVisible precisely so a forwarding change cannot reflow the PTY.
+        Assert.True(GetStatusBar(pane).IsVisible);
+        Assert.True(GetAgentSegment(pane).IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void Regaining_a_forward_re_renders_the_forwarding_half()
+    {
+        // The other half of resetting the built flag. UpdateForwardingStatus
+        // only rebuilds when a rule's status changed or the UI was never built,
+        // so if the clear left the flag set, a profile that got its forwards
+        // back would show a blank SSH half until some rule's status happened to
+        // change — which, on a pane with no live session, it never would.
+        using var pane = MakeSshPaneWithForward();
+        pane.UpdateForwardingStatusForTesting();
+        pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: true);
+
+        pane.Profile!.Forwards.Clear();
+        pane.UpdateForwardingStatusForTesting();
+        Assert.True(string.IsNullOrEmpty(GetStatusBarLabel(pane)));
+
+        pane.Profile.Forwards.Add(new ForwardingRule
+        {
+            Type = ForwardingType.Local,
+            LocalAddress = "9090",
+            RemoteAddress = "localhost:90",
+        });
+        pane.UpdateForwardingStatusForTesting();
+
+        Assert.False(string.IsNullOrEmpty(GetStatusBarLabel(pane)));
+        Assert.NotEmpty(GetStatusBarRules(pane).Children);
+    }
+
+    [AvaloniaFact]
     public void A_pane_born_non_actable_still_starts_with_no_bar()
     {
         // The seeding must copy the registration's real answer, not assume one:
