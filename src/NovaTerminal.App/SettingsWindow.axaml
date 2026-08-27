@@ -480,7 +480,7 @@
                             </Border>
 
                             <!-- ── Title bar section ── -->
-                            <TextBlock Classes="SectionHeader" Text="TITLE BAR" Margin="0,24,0,14"/>
+                            <TextBlock Name="TitleBarSectionHeader" Classes="SectionHeader" Text="TITLE BAR" Margin="0,24,0,14"/>
 
                             <StackPanel Spacing="10" Margin="0,0,0,16">
                                 <TextBlock Classes="RowDesc"

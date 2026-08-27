@@ -93,9 +93,19 @@ namespace NovaTerminal
         /// <summary>The rules behind the snippet rows. Built on first use from the injected store.</summary>
         private SnippetEditor? _snippetEditor;
 
+        /// <summary>The Appearance tab's index in <c>MainTabs</c> - where every <see cref="SettingsSection"/> currently lives.</summary>
+        private const int AppearanceTabIndex = 0;
+
+        /// <summary>
+        /// The section this window was asked to bring into view once opened (PR #342 Codex round 6),
+        /// in addition to whatever tab it selects. Recorded even when it is <see cref="SettingsSection.None"/>
+        /// so a test (or a future second caller) can confirm what was actually requested.
+        /// </summary>
+        private readonly SettingsSection _targetSection;
+
         public SettingsWindow() : this(0, null) { }
 
-        public SettingsWindow(int initialTab = 0, Guid? initialProfileId = null)
+        public SettingsWindow(int initialTab = 0, Guid? initialProfileId = null, SettingsSection section = SettingsSection.None)
         {
             InitializeComponent();
             _settings = TerminalSettings.Load();
@@ -106,8 +116,28 @@ namespace NovaTerminal
             }
             ApplyTheme();
 
+            _targetSection = section;
+
             var tabs = this.FindControl<TabControl>("MainTabs");
-            if (tabs != null) tabs.SelectedIndex = initialTab;
+            // Every SettingsSection currently lives on Appearance, so a section target overrides
+            // whatever tab index the caller passed - a caller asking for the TITLE BAR section
+            // with the wrong tab index is a bug, not something this window should surface as "the
+            // section silently didn't scroll".
+            if (tabs != null) tabs.SelectedIndex = section == SettingsSection.None ? initialTab : AppearanceTabIndex;
+
+            if (section == SettingsSection.TitleBar)
+            {
+                // BringIntoView is a no-op before layout has measured/arranged the target and the
+                // ScrollViewer above it - which has not happened yet at construction time (the
+                // window is not even shown). DispatcherPriority.Loaded runs after the initial
+                // layout/render pass completes, which is the same "wait for real layout" idiom
+                // already used elsewhere in this window (see WireCommandAssistSnippetsRow's Opened
+                // handler) and in MainWindow.AddTab's LayoutUpdated-based deferral. Hooking this on
+                // Opened rather than firing immediately from the constructor also keeps it out of
+                // the way of every other constructor caller (tests included) that never shows the
+                // window at all.
+                Opened += (_, _) => Dispatcher.UIThread.Post(ScrollToTitleBarSection, DispatcherPriority.Loaded);
+            }
 
             // Keep the sidebar list boxes in sync with the tab control. The previous single
             // list box drove selection via a direct SelectedIndex binding; that breaks once the
@@ -914,6 +944,23 @@ namespace NovaTerminal
                 assistantNav.SelectedIndex = -1;
                 connectionNav.SelectedIndex = idx - 5;
             }
+        }
+
+        /// <summary>
+        /// Brings the Appearance tab's "TITLE BAR" section header into view, so the user opening
+        /// Settings via the title bar's right-click "Customize Title Bar..." lands on the section
+        /// itself instead of the theme editor/preview above it (PR #342 Codex round 6).
+        /// </summary>
+        /// <remarks>
+        /// Targets <c>TitleBarSectionHeader</c> - the <c>SectionHeader</c>-classed "TITLE BAR"
+        /// <see cref="TextBlock"/> - rather than <c>TitleBarItemsPanel</c> (the rows themselves),
+        /// so the user sees the section title and its description first, not a mid-list row with
+        /// no context above it.
+        /// </remarks>
+        private void ScrollToTitleBarSection()
+        {
+            var header = this.FindControl<TextBlock>("TitleBarSectionHeader");
+            header?.BringIntoView();
         }
 
         private void PopulateFonts()

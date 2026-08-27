@@ -2249,7 +2249,13 @@ namespace NovaTerminal
             var menuCustomizeTitleBar = this.FindControl<MenuItem>("MenuCustomizeTitleBar");
             if (menuCustomizeTitleBar != null) menuCustomizeTitleBar.Click += async (s, e) =>
             {
-                await OpenSettings(0);
+                // Codex round 6, PR #342: this entry point exists purely for discoverability - the
+                // TITLE BAR section on Appearance isn't independently findable - so it must land
+                // scrolled to that section, not just on Appearance's default (top) scroll position.
+                // The plain gear button / Ctrl+, path (and every other OpenSettings caller) keeps
+                // calling the two-arg overload, which defaults to SettingsSection.None.
+                var (tabIndex, section) = CustomizeTitleBarSettingsTarget();
+                await OpenSettings(tabIndex, section: section);
             };
 
             var menuNewSsh = this.FindControl<MenuItem>("MenuNewSshConnection");
@@ -5342,9 +5348,21 @@ namespace NovaTerminal
             _isDraggingTransferOverlay = false;
         }
 
-        private async Task OpenSettings(int tabIndex, Guid? profileId = null)
+        /// <summary>
+        /// The (tab index, section) the title bar's right-click "Customize Title Bar..." entry
+        /// point asks <see cref="OpenSettings"/> for. Pulled out of the click handler as its own
+        /// synchronous method purely so a test can assert on the target without going through
+        /// <c>OpenSettings</c> itself, which reaches a real <c>Window.ShowDialog</c> - headlessly a
+        /// hang with no owner shown and nothing to close it (see MainWindowShellExitTests' remarks
+        /// on the same hazard for a different dialog). The click handler calls this rather than
+        /// inlining the tuple, so this genuinely is what production runs, not a parallel duplicate.
+        /// </summary>
+        private static (int TabIndex, SettingsSection Section) CustomizeTitleBarSettingsTarget()
+            => (0, SettingsSection.TitleBar);
+
+        private async Task OpenSettings(int tabIndex, Guid? profileId = null, SettingsSection section = SettingsSection.None)
         {
-            var sw = new SettingsWindow(tabIndex, profileId);
+            var sw = new SettingsWindow(tabIndex, profileId, section);
 
             // The one live history store, so Settings' "Clear history" acts on the same instance the
             // panes append to (V2 Phase 3b task 5). Reading the property constructs it lazily, which is
