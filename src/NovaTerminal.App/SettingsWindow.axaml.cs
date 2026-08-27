@@ -948,6 +948,27 @@ namespace NovaTerminal
         }
 
         /// <summary>
+        /// Selects the Backup &amp; Restore tab. Used by the command palette's three backup
+        /// entries (see <c>MainWindow.OpenSettingsToBackupPage</c>).
+        ///
+        /// Backup is the last tab today (see the constructor's remarks on sidebar offsets: new
+        /// tabs are always added at the end of the strip, and Backup was Task 8's addition). The
+        /// index here is derived from <c>MainTabs.Items.Count - 1</c> rather than hardcoded as
+        /// "6", so a tab removed or reordered ahead of Backup - which shifts its absolute index
+        /// down without changing its position at the end - can't silently leave this pointing at
+        /// the wrong page the way a hardcoded index would. It still relies on Backup staying the
+        /// last tab; a future tab appended after it would need this updated too, same as every
+        /// other Backup-relative constant in this file.
+        /// </summary>
+        public void SelectBackupPage()
+        {
+            var tabs = this.FindControl<TabControl>("MainTabs");
+            if (tabs is null) return;
+
+            tabs.SelectedIndex = tabs.Items.Count - 1;
+        }
+
+        /// <summary>
         /// Test seam for the "confirm before restoring" gate. Null (the default, and always the
         /// case in production) uses the real <see cref="ConfirmRestoreAsync"/>, which shows an
         /// actual modal <see cref="Window.ShowDialog"/> - not drivable headlessly without risking

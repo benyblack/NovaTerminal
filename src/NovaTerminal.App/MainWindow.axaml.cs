@@ -30,6 +30,7 @@ using NovaTerminal.Pty;
 using NovaTerminal.Controls;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.Platform.Ssh.Launch;
+using NovaTerminal.Shell.Backup;
 using NovaTerminal.Shell.Shortcuts;
 using NovaTerminal.Models;
 using NovaTerminal.ViewModels.Ssh;
@@ -74,6 +75,11 @@ namespace NovaTerminal
         private bool _tabVisualRefreshScheduled;
         private TerminalSettings _settings;
         private GlobalHotkey? _globalHotkey;
+        // Started at the end of the constructor, not from SetupCommandPalette() - that method is
+        // lazy (runs on palette-open / settings-save), so starting the scheduler there would mean
+        // automatic snapshots only begin after the user's first palette open. Disposed in
+        // PerformAppTeardown alongside the window's other constructor-owned services.
+        private SnapshotScheduler? _snapshotScheduler;
         // Ids of stateful title bar toggles that are currently ON. An overflowed toggle in this set
         // is auto-surfaced into the bar by TitleBarLayoutResolver, which is how Record stays visible
         // while recording without being permanently pinned.
@@ -2580,6 +2586,12 @@ namespace NovaTerminal
             // startup: the initial window's title bar has to exist before the user opens anything.
             RebuildTitleBar();
 
+            // Snapshot scheduling starts with the app, not with the first palette open - see the
+            // field's remarks. Start() is best-effort (never throws even if a watch target is
+            // missing), so this can't fail the constructor.
+            _snapshotScheduler = new SnapshotScheduler(new BackupService(AppPaths.RootDirectory));
+            _snapshotScheduler.Start();
+
             _startup.Checkpoint("MainWindow.CtorComplete");
         }
 
@@ -4720,6 +4732,33 @@ namespace NovaTerminal
             CommandRegistry.Register("Open Recording...", "General", () => _ = ExecuteUiCommandAsync(ExecuteOpenRecordingCommandAsync, "Open Recording..."), "");
             CommandRegistry.Register("Open Recordings Folder", "General", () => OpenRecordingsFolder(), "");
 
+            // All three route to the same Backup & Restore settings page rather than acting
+            // directly from the palette. Export and import both need a file picker plus a
+            // merge/replace mode prompt, and Restore needs the "this replaces your current
+            // config" confirmation - all of which already live on that page. Duplicating any of
+            // that into the palette would create a second copy of the destructive-action
+            // confirmation, which is exactly the part that must not drift between two call sites.
+            // Method-group, not a lambda wrapper: keeps the delegate's Method identity as
+            // OpenSettingsToBackupPage itself, so a test can assert what these route to via
+            // reflection without ever invoking through to the real (headlessly-hanging) ShowDialog.
+            CommandRegistry.Register(
+                "Export configuration…",
+                "Backup",
+                OpenSettingsToBackupPage,
+                id: "backup.export");
+
+            CommandRegistry.Register(
+                "Import configuration…",
+                "Backup",
+                OpenSettingsToBackupPage,
+                id: "backup.import");
+
+            CommandRegistry.Register(
+                "Restore from snapshot…",
+                "Backup",
+                OpenSettingsToBackupPage,
+                id: "backup.restore");
+
             // SFTP Actions
             CommandRegistry.Register("SFTP: Toggle Remote Files", "Remote", () => _currentPane?.ToggleRemoteFilesSidebar(), "");
             CommandRegistry.Register("SFTP: Upload File...", "Remote", () => _ = InitiateSftpTransfer(null, TransferDirection.Upload, TransferKind.File), "");
@@ -5360,9 +5399,27 @@ namespace NovaTerminal
         private static (int TabIndex, SettingsSection Section) CustomizeTitleBarSettingsTarget()
             => (0, SettingsSection.TitleBar);
 
-        private async Task OpenSettings(int tabIndex, Guid? profileId = null, SettingsSection section = SettingsSection.None)
+        /// <summary>
+        /// Opens Settings on the Backup &amp; Restore page. Routes through <see cref="OpenSettings"/> -
+        /// this window's one construction site - rather than constructing a <see cref="SettingsWindow"/>
+        /// directly, so Backup gets the same save/legacy-migration handling as every other entry
+        /// point. The tab index itself is never hardcoded here: <c>selectBackupPage</c> makes
+        /// <see cref="OpenSettings"/> call <see cref="SettingsWindow.SelectBackupPage"/> after
+        /// construction, which derives the index from the tab count, so inserting a tab before
+        /// Backup can't silently point this at the wrong page.
+        /// </summary>
+        private void OpenSettingsToBackupPage()
+        {
+            _ = OpenSettings(0, selectBackupPage: true);
+        }
+
+        private async Task OpenSettings(int tabIndex, Guid? profileId = null, SettingsSection section = SettingsSection.None, bool selectBackupPage = false)
         {
             var sw = new SettingsWindow(tabIndex, profileId, section);
+            if (selectBackupPage)
+            {
+                sw.SelectBackupPage();
+            }
 
             // The one live history store, so Settings' "Clear history" acts on the same instance the
             // panes append to (V2 Phase 3b task 5). Reading the property constructs it lazily, which is
@@ -5951,6 +6008,8 @@ namespace NovaTerminal
             _recordingToastTimer.Stop();
             _updateCheckTimer.Stop();
             _globalHotkey?.Dispose();
+            _snapshotScheduler?.Dispose();
+            _snapshotScheduler = null;
             AgentHost.AgentHostService.Instance.Stop();
         }
 
