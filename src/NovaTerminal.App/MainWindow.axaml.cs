@@ -6628,6 +6628,30 @@ namespace NovaTerminal
             // The record button is recreated by every rebuild, so its active colouring has to be
             // reapplied against the new instance.
             SyncRecordingButtonState();
+
+            // Populate() just replaced TitleBarItemsHost's children synchronously, but that does not
+            // itself update TitleBar.Bounds.Width - Avalonia only recomputes Bounds during the next
+            // arrange pass. Calling UpdateTabHeaderViewport() synchronously right here would read the
+            // STALE pre-rebuild width and recompute the same wrong margin, fixing nothing (Codex P2
+            // round 7 on PR #342: saving a layout with a different pinned count, or Record
+            // auto-surfacing via OnRecordingStateChanged above, could leave tabs overlapping a newly
+            // widened bar - or a stale empty gap - until some unrelated tab/layout action happened to
+            // trigger a recompute). Posting at Background priority is the same idiom already used by
+            // the titleBar.SizeChanged and this.SizeChanged handlers wired in the constructor for this
+            // identical margin: DispatcherPriority.Background (-2) sits below every layout/render
+            // priority Avalonia schedules its own passes at (Loaded/UiThreadRender/Render/BeforeRender,
+            // all positive), so any layout work Populate() just queued always drains first, and by the
+            // time this runs TitleBar.Bounds.Width reflects the rebuilt bar. Unlike hooking
+            // LayoutUpdated, a Dispatcher.Post holds no persistent delegate reference for anything to
+            // leak - each call queues one self-contained, one-shot action that the dispatcher discards
+            // the moment it runs, so back-to-back rebuilds (e.g. a settings save immediately followed
+            // by Record auto-surfacing) cannot accumulate subscriptions. It also cannot loop: this is a
+            // single one-shot callback, not a persistent handler, and even the pre-existing
+            // titleBar.SizeChanged hookup it parallels only calls UpdateTabHeaderViewport when
+            // TitleBar's Bounds actually changed - once the margin here is set to match the new width,
+            // recomputing again from the same width is a no-op that changes nothing and triggers
+            // nothing further.
+            Dispatcher.UIThread.Post(UpdateTabHeaderViewport, DispatcherPriority.Background);
         }
 
         /// <summary>

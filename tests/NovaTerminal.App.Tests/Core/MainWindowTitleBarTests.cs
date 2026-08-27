@@ -1,9 +1,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
+using Avalonia.Threading;
 using NovaTerminal.Shell;
 using NovaTerminal.Shell.TitleBar;
 using Xunit;
@@ -523,6 +525,154 @@ public sealed class MainWindowTitleBarTests
 
         Assert.NotEqual(Brushes.Lime, button.Foreground);
         Assert.Same(window.Foreground, button.Foreground);
+    }
+
+    /// <summary>
+    /// Codex P2 round 7 on PR #342 (finding at <c>MainWindow.axaml.cs</c>'s <c>RebuildTitleBar</c>):
+    /// <c>TitleBarViewFactory.Populate</c> changes <c>TitleBarItemsHost</c>'s children synchronously,
+    /// but <c>TitleBar.Bounds.Width</c> only reflects that change after the next layout pass - so
+    /// pinning an extra action (or any other pinned-count change) must eventually recompute the tab
+    /// header's reserved margin against the NEW width, not the width that was current before the
+    /// rebuild. This drives the real <c>RebuildTitleBar</c> and asserts the resulting margin against
+    /// <see cref="NovaTerminal.MainWindow.GetTabHeaderViewportMargin"/> fed the actual post-layout
+    /// <c>TitleBar.Bounds.Width</c> - not just "some margin changed" - so a version that recomputed
+    /// from the stale pre-rebuild width (RebuildTitleBar's original defect) would still fail this
+    /// even though it does call <c>UpdateTabHeaderViewport</c> somewhere.
+    /// </summary>
+    [AvaloniaFact]
+    public void RebuildTitleBar_PinnedCountIncreases_TabHeaderMarginReflectsNewBarWidthAfterLayout()
+    {
+        var window = TestMainWindowFactory.Create();
+        // Real layout, same as AddWidePlainTabs/UpdateTabOverflowIndicator above - Bounds.Width
+        // stays zero without it, which would make every width assertion below vacuous.
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var titleBar = window.FindControl<Grid>("TitleBar");
+        Assert.NotNull(titleBar);
+        var scrollViewer = InvokeFindTabHeaderScrollViewer(window);
+        Assert.NotNull(scrollViewer);
+
+        double widthBefore = titleBar!.Bounds.Width;
+        Assert.True(widthBefore > 0, "Expected Show() + RunJobs() to produce a real measured TitleBar width for this test to mean anything.");
+
+        var settings = GetSettings(window);
+        settings.TitleBarItems["find"] = "Pinned";
+        InvokeRebuildTitleBar(window);
+
+        // RebuildTitleBar defers the recompute via Dispatcher.Post(DispatcherPriority.Background)
+        // rather than running it synchronously - see its comment for why. RunJobs() drains both the
+        // layout pass Populate() just invalidated and the queued recompute that follows it, the
+        // same pattern AddWidePlainTabs above already relies on for real measured widths.
+        Dispatcher.UIThread.RunJobs();
+
+        double widthAfter = titleBar.Bounds.Width;
+        Assert.True(widthAfter > widthBefore, "Expected pinning an extra action to widen the title bar for this test to mean anything.");
+
+        bool isMacOs = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+        var expected = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(isMacOs, widthAfter, titleBar.Margin.Right);
+        Assert.Equal(expected, scrollViewer!.Margin);
+    }
+
+    /// <summary>
+    /// The other trigger the finding calls out: an overflowed Record button auto-surfacing into the
+    /// bar via <c>OnRecordingStateChanged</c> (already-dispatched, no user interaction) changes the
+    /// pinned count exactly like a settings save does, and must recompute the same margin - not just
+    /// the settings-save path. Drives the private <c>OnRecordingStateChanged</c> directly, which
+    /// itself posts its body and then calls <c>RebuildTitleBar</c> from inside that post; a single
+    /// <c>RunJobs()</c> drains the whole chain (its own post, the layout pass, and the recompute).
+    /// </summary>
+    [AvaloniaFact]
+    public void OnRecordingStateChanged_RecordAutoSurfaces_AlsoRecomputesTabHeaderMargin()
+    {
+        var window = TestMainWindowFactory.Create();
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var titleBar = window.FindControl<Grid>("TitleBar");
+        Assert.NotNull(titleBar);
+        var scrollViewer = InvokeFindTabHeaderScrollViewer(window);
+        Assert.NotNull(scrollViewer);
+
+        double widthBefore = titleBar!.Bounds.Width;
+        Assert.True(widthBefore > 0, "Expected Show() + RunJobs() to produce a real measured TitleBar width for this test to mean anything.");
+
+        // toggle_recording defaults to Overflow (see RebuildTitleBar_Record_AutoSurfacesWhileActive_
+        // AndReturnsToOverflowWhenNotActive above), so isRecording: true drives exactly the
+        // auto-surface path the finding describes, without going through Settings at all.
+        InvokeOnRecordingStateChanged(window, isRecording: true);
+        Dispatcher.UIThread.RunJobs();
+
+        double widthAfter = titleBar.Bounds.Width;
+        Assert.True(widthAfter > widthBefore, "Expected Record auto-surfacing to widen the title bar for this test to mean anything.");
+
+        bool isMacOs = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+        var expected = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(isMacOs, widthAfter, titleBar.Margin.Right);
+        Assert.Equal(expected, scrollViewer!.Margin);
+    }
+
+    /// <summary>
+    /// Guards the two hazards the task called out explicitly: handler accumulation and a layout
+    /// loop. RebuildTitleBar schedules its recompute with a bare <c>Dispatcher.Post(...,
+    /// DispatcherPriority.Background)</c> rather than subscribing any event (see its comment), so
+    /// there is no persistent handler whose invocation-list length could be read via reflection to
+    /// prove non-accumulation directly - each call queues one independent, self-discarding action.
+    /// What IS reachable and meaningful: firing several rebuilds back to back, before layout has a
+    /// chance to settle in between (the real scenario - a settings save immediately followed by
+    /// Record auto-surfacing), must not throw, must not hang (a self-perpetuating layout loop would
+    /// mean <c>RunJobs()</c> never sees an empty queue), and must converge to the SAME margin on a
+    /// second, independent drain - if the recompute kept generating fresh work every pass, that
+    /// second drain would move the margin again.
+    /// </summary>
+    [AvaloniaFact]
+    public void RebuildTitleBar_ConsecutiveRebuildsBeforeLayoutSettles_ConvergeWithoutAccumulatingOrLooping()
+    {
+        var window = TestMainWindowFactory.Create();
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var titleBar = window.FindControl<Grid>("TitleBar");
+        Assert.NotNull(titleBar);
+        var scrollViewer = InvokeFindTabHeaderScrollViewer(window);
+        Assert.NotNull(scrollViewer);
+
+        var settings = GetSettings(window);
+        settings.TitleBarItems["find"] = "Pinned";
+
+        var exception = Record.Exception(() =>
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                InvokeRebuildTitleBar(window);
+            }
+
+            Dispatcher.UIThread.RunJobs();
+        });
+        Assert.Null(exception);
+
+        double widthAfter = titleBar!.Bounds.Width;
+        bool isMacOs = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+        var expected = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(isMacOs, widthAfter, titleBar.Margin.Right);
+        Assert.Equal(expected, scrollViewer!.Margin);
+
+        // A second, independent drain must be a no-op: a persistent handler or a self-triggering
+        // loop would still be generating work, and this would move the margin again.
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(expected, scrollViewer.Margin);
+    }
+
+    private static ScrollViewer? InvokeFindTabHeaderScrollViewer(NovaTerminal.MainWindow window)
+    {
+        var method = typeof(NovaTerminal.MainWindow).GetMethod("FindTabHeaderScrollViewer", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (ScrollViewer?)method!.Invoke(window, null);
+    }
+
+    private static void InvokeOnRecordingStateChanged(NovaTerminal.MainWindow window, bool isRecording)
+    {
+        var method = typeof(NovaTerminal.MainWindow).GetMethod("OnRecordingStateChanged", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method!.Invoke(window, [isRecording]);
     }
 
     private static Button GetGeneratedButton(NovaTerminal.MainWindow window, string catalogId)
