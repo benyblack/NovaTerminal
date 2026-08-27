@@ -119,6 +119,49 @@ public sealed class BackupExportTests
         Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
     }
 
+    [Fact]
+    public void Export_FailsGracefullyForEmptyDestination()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, FixedClock());
+
+        var outcome = service.Export("");
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+    }
+
+    [Fact]
+    public void Export_FailsGracefullyForWhitespaceDestination()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, FixedClock());
+
+        var outcome = service.Export("   ");
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+    }
+
+    /// <summary>
+    /// An embedded NUL is rejected by Path.GetFullPath on every platform .NET supports
+    /// (unlike other "invalid" characters such as '&lt;' or '|', which are only rejected on
+    /// Windows and only much later, by the filesystem) — so this is the one malformed-path
+    /// case that behaves identically on Windows and POSIX.
+    /// </summary>
+    [Fact]
+    public void Export_FailsGracefullyForPathWithEmbeddedNul()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, FixedClock());
+        string malformed = Path.Combine(tree.Root, "bad\0name.novabackup");
+
+        var outcome = service.Export(malformed);
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+    }
+
     private static TimeProvider FixedClock() =>
         new FixedTimeProvider(new DateTimeOffset(2026, 8, 27, 9, 14, 0, TimeSpan.Zero));
 }

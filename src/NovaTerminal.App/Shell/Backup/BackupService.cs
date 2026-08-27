@@ -36,6 +36,13 @@ public sealed class BackupService
     /// <param name="categories">Null means every category.</param>
     public BackupOutcome Export(string destinationPath, IReadOnlyCollection<BackupCategory>? categories = null)
     {
+        if (string.IsNullOrWhiteSpace(destinationPath))
+        {
+            return BackupOutcome.Fail(
+                BackupFailureKind.WriteFailed,
+                "Destination path must not be empty.");
+        }
+
         var requested = categories ?? BackupCatalog.AllCategories;
         var present = requested.Where(HasContent).ToArray();
 
@@ -53,7 +60,7 @@ public sealed class BackupService
             BundleWriter.Write(RootDirectory, destinationPath, present, manifest);
             return BackupOutcome.Ok($"Exported {present.Length} categories to {destinationPath}.");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             return BackupOutcome.Fail(
                 BackupFailureKind.WriteFailed,
