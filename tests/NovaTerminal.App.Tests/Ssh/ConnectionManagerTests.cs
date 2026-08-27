@@ -44,7 +44,8 @@ public sealed class ConnectionManagerTests
             "Toggle favorite",
             "Edit connection",
             "Copy launch command",
-            "Connection details"
+            "Connection details",
+            "Delete connection"
         };
 
         var actionButtons = control.GetVisualDescendants()
@@ -52,7 +53,7 @@ public sealed class ConnectionManagerTests
             .Where(button => ToolTip.GetTip(button) is string tip && actionTips.Contains(tip))
             .ToList();
 
-        Assert.Equal(4, actionButtons.Count);
+        Assert.Equal(5, actionButtons.Count);
         Assert.All(actionButtons, button =>
         {
             Assert.True(button.Width >= 30, $"Expected '{ToolTip.GetTip(button)}' width >= 30 but was {button.Width}.");
@@ -83,6 +84,58 @@ public sealed class ConnectionManagerTests
         Assert.NotNull(receivedProfile);
         Assert.Equal("Prod", receivedProfile!.Name);
         Assert.Equal(SshDiagnosticsLevel.None, receivedLevel);
+    }
+
+    [AvaloniaFact]
+    public void DeleteAction_RaisesDeleteProfileRequested_ForSelectedRow()
+    {
+        var control = CreateMeasuredConnectionManager();
+        TerminalProfile profile = CreateSshProfile("Prod", favorite: false);
+        control.LoadProfiles(new[] { profile });
+        SelectFirstRow(control);
+
+        TerminalProfile? receivedProfile = null;
+        control.OnDeleteProfileRequested += p => receivedProfile = p;
+
+        var deleteButton = FindButtonByToolTip(control, "Delete connection");
+        Assert.NotNull(deleteButton);
+
+        deleteButton!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Same(profile, receivedProfile);
+    }
+
+    [AvaloniaFact]
+    public void DeleteAction_DoesNotRaise_WhenNoRowSelected()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+
+        bool raised = false;
+        control.OnDeleteProfileRequested += _ => raised = true;
+
+        var deleteButton = FindButtonByToolTip(control, "Delete connection");
+        Assert.NotNull(deleteButton);
+
+        deleteButton!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.False(raised);
+    }
+
+    [AvaloniaFact]
+    public void DeleteAction_DoesNotRemoveRowItself()
+    {
+        // The control only raises; MainWindow owns the store delete and the refresh.
+        var control = CreateMeasuredConnectionManager();
+        control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: false) });
+        SelectFirstRow(control);
+        control.OnDeleteProfileRequested += _ => { };
+
+        FindButtonByToolTip(control, "Delete connection")!
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Equal(1, GetListItemCount(control));
+        Assert.Single(control.GetAllProfiles());
     }
 
     [AvaloniaFact]

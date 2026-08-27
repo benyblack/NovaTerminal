@@ -32,6 +32,7 @@ namespace NovaTerminal.Controls
         public event Action? OnProfilesChanged;
         public event Action? OnSyncRequested;
         public event Action? OnNewConnectionRequested;
+        public event Action<TerminalProfile>? OnDeleteProfileRequested;
 
         private readonly SshManagerViewModel _viewModel = new();
         private readonly ObservableCollection<GroupNode> _groups = new();
@@ -483,6 +484,15 @@ namespace NovaTerminal.Controls
             {
                 e.Handled = true;
                 OnConnectionDetailsRequested?.Invoke(row.Profile, GetSelectedDiagnosticsLevel());
+            }
+        }
+
+        private void OnDeleteClick(object? sender, RoutedEventArgs e)
+        {
+            if (TryGetRow(sender, out var row))
+            {
+                e.Handled = true;
+                OnDeleteProfileRequested?.Invoke(row.Profile);
             }
         }
 

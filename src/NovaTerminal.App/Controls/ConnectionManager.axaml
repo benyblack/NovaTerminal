@@ -519,7 +519,7 @@
                                    Foreground="{StaticResource NtFg3}"/>
 
                         <!-- Action bar -->
-                        <Grid Margin="0,10,0,0" ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto">
+                        <Grid Margin="0,10,0,0" ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
                             <Button Grid.Column="0"
                                     Classes="Primary"
                                     Click="OnOpenCurrentClick"
@@ -551,6 +551,9 @@
                             </Button>
                             <Button Grid.Column="9" Classes="IconBtn" Click="OnDetailsClick" ToolTip.Tip="Connection details">
                                 <PathIcon Data="M11,17H13V11H11M12,9A1,1 0 0,0 13,8A1,1 0 0,0 12,7A1,1 0 0,0 11,8A1,1 0 0,0 12,9M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" Width="14" Height="14"/>
+                            </Button>
+                            <Button Grid.Column="10" Classes="IconBtn Danger" Click="OnDeleteClick" ToolTip.Tip="Delete connection">
+                                <PathIcon Data="M9,3V4H4V6H5V19A2,2 0 0,0 7,21H17A2,2 0 0,0 19,19V6H20V4H15V3H9M7,6H17V19H7V6M9,8V17H11V8H9M13,8V17H15V8H13Z" Width="14" Height="14"/>
                             </Button>
                         </Grid>
                     </StackPanel>
