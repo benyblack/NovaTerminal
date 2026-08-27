@@ -271,6 +271,11 @@ UpgradeLog*.htm
 ServiceFabricBackup/
 *.rptproj.bak
 
+# Our own Shell/Backup feature code and its tests are not VS upgrade backups;
+# carve them out of the Backup*/ rule above.
+!src/NovaTerminal.App/Shell/Backup/
+!tests/NovaTerminal.App.Tests/Backup/
+
 # SQL Server files
 *.mdf
 *.ldf
