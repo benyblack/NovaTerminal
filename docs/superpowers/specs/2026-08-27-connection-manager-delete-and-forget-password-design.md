@@ -230,10 +230,20 @@ No confirmation dialog, and no `LoadProfiles` refresh:
 7. With an unavailable store, `IsVaultAvailable` is false, `HasSavedPassword` is
    false, and `ForgetSavedPassword` returns false without throwing.
 
-A `SshConnectionService`-level check that delete removes the profile from the
-store and purges the profile-scoped vault keys, using the existing
-`RecordingSshPasswordVault`-style fake in `SshConnectionServiceTests` where it
-fits.
+A combined `SshConnectionService`-level check ("delete removes the profile
+from the store and purges the profile-scoped vault keys") is not implementable
+as originally written: `SshConnectionService.DeleteProfile` delegates straight
+to `JsonSshProfileStore.DeleteProfile` and never touches the vault
+(`src/NovaTerminal.App/Services/Ssh/SshConnectionService.cs:161-164`) — the
+purge lives in `MainWindow.DeleteSshProfileAsync` by design, after the store
+delete succeeds (see the vault-scoping remarks on `ISavedPasswordAccess`).
+The store-delete and the vault-purge are instead verified separately, at
+their own layers: `SshConnectionServiceTests` covers `DeleteProfile` against
+the store, and items 5-7 above cover `VaultService.ForgetSavedPassword`
+against the vault. The combined end-to-end flow (delete a connection that has
+a saved password, confirm both the profile and its secret are gone) is
+covered by the manual smoke test, not an automated `SshConnectionService`
+test.
 
 ## Files touched
 

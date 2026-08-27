@@ -936,7 +936,14 @@ git commit -m "feat(connections): confirm and delete a connection, purging its s
 | Testing items 1–7 | Tasks 1–3 |
 | Out of scope: editor checkbox, MCP tools | not touched by any task |
 
-No gaps.
+**Dropped:** Testing item 8 (a combined `SshConnectionService`-level check
+that delete removes the profile from the store *and* purges the
+profile-scoped vault keys) is intentionally not implemented. It is not
+implementable as specified: `SshConnectionService.DeleteProfile` delegates
+straight to `JsonSshProfileStore.DeleteProfile` and never touches the vault —
+the purge lives in `MainWindow.DeleteSshProfileAsync` by design. The store-
+delete and the vault-purge are covered separately instead, at their own
+layers (see the corrected Testing section of the design spec).
 
 **Placeholder scan:** no TBD/TODO; every code step carries the actual code; no "similar to Task N".
 
