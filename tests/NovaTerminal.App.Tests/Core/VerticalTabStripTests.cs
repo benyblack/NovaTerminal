@@ -201,6 +201,43 @@ public sealed class VerticalTabStripTests
         Assert.True(gripVertical!.IsVisible);
     }
 
+    // Regression for the review finding: a viewport pass firing mid-drag (activity-driven -
+    // QueueTabVisualRefresh on pane output/bell, the 1s tab-status timer) must not stomp
+    // scrollViewer.Width back to the stale persisted setting, or an in-progress grip drag is
+    // silently discarded. Real pointer-event simulation isn't practical in the headless test
+    // host, so this drives the mid-drag state through the internal
+    // IsTabStripGripDraggingForTest seam instead of PointerPressed.
+    [AvaloniaFact]
+    public void UpdateTabVisuals_DuringGripDrag_DoesNotStompWidth_ThenRevertsOnceDragEnds()
+    {
+        var window = CreateShownWindow();
+        var settings = GetSettings(window);
+        settings.TabStripOrientation = "Vertical";
+        settings.VerticalTabStripWidth = 260;
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        var scrollViewer = InvokeFindTabHeaderScrollViewer(window)!;
+        Assert.Equal(260, scrollViewer.Width);
+
+        // Simulate mid-drag: PointerMoved would have set a non-persisted width like this.
+        window.IsTabStripGripDraggingForTest = true;
+        scrollViewer.Width = 400;
+
+        window.UpdateTabVisuals();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(400, scrollViewer.Width); // pass must not have reverted the live drag value
+
+        // Drag ends (PointerReleased/PointerCaptureLost clears the flag) - the next pass is free
+        // to resync from the persisted setting again.
+        window.IsTabStripGripDraggingForTest = false;
+        window.UpdateTabVisuals();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(260, scrollViewer.Width);
+    }
+
     private static Border? FindResizeGrip(NovaTerminal.MainWindow window)
         => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window)
             .OfType<Border>()

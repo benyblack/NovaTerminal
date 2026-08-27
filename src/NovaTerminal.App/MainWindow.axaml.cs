@@ -110,6 +110,21 @@ namespace NovaTerminal
         internal const double TabHeaderViewportPadding = 16;
         private bool _isVerticalTabStrip;
         internal bool IsVerticalTabStripActive => _isVerticalTabStrip;
+
+        // True for the duration of a sidebar grip drag (PointerPressed on the grip through its
+        // PointerReleased/PointerCaptureLost). UpdateTabHeaderViewport - invoked continuously
+        // during a drag from activity-driven paths (QueueTabVisualRefresh on pane output/bell,
+        // the 1s tab-status timer) - must not stomp scrollViewer.Width with the stale persisted
+        // setting value while this is true, or a live drag gets silently reverted mid-gesture.
+        private bool _isTabStripGripDragging;
+
+        /// <summary>Test-only seam: simulates the mid-drag state without needing real pointer
+        /// event simulation in a headless test host.</summary>
+        internal bool IsTabStripGripDraggingForTest
+        {
+            get => _isTabStripGripDragging;
+            set => _isTabStripGripDragging = value;
+        }
         private bool _isDraggingTransferOverlay;
         private Point _transferOverlayDragStart;
         private Point _transferOverlayOffsetStart;
@@ -905,6 +920,7 @@ namespace NovaTerminal
             {
                 startWidth = scrollViewer.Bounds.Width;
                 startX = e.GetPosition(this).X;
+                _isTabStripGripDragging = true;
                 e.Pointer.Capture(grip);
                 e.Handled = true;
             };
@@ -919,11 +935,23 @@ namespace NovaTerminal
             {
                 if (!ReferenceEquals(e.Pointer.Captured, grip)) return;
                 e.Pointer.Capture(null);
+                _isTabStripGripDragging = false;
                 if (double.IsFinite(scrollViewer.Width))
                 {
                     _settings.VerticalTabStripWidth = scrollViewer.Width;
                     _settings.Save();
                 }
+            };
+
+            // Involuntary capture loss (e.g. another control steals it, window deactivates
+            // mid-drag) must not leave the flag stuck - that would permanently freeze
+            // scrollViewer.Width against future viewport passes. Clear WITHOUT persisting: the
+            // next UpdateTabHeaderViewport pass restores the last-persisted width, which is the
+            // correct recovery for an aborted drag (mirrors PointerReleased's persist path being
+            // skipped, not duplicated).
+            grip.PointerCaptureLost += (_, _) =>
+            {
+                _isTabStripGripDragging = false;
             };
         }
 
@@ -959,7 +987,15 @@ namespace NovaTerminal
 
                 scrollViewer.Margin = new Thickness(0);
                 scrollViewer.Height = double.NaN;
-                scrollViewer.Width = TabStripLayout.ClampSidebarWidth(_settings.VerticalTabStripWidth);
+                // A live grip drag owns scrollViewer.Width via PointerMoved - a viewport pass
+                // firing mid-drag (activity-driven: QueueTabVisualRefresh on pane output/bell,
+                // the 1s tab-status timer) must not reset it back to the stale persisted value,
+                // or the in-progress drag is silently discarded (visible snap-back, and a
+                // release without another move would persist the reverted width).
+                if (!_isTabStripGripDragging)
+                {
+                    scrollViewer.Width = TabStripLayout.ClampSidebarWidth(_settings.VerticalTabStripWidth);
+                }
                 scrollViewer.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
                 scrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
                 scrollViewer.ClipToBounds = true;
