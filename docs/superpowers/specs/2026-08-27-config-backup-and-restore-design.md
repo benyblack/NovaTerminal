@@ -152,7 +152,10 @@ intact and reports which category failed.
 All four wrap the same `BackupService`.
 
 **Settings window.** A "Backup & Restore" section: `Export…` and `Import…` buttons, plus a list of
-snapshots showing timestamp, reason, and size with a `Restore` action per row.
+snapshots showing timestamp, reason, and size with a `Restore` action per row. Restore asks for
+confirmation first — naming the snapshot, saying which categories it replaces, and noting that a
+pre-restore snapshot is taken so the restore itself can be undone. Recoverability is not a
+substitute for asking, and Import already prompts.
 
 **Command palette.** `Export configuration…`, `Import configuration…`, `Restore from snapshot…`.
 
