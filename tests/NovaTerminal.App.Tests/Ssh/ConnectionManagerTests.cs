@@ -34,12 +34,33 @@ public sealed class ConnectionManagerTests
         Assert.True(raised);
     }
 
+    // Asserts ARRANGED bounds, not Button.Width/Height. Those are the style-set
+    // StyledProperties: they read 30 from the IconBtn style even when the button was
+    // arranged into an empty rect, so the original version of this test could not tell a
+    // real hit target from no layout at all.
+    //
+    // Scope, precisely: this covers hit-target SIZE. It does not detect clipping — the
+    // delete button that was invisible in the running app was arranged 30x30 at X=520
+    // inside a 468px parent, so these assertions would have passed. Position relative to
+    // the panel is ActionBarControls_AreArrangedInsideTheDetailPanel's job. The two
+    // together cover size and placement.
+    //
+    // Show() + RunJobs() is what produces a real layout pass: the detail panel starts
+    // collapsed, and Measure with an unchanged constraint returns the cached empty-state
+    // desired size, leaving the whole detail header arranged at zero.
     [AvaloniaFact]
     public void SecondaryActionButtons_ReserveSquareHitTargets()
     {
-        var control = CreateMeasuredConnectionManager(800, 500);
+        var control = new ConnectionManager();
+        var host = new Grid();
+        host.Children.Add(control);
+        var window = new Window { Width = 1080, Height = 720, Content = host };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
         control.LoadProfiles(new[] { CreateSshProfile("Prod", favorite: true) });
-        SelectFirstRow(control);
+        FindControl<ListBox>(control, "ConnectionsList").SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
 
         string[] actionTips =
         {
@@ -58,8 +79,12 @@ public sealed class ConnectionManagerTests
         Assert.Equal(5, actionButtons.Count);
         Assert.All(actionButtons, button =>
         {
-            Assert.True(button.Width >= 30, $"Expected '{ToolTip.GetTip(button)}' width >= 30 but was {button.Width}.");
-            Assert.True(button.Height >= 30, $"Expected '{ToolTip.GetTip(button)}' height >= 30 but was {button.Height}.");
+            Assert.True(
+                button.Bounds.Width >= 30,
+                $"Expected '{ToolTip.GetTip(button)}' arranged width >= 30 but was {button.Bounds.Width}.");
+            Assert.True(
+                button.Bounds.Height >= 30,
+                $"Expected '{ToolTip.GetTip(button)}' arranged height >= 30 but was {button.Bounds.Height}.");
         });
     }
 

@@ -6057,13 +6057,23 @@ namespace NovaTerminal
             {
                 _sshConnectionService.DeleteProfile(profile.Id);
 
-                // Refresh right after the store delete so the UI drops the deleted connection
-                // even if the vault purge below throws. Purge still runs AFTER the store
-                // delete: if the delete itself throws, the secret stays put rather than being
-                // orphaned from a profile that still exists.
-                RefreshProfileUIs();
-
-                Vault?.ForgetSavedPassword(profile);
+                // Two orderings matter here and they pull in opposite directions, so the
+                // purge is sequenced and the refresh is guaranteed:
+                //   * the purge runs AFTER the store delete, so if the delete throws the
+                //     secret stays put rather than being orphaned from a profile that
+                //     still exists;
+                //   * the refresh runs in a finally, so a throwing purge cannot leave the
+                //     deleted connection sitting in the list.
+                // Ordering them without the finally forces a choice between an orphaned
+                // secret and a stale row; this way neither failure mode exists.
+                try
+                {
+                    Vault?.ForgetSavedPassword(profile);
+                }
+                finally
+                {
+                    RefreshProfileUIs();
+                }
             }
             catch (Exception ex)
             {
