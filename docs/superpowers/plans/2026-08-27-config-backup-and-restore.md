@@ -44,6 +44,8 @@
 | --- | --- |
 | `src/NovaTerminal.App/Shell/AppPaths.cs` | Add `BackupsDirectory`; create it in `EnsureInitialized`. |
 | `src/NovaTerminal.Cli/Program.cs` | Add the `BackupCommand` branch to the dispatch chain. |
+| `src/NovaTerminal.App/Program.cs` | **Also** add the branch here. This is the shipped entry point: the self-contained/AOT bundle ships no separate `NovaTerminal.Cli`, so the app executable dispatches CLI modes itself (see `VtReportCommand`/`SshAskPassCommand`/`ReplayCommand` there). Wiring only the Cli shim leaves the verbs unreachable in a real build. |
+| `tests/NovaTerminal.Architecture.Tests` | Guard test cross-checking that every CLI-command type is dispatched from `NovaTerminal.App/Program.cs`, so the next command cannot repeat this. |
 | `src/NovaTerminal.App/SettingsWindow.axaml` | New `DataNav` sidebar group + a new `TabItem` at the END of the `TabControl`. |
 | `src/NovaTerminal.App/SettingsWindow.axaml.cs` | Wire the new nav group and extend `SyncSidebarFromTabs`; wire the buttons. |
 | `src/NovaTerminal.App/MainWindow.axaml.cs` | Register three palette commands in `SetupCommandPalette()`. |
@@ -2808,6 +2810,8 @@ git commit -m "feat(backup): debounced snapshot scheduler"
 **Files:**
 - Create: `src/NovaTerminal.App/Shell/Backup/BackupCommand.cs`
 - Modify: `src/NovaTerminal.Cli/Program.cs`
+- Modify: `src/NovaTerminal.App/Program.cs` — the shipped entry point; the AOT bundle has no separate Cli
+- Test: `tests/NovaTerminal.Architecture.Tests` — guard that both dispatch tables stay in sync
 - Test: `tests/NovaTerminal.App.Tests/Backup/BackupCommandTests.cs`
 
 **Interfaces:**
@@ -3134,7 +3138,7 @@ Expected: build succeeded, 0 errors.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/Backup/BackupCommand.cs src/NovaTerminal.Cli/Program.cs tests/NovaTerminal.App.Tests/Backup/BackupCommandTests.cs
+git add src/NovaTerminal.App/Shell/Backup/BackupCommand.cs src/NovaTerminal.Cli/Program.cs src/NovaTerminal.App/Program.cs tests/NovaTerminal.App.Tests/Backup/BackupCommandTests.cs tests/NovaTerminal.Architecture.Tests
 git commit -m "feat(backup): backup export/import/list/restore CLI verbs"
 ```
 
