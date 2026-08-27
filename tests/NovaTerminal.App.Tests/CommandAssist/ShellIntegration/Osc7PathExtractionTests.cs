@@ -104,16 +104,53 @@ public sealed class Osc7PathExtractionTests
         Assert.Equal("/home/you", Extract($"file://{Environment.MachineName}.lan/home/you"));
     }
 
-    // ---------------------------------------------------------------- what is deliberately unchanged
-
     /// <summary>
-    /// A genuinely foreign authority keeps the UNC reading. Second-guessing a remote host's path layout
-    /// is not the parser's job, and this is the one case where the UNC is what the user means.
+    /// The same legacy escaped-backslash Windows emission, but from a genuinely foreign authority - a
+    /// remote Windows SSH host still running the snippet it was given months ago. This has to normalize
+    /// to a real Windows path exactly like the local case above, not the mixed-separator string a naive
+    /// "only normalize the local branch" split would produce, which is neither a valid Windows path nor
+    /// a valid POSIX one and breaks the SFTP sidebar's listing call the same way the original UNC bug did
+    /// (Codex review, PR #351, third pass).
     /// </summary>
     [Fact]
-    public void ForeignAuthority_StillReadsAsAUncPath()
+    public void LegacyEmissionWithForeignWindowsHostname_DecodesToAWindowsPath()
     {
-        Assert.Equal(@"\\fileserver\share\dir", Extract("file://fileserver/share/dir"));
+        string payload = "file://windows-build-host/C:%5CUsers%5Cyou";
+
+        Assert.Equal(@"C:\Users\you", Extract(payload));
+    }
+
+    // ---------------------------------------------------------------- foreign authority (PR #351)
+
+    /// <summary>
+    /// A foreign authority is dropped, same as a local one - it names the SSH host the SFTP-consuming
+    /// sidebar is already connected to, so re-encoding it as a UNC prefix is redundant and, worse,
+    /// unusable as a remote SFTP path (PR #351: <c>\\fileserver\share\dir</c> sent to a POSIX SFTP
+    /// server fails with "remote path not found").
+    /// </summary>
+    [Fact]
+    public void ForeignAuthority_ReadsAsAPosixPath()
+    {
+        Assert.Equal("/share/dir", Extract("file://fileserver/share/dir"));
+    }
+
+    /// <summary>
+    /// A literal backslash in a POSIX directory name survives a foreign-authority round trip. The
+    /// shipped Bash/Zsh/Fish integrations percent-escape it (<c>weird%5Cname</c>) specifically so it
+    /// is not mistaken for a path separator; this pins that the parser honors that escaping instead of
+    /// letting .NET's file-URI canonicalization fold it into an extra <c>/</c> (Codex review, PR #351).
+    /// </summary>
+    [Fact]
+    public void ForeignAuthority_PreservesAnEscapedLiteralBackslashInAPathSegment()
+    {
+        Assert.Equal(@"/root/weird\name", Extract("file://chatai/root/weird%5Cname"));
+    }
+
+    /// <summary>The same escaping has to survive for a local POSIX session too, not just a remote one.</summary>
+    [Fact]
+    public void LocalAuthority_PreservesAnEscapedLiteralBackslashInAPathSegment()
+    {
+        Assert.Equal(@"/home/you/weird\name", Extract("file:///home/you/weird%5Cname"));
     }
 
     /// <summary>A payload that is not a URI at all - some shells emit a bare path - is passed through.</summary>

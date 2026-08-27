@@ -173,7 +173,12 @@ public sealed class RemoteDirectoryBrowserService : IRemoteDirectoryBrowserServi
 
     private static string NormalizeRemotePath(string remotePath)
     {
-        return string.IsNullOrWhiteSpace(remotePath) ? "~" : remotePath;
+        if (string.IsNullOrWhiteSpace(remotePath))
+        {
+            return "~";
+        }
+
+        return RemoteSidebarStartPathResolver.NormalizeUncStylePath(remotePath);
     }
 
     private static string GetErrorMessage(Exception ex, string fallback)

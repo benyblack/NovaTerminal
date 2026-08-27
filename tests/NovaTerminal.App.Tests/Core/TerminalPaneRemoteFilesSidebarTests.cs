@@ -163,6 +163,30 @@ public sealed class TerminalPaneRemoteFilesSidebarTests
     }
 
     [AvaloniaFact]
+    public void WorkingDirectoryChanged_SuppressesJumpAffordance_WhenUncFormMatchesNormalizedCurrentPath()
+    {
+        var service = new RecordingRemoteDirectoryBrowserService(
+            RemoteSidebarListingResult.Success("/root", Array.Empty<RemoteSidebarEntry>()));
+        using var pane = new TerminalPane(new TerminalProfile
+        {
+            Name = "Native SSH",
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "server.example",
+            SshUser = "nova",
+            DefaultRemoteDir = "~/downloads"
+        });
+
+        pane.ConfigureRemoteFilesSidebarForTest(service);
+        pane.ShowRemoteFilesSidebarForTest();
+
+        pane.HandleWorkingDirectoryChangedForTest(@"\\chatai\root");
+
+        Assert.Equal("/root", pane.GetRemoteFilesSidebarCurrentPathForTest());
+        Assert.Null(pane.GetRemoteFilesSidebarJumpTargetForTest());
+    }
+
+    [AvaloniaFact]
     public void SessionExit_KeepsSidebarVisibleInDisconnectedState()
     {
         using var pane = new TerminalPane(new TerminalProfile

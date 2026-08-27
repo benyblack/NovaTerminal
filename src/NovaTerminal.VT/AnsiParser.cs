@@ -2282,35 +2282,66 @@ namespace NovaTerminal.VT
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <strong>The local-authority carve-out (PR #293 review, blocker 3).</strong> A
-        /// <c>file://</c> URI's authority is the host the path lives on, and <see cref="Uri.LocalPath"/>
-        /// renders a non-empty one as a UNC share: <c>file://HOST/C:/Users/you</c> becomes
-        /// <c>\\HOST\C:\Users\you</c>. That is right for a genuinely remote host and wrong for the
-        /// overwhelmingly common case, because most shell integrations - ours included until this
-        /// change, plus bash's <c>$HOSTNAME</c>, zsh's <c>$HOST</c> and fish's <c>hostname</c> - put the
-        /// *local* machine's name there as a matter of convention. The result was a working directory
-        /// pointing at a share that does not exist, which broke every cwd consumer: path suggestions
-        /// listed nothing, and history rows were written and scored against a directory no session was
-        /// ever in.
+        /// <strong>The authority is always dropped (PR #293 review, blocker 3; revisited PR #351).</strong>
+        /// A <c>file://</c> URI's authority is the host the path lives on. Most shell integrations -
+        /// ours included until PR #293, plus bash's <c>$HOSTNAME</c>, zsh's <c>$HOST</c> and fish's
+        /// <c>hostname</c> - put the *local* machine's name there as a matter of convention, and the SFTP
+        /// sidebar that is the other consumer of a foreign authority is already connected to that exact
+        /// host, so re-encoding either one into the path is always redundant. What is left after the
+        /// authority is dropped is normalized purely by what it looks like -
+        /// <see cref="NormalizeOsc7PathShape"/> native-formats a Windows drive-letter path and leaves a
+        /// POSIX one untouched - not by which host reported it, because that shape is a property of the
+        /// path text, not of the authority: a Windows drive letter means a Windows path whether the shell
+        /// reporting it is this machine or a Windows box at the far end of an SSH session, and a POSIX
+        /// path stays a POSIX path the same way.
         /// </para>
         /// <para>
-        /// So an authority naming this machine (or nothing, or <c>localhost</c>) is dropped and the path
-        /// read from <see cref="Uri.AbsolutePath"/>, with a Windows drive-letter root un-rooted and the
-        /// separators flipped. A foreign authority keeps the old <see cref="Uri.LocalPath"/> reading:
-        /// that is what a real <c>\\server\share</c> cwd needs, and second-guessing a remote host's path
-        /// layout here is not this function's job.
+        /// <strong>Why not keep rendering a foreign authority as a UNC path for other local consumers
+        /// (Codex review, PR #351, second pass).</strong> Windows UNC syntax and a backslash-preserving
+        /// escape are mutually exclusive - <c>\</c> is Windows' only path separator, so there is no
+        /// string shape that is simultaneously a valid <c>\\host\dir</c> UNC path and losslessly
+        /// preserves a POSIX filename that legally contains a literal backslash. Something has to give,
+        /// and <c>NovaTerminal.CommandAssist.Domain.FileSystemPathSuggestionProvider</c> - the one
+        /// consumer of this cwd that performs real filesystem I/O (<c>Directory.Exists</c>,
+        /// <c>Directory.EnumerateDirectories</c>) - already skips itself whenever the session is remote
+        /// (<c>context.IsRemote</c>, sourced from <c>Profile.Type == ConnectionType.SSH</c>, independent
+        /// of anything OSC 7 reports). Every shipped shell integration only reports a foreign authority
+        /// either for a genuine SSH session (already gated off above) or never at all - PowerShell's
+        /// bootstrap omits the authority entirely, and WSL2's default hostname matches this machine's, so
+        /// it is dropped the same way. A local, non-SSH pane reporting a *third-party* UNC host via a raw,
+        /// non-Nova-emitted OSC 7 sequence is the one remaining case this trades away; nothing shipped
+        /// produces it, and the SFTP sidebar's need for a working POSIX path from the one case that is
+        /// shipped and reachable - an SSH session with a backslash in a remote directory name - wins that
+        /// trade.
+        /// </para>
+        /// <para>
+        /// <strong>Why the path text is sliced out of <paramref name="data"/> by hand instead of read
+        /// from <see cref="Uri.AbsolutePath"/> or <see cref="Uri.LocalPath"/> (Codex review, PR #351).
+        /// </strong> Both properties are computed through .NET's <c>file:</c>-scheme-specific
+        /// canonicalization, which treats a backslash - raw <em>or</em> percent-escaped as <c>%5C</c> -
+        /// as an alternate path separator and silently folds it into <c>/</c> while building the URI,
+        /// before any application code ever calls <see cref="Uri.UnescapeDataString"/>. A backslash is a
+        /// legal character in a POSIX filename, so a directory percent-escaped by the shipped Bash/Zsh/
+        /// Fish integrations specifically to preserve it (<c>weird%5Cname</c>) would otherwise come back
+        /// as two directories (<c>weird</c>, <c>name</c>) instead of one. <see cref="ExtractRawEscapedOsc7Path"/>
+        /// finds the still-escaped path text directly in <paramref name="data"/> - a plain substring split
+        /// on the first <c>/</c> after <c>scheme://authority</c>, untouched by that canonicalization - so
+        /// the one <see cref="Uri.UnescapeDataString"/> call downstream is the only place escaping is
+        /// resolved, and it resolves every escape (the <c>%5C</c> backslashes of the old Windows emission,
+        /// the <c>%20</c> spaces of the new one, and a literal backslash inside a POSIX name) the same way.
         /// </para>
         /// <para>
         /// Kept tolerant of the older emissions on purpose. A pwsh instrumented by a previous Nova build
-        /// - or a remote host still running the snippet it was given months ago - sends
-        /// <c>file://HOST/C:%5CUsers%5Cyou</c>, and that has to keep working: the fix at the emitter
-        /// cannot reach a script the user pasted onto a server. <see cref="Uri.AbsolutePath"/> preserves
-        /// the escaping, so one <see cref="Uri.UnescapeDataString"/> recovers both the <c>%5C</c>
-        /// backslashes of the old form and the <c>%20</c> spaces of the new one.
+        /// - or a remote *Windows* SSH host still running the snippet it was given months ago (Codex
+        /// review, PR #351, third pass) - sends <c>file://HOST/C:%5CUsers%5Cyou</c>, and that has to keep
+        /// working even though <c>HOST</c> is now a foreign authority: the fix at the emitter cannot
+        /// reach a script the user pasted onto a server, and the drive-letter shape is normalized to a
+        /// real Windows path (<c>C:\Users\you</c>) regardless of which authority sent it, exactly as the
+        /// paragraph above describes.
         /// </para>
         /// <para>
         /// The final fallback - hand back the payload verbatim - is what catches a payload that is not a
-        /// URI at all (a bare path, which some shells emit) and, before this change, the old emission
+        /// URI at all (a bare path, which some shells emit) and, before PR #293, the old emission
         /// with no hostname: <c>file:///C:%5CUsers%5Cyou</c> is rejected by
         /// <see cref="Uri.TryCreate"/> outright, so the literal URI string was being reported as the
         /// working directory.
@@ -2323,9 +2354,8 @@ namespace NovaTerminal.VT
 
             if (Uri.TryCreate(data, UriKind.Absolute, out var uri) && uri.IsFile)
             {
-                path = IsLocalOsc7Authority(uri.Host)
-                    ? NormalizeLocalOsc7Path(Uri.UnescapeDataString(uri.AbsolutePath))
-                    : Uri.UnescapeDataString(uri.LocalPath);
+                string rawEscapedPath = ExtractRawEscapedOsc7Path(data, uri);
+                path = NormalizeOsc7PathShape(Uri.UnescapeDataString(rawEscapedPath));
                 return !string.IsNullOrWhiteSpace(path);
             }
 
@@ -2334,45 +2364,42 @@ namespace NovaTerminal.VT
         }
 
         /// <summary>
-        /// Whether an OSC 7 authority means "this machine", so the path is a local one rather than a
-        /// UNC share.
+        /// The still-percent-escaped path portion of an OSC 7 <c>file:</c> payload, read directly from
+        /// the original text rather than from <see cref="Uri.AbsolutePath"/> - see the remarks on
+        /// <see cref="TryExtractPathFromOsc7"/> for why that distinction matters. An authority never
+        /// legally contains a raw <c>/</c>, so the first one found after <c>scheme://</c> is unambiguously
+        /// where the path starts.
         /// </summary>
-        private static bool IsLocalOsc7Authority(string host)
+        private static string ExtractRawEscapedOsc7Path(string data, Uri uri)
         {
-            if (string.IsNullOrEmpty(host)) return true;
-            if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)) return true;
-            if (host == "127.0.0.1" || host == "::1" || host == "[::1]") return true;
-
-            // Uri lowercases the authority, so this comparison has to be case-insensitive; MachineName
-            // is the NetBIOS name, which is what $env:COMPUTERNAME and hostname both report.
-            string machine = Environment.MachineName;
-            if (!string.IsNullOrEmpty(machine))
+            int schemeEnd = data.IndexOf("://", StringComparison.Ordinal);
+            if (schemeEnd < 0)
             {
-                if (string.Equals(host, machine, StringComparison.OrdinalIgnoreCase)) return true;
-
-                // A shell reporting an FQDN ("box.lan") against a NetBIOS MachineName ("BOX").
-                int dot = host.IndexOf('.');
-                if (dot > 0 && string.Equals(host[..dot], machine, StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
+                return uri.AbsolutePath;
             }
 
-            return false;
+            int pathStart = data.IndexOf('/', schemeEnd + 3);
+            return pathStart < 0 ? uri.AbsolutePath : data[pathStart..];
         }
 
         /// <summary>
-        /// Turns the (already unescaped) path component of an authority-less <c>file:</c> URI into a
-        /// path the platform recognizes.
+        /// Turns the (already unescaped, authority-stripped) path component of an OSC 7 <c>file:</c>
+        /// payload into a path the shape it describes recognizes - a Windows drive-letter path is
+        /// un-rooted and native-separated, a POSIX path is returned untouched. Applied the same way
+        /// regardless of which authority the payload came from (Codex review, PR #351, third pass): the
+        /// shape is a property of the path text, not of the host that reported it, so a foreign SSH host
+        /// still running an old, hostname-bearing Windows emission gets a real Windows path
+        /// (<c>C:\Users\you</c>) instead of a mixed-separator string that is neither a valid Windows path
+        /// nor a valid POSIX one.
         /// </summary>
         /// <remarks>
-        /// Two shapes arrive here, because <see cref="Uri.AbsolutePath"/> drops the leading slash for a
-        /// drive-rooted URI (<c>file:///C:/x</c> gives <c>C:/x</c>) but keeps it when the authority was
-        /// present and stripped by us (<c>file://HOST/C:/x</c> gives <c>/C:/x</c>). A POSIX path keeps
-        /// its leading slash in both, and must not have its separators touched - a backslash in a Linux
-        /// filename is a legal character.
+        /// The leading slash handled here (<c>ExtractRawEscapedOsc7Path</c> always includes one, whether
+        /// or not an authority was present) is not itself part of a Windows path - <c>C:/x</c>, not
+        /// <c>/C:/x</c>, is the real one - so it is stripped before the drive-letter check, but only ever
+        /// for a drive-rooted path. A POSIX path keeps its leading slash, and must not have its
+        /// separators touched - a backslash in a POSIX filename is a legal character.
         /// </remarks>
-        private static string NormalizeLocalOsc7Path(string path)
+        private static string NormalizeOsc7PathShape(string path)
         {
             if (string.IsNullOrEmpty(path)) return path;
 

@@ -138,6 +138,27 @@ public sealed class RemoteDirectoryBrowserServiceTests
     }
 
     [Fact]
+    public async Task ListDirectoryAsync_WhenRemotePathIsUncStyle_NormalizesToPosixPath()
+    {
+        Guid profileId = Guid.NewGuid();
+        Guid sessionId = Guid.NewGuid();
+        var registry = new ActiveSshSessionRegistry();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, profileId, SshBackendKind.Native));
+        var interop = new RecordingNativeSshInterop(
+            new[]
+            {
+                new NativeRemotePathEntry("logs", "/root/logs", true)
+            });
+        var service = CreateService(registry, interop, CreateSshService(profileId));
+
+        RemoteSidebarListingResult result = await service.ListDirectoryAsync(profileId, sessionId, @"\\chatai\root", CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("/root", result.ResolvedPath);
+        Assert.Equal("/root", interop.LastRemotePath);
+    }
+
+    [Fact]
     public async Task ListDirectoryAsync_WhenRemotePathIsNonBlank_PreservesOriginalWhitespace()
     {
         Guid profileId = Guid.NewGuid();
