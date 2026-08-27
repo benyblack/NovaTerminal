@@ -3759,7 +3759,7 @@ Read-only by design. No import, no restore: the MCP server is out-of-process and
 - Test: `tests/NovaTerminal.McpServer.Tests/BackupToolsTests.cs`
 
 **Interfaces:**
-- Consumes: `NovaTerminal.Platform.Backup` — Task 10a moved the module there and added the `ProjectReference`. Use `BackupService` directly; do not reimplement anything.
+- Consumes: `NovaTerminal.Backup` — Task 10a extracted the module into a zero-reference leaf project and added the `ProjectReference`. An architecture test enforces that leaf status, so do NOT add any `ProjectReference` to `NovaTerminal.Backup.csproj`. Use `BackupService` directly; do not reimplement anything.
 - Produces: MCP tools `novaterminal.backup_export` and `novaterminal.backup_list`.
 
 **Pattern to follow:** `src/NovaTerminal.McpServer/Tools/SettingsTools.cs` — `[McpServerToolType]` on a static class, `[McpServerTool(Name = "...")]` plus `[Description(...)]` on each static method, returning a string.
@@ -3855,7 +3855,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using ModelContextProtocol.Server;
-using NovaTerminal.Shell.Backup;
+using NovaTerminal.Backup;
 
 namespace NovaTerminal.McpServer.Tools;
 
