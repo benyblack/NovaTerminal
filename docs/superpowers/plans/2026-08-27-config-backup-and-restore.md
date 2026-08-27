@@ -1377,7 +1377,9 @@ Snapshots come before import so that `Import` can call a real `Snapshot`, and `R
 - Consumes: `BackupService` from Task 3, `SnapshotInfo` and `SnapshotReason` from Tasks 1–2.
 - Produces: `SnapshotInfo? Snapshot(SnapshotReason reason)`; `IReadOnlyList<SnapshotInfo> ListSnapshots()`; `const int MaxSnapshots = 20`; `static readonly TimeSpan SnapshotRetentionWindow = TimeSpan.FromDays(7)`. Task 5 adds `Restore`, which builds on both.
 
-**Snapshot id format:** `<reason>-<yyyyMMddTHHmmssZ>-<hash8>`, e.g. `auto-20260827T091400Z-a1b2c3d4`. Reason encodes as `auto`, `pre-import`, `pre-restore`.
+**Snapshot id format:** `<reason>-<yyyyMMddTHHmmssZ>-<hash16>`, e.g. `auto-20260827T091400Z-a1b2c3d4e5f60718`. Reason encodes as `auto`, `pre-import`, `pre-restore`.
+
+The hash in the id is the **first 16 hex characters** of the SHA-256, and `ListSnapshots` recovers it by parsing the file name — so the dedupe comparison must use that same 16-char prefix on both sides. Comparing a full 64-char digest against the parsed prefix is a length mismatch that can never be true, which silently disables dedupe. 16 hex chars is 64 bits, and each call compares against exactly one snapshot, so a false dedupe is ~1 in 2^64. Do not shorten it further: a collision means a genuinely changed configuration silently gets no snapshot.
 
 **Content hash:** SHA-256 over the ordered concatenation of each backed-up file's bundle path and bytes — computed from the live tree, not the zip, because zip bytes vary with entry timestamps. First 8 hex chars go in the id.
 
@@ -1581,19 +1583,21 @@ In `src/NovaTerminal.App/Shell/Backup/BackupService.cs`, add `using System.Globa
     {
         try
         {
-            string hash = ComputeContentHash();
+            // 16 hex chars (64 bits). ListSnapshots recovers this from the file name, so both
+            // sides of the dedupe comparison must be the same prefix — see the id-format note.
+            string hashPrefix = ComputeContentHash()[..16];
 
             if (reason == SnapshotReason.Auto)
             {
                 var newest = ListSnapshots().FirstOrDefault();
-                if (newest is not null && string.Equals(newest.ContentHash, hash, StringComparison.Ordinal))
+                if (newest is not null && string.Equals(newest.ContentHash, hashPrefix, StringComparison.Ordinal))
                 {
                     return null;
                 }
             }
 
             var now = _timeProvider.GetUtcNow();
-            string id = $"{ReasonToken(reason)}-{now.UtcDateTime.ToString(SnapshotTimestampFormat, CultureInfo.InvariantCulture)}-{hash[..8]}";
+            string id = $"{ReasonToken(reason)}-{now.UtcDateTime.ToString(SnapshotTimestampFormat, CultureInfo.InvariantCulture)}-{hashPrefix}";
             string path = Path.Combine(BackupsDirectory, id + BundleExtension);
 
             Directory.CreateDirectory(BackupsDirectory);
@@ -1605,9 +1609,13 @@ In `src/NovaTerminal.App/Shell/Backup/BackupService.cs`, add `using System.Globa
                 return null;
             }
 
-            PruneSnapshots();
+            // Pruning runs after the bundle is durably written. A prune failure must not make
+            // a written snapshot look skipped, so it gets its own catch and never touches the
+            // return value.
+            try { PruneSnapshots(); }
+            catch (Exception ex) { AppLogger.Log($"[backup] snapshot prune failed: {ex.Message}"); }
 
-            return new SnapshotInfo(id, reason, now, new FileInfo(path).Length, hash, path);
+            return new SnapshotInfo(id, reason, now, new FileInfo(path).Length, hashPrefix, path);
         }
         catch (Exception ex)
         {
@@ -1650,8 +1658,12 @@ In `src/NovaTerminal.App/Shell/Backup/BackupService.cs`, add `using System.Globa
             if (entry.IsDirectory)
             {
                 if (!Directory.Exists(source)) continue;
+                // Sort on the normalized relative path, NOT the raw OS path: '\' (0x5C) and
+                // '/' (0x2F) sort differently against digits and uppercase letters, so sorting
+                // native paths would hash an identical tree to different digests on Windows
+                // vs Linux.
                 foreach (string file in Directory.GetFiles(source, "*", SearchOption.AllDirectories)
-                             .OrderBy(f => f, StringComparer.Ordinal))
+                             .OrderBy(f => Path.GetRelativePath(source, f).Replace('\\', '/'), StringComparer.Ordinal))
                 {
                     string relative = Path.GetRelativePath(source, file).Replace('\\', '/');
                     AppendToHash(buffer, $"{entry.BundlePath}/{relative}", File.ReadAllBytes(file));
@@ -1717,7 +1729,7 @@ In `src/NovaTerminal.App/Shell/Backup/BackupService.cs`, add `using System.Globa
         }
     }
 
-    /// <summary>Parses <c>&lt;reason&gt;-&lt;timestamp&gt;-&lt;hash8&gt;</c>. The reason itself may contain a dash.</summary>
+    /// <summary>Parses <c>&lt;reason&gt;-&lt;timestamp&gt;-&lt;hash16&gt;</c>. The reason itself may contain a dash.</summary>
     private static bool TryParseSnapshot(string path, out SnapshotInfo? info)
     {
         info = null;
