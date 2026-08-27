@@ -178,29 +178,7 @@ public sealed class RemoteDirectoryBrowserService : IRemoteDirectoryBrowserServi
             return "~";
         }
 
-        return TryConvertUncStylePath(remotePath, out string posixPath) ? posixPath : remotePath;
-    }
-
-    /// <summary>
-    /// A path tracked from OSC 7 on a remote SSH host renders as a Windows UNC path
-    /// (<c>\\host\dir</c>) when the shell's reported hostname differs from this machine's own -
-    /// see the "local-authority carve-out" remarks on <c>AnsiParser.TryExtractPathFromOsc7</c>.
-    /// The SFTP session is already connected to that exact host, so the UNC "host" segment is
-    /// redundant; what the native SFTP list call needs is the POSIX path underneath it.
-    /// </summary>
-    private static bool TryConvertUncStylePath(string path, out string posixPath)
-    {
-        posixPath = string.Empty;
-        if (!path.StartsWith(@"\\", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        string withoutHostPrefix = path[2..];
-        int separatorIndex = withoutHostPrefix.IndexOf('\\');
-        string remainder = separatorIndex < 0 ? string.Empty : withoutHostPrefix[(separatorIndex + 1)..];
-        posixPath = "/" + remainder.Replace('\\', '/');
-        return true;
+        return RemoteSidebarStartPathResolver.NormalizeUncStylePath(remotePath);
     }
 
     private static string GetErrorMessage(Exception ex, string fallback)

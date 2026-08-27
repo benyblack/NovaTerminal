@@ -970,7 +970,7 @@ namespace NovaTerminal.Controls
 
             string? currentWorkingDirectory = string.IsNullOrWhiteSpace(CurrentWorkingDirectory)
                 ? null
-                : CurrentWorkingDirectory.Trim();
+                : RemoteSidebarStartPathResolver.NormalizeUncStylePath(CurrentWorkingDirectory.Trim());
             string? jumpTarget = string.Equals(
                 currentWorkingDirectory,
                 _remoteFilesSidebarViewModel.CurrentPath,
