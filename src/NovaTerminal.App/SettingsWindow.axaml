@@ -479,6 +479,22 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- ── Title bar section ── -->
+                            <TextBlock Name="TitleBarSectionHeader" Classes="SectionHeader" Text="TITLE BAR" Margin="0,24,0,14"/>
+
+                            <StackPanel Spacing="10" Margin="0,0,0,16">
+                                <TextBlock Classes="RowDesc"
+                                           TextWrapping="Wrap"
+                                           Text="Pinned actions get their own icon in the title bar. Overflow actions live in the … menu. Hidden actions stay reachable by shortcut and from the command palette."/>
+                                <TextBlock Name="TitleBarValidationMessage"
+                                           Foreground="{StaticResource NtRed}"
+                                           FontSize="12"
+                                           IsVisible="False"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <StackPanel Name="TitleBarItemsPanel" Spacing="8"/>
+
                             <!-- ── Window section ── -->
                             <TextBlock Classes="SectionHeader" Text="WINDOW" Margin="0,0,0,14"/>
 
@@ -600,6 +616,15 @@
                                 <CheckBox Name="LongCommandNotificationsToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                             </Grid>
                             <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,18,0,18"/>
+
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Automatic update checks"/>
+                                    <TextBlock Classes="RowDesc" Text="Check GitHub for a newer version shortly after launch and download it in the background. Nothing restarts until you say so. Only applies to installed builds, not the portable zip."/>
+                                </StackPanel>
+                                <CheckBox Name="AutomaticUpdateChecksToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
 
                             <!-- ── Scrollback ── -->
                             <TextBlock Classes="SectionHeader" Text="SCROLLBACK" Margin="0,0,0,14"/>
@@ -981,8 +1006,8 @@
 
                             <Grid ColumnDefinitions="*,360">
                                 <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Classes="RowLabel" Text="Native SSH backend (experimental)"/>
-                                    <TextBlock Classes="RowDesc" Text="Allow profiles set to the Native backend to connect with NovaTerminal's built-in SSH client instead of the system ssh. Applies to new connections only; sessions already open are unaffected. While this is off, a profile explicitly set to Native refuses to connect rather than silently falling back — OpenSSH profiles are unaffected either way."/>
+                                    <TextBlock Classes="RowLabel" Text="Native SSH backend"/>
+                                    <TextBlock Classes="RowDesc" Text="Allow profiles set to the Native backend to connect with NovaTerminal's built-in SSH client instead of the system ssh. On by default; while it is on, new SSH profiles default to the Native backend (existing profiles keep their backend). Applies to new connections only; sessions already open are unaffected. While this is off, a profile explicitly set to Native refuses to connect rather than silently falling back — OpenSSH profiles are unaffected either way."/>
                                 </StackPanel>
                                 <CheckBox Name="NativeSshToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                             </Grid>

@@ -53,9 +53,26 @@ replay parity prevents silent behavioral drift.
 
 GitHub release assets are produced as Native AOT bundles for `win-x64`,
 `linux-x64`, and `osx-arm64`. Every release runs the gating unit-test lane on
-all three OSes before any bundle is published. Installer packaging is not
-available yet, so if a release does not include the bundle you need, build
-from source.
+all three OSes before any bundle is published.
+
+**Windows**
+
+- **Installer** — download `NovaTerminal-Setup-win-x64-<tag>.exe` from the
+  [latest release](https://github.com/benyblack/NovaTerminal/releases/latest). Installs per-user
+  (no admin prompt), adds Start Menu and Desktop shortcuts, and checks for updates in the
+  background — a new version downloads quietly and is applied when you accept the prompt and
+  restart. Never a surprise restart. Automatic checks can be turned off in Settings.
+- **Portable** — download `NovaTerminal-win-x64-<tag>.zip` and extract it anywhere. No updater.
+- **winget** — `winget install benyblack.NovaTerminal` (portable package).
+
+The installer and the executables are **not code-signed yet** ([#91](https://github.com/benyblack/NovaTerminal/issues/91)),
+so SmartScreen will warn on first run. Choose *More info → Run anyway*.
+
+**Linux / macOS**
+
+Installer packaging is not available yet — download the `linux-x64` or `osx-arm64` zip from the
+[latest release](https://github.com/benyblack/NovaTerminal/releases/latest) and extract it
+anywhere, or build from source.
 
 For build steps, jump to [Build & test](#build--test) below.
 

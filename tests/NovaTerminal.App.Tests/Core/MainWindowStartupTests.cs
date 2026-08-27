@@ -9,6 +9,7 @@ using NovaTerminal.Controls;
 using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Shell.Shortcuts;
+using NovaTerminal.Shell.TitleBar;
 using System.Reflection;
 
 namespace NovaTerminal.Tests.Core;
@@ -274,7 +275,7 @@ public sealed class MainWindowStartupTests
     }
 
     [AvaloniaFact]
-    public void ApplyThemeToUi_LightTheme_UpdatesTabListAndIdleRecordForeground()
+    public void ApplyThemeToUi_LightTheme_UpdatesTabListForeground()
     {
         var window = TestMainWindowFactory.Create();
         var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -292,19 +293,71 @@ public sealed class MainWindowStartupTests
         applyThemeMethod!.Invoke(window, null);
 
         var expected = Colors.Black;
-        var btnTabList = window.FindControl<Button>("BtnTabList");
-        var iconTabList = window.FindControl<PathIcon>("IconTabList");
-        var btnRecord = window.FindControl<Button>("BtnRecord");
-        var iconRecord = window.FindControl<PathIcon>("IconRecord");
+        // "open_tab_list" is Pinned by default, so its button exists at rest.
+        var btnTabList = FindTitleBarButton(window, "open_tab_list");
+        var iconTabList = btnTabList?.Content as PathIcon;
 
         Assert.NotNull(btnTabList);
         Assert.NotNull(iconTabList);
-        Assert.NotNull(btnRecord);
-        Assert.NotNull(iconRecord);
         Assert.Equal(expected, ((ISolidColorBrush)btnTabList!.Foreground!).Color);
         Assert.Equal(expected, ((ISolidColorBrush)iconTabList!.Foreground!).Color);
+    }
+
+    /// <summary>
+    /// "toggle_recording" defaults to Overflow, so unlike open_tab_list its button is not in the
+    /// bar at rest. This is a separate test rather than folded into the tab-list one above because
+    /// asserting the theme-recolour behaviour honestly requires first driving the button into
+    /// existence via a settings change and a rebuild, which is a materially different arrange step.
+    /// </summary>
+    [AvaloniaFact]
+    public void ApplyThemeToUi_LightTheme_UpdatesIdleRecordForeground_WhenPinned()
+    {
+        var window = TestMainWindowFactory.Create();
+        var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var applyThemeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
+        var rebuildTitleBarMethod = typeof(NovaTerminal.MainWindow).GetMethod("RebuildTitleBar", BindingFlags.Instance | BindingFlags.NonPublic);
+        var settings = (TerminalSettings)settingsField!.GetValue(window)!;
+
+        settings.TitleBarItems["toggle_recording"] = "Pinned";
+        rebuildTitleBarMethod!.Invoke(window, null);
+
+        settings.ThemeName = "Test Light";
+        settings.ActiveTheme = new TerminalTheme
+        {
+            Name = "Test Light",
+            Background = TermColor.FromRgb(245, 240, 225),
+            Foreground = TermColor.Black
+        };
+
+        applyThemeMethod!.Invoke(window, null);
+
+        var expected = Colors.Black;
+        var btnRecord = FindTitleBarButton(window, "toggle_recording");
+        var iconRecord = btnRecord?.Content as PathIcon;
+
+        Assert.NotNull(btnRecord);
+        Assert.NotNull(iconRecord);
         Assert.Equal(expected, ((ISolidColorBrush)btnRecord!.Foreground!).Color);
         Assert.Equal(expected, ((ISolidColorBrush)iconRecord!.Foreground!).Color);
+    }
+
+    /// <summary>
+    /// Title bar buttons are created at runtime by <see cref="TitleBarViewFactory"/> and are never
+    /// registered into the window's compiled NameScope - that registration only happens for
+    /// elements the XAML compiler emits into InitializeComponent. <c>Window.FindControl&lt;T&gt;</c>
+    /// resolves purely through that NameScope (confirmed by direct comparison against
+    /// NameScope.GetNameScope(window)?.Find&lt;T&gt;, which returns the identical true/false as
+    /// FindControl in every case tried, with or without Show()/a layout pass), so
+    /// <c>window.FindControl&lt;Button&gt;(TitleBarViewFactory.ButtonName(id))</c> always returns
+    /// null for these buttons - in this test host and in the shipped app alike. Walking the
+    /// generated host's Children is what actually finds them; see task-10-report.md for the
+    /// production-code impact this uncovered (ApplyThemeToUI's and UpdateRecordButtonUi's own
+    /// internal FindControl calls silently no-op the same way).
+    /// </summary>
+    private static Button? FindTitleBarButton(NovaTerminal.MainWindow window, string id)
+    {
+        var host = window.FindControl<StackPanel>("TitleBarItemsHost");
+        return host?.Children.OfType<Button>().SingleOrDefault(b => b.Name == TitleBarViewFactory.ButtonName(id));
     }
 
     [AvaloniaFact]

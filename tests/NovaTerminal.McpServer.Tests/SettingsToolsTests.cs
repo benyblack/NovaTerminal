@@ -162,6 +162,38 @@ public class SettingsToolsTests
     }
 
     [Fact]
+    public void TitleBarOrderNonStringElement_IsError()
+    {
+        var result = SettingsTools.ValidateSettingsJson("""{ "TitleBarOrder": [1] }""");
+        Assert.StartsWith("INVALID", result);
+        Assert.Contains("TitleBarOrder", result);
+    }
+
+    [Fact]
+    public void TitleBarOrderStringElements_IsValid()
+    {
+        var result = SettingsTools.ValidateSettingsJson("""{ "TitleBarOrder": ["find"] }""");
+        Assert.StartsWith("VALID", result);
+        Assert.DoesNotContain("Errors:", result);
+    }
+
+    [Fact]
+    public void TitleBarItemsNonStringValue_IsError()
+    {
+        var result = SettingsTools.ValidateSettingsJson("""{ "TitleBarItems": { "find": 1 } }""");
+        Assert.StartsWith("INVALID", result);
+        Assert.Contains("TitleBarItems", result);
+    }
+
+    [Fact]
+    public void TitleBarItemsStringValue_IsValid()
+    {
+        var result = SettingsTools.ValidateSettingsJson("""{ "TitleBarItems": { "find": "Overflow" } }""");
+        Assert.StartsWith("VALID", result);
+        Assert.DoesNotContain("Errors:", result);
+    }
+
+    [Fact]
     public void UnknownField_IsWarningButValid()
     {
         var result = SettingsTools.ValidateSettingsJson("""{ "Bogus": 1 }""");

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Server;
@@ -56,12 +57,13 @@ public static class SettingsTools
         | `AgentIndicatorTabRollup` | string (enum-like) | "WritesOnly"/"All". Default "WritesOnly". Which agent attention tiers reach the tab strip. An agent write always shows there, so this only decides whether an agent *read* does too. Type-checked only; unrecognised values behave as "WritesOnly" (a typo must not make the chrome noisier than the default). |
         | `QuakeModeEnabled` | bool | Default true. |
         | `GlobalHotkey` | string | Default "Alt+OemTilde". |
-        | `ExperimentalNativeSshEnabled` | bool | Default false. |
+        | `ExperimentalNativeSshEnabled` | bool | Default true. |
         | `AgentAccessObserveEnabled` | bool | Default false. Enables the local agent-host observe endpoint (read-only session access for AI agents). |
         | `AgentReplayExportEnabled` | bool | Default false. Sub-gate on top of the observe toggle: allows agents to export a session's recent output as a replay file (output + resizes only, never input). |
         | `AgentScreenshotEnabled` | bool | Default false. Sub-gate on top of the observe toggle: allows agents to render a session to a PNG image (novaterminal.capture_screen). |
         | `AgentAccessActEnabled` | bool | Default false. Separate opt-in on top of observe: allows agents to type into, spawn, and close sessions. SSH sessions additionally require per-profile allowlisting. |
         | `LongCommandNotificationsEnabled` | bool | Default false. In-app toast when a command that ran ≥30s finishes in an unfocused pane. |
+        | `AutomaticUpdateChecks` | bool | Default **true**. Background update check ~10s after launch, downloading quietly and applying on the next restart the user accepts. Off stops background traffic only — the palette's manual "Check for updates" still works. Ignored entirely unless the app was installed by the Velopack installer (portable zip, winget and dev runs have nothing to update). |
 
         ## Background
         | Field | Type | Notes |
@@ -87,6 +89,8 @@ public static class SettingsTools
         | `TabTemplateRules` | array | Tab template rule objects (not deep-validated here). |
         | `Profiles` | array | Terminal profile objects (not deep-validated here). |
         | `DefaultProfileId` | string (GUID) | Must be a valid GUID. |
+        | `TitleBarItems` | object | Map of title bar action id → "Pinned"/"Overflow"/"Hidden". Only entries that differ from the catalog default are stored. |
+        | `TitleBarOrder` | array | Display order (ids) of the pinned title bar actions. Ids it does not name follow in catalog order. |
 
         Enum-like string values above are non-authoritative guidance — the runtime parses them
         case-insensitively with fallbacks, so the validator only checks they are strings.
@@ -116,6 +120,8 @@ public static class SettingsTools
           "AgentIndicatorTabRollup": "WritesOnly",
           "Keybindings": { "Ctrl+Shift+C": "copy" },
           "TabTemplateRules": [],
+          "TitleBarItems": { "open_tab_list": "Overflow" },
+          "TitleBarOrder": ["new_tab"],
           "BackgroundImagePath": "",
           "BackgroundImageOpacity": 0.5,
           "BackgroundImageStretch": "UniformToFill",
@@ -133,6 +139,7 @@ public static class SettingsTools
           "AgentScreenshotEnabled": false,
           "AgentAccessActEnabled": false,
           "LongCommandNotificationsEnabled": false,
+          "AutomaticUpdateChecks": true,
           "Profiles": [
             { "Id": "00000000-0000-0000-0000-000000000001", "Name": "Command Prompt", "Command": "cmd.exe", "Type": 0 }
           ],
@@ -155,6 +162,7 @@ public static class SettingsTools
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
         "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "AgentReplayExportEnabled",
         "AgentScreenshotEnabled", "AgentAccessActEnabled", "LongCommandNotificationsEnabled",
+        "AutomaticUpdateChecks",
     };
 
     // Plain + enum-like strings; enum-like values are NOT value-validated (type-check only).
@@ -165,7 +173,7 @@ public static class SettingsTools
         "BackgroundImageStretch",
     };
 
-    internal static readonly string[] ArrayFields = { "Profiles", "TabTemplateRules" };
+    internal static readonly string[] ArrayFields = { "Profiles", "TabTemplateRules", "TitleBarOrder" };
 
     // Every recognized top-level field (union of all groups). Source of truth: TerminalSettings.cs.
     internal static readonly HashSet<string> KnownFields = new(StringComparer.Ordinal)
@@ -182,7 +190,8 @@ public static class SettingsTools
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
         "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "AgentReplayExportEnabled",
         "AgentScreenshotEnabled", "AgentAccessActEnabled", "LongCommandNotificationsEnabled",
-        "Profiles", "DefaultProfileId",
+        "AutomaticUpdateChecks",
+        "Profiles", "DefaultProfileId", "TitleBarItems", "TitleBarOrder",
     };
 
     [McpServerTool(Name = "novaterminal.validate_settings_json"),
@@ -277,6 +286,42 @@ public static class SettingsTools
                     {
                         errors.Add($"Keybindings['{entry.Name}'] must be a string, but was {entry.Value.ValueKind}.");
                     }
+                }
+            }
+        }
+
+        // TitleBarItems: object of string -> string (action id -> "Pinned"/"Overflow"/"Hidden").
+        // Values are not validated against the enum here — an unrecognized value falls back to the
+        // catalog default at load time rather than failing, same posture as the other enum-like fields.
+        if (root.TryGetProperty("TitleBarItems", out var tbEl))
+        {
+            if (tbEl.ValueKind != JsonValueKind.Object)
+            {
+                errors.Add($"Field 'TitleBarItems' must be a JSON object (string -> string), but was {tbEl.ValueKind}.");
+            }
+            else
+            {
+                foreach (var entry in tbEl.EnumerateObject())
+                {
+                    if (entry.Value.ValueKind != JsonValueKind.String)
+                    {
+                        errors.Add($"TitleBarItems['{entry.Name}'] must be a string, but was {entry.Value.ValueKind}.");
+                    }
+                }
+            }
+        }
+
+        // TitleBarOrder: array of string ids. RequireArray (above) only checks the container is a
+        // JSON array; the runtime deserializes this property as List<string> in TerminalSettings,
+        // so a non-string element (e.g. [1]) passes the container check but throws at load time,
+        // sending settings.json through the corrupt-file backup/default recovery path.
+        if (root.TryGetProperty("TitleBarOrder", out var tboEl) && tboEl.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var (kind, index) in tboEl.EnumerateArray().Select((element, i) => (element.ValueKind, i)))
+            {
+                if (kind != JsonValueKind.String)
+                {
+                    errors.Add($"TitleBarOrder[{index}] must be a string, but was {kind}.");
                 }
             }
         }

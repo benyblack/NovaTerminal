@@ -8,6 +8,10 @@ using NovaTerminal.AgentHost;
 using NovaTerminal.Controls;
 using NovaTerminal.Pty;
 using NovaTerminal.Shell;
+using NovaTerminal.Shell.TitleBar;
+// Aliased, not a plain namespace using: Avalonia.Controls.Shapes also exports a Path type that
+// would collide with System.IO.Path, which this file uses for its NOVATERM_APPDATA_ROOT scratch dirs.
+using Ellipse = Avalonia.Controls.Shapes.Ellipse;
 
 namespace NovaTerminal.Tests.Core;
 
@@ -476,6 +480,100 @@ public class AgentObserveIndicatorTests
 
             Assert.NotNull(indicator);
             Assert.False(indicator!.IsVisible);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
+            try { Directory.Delete(tempRoot, recursive: true); } catch { /* best effort */ }
+        }
+    }
+    /// <summary>
+    /// PR #342 turned the title bar into a generated surface: RebuildTitleBar calls
+    /// TitleBarViewFactory.Populate, which unconditionally clears TitleBarItemsHost. The indicator
+    /// is locked into that bar the same way BtnNewTab is - MainWindow.PlaceAgentObserveIndicator
+    /// re-inserts the SAME instance instead of building a new one - and that instance identity is
+    /// the whole load-bearing property here. It is what keeps the Click handler wired once in the
+    /// constructor alive (a rebuilt button would silently lose it, exactly the hazard main's
+    /// RebuildTitleBar_TheNewTabButton_SurvivesRebuildsAsTheSameInstance guards for the + button),
+    /// and it is what keeps RefreshAgentObserveIndicator's two FindControl lookups resolving - if
+    /// either returned null the light would stop updating with no error anywhere.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_indicator_and_its_dot_survive_title_bar_rebuilds_as_the_same_instances()
+    {
+        RunIsolatedWindow(window =>
+        {
+            var indicatorBefore = window.FindControl<Button>("AgentObserveIndicator");
+            var dotBefore = window.FindControl<Ellipse>("AgentObserveIndicatorDot");
+            Assert.NotNull(indicatorBefore);
+            Assert.NotNull(dotBefore);
+
+            InvokeRebuildTitleBar(window);
+            InvokeRebuildTitleBar(window);
+
+            Assert.Same(indicatorBefore, window.FindControl<Button>("AgentObserveIndicator"));
+            Assert.Same(dotBefore, window.FindControl<Ellipse>("AgentObserveIndicatorDot"));
+
+            // The refresh path is what goes silently dead if those lookups stop resolving, so drive
+            // it for real rather than trusting the two Assert.Same above by themselves.
+            window.RefreshAgentObserveIndicator();
+            Assert.False(indicatorBefore!.IsVisible);
+        });
+    }
+
+    /// <summary>
+    /// The design property that decided the merge: there is no way to silence this indicator. It is
+    /// deliberately NOT a TitleBarCatalog entry, because catalog entries are exactly what the
+    /// Customize Title Bar UI lets the user set to Overflow or Hidden. Hiding every catalog action
+    /// there is must still leave the light in the bar - and last in it, where no layout moves it.
+    /// </summary>
+    [AvaloniaFact]
+    public void No_title_bar_layout_can_remove_or_move_the_indicator()
+    {
+        RunIsolatedWindow(window =>
+        {
+            var indicator = window.FindControl<Button>("AgentObserveIndicator");
+            Assert.NotNull(indicator);
+
+            var settings = (TerminalSettings)typeof(MainWindow)
+                .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(window)!;
+
+            foreach (var entry in TitleBarCatalog.GetEntries())
+            {
+                settings.TitleBarItems[entry.Id] = "Hidden";
+            }
+
+            InvokeRebuildTitleBar(window);
+
+            var host = window.FindControl<StackPanel>("TitleBarItemsHost");
+            Assert.NotNull(host);
+            Assert.Same(indicator, host!.Children[^1]);
+        });
+    }
+
+    private static void InvokeRebuildTitleBar(MainWindow window)
+        => typeof(MainWindow)
+            .GetMethod("RebuildTitleBar", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(window, null);
+
+    /// <summary>
+    /// The same isolation the two tests above use, factored out: the real MainWindow constructor
+    /// loads the real on-disk settings.json and calls
+    /// AgentHostService.Instance.Apply(settings.AgentAccessObserveEnabled), which on a machine with
+    /// observe persisted as enabled would start a real named-pipe/Unix-socket accept loop inside
+    /// this shared test process. A fresh empty NOVATERM_APPDATA_ROOT forces defaults.
+    /// </summary>
+    private static void RunIsolatedWindow(Action<MainWindow> body)
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"novaterm_observe_indicator_test_{Guid.NewGuid():N}");
+        string? previousRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+            body(TestMainWindowFactory.Create());
         }
         finally
         {

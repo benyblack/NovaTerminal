@@ -35,6 +35,7 @@ using NovaTerminal.Models;
 using NovaTerminal.ViewModels.Ssh;
 using NovaTerminal.Views.Ssh;
 using NovaTerminal.Pty;
+using NovaTerminal.Shell.TitleBar;
 
 namespace NovaTerminal
 {
@@ -81,6 +82,16 @@ namespace NovaTerminal
         private bool _tabVisualRefreshScheduled;
         private TerminalSettings _settings;
         private GlobalHotkey? _globalHotkey;
+        // Ids of stateful title bar toggles that are currently ON. An overflowed toggle in this set
+        // is auto-surfaced into the bar by TitleBarLayoutResolver, which is how Record stays visible
+        // while recording without being permanently pinned.
+        private readonly HashSet<string> _activeTitleBarToggles = new(StringComparer.OrdinalIgnoreCase);
+        // Reused only when PopulateTabListMenu's anchor is NOT the dedicated open_tab_list button
+        // (i.e. that action is Overflow or Hidden, see PopulateTabListMenu's anchor fallback chain).
+        // Neither of the two other possible anchors is safe to cache the flyout on directly: the
+        // overflow button already owns a different MenuFlyout for its own menu, and the
+        // TitleBarItemsHost StackPanel fallback has no Flyout property to hold one at all.
+        private MenuFlyout? _tabListFallbackFlyout;
         private bool _closePaneInProgress;
         private bool _closeTabInProgress;
         private readonly SshConnectionService _sshConnectionService;
@@ -103,6 +114,17 @@ namespace NovaTerminal
         private readonly DispatcherTimer _recordingToastTimer = new() { Interval = TimeSpan.FromSeconds(6) };
         private string? _recordingToastFolderPath;
         private string? _recordingToastFilePath;
+        private NovaTerminal.Update.UpdateCoordinator? _updateCoordinator;
+        private readonly DispatcherTimer _updateCheckTimer = new() { Interval = TimeSpan.FromSeconds(10) };
+        // Guards the OnOpened wiring below against re-entry: quake mode's Hide()/Show() round
+        // trip re-raises OnOpened (Avalonia clears _shown on Hide and ShowCore raises it again
+        // on Show), and without this flag every re-show would re-arm the timer, double-subscribe
+        // the toast buttons, and replace a coordinator that might be holding a staged update.
+        private bool _updateChecksStarted;
+        // Prevents a manual "Check for updates" from racing the automatic check (or a second
+        // manual invocation) into the same staging directory - UpdateCoordinator.RunCheckAsync
+        // has no serialization of its own.
+        private bool _updateCheckInFlight;
         private ConnectionManager? _connectionManagerControl;
         private TransferCenter? _transferCenterControl;
         private readonly CommandPaletteUsageStore _commandPaletteUsageStore;
@@ -166,6 +188,44 @@ namespace NovaTerminal
             // Reap leftover clipboard-paste temp images from previous runs (best-effort).
             System.Threading.Tasks.Task.Run(() =>
                 NovaTerminal.Platform.Input.ClipboardImage.CleanUpOldTempImages(TimeSpan.FromHours(24)));
+
+            // OnOpened is re-raised on every quake-mode hide/show, so everything below must run
+            // exactly once per process - see _updateChecksStarted's doc comment for why.
+            if (!_updateChecksStarted)
+            {
+                _updateChecksStarted = true;
+
+                var updateToastClose = this.FindControl<Button>("UpdateToastClose");
+                if (updateToastClose != null)
+                {
+                    updateToastClose.Click += (_, __) => HideUpdateToast();
+                }
+
+                var updateToastRestart = this.FindControl<Button>("UpdateToastRestart");
+                if (updateToastRestart != null)
+                {
+                    updateToastRestart.Click += (_, __) => ApplyStagedUpdate();
+                }
+
+                // The coordinator itself is NOT constructed here - see EnsureUpdateCoordinator's
+                // doc comment for why building it belongs off this measured startup path. Only
+                // the one-shot timer is armed; its tick is what actually builds the coordinator.
+                // async void by way of an async event handler, which is safe here precisely
+                // because RunAutomaticCheckSafeAsync catches and logs everything itself: there is
+                // no exception left to escape into the void. Awaiting it rather than discarding
+                // the task with `_ =` also keeps the continuation on the UI thread.
+                _updateCheckTimer.Tick += async (_, __) =>
+                {
+                    // Once per launch, not every 10 seconds.
+                    _updateCheckTimer.Stop();
+                    EnsureUpdateCoordinator();
+                    if (_updateCoordinator != null)
+                    {
+                        await RunAutomaticCheckSafeAsync();
+                    }
+                };
+                _updateCheckTimer.Start();
+            }
         }
 
         private void ToggleConnections()
@@ -693,15 +753,40 @@ namespace NovaTerminal
         {
             var tabs = this.FindControl<TabControl>("Tabs");
             var badge = this.FindControl<TextBlock>("TabOverflowBadge");
-            var button = this.FindControl<Button>("BtnTabList");
+            // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
+            // layout, in which case this button does not exist. The badge itself lives outside
+            // TitleBarItemsHost (see RebuildTitleBar_TabOverflowBadge_SurvivesRebuild) so it is NOT
+            // cleared by the title bar rebuild that drops the button - without this explicit
+            // hide/clear, flipping open_tab_list from Pinned to Overflow/Hidden while tabs are
+            // currently clipped left a stale "+N" badge on screen with no adjacent button (Codex P2
+            // on PR #342). Hide and clear it before bailing rather than returning silently.
+            var button = FindTitleBarButton(TitleBarCatalog.OpenTabListId);
             var scrollViewer = FindTabHeaderScrollViewer();
-            if (tabs == null || badge == null || button == null || scrollViewer == null) return;
+            if (tabs == null || badge == null || scrollViewer == null) return;
+
+            if (button == null)
+            {
+                badge.IsVisible = false;
+                badge.Text = string.Empty;
+                return;
+            }
+
+            // Compose onto the factory-generated "Tab List (<shortcut>)" tooltip rather than
+            // replacing it: TitleBarViewFactory.Populate already resolved the (possibly
+            // user-overridden) shortcut for this button via TitleBarShortcuts, and this method
+            // reruns after every layout pass, so a bare "Tab List" or "Tab List (N hidden)"
+            // written here would immediately clobber that shortcut (Codex P3 round 5 on PR #342).
+            var tabListEntry = TitleBarCatalog.GetEntries()
+                .FirstOrDefault(e => e.Id == TitleBarCatalog.OpenTabListId);
+            string tabListShortcut = TitleBarShortcuts.Resolve(
+                tabListEntry?.ShortcutKey ?? TitleBarCatalog.OpenTabListId, _settings.Keybindings);
+            string baseTooltip = TitleBarShortcuts.FormatTooltip(tabListEntry?.Title ?? "Tab List", tabListShortcut);
 
             double viewportWidth = scrollViewer.Bounds.Width;
             if (viewportWidth <= 0)
             {
                 badge.IsVisible = false;
-                ToolTip.SetTip(button, "Tab List");
+                ToolTip.SetTip(button, baseTooltip);
                 button.Foreground = Brushes.White;
                 return;
             }
@@ -710,7 +795,7 @@ namespace NovaTerminal
 
             badge.IsVisible = hiddenCount > 0;
             badge.Text = hiddenCount > 0 ? $"+{hiddenCount}" : string.Empty;
-            ToolTip.SetTip(button, hiddenCount > 0 ? $"Tab List ({hiddenCount} hidden)" : "Tab List");
+            ToolTip.SetTip(button, hiddenCount > 0 ? $"{baseTooltip} — {hiddenCount} hidden" : baseTooltip);
             button.Foreground = hiddenCount > 0 ? new SolidColorBrush(Color.FromRgb(255, 210, 90)) : Brushes.White;
         }
 
@@ -770,10 +855,47 @@ namespace NovaTerminal
 
         private void PopulateTabListMenu(bool showFlyout = false)
         {
-            var button = this.FindControl<Button>("BtnTabList");
-            var flyout = button?.Flyout as MenuFlyout;
             var tabs = this.FindControl<TabControl>("Tabs");
-            if (flyout == null || tabs == null) return;
+            if (tabs == null) return;
+
+            // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
+            // layout, in which case FindTitleBarButton returns null for its dedicated button - but
+            // the action must still be reachable by shortcut and command palette (that is the whole
+            // premise of Hidden: still there, just not a dedicated icon). DO NOT simplify this back
+            // to the button-only lookup: that was exactly the bug (Codex P2 on PR #342) - with no
+            // fallback, setting Tab List to Overflow or Hidden turned the overflow menu item, the
+            // Ctrl+Shift+O shortcut, and the command palette entry all into silent no-ops. Fall back
+            // to the overflow button when it exists, and finally to the title bar host panel itself,
+            // which always exists.
+            var button = FindTitleBarButton(TitleBarCatalog.OpenTabListId);
+            var host = this.FindControl<StackPanel>("TitleBarItemsHost");
+            var overflowButton = host?.Children.OfType<Button>()
+                .FirstOrDefault(b => b.Name == TitleBarViewFactory.OverflowButtonName);
+            Control? anchor = (Control?)button ?? (Control?)overflowButton ?? host;
+            if (anchor == null) return;
+
+            // A pinned item's own button starts out with no popup menu attached, so this method is
+            // where one gets created and attached, the first time it is needed. The overflow ("...")
+            // button is different: it already carries its own popup, prebuilt to list whichever
+            // actions do not have a dedicated icon right now, and grabbing hold of that same popup
+            // here would silently replace those contents the next time someone opens the "..." menu.
+            // The panel hosting the title bar buttons cannot carry a popup at all. So whenever the
+            // anchor is not a pinned item's own button, this method falls back to one dedicated menu
+            // kept alive across calls purely to support that case.
+            MenuFlyout flyout;
+            if (button is not null)
+            {
+                if (button.Flyout is not MenuFlyout existing)
+                {
+                    existing = new MenuFlyout();
+                    button.Flyout = existing;
+                }
+                flyout = existing;
+            }
+            else
+            {
+                flyout = _tabListFallbackFlyout ??= new MenuFlyout();
+            }
 
             flyout.Items.Clear();
             int index = 1;
@@ -840,9 +962,9 @@ namespace NovaTerminal
                 }
             }
 
-            if (showFlyout && button != null)
+            if (showFlyout)
             {
-                flyout.ShowAt(button);
+                flyout.ShowAt(anchor);
             }
 
             UpdateTabOverflowIndicator();
@@ -2154,15 +2276,8 @@ namespace NovaTerminal
             };
 
             var tabs = this.FindControl<TabControl>("Tabs");
-            var btnNew = this.FindControl<Button>("BtnNewTab");
-            var btnTabList = this.FindControl<Button>("BtnTabList");
             var titleBar = this.FindControl<Grid>("TitleBar");
             var dragBorder = this.FindControl<Border>("DragBorder");
-
-            if (btnTabList != null)
-            {
-                btnTabList.Click += (s, e) => PopulateTabListMenu();
-            }
 
             if (dragBorder != null)
             {
@@ -2193,10 +2308,8 @@ namespace NovaTerminal
             }
 
 
-            var btnConnections = this.FindControl<Button>("BtnConnections");
             var btnCloseConn = this.FindControl<Button>("BtnCloseConnections");
 
-            if (btnConnections != null) btnConnections.Click += (s, e) => ToggleConnections();
             if (btnCloseConn != null) btnCloseConn.Click += (s, e) => ToggleConnections();
 
             if (tabs != null)
@@ -2261,6 +2374,18 @@ namespace NovaTerminal
                 await OpenSettings(1);
             };
 
+            var menuCustomizeTitleBar = this.FindControl<MenuItem>("MenuCustomizeTitleBar");
+            if (menuCustomizeTitleBar != null) menuCustomizeTitleBar.Click += async (s, e) =>
+            {
+                // Codex round 6, PR #342: this entry point exists purely for discoverability - the
+                // TITLE BAR section on Appearance isn't independently findable - so it must land
+                // scrolled to that section, not just on Appearance's default (top) scroll position.
+                // The plain gear button / Ctrl+, path (and every other OpenSettings caller) keeps
+                // calling the two-arg overload, which defaults to SettingsSection.None.
+                var (tabIndex, section) = CustomizeTitleBarSettingsTarget();
+                await OpenSettings(tabIndex, section: section);
+            };
+
             var menuNewSsh = this.FindControl<MenuItem>("MenuNewSshConnection");
             if (menuNewSsh != null) menuNewSsh.Click += async (s, e) =>
             {
@@ -2273,16 +2398,14 @@ namespace NovaTerminal
                 await ShowAgentActivityJournalAsync();
             };
 
+            // Wired once, here, and never again: PlaceAgentObserveIndicator re-parents this exact
+            // instance on every RebuildTitleBar instead of recreating it, so this subscription
+            // survives every rebuild. (BtnRecord's old wiring is gone - PR #342 moved Record into
+            // the generated title bar, where TitleBarViewFactory drives it through a Command.)
             var agentObserveIndicator = this.FindControl<Button>("AgentObserveIndicator");
             if (agentObserveIndicator != null)
             {
                 agentObserveIndicator.Click += async (_, _) => await ShowAgentActivityJournalAsync();
-            }
-
-            var btnRecord = this.FindControl<Button>("BtnRecord");
-            if (btnRecord != null)
-            {
-                btnRecord.Click += (s, e) => _currentPane?.ToggleRecording();
             }
 
             var recordingToastClose = this.FindControl<Button>("RecordingToastClose");
@@ -2531,9 +2654,9 @@ namespace NovaTerminal
                         return;
                     }
                 }
-                if (IsShortcut(e, "open_tab_list", "Ctrl+Shift+O"))
+                if (IsShortcut(e, TitleBarCatalog.OpenTabListId, "Ctrl+Shift+O"))
                 {
-                    RecordCommandUsage("open_tab_list");
+                    RecordCommandUsage(TitleBarCatalog.OpenTabListId);
                     PopulateTabListMenu(showFlyout: true);
                     e.Handled = true;
                     return;
@@ -2590,6 +2713,11 @@ namespace NovaTerminal
             {
                 System.Diagnostics.Debug.WriteLine($"[Vault] Init failed: {ex.Message}");
             }
+
+            // Built here rather than from SetupCommandPalette(), which is lazy and does not run at
+            // startup: the initial window's title bar has to exist before the user opens anything.
+            RebuildTitleBar();
+
             _startup.Checkpoint("MainWindow.CtorComplete");
         }
 
@@ -4507,15 +4635,33 @@ namespace NovaTerminal
                 }
             }
 
-            // Ensure the command exists on this platform (handles shared settings between Windows/Linux)
-            if (profile.Type == ConnectionType.Local)
+            // Substitute only a command written for another OS - the same predicate the restore
+            // path uses, so opening a profile and restoring one agree about it. They did not before:
+            // this asked whether the command existed, so a profile carrying inline arguments or a
+            // quoted path was reset here while restore kept it.
+            //
+            // Copied before it is changed, exactly as SessionManager.ResolveProfileForThisPlatform
+            // does. The local branch above hands back the instance living in _settings.Profiles, so
+            // assigning to its Command edited the user's stored profile - and any later
+            // _settings.Save() persisted that. Several ordinary actions save (font size, cursor
+            // style, bell), so opening a /bin/bash profile once on Windows could rewrite it to
+            // pwsh.exe with its arguments dropped, in the settings.json that travels back to the
+            // Linux machine. That is the cross-machine corruption this whole change exists to stop.
+            //
+            // The SSH branch below mutates too, and does not need this: GetConnectionProfile returns
+            // a freshly converted runtime profile, not the stored instance.
+            //
+            // One consequence worth knowing, since the copy makes it observable where it was a no-op
+            // before: ApplySettingsRecursive re-binds a pane to the stored profile by id on any
+            // settings re-apply, so after e.g. a font change pane.Profile.Command reads the original
+            // foreign command again while the shell running is the substitute. Verified harmless -
+            // nothing respawns from Profile.Command (Reconnect passes ShellCommand, and TerminalPane
+            // never reads Profile.Command), and session capture writes the pane's actual command.
+            if (profile.Type == ConnectionType.Local && ShellHelper.IsCommandForAnotherPlatform(profile.Command))
             {
-                bool exists = File.Exists(profile.Command) || ShellHelper.InPath(profile.Command);
-                if (!exists)
-                {
-                    profile.Command = ShellHelper.GetDefaultShell();
-                    profile.Arguments = ""; // Reset potentially platform-specific args
-                }
+                profile = profile.ShallowCopy();
+                profile.Command = ShellHelper.GetDefaultShell();
+                profile.Arguments = ""; // The old arguments belonged to the command just replaced.
             }
 
             // Construct command if it's an SSH connection
@@ -4565,7 +4711,7 @@ namespace NovaTerminal
 
         private void PopulateNewTabMenu()
         {
-            var btnNewTab = this.FindControl<Button>("BtnNewTab");
+            var btnNewTab = this.FindControl<Button>(TitleBarViewFactory.NewTabButtonName);
             var flyout = btnNewTab?.Flyout as MenuFlyout;
             if (flyout == null) return;
 
@@ -4884,11 +5030,11 @@ namespace NovaTerminal
             this.Foreground = contrastForeground;
 
             // Apply to Title Bar Buttons
-            var btnNew = this.FindControl<Button>("BtnNewTab");
-            var btnTabList = this.FindControl<Button>("BtnTabList");
-            var iconTabList = this.FindControl<PathIcon>("IconTabList");
-            var btnRecord = this.FindControl<Button>("BtnRecord");
-            var btnConns = this.FindControl<Button>("BtnConnections");
+            var btnNew = this.FindControl<Button>(TitleBarViewFactory.NewTabButtonName);
+            var btnTabList = FindTitleBarButton(TitleBarCatalog.OpenTabListId);
+            var iconTabList = btnTabList?.Content as PathIcon;
+            var btnRecord = FindTitleBarButton("toggle_recording");
+            var btnConns = FindTitleBarButton("connections");
             var commandSearchBox = this.FindControl<TextBox>("CommandSearchBox");
 
             if (btnNew != null) btnNew.Foreground = contrastForeground;
@@ -4941,13 +5087,39 @@ namespace NovaTerminal
             // 1. Register Default Commands
             CommandRegistry.Register("New Tab", "General", () => AddTab(), GetEffectiveShortcutBinding("new_tab", "Ctrl+Shift+T"), "new_tab");
 
+            // "Check for updates" is always registered, even on a portable-zip or dev run: its
+            // handler calls EnsureUpdateCoordinator() before checking, and answering "this build
+            // cannot update itself" is what makes the entry meaningful there - a dev run should
+            // never simply have it missing. That also means it works within the first 10 seconds
+            // of the process's life, before the deferred startup timer would otherwise build the
+            // coordinator itself. The restart entry is different: it only makes sense once
+            // something is actually staged, and SetupCommandPalette()'s laziness (it runs on
+            // palette-open and settings-save) is what lets this reflect the live staged state
+            // rather than a value latched at startup.
+            if (_updateCoordinator is { IsUpdateStaged: true })
+            {
+                CommandRegistry.Register(
+                    $"Update: Restart to apply {_updateCoordinator.StagedVersion}",
+                    "Application",
+                    () => ApplyStagedUpdate(),
+                    "");
+            }
+
+            CommandRegistry.Register("Update: Check for updates", "Application", () =>
+            {
+                _ = RunManualCheckSafeAsync();
+            }, "");
+
             // Dynamic Profile Tabs
             if (_settings.Profiles != null)
             {
                 foreach (var profile in _settings.Profiles.Where(p => p.Type == ConnectionType.Local))
                 {
-                    bool exists = File.Exists(profile.Command) || ShellHelper.InPath(profile.Command);
-                    if (!exists) continue;
+                    // Hidden only if the command belongs to another OS. Keyed off existence, this
+                    // dropped profiles the terminal can open perfectly well - a quoted path, or a
+                    // command with inline arguments - so they were missing from the palette while
+                    // still working from a restored session.
+                    if (ShellHelper.IsCommandForAnotherPlatform(profile.Command)) continue;
                     CommandRegistry.Register($"New Tab: {profile.Name}", "Shell", () => AddTab(profile), "");
                 }
             }
@@ -5007,7 +5179,7 @@ namespace NovaTerminal
             CommandRegistry.Register("Close Pane", "General", () => CloseActivePane(), GetEffectiveShortcutBinding("close_pane", "Ctrl+Shift+W"), "close_pane");
             CommandRegistry.Register("Tab: Next (MRU)", "General", () => SwitchTabByMru(reverse: false), GetEffectiveShortcutBinding("next_tab", "Ctrl+Tab"), "next_tab");
             CommandRegistry.Register("Tab: Previous (MRU)", "General", () => SwitchTabByMru(reverse: true), GetEffectiveShortcutBinding("prev_tab", "Ctrl+Shift+Tab"), "prev_tab");
-            CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), GetEffectiveShortcutBinding("open_tab_list", "Ctrl+Shift+O"), "open_tab_list");
+            CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), GetEffectiveShortcutBinding(TitleBarCatalog.OpenTabListId, "Ctrl+Shift+O"), TitleBarCatalog.OpenTabListId);
             CommandRegistry.Register("Tab: Rename Current", "General", () => _ = RenameSelectedTabAsync(), "");
             CommandRegistry.Register("Tab: Copy Current Title", "General", () => _ = CopySelectedTabTitleAsync(), "");
             CommandRegistry.Register("Tab: Close Others", "General", () => _ = CloseOtherTabsAsync(), "");
@@ -5097,7 +5269,7 @@ namespace NovaTerminal
 
         private void UpdateShortcutTooltips()
         {
-            var btnConnections = this.FindControl<Button>("BtnConnections");
+            var btnConnections = FindTitleBarButton("connections");
             if (btnConnections != null)
             {
                 ToolTip.SetTip(btnConnections, $"Connections ({GetEffectiveShortcutBinding("connections", "Ctrl+Shift+K")})");
@@ -5677,9 +5849,21 @@ namespace NovaTerminal
             _isDraggingTransferOverlay = false;
         }
 
-        private async Task OpenSettings(int tabIndex, Guid? profileId = null)
+        /// <summary>
+        /// The (tab index, section) the title bar's right-click "Customize Title Bar..." entry
+        /// point asks <see cref="OpenSettings"/> for. Pulled out of the click handler as its own
+        /// synchronous method purely so a test can assert on the target without going through
+        /// <c>OpenSettings</c> itself, which reaches a real <c>Window.ShowDialog</c> - headlessly a
+        /// hang with no owner shown and nothing to close it (see MainWindowShellExitTests' remarks
+        /// on the same hazard for a different dialog). The click handler calls this rather than
+        /// inlining the tuple, so this genuinely is what production runs, not a parallel duplicate.
+        /// </summary>
+        private static (int TabIndex, SettingsSection Section) CustomizeTitleBarSettingsTarget()
+            => (0, SettingsSection.TitleBar);
+
+        private async Task OpenSettings(int tabIndex, Guid? profileId = null, SettingsSection section = SettingsSection.None)
         {
-            var sw = new SettingsWindow(tabIndex, profileId);
+            var sw = new SettingsWindow(tabIndex, profileId, section);
 
             // The one live history store, so Settings' "Clear history" acts on the same instance the
             // panes append to (V2 Phase 3b task 5). Reading the property constructs it lazily, which is
@@ -5768,6 +5952,7 @@ namespace NovaTerminal
                 RefreshProfileUIs();
                 ApplyThemeToUI();
                 ApplySettingsToAllTabs();
+                RebuildTitleBar();
                 UpdateTransparencyHints();
                 ApplyAgentHostSettingsLive();
 
@@ -5797,7 +5982,14 @@ namespace NovaTerminal
         private async Task ShowNewSshConnectionDialogAsync(TerminalProfile? existingProfile)
         {
             var vm = _sshConnectionService.CreateEditorViewModel(existingProfile);
-            vm.BackendKind ??= NovaTerminal.Platform.Ssh.Models.SshBackendKind.OpenSsh;
+            // The default backend for a NEW profile follows the global toggle: native where it is
+            // enabled, OpenSSH where it is not — so the default can never point at a backend that
+            // would refuse to connect. Existing profiles arrive with their stored kind and are
+            // never re-defaulted. Model-level defaults stay OpenSsh on purpose (old stores whose
+            // JSON predates the field must not silently migrate); this is the creation surface.
+            vm.BackendKind ??= _settings.ExperimentalNativeSshEnabled
+                ? NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native
+                : NovaTerminal.Platform.Ssh.Models.SshBackendKind.OpenSsh;
             vm.ExperimentalNativeSshEnabled = _settings.ExperimentalNativeSshEnabled;
             var dialog = new NewSshConnectionView(vm);
             ApplyThemeToDialogWindow(dialog);
@@ -6232,12 +6424,25 @@ namespace NovaTerminal
         protected override void OnClosing(WindowClosingEventArgs e)
         {
             base.OnClosing(e);
+            PerformAppTeardown();
+        }
+
+        /// <summary>
+        /// The teardown a normal close performs: save the session, stop the toast timers, and
+        /// dispose/stop what OnOpened set up. Extracted so <see cref="ApplyStagedUpdate"/> can run
+        /// it too - an update restart terminates the process directly and never reaches
+        /// <see cref="OnClosing"/>, so without calling this first, taking the update would
+        /// silently skip all of it.
+        /// </summary>
+        private void PerformAppTeardown()
+        {
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs != null)
             {
                 SessionManager.SaveSession(this, tabs);
             }
             _recordingToastTimer.Stop();
+            _updateCheckTimer.Stop();
             _globalHotkey?.Dispose();
             AgentHost.AgentHostService.Instance.ObserveActivityChanged -= OnAgentObserveActivityChanged;
             AgentHost.AgentSessionRegistry.Instance.SessionRegistered -= OnAgentSessionRegisteredForAttention;
@@ -6450,7 +6655,21 @@ namespace NovaTerminal
         {
             Dispatcher.UIThread.Post(() =>
             {
-                UpdateRecordButtonUi(isRecording);
+                bool changed = isRecording
+                    ? _activeTitleBarToggles.Add("toggle_recording")
+                    : _activeTitleBarToggles.Remove("toggle_recording");
+
+                if (changed)
+                {
+                    // Surfaces an overflowed Record button into the bar while recording and drops
+                    // it back into the … flyout when it stops. RebuildTitleBar re-syncs the button
+                    // colouring itself, so no separate UpdateRecordButtonUi call belongs here.
+                    RebuildTitleBar();
+                }
+                else
+                {
+                    UpdateRecordButtonUi(isRecording);
+                }
             });
         }
 
@@ -6541,6 +6760,276 @@ namespace NovaTerminal
             }
         }
 
+        /// <summary>
+        /// Raises the update-ready notice. No auto-hide: unlike a recording toast this is an
+        /// offer the user may take minutes later, and closing it only dismisses the notice - the
+        /// update stays staged.
+        /// </summary>
+        private void ShowUpdateToast(string version)
+        {
+            var toast = this.FindControl<Border>("UpdateToast");
+            var messageBlock = this.FindControl<TextBlock>("UpdateToastMessage");
+            if (toast == null || messageBlock == null)
+            {
+                return;
+            }
+
+            messageBlock.Text = $"NovaTerminal {version} is downloaded and will be applied when you restart.";
+            toast.IsVisible = true;
+        }
+
+        private void HideUpdateToast()
+        {
+            var toast = this.FindControl<Border>("UpdateToast");
+            if (toast != null)
+            {
+                toast.IsVisible = false;
+            }
+        }
+
+        /// <summary>
+        /// Builds the update coordinator on first use, at most once per process. Deliberately not
+        /// called from <see cref="OnOpened"/> directly: <see cref="StartupPerformanceTracker"/>
+        /// exists because that interval is measured, and constructing
+        /// <see cref="NovaTerminal.Update.VelopackUpdateService"/> means an assembly load plus a
+        /// filesystem probe (its own doc comment explains why that constructor can throw on a
+        /// non-Velopack host) - work with no business inside a measured interval, and, unlike the
+        /// <c>_globalHotkey</c> block above in <see cref="OnOpened"/>, not previously guarded
+        /// against throwing at all. Callers are the one-shot timer's tick (after the measured
+        /// interval has closed) and the palette's manual check (a user action, never on the
+        /// startup path even if it happens to land in the first 10 seconds).
+        /// </summary>
+        private void EnsureUpdateCoordinator()
+        {
+            if (_updateCoordinator != null)
+            {
+                return;
+            }
+
+            try
+            {
+                _updateCoordinator = new NovaTerminal.Update.UpdateCoordinator(
+                    new NovaTerminal.Update.VelopackUpdateService(
+                        NovaTerminal.Update.VelopackUpdateService.DefaultRepoUrl,
+                        message => TerminalLogger.Log(message)),
+                    () => _settings.AutomaticUpdateChecks,
+                    version => Dispatcher.UIThread.Post(() =>
+                    {
+                        ShowUpdateToast(version);
+                        SetupCommandPalette();
+                    }),
+                    message => TerminalLogger.Log(message));
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Log("Update coordinator construction failed: " + ex);
+            }
+        }
+
+        /// <summary>
+        /// The background check's fire-and-forget entry point. Wrapping it here - rather than
+        /// discarding <c>_updateCoordinator.RunAutomaticCheckAsync()</c> directly - matters
+        /// because <see cref="NovaTerminal.Update.UpdateCoordinator.RunCheckAsync"/> only wraps
+        /// the network call in its own try/catch; the <c>IsSupported</c> read and the
+        /// <c>onUpdateReady</c> callback both sit outside it, so a throw from either would
+        /// otherwise fault this task unobserved - invisible even in the log, which is the one
+        /// thing the silent-failure design for the automatic check leans on. Also guards against
+        /// racing a concurrent manual check into the same staging directory (see
+        /// <see cref="_updateCheckInFlight"/>).
+        /// </summary>
+        private async System.Threading.Tasks.Task RunAutomaticCheckSafeAsync()
+        {
+            if (_updateCheckInFlight || _updateCoordinator == null)
+            {
+                return;
+            }
+
+            _updateCheckInFlight = true;
+            try
+            {
+                // Task.Run, deliberately: this method is reached from a DispatcherTimer tick,
+                // so everything up to the first real await would otherwise run on the UI
+                // thread - and Velopack's prologue is not cheap. UpdateManager
+                // .CheckForUpdatesAsync synchronously calls EnsureInstalled(),
+                // Locator.GetOrCreateStagedUserId() (a file read plus write) and
+                // GetLatestLocalFullPackage() -> GetLocalPackages(), which enumerates the
+                // packages directory and parses the nuspec inside every .nupkg - i.e. inside a
+                // ~150 MB self-contained bundle. On a cold disk, or with AV in the path, that
+                // is a visible hitch ~10 s after launch. Do not "simplify" this back to a bare
+                // await; the continuation still resumes on the UI thread, which is what the
+                // outcome handling (ShowRecordingToast / ShowUpdateToast) needs.
+                await Task.Run(() => _updateCoordinator.RunAutomaticCheckAsync());
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Log("Automatic update check failed unexpectedly: " + ex);
+            }
+            finally
+            {
+                _updateCheckInFlight = false;
+            }
+        }
+
+        /// <summary>
+        /// The manual check's fire-and-forget entry point, for the same reason
+        /// <see cref="RunAutomaticCheckSafeAsync"/> exists: <c>ExecuteCommand</c> invokes the
+        /// palette action synchronously, so a bare <c>_ = CheckForUpdatesInteractiveAsync()</c>
+        /// would leave any throw past the first await faulting an unobserved task - invisible
+        /// even in the log. <see cref="CheckForUpdatesInteractiveAsync"/> handles every outcome
+        /// the coordinator reports; this only catches what the coordinator cannot (a throwing
+        /// <c>IsSupported</c>, a throwing toast) and makes sure the user still hears something.
+        /// </summary>
+        private async System.Threading.Tasks.Task RunManualCheckSafeAsync()
+        {
+            try
+            {
+                await CheckForUpdatesInteractiveAsync();
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Log("Manual update check failed unexpectedly: " + ex);
+                ShowRecordingToast("Update check failed", "Could not check for updates. See the debug log for details.", null, null, autoHide: true);
+            }
+        }
+
+        /// <summary>
+        /// Runs the shared app-teardown (session save, timers, global hotkey, agent host) before
+        /// handing off to the coordinator. The underlying restart terminates this process itself,
+        /// so <see cref="OnClosing"/> never runs for it - without doing the same teardown here
+        /// first, "taking the update" would silently drop the session, which is worse than just
+        /// quitting and relaunching by hand.
+        /// </summary>
+        /// <remarks>
+        /// The try/catch lives here rather than at the call sites so that BOTH entry points get
+        /// it: the toast's Restart button (a raw Click handler - an escaping exception there is
+        /// an unhandled exception on the UI thread, which kills the app with no explanation) and
+        /// the palette entry (whose <c>ExecuteCommand</c> try/catch would otherwise swallow the
+        /// failure without telling the user anything). <c>ApplyUpdatesAndRestart</c> can throw
+        /// for real reasons: a missing or locked <c>Update.exe</c>, or the update lock already
+        /// held by another instance.
+        /// </remarks>
+        private void ApplyStagedUpdate()
+        {
+            if (_updateCoordinator is not { IsUpdateStaged: true })
+            {
+                return;
+            }
+
+            PerformAppTeardown();
+
+            try
+            {
+                _updateCoordinator.ApplyStagedUpdate();
+            }
+            catch (Exception ex)
+            {
+                // Teardown already ran by this point, so the window is still up but the session
+                // has been saved and the agent host and global hotkey are stopped - the app is
+                // degraded, not healthy. The message has to say "restart manually" rather than
+                // "try again", because carrying on in this state is not a supported outcome.
+                TerminalLogger.Log("Applying the staged update failed: " + ex);
+                ShowRecordingToast(
+                    "Update could not be applied",
+                    "The update was downloaded but could not be applied. Close NovaTerminal and start it again to finish updating.",
+                    null,
+                    null,
+                    autoHide: false);
+            }
+        }
+
+        /// <summary>
+        /// The palette's "Check for updates". Unlike the background check this one always says
+        /// what happened: the user asked a direct question and silence would read as a hang.
+        /// Constructs the coordinator on demand (see <see cref="EnsureUpdateCoordinator"/>) so
+        /// this works even in the first 10 seconds of the process's life, before the deferred
+        /// startup timer would otherwise have built it.
+        /// </summary>
+        private async System.Threading.Tasks.Task CheckForUpdatesInteractiveAsync()
+        {
+            EnsureUpdateCoordinator();
+            if (_updateCoordinator == null)
+            {
+                // Construction itself failed unexpectedly (see EnsureUpdateCoordinator) - distinct
+                // from Unsupported below, which is a healthy check reporting a non-Velopack host.
+                ShowRecordingToast("Update check failed", "Could not check for updates. See the debug log for details.", null, null, autoHide: true);
+                return;
+            }
+
+            if (_updateCheckInFlight)
+            {
+                // A check (automatic, or an earlier manual one) is already running; let it finish
+                // rather than racing a second download into the same staging directory. Say so,
+                // though: returning silently here contradicts this method's whole contract, and
+                // the startup check runs 10 s in, so a user who opens the palette promptly is
+                // exactly who hits this.
+                //
+                // The wording is deliberately narrower than "the result will appear". If the
+                // in-flight check is the AUTOMATIC one, it reports nothing unless it finds an
+                // update - UpToDate and Failed are swallowed by design, because a background
+                // check must not interrupt anyone. Promising a result we would not deliver is
+                // worse than promising less. Sharing the in-flight task so a manual request
+                // could adopt its outcome is the fuller answer, but it is a lot of machinery
+                // for a ~10 s window, and it would make a background check's failure suddenly
+                // user-visible depending on timing. (Codex P2 on #340.)
+                ShowRecordingToast(
+                    "Checking for updates",
+                    "A check is already running in the background. If it finds a new version, you'll get a notification.",
+                    null,
+                    null,
+                    autoHide: true);
+                return;
+            }
+
+            _updateCheckInFlight = true;
+            NovaTerminal.Update.UpdateCheckOutcome outcome;
+            try
+            {
+                // Task.Run for the same reason as RunAutomaticCheckSafeAsync above: Velopack's
+                // check does synchronous file I/O (staged-user-id read/write, nuspec parse of
+                // every local .nupkg) before its first await, and this runs from a palette
+                // click on the UI thread. The continuation resumes on the UI thread, which the
+                // ShowRecordingToast calls below require.
+                outcome = await Task.Run(() => _updateCoordinator.RunManualCheckAsync());
+            }
+            finally
+            {
+                _updateCheckInFlight = false;
+            }
+
+            switch (outcome)
+            {
+                case NovaTerminal.Update.UpdateCheckOutcome.UpdateReady:
+                    // Show it here rather than relying on the coordinator's onUpdateReady
+                    // callback. That callback fires only when the staged version CHANGES (its
+                    // announce-once guard, which exists so a second check does not re-nag about
+                    // an update the user already dismissed). So for a user who dismissed the
+                    // toast and then asked again, the callback correctly stays silent - and
+                    // trusting it here left the manual check answering a direct question with
+                    // nothing at all, and no visible way to restart. Re-showing is idempotent:
+                    // when the callback did just fire, this sets the same text again.
+                    // (Codex P2 on #340.)
+                    ShowUpdateToast(_updateCoordinator.StagedVersion ?? string.Empty);
+                    break;
+                case NovaTerminal.Update.UpdateCheckOutcome.UpToDate:
+                    ShowRecordingToast("Up to date", "You are running the newest version.", null, null, autoHide: true);
+                    break;
+                case NovaTerminal.Update.UpdateCheckOutcome.Unsupported:
+                    ShowRecordingToast(
+                        "Updates unavailable",
+                        "This build was not installed by the NovaTerminal installer, so it cannot update itself. Download the installer from the releases page to get automatic updates.",
+                        null,
+                        null,
+                        autoHide: true);
+                    break;
+                case NovaTerminal.Update.UpdateCheckOutcome.Failed:
+                    ShowRecordingToast("Update check failed", "Could not reach GitHub. See the debug log for details.", null, null, autoHide: true);
+                    break;
+                case NovaTerminal.Update.UpdateCheckOutcome.Disabled:
+                    // Unreachable: a manual check ignores the automatic-checks setting.
+                    break;
+            }
+        }
+
         private void SyncRecordingButtonState()
         {
             UpdateRecordButtonUi(_currentPane?.IsRecording ?? false);
@@ -6548,9 +7037,11 @@ namespace NovaTerminal
 
         private void UpdateRecordButtonUi(bool isRecording)
         {
-            var btnRecord = this.FindControl<Button>("BtnRecord");
-            var iconRecord = this.FindControl<PathIcon>("IconRecord");
+            var btnRecord = FindTitleBarButton("toggle_recording");
+            var iconRecord = btnRecord?.Content as PathIcon;
 
+            // Absent whenever Record is hidden, or overflowed and not currently active — both
+            // legitimate configurations, so this is a quiet no-op rather than a failure.
             if (btnRecord == null || iconRecord == null)
             {
                 return;
@@ -6566,6 +7057,199 @@ namespace NovaTerminal
             ToolTip.SetTip(btnRecord, isRecording
                 ? $"Stop Recording ({recordingShortcut})"
                 : $"Record Session ({recordingShortcut})");
+        }
+
+        /// <summary>
+        /// Catalog id to action. Deliberately not sourced from CommandRegistry: SetupCommandPalette()
+        /// is lazy — it runs on palette-open and settings-save, never at startup (see the comment
+        /// near line 2207) — so a title bar reading the registry would come up dead on a cold start.
+        /// </summary>
+        private IReadOnlyDictionary<string, Action> BuildTitleBarHandlers()
+        {
+            return new Dictionary<string, Action>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["new_tab"] = () => AddTab(),
+                [TitleBarCatalog.OpenTabListId] = () => PopulateTabListMenu(showFlyout: true),
+                ["connections"] = () => ToggleConnections(),
+                ["settings"] = () => _ = OpenSettings(0),
+                ["toggle_recording"] = () => _currentPane?.ToggleRecording(),
+                ["command_palette"] = () => ToggleCommandPalette(),
+                ["find"] = () => _currentPane?.ToggleSearch(),
+                ["split_vertical"] = () => SplitPane(Avalonia.Layout.Orientation.Horizontal),
+                ["split_horizontal"] = () => SplitPane(Avalonia.Layout.Orientation.Vertical),
+                ["sftp_remote_files"] = () => _currentPane?.ToggleRemoteFilesSidebar(),
+                ["sftp_transfers"] = () => ToggleTransferCenter(),
+                ["agent_activity"] = () => _ = ShowAgentActivityJournalAsync(),
+            };
+        }
+
+        /// <summary>
+        /// Finds a generated title bar button by catalog id. TitleBarViewFactory creates these at
+        /// runtime, so they are not in the window's compile-time NameScope and FindControl can never
+        /// see them — it would return null forever, silently. Scanning the host panel is the only
+        /// lookup that works. Returns null when the action is set to Overflow or Hidden, which is a
+        /// legitimate configuration and must stay a quiet no-op at every call site.
+        /// </summary>
+        private Button? FindTitleBarButton(string catalogId)
+        {
+            var host = this.FindControl<StackPanel>("TitleBarItemsHost");
+            if (host == null)
+            {
+                return null;
+            }
+
+            string name = TitleBarViewFactory.ButtonName(catalogId);
+            return host.Children.OfType<Button>().FirstOrDefault(b => b.Name == name);
+        }
+
+        private void RebuildTitleBar()
+        {
+            var host = this.FindControl<StackPanel>("TitleBarItemsHost");
+            if (host == null)
+            {
+                return;
+            }
+
+            var layout = TitleBarLayoutResolver.Resolve(
+                _settings.TitleBarItems,
+                _settings.TitleBarOrder,
+                _activeTitleBarToggles);
+
+            TitleBarViewFactory.Populate(
+                host,
+                layout,
+                _settings.Keybindings,
+                BuildTitleBarHandlers(),
+                this.FindControl<Button>(TitleBarViewFactory.NewTabButtonName),
+                id => AppLogger.Log($"[TitleBar] no handler wired for catalog id '{id}'; skipping"));
+
+            PlaceTabOverflowBadge(host);
+
+            // Must run after PlaceTabOverflowBadge: the indicator is appended to the end of
+            // the host, and the badge insert would otherwise land after it.
+            PlaceAgentObserveIndicator(host);
+
+            // The record button is recreated by every rebuild, so its active colouring has to be
+            // reapplied against the new instance.
+            SyncRecordingButtonState();
+
+            // Populate() just replaced TitleBarItemsHost's children synchronously, but that does not
+            // itself update TitleBar.Bounds.Width - Avalonia only recomputes Bounds during the next
+            // arrange pass. Calling UpdateTabHeaderViewport() synchronously right here would read the
+            // STALE pre-rebuild width and recompute the same wrong margin, fixing nothing (Codex P2
+            // round 7 on PR #342: saving a layout with a different pinned count, or Record
+            // auto-surfacing via OnRecordingStateChanged above, could leave tabs overlapping a newly
+            // widened bar - or a stale empty gap - until some unrelated tab/layout action happened to
+            // trigger a recompute). Posting at Background priority is the same idiom already used by
+            // the titleBar.SizeChanged and this.SizeChanged handlers wired in the constructor for this
+            // identical margin: DispatcherPriority.Background (-2) sits below every layout/render
+            // priority Avalonia schedules its own passes at (Loaded/UiThreadRender/Render/BeforeRender,
+            // all positive), so any layout work Populate() just queued always drains first, and by the
+            // time this runs TitleBar.Bounds.Width reflects the rebuilt bar. Unlike hooking
+            // LayoutUpdated, a Dispatcher.Post holds no persistent delegate reference for anything to
+            // leak - each call queues one self-contained, one-shot action that the dispatcher discards
+            // the moment it runs, so back-to-back rebuilds (e.g. a settings save immediately followed
+            // by Record auto-surfacing) cannot accumulate subscriptions. It also cannot loop: this is a
+            // single one-shot callback, not a persistent handler, and even the pre-existing
+            // titleBar.SizeChanged hookup it parallels only calls UpdateTabHeaderViewport when
+            // TitleBar's Bounds actually changed - once the margin here is set to match the new width,
+            // recomputing again from the same width is a no-op that changes nothing and triggers
+            // nothing further.
+            Dispatcher.UIThread.Post(UpdateTabHeaderViewport, DispatcherPriority.Background);
+        }
+
+        /// <summary>
+        /// Re-anchors TabOverflowBadge next to the Tab List (open_tab_list) button after every
+        /// Populate() call. TitleBarViewFactory stays deliberately unaware of the badge - it is not
+        /// one of the catalog actions it knows how to build - so MainWindow has to own this
+        /// placement itself, and has to redo it on every RebuildTitleBar: Populate() unconditionally
+        /// clears TitleBarItemsHost's children, which would otherwise orphan a badge left inside it,
+        /// and a fixed position outside the host can't track the button through a user reorder
+        /// (Codex P2 round 2 on PR #342 - see the parking-slot XAML comment in MainWindow.axaml for
+        /// the full history).
+        /// </summary>
+        private void PlaceTabOverflowBadge(Panel host)
+        {
+            var badge = this.FindControl<TextBlock>("TabOverflowBadge");
+            if (badge == null)
+            {
+                return;
+            }
+
+            // Detach before inserting anywhere: Avalonia throws when a control that still has a
+            // logical parent is added to a different one. The badge always has a parent at this
+            // point - either the parking slot (unpinned, or first run), or TitleBarItemsHost from a
+            // previous rebuild (Populate's Clear() above already null'd that one out, so this is a
+            // no-op in that case, but the parking-slot case still needs the explicit removal).
+            if (badge.Parent is Panel currentParent)
+            {
+                currentParent.Children.Remove(badge);
+            }
+
+            string tabListButtonName = TitleBarViewFactory.ButtonName(TitleBarCatalog.OpenTabListId);
+            var tabListButton = host.Children.OfType<Button>()
+                .FirstOrDefault(b => b.Name == tabListButtonName);
+
+            if (tabListButton is null)
+            {
+                // Tab List is Overflow or Hidden - no button to sit beside. Hide it and send it back
+                // to the parking slot so the next rebuild has a consistent parent to detach it from,
+                // and so it renders nothing and can't overlap or intercept clicks on any other
+                // button while unpinned.
+                badge.IsVisible = false;
+                badge.Text = string.Empty;
+                var parkingSlot = this.FindControl<Panel>("TitleBarBadgeParkingSlot");
+                parkingSlot?.Children.Add(badge);
+                return;
+            }
+
+            host.Children.Insert(host.Children.IndexOf(tabListButton) + 1, badge);
+        }
+
+        /// <summary>
+        /// Re-appends AgentObserveIndicator as the last child of TitleBarItemsHost after every
+        /// Populate() call, which unconditionally clears that host.
+        ///
+        /// The indicator is locked into the bar the same way BtnNewTab is - the XAML-declared
+        /// instance is re-inserted, never rebuilt, so the Click handler wired once in the
+        /// constructor and the FindControl&lt;Button&gt;/FindControl&lt;Ellipse&gt; lookups in
+        /// RefreshAgentObserveIndicator keep resolving - but unlike BtnNewTab it is deliberately
+        /// NOT a TitleBarCatalog entry. Catalog items are user-pinnable and therefore
+        /// user-removable, and this is a safety surface with no off switch: the only way to have
+        /// no indicator is to disable agent access itself (docs/mcp/security.md). Keeping it out
+        /// of the catalog is what makes that unconditional, so it cannot be routed through
+        /// TitleBarViewFactory's layout loop the way the + button is, and MainWindow owns the
+        /// placement here instead - the same division of labour PlaceTabOverflowBadge uses for the
+        /// other non-catalog control in this bar.
+        ///
+        /// Position: last, after everything Populate emitted including the overflow button. That is
+        /// the opposite choice from the badge, on purpose. The badge annotates the Tab List button
+        /// and so has to follow it wherever the user moves it; this indicator annotates the window,
+        /// so anchoring it to any catalog button would hand its position to the user's layout -
+        /// the same class of problem as letting them remove it. TitleBarItemsHost is right-aligned,
+        /// so the final slot is also the only one whose on-screen location does not shift when
+        /// items are pinned, unpinned, reordered, or auto-surfaced (Record).
+        /// </summary>
+        private void PlaceAgentObserveIndicator(Panel host)
+        {
+            var indicator = this.FindControl<Button>("AgentObserveIndicator");
+            if (indicator == null)
+            {
+                return;
+            }
+
+            // Same detach-before-insert rule as PlaceTabOverflowBadge: Avalonia throws when a
+            // control that still has a logical parent is added to another one. Populate's Clear()
+            // has already null'd the parent in the steady state, so this is normally a no-op; it
+            // matters on the very first rebuild, when the indicator is still the XAML-declared
+            // child of a host that... has also just been cleared. Kept anyway so any future caller
+            // that places it elsewhere cannot crash the window.
+            if (indicator.Parent is Panel currentParent)
+            {
+                currentParent.Children.Remove(indicator);
+            }
+
+            host.Children.Add(indicator);
         }
     }
 }
