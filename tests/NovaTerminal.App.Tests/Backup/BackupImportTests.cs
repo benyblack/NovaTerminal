@@ -185,6 +185,33 @@ public sealed class BackupImportTests
         Assert.DoesNotContain("passwords", outcome.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// The <c>categories</c> parameter narrows what gets applied even when the bundle carries
+    /// more — a caller asking to import only Settings must not also get Themes clobbered.
+    /// </summary>
+    [Fact]
+    public void Import_WithExplicitCategories_OnlyAppliesRequestedOnes()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        source.WriteFile("settings.json", """{"FontSize":55}""");
+        using var target = BackupTestTree.CreatePopulated();
+        target.WriteFile(Path.Combine("themes", "local-only.json"), """{"name":"LocalOnly"}""");
+        string originalThemeFile = target.ReadFile(Path.Combine("themes", "solarized.json"));
+        string bundle = ExportFrom(source);
+
+        var outcome = new BackupService(target.Root, Clock())
+            .Import(bundle, ImportMode.Replace, new[] { BackupCategory.Settings });
+
+        Assert.True(outcome.Success, outcome.Message);
+        using var settings = target.ReadJson("settings.json");
+        Assert.Equal(55, settings.RootElement.GetProperty("FontSize").GetInt32());
+
+        // Themes was in the bundle but not requested — must be untouched, including the
+        // local-only file that a Themes Replace would have deleted.
+        Assert.True(target.Exists(Path.Combine("themes", "local-only.json")));
+        Assert.Equal(originalThemeFile, target.ReadFile(Path.Combine("themes", "solarized.json")));
+    }
+
     [Fact]
     public void Import_TakesPreImportSnapshotBeforeWriting()
     {
