@@ -521,3 +521,9 @@ src/NovaTerminal.App/native/rusty_ssh/target/
 
 # subagent-driven-development scratch (ledger, briefs, review packages)
 .superpowers/
+
+# mimosa hook state (per-session, machine-local)
+.mimosa/
+
+# Playwright MCP page snapshots
+.playwright-mcp/
