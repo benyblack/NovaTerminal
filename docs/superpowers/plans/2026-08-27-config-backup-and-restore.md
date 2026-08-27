@@ -995,9 +995,15 @@ public static class BundleReader
                     : Path.Combine(destinationRoot, catalogEntry.SourceRelativePath);
 
                 // Zip-slip guard: a hand-edited archive must not write outside the destination.
+                // Compare via GetRelativePath, NOT a StartsWith prefix test — a bare prefix
+                // check accepts a same-prefix sibling (root "/tmp/x" would admit
+                // "/tmp/xevil/payload") because there is no path-boundary anchor.
                 string fullDestination = Path.GetFullPath(destination);
                 string fullRoot = Path.GetFullPath(destinationRoot);
-                if (!fullDestination.StartsWith(fullRoot, StringComparison.Ordinal))
+                string relativeToRoot = Path.GetRelativePath(fullRoot, fullDestination);
+                if (Path.IsPathRooted(relativeToRoot)
+                    || relativeToRoot == ".."
+                    || relativeToRoot.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
                 {
                     throw new InvalidDataException($"Bundle entry '{zipEntry.FullName}' escapes the destination tree.");
                 }
