@@ -951,21 +951,24 @@ namespace NovaTerminal
         /// Selects the Backup &amp; Restore tab. Used by the command palette's three backup
         /// entries (see <c>MainWindow.OpenSettingsToBackupPage</c>).
         ///
-        /// Backup is the last tab today (see the constructor's remarks on sidebar offsets: new
-        /// tabs are always added at the end of the strip, and Backup was Task 8's addition). The
-        /// index here is derived from <c>MainTabs.Items.Count - 1</c> rather than hardcoded as
-        /// "6", so a tab removed or reordered ahead of Backup - which shifts its absolute index
-        /// down without changing its position at the end - can't silently leave this pointing at
-        /// the wrong page the way a hardcoded index would. It still relies on Backup staying the
-        /// last tab; a future tab appended after it would need this updated too, same as every
-        /// other Backup-relative constant in this file.
+        /// Looks the tab up by its <c>Header</c> ("Backup") rather than by numeric position, so
+        /// this is immune to Backup's index changing in either direction - a tab removed or
+        /// reordered ahead of it, or a new tab appended after it (Backup is the last tab today,
+        /// per the constructor's remarks on sidebar offsets, but nothing requires it to stay
+        /// that way). A position-based index - hardcoded or derived from <c>Items.Count</c> -
+        /// would get the "appended after" direction wrong. If the tab is ever renamed or removed,
+        /// this is a no-op rather than selecting the wrong page, matching every other
+        /// <c>FindControl</c> guard in this file.
         /// </summary>
         public void SelectBackupPage()
         {
             var tabs = this.FindControl<TabControl>("MainTabs");
             if (tabs is null) return;
 
-            tabs.SelectedIndex = tabs.Items.Count - 1;
+            var backupTab = tabs.Items.OfType<TabItem>().FirstOrDefault(t => (string?)t.Header == "Backup");
+            if (backupTab is null) return;
+
+            tabs.SelectedIndex = tabs.Items.IndexOf(backupTab);
         }
 
         /// <summary>

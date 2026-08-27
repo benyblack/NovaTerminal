@@ -86,6 +86,41 @@ public sealed class MainWindowBackupPaletteTests
         }
     }
 
+    /// <summary>
+    /// Today the three Backup entries can't accumulate because <c>CommandRegistry.Clear()</c> runs
+    /// unconditionally at the top of <c>SetupCommandPalette()</c> (pre-existing code, not touched by
+    /// this task). Nothing pinned that invariant for the Backup entries specifically, so a future
+    /// change that moved a <c>Register</c> call above the <c>Clear()</c>, or made the <c>Clear()</c>
+    /// conditional, would silently duplicate them - this asserts the post-condition (exactly three,
+    /// with the three expected ids) after several repeated invocations, the way a long session
+    /// opening the palette and saving Settings repeatedly actually drives this method.
+    /// </summary>
+    [AvaloniaFact]
+    public void SetupCommandPalette_CalledRepeatedly_DoesNotAccumulateBackupCommands()
+    {
+        CommandRegistry.Clear();
+        var window = TestMainWindowFactory.Create();
+        try
+        {
+            var setupMethod = typeof(NovaTerminal.MainWindow).GetMethod("SetupCommandPalette", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+            setupMethod.Invoke(window, null);
+            setupMethod.Invoke(window, null);
+            setupMethod.Invoke(window, null);
+
+            var backupCommands = CommandRegistry.GetCommands().Where(c => c.Category == "Backup").ToList();
+
+            Assert.Equal(3, backupCommands.Count);
+            Assert.Equal(
+                new[] { "backup.export", "backup.import", "backup.restore" },
+                backupCommands.Select(c => c.Id).OrderBy(id => id, StringComparer.Ordinal));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     [AvaloniaFact]
     public void ClosingTheWindow_DisposesTheSnapshotScheduler_AndClearsTheField()
     {

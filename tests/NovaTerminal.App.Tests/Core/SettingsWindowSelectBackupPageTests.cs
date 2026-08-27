@@ -9,16 +9,18 @@ namespace NovaTerminal.Tests.Core;
 /// Task 9: <see cref="NovaTerminal.SettingsWindow.SelectBackupPage"/>, the navigation helper the
 /// three command-palette "Backup" entries use to land on the Backup &amp; Restore tab.
 ///
-/// The critical property under test is that the index is derived (<c>MainTabs.Items.Count - 1</c>),
-/// not hardcoded: a hardcoded "6" would keep compiling and passing today but would silently point
-/// at the wrong tab the moment a tab is inserted before Backup - exactly the kind of drift
-/// <see cref="SettingsWindowBackupSectionTests"/> already documents happening once, for the SSH tab
-/// (PR #332).
+/// The critical property under test is that Backup is located by its <c>Header</c>, not by a
+/// position-based index: a hardcoded "6", or one derived from <c>Items.Count - 1</c>, keeps
+/// compiling and passing today but silently points at the wrong tab the moment a tab is
+/// reordered/removed ahead of Backup (index shifts down) or a tab is appended after it (Backup is
+/// no longer last). <see cref="SelectBackupPage_StillSelectsBackup_IfATabIsAppendedAfterIt"/> is
+/// the direction a position-based lookup gets wrong and a hardcoded/derived-index test cannot
+/// catch.
 /// </summary>
 public sealed class SettingsWindowSelectBackupPageTests
 {
     [AvaloniaFact]
-    public void SelectBackupPage_SelectsTheLastTab_AndItIsTheBackupTab()
+    public void SelectBackupPage_SelectsTheBackupTab()
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
@@ -31,18 +33,17 @@ public sealed class SettingsWindowSelectBackupPageTests
 
         window.SelectBackupPage();
 
-        Assert.Equal(tabs.Items.Count - 1, tabs.SelectedIndex);
         Assert.Equal("Backup", ((TabItem)tabs.Items[tabs.SelectedIndex]!).Header);
     }
 
     /// <summary>
-    /// Drives the same regression from the other direction: proves the index is computed, not
-    /// hardcoded, by shrinking the tab strip out from under it and confirming SelectBackupPage
-    /// still lands on whatever is now last - a hardcoded "6" would instead select a mid-strip tab
-    /// (or throw) once an earlier tab is removed.
+    /// Removing an earlier tab shifts Backup's absolute index down without moving it out of the
+    /// strip. A header-based lookup is unaffected by this either way, but it is worth pinning
+    /// directly: an implementation that instead cached Backup's index once (at construction, say)
+    /// would get this wrong.
     /// </summary>
     [AvaloniaFact]
-    public void SelectBackupPage_TracksTabCount_IfATabIsRemovedBeforeBackup()
+    public void SelectBackupPage_StillSelectsBackup_IfAnEarlierTabIsRemoved()
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
@@ -57,7 +58,36 @@ public sealed class SettingsWindowSelectBackupPageTests
 
         window.SelectBackupPage();
 
-        Assert.Equal(tabs.Items.Count - 1, tabs.SelectedIndex);
+        Assert.Equal("Backup", ((TabItem)tabs.Items[tabs.SelectedIndex]!).Header);
+    }
+
+    /// <summary>
+    /// The regression an earlier round of this task shipped without catching: a position-based
+    /// lookup derived from <c>Items.Count - 1</c> assumes Backup stays the last tab forever. Append
+    /// a tab after it - Backup is no longer last - and confirm <c>SelectBackupPage()</c> still
+    /// finds it by Header rather than landing on whatever is now last.
+    /// </summary>
+    [AvaloniaFact]
+    public void SelectBackupPage_StillSelectsBackup_IfATabIsAppendedAfterIt()
+    {
+        using var tree = BackupTestTree.CreateEmpty();
+        using var _ = OverrideAppDataRoot(tree.Root);
+        var window = new NovaTerminal.SettingsWindow(0);
+
+        var tabs = window.FindControl<TabControl>("MainTabs")!;
+        int originalCount = tabs.Items.Count;
+        int backupIndexBeforeAppend = originalCount - 1;
+        Assert.Equal("Backup", ((TabItem)tabs.Items[backupIndexBeforeAppend]!).Header);
+
+        tabs.Items.Add(new TabItem { Header = "Diagnostics (future tab)" });
+        Assert.Equal(originalCount + 1, tabs.Items.Count);
+
+        window.SelectBackupPage();
+
+        // The assertion that matters: SelectedIndex is Backup's own index, not "last item" - which
+        // is now the newly-appended tab, a different index entirely.
+        Assert.Equal(backupIndexBeforeAppend, tabs.SelectedIndex);
+        Assert.NotEqual(tabs.Items.Count - 1, tabs.SelectedIndex);
         Assert.Equal("Backup", ((TabItem)tabs.Items[tabs.SelectedIndex]!).Header);
     }
 
