@@ -143,7 +143,14 @@ public sealed class VerticalTabStripTests
     [AvaloniaFact]
     public void HorizontalMode_KeepsPlainHeaders()
     {
-        var window = CreateShownWindow(); // default settings = horizontal
+        var window = CreateShownWindow();
+        // Force horizontal explicitly rather than trusting the loaded settings: window-creating
+        // tests read the developer's real TerminalSettings, and a dev machine left in vertical
+        // mode would otherwise make this test's premise false.
+        GetSettings(window).TabStripOrientation = "Horizontal";
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+
         var tabs = window.FindControl<TabControl>("Tabs")!;
         var tab = tabs.Items.Cast<TabItem>().First();
         Assert.Null(NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine"));
@@ -187,7 +194,14 @@ public sealed class VerticalTabStripTests
     [AvaloniaFact]
     public void VerticalMode_ShowsResizeGrip_HorizontalHidesIt()
     {
-        var window = CreateShownWindow(); // default settings = horizontal
+        var window = CreateShownWindow();
+        // Force horizontal explicitly rather than trusting the loaded settings: window-creating
+        // tests read the developer's real TerminalSettings, and a dev machine left in vertical
+        // mode would otherwise make this test's premise false.
+        GetSettings(window).TabStripOrientation = "Horizontal";
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+
         var gripHorizontal = FindResizeGrip(window);
         Assert.NotNull(gripHorizontal);
         Assert.False(gripHorizontal!.IsVisible);
