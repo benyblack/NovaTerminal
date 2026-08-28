@@ -668,7 +668,7 @@ public sealed class BackupService
         foreach (var element in array)
         {
             string? id = element?["Id"]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(id) || element is null) continue;
+            if (element is null || string.IsNullOrWhiteSpace(id)) continue;
             if (!byId.ContainsKey(id)) order.Add(id);
             byId[id] = element.DeepClone();
         }

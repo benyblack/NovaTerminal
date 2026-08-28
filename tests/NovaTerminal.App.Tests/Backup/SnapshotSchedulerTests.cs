@@ -135,7 +135,7 @@ public sealed class SnapshotSchedulerTests
         var service = new BackupService(tree.Root, Clock());
         using var scheduler = new SnapshotScheduler(service, TimeSpan.FromMilliseconds(10));
 
-        scheduler.Start();
+        Assert.Null(Record.Exception(() => scheduler.Start()));
     }
 
     /// <summary>

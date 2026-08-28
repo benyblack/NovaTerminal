@@ -50,7 +50,7 @@ public static class BundleWriter
         }
         catch
         {
-            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+            try { if (File.Exists(temp)) File.Delete(temp); } catch { /* best-effort temp cleanup; the original exception is about to rethrow */ }
             throw;
         }
     }

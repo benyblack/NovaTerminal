@@ -139,7 +139,7 @@ public sealed class SnapshotScheduler : IDisposable
 
             LastScheduledDelayForTest = delay;
 
-            _timer ??= new Timer(_ => _ = FlushAsync(), null, Timeout.Infinite, Timeout.Infinite);
+            _timer ??= new Timer(state => { _ = FlushAsync(); }, null, Timeout.Infinite, Timeout.Infinite);
             _timer.Change(delay, Timeout.InfiniteTimeSpan);
         }
     }
@@ -172,7 +172,7 @@ public sealed class SnapshotScheduler : IDisposable
             // would replace the SnapshotInfo just computed above with a fault — the caller would
             // see an exception instead of the snapshot that is genuinely sitting on disk. Swallow
             // it: the snapshot already succeeded: there is nothing left to release into.
-            try { _gate.Release(); } catch (ObjectDisposedException) { }
+            try { _gate.Release(); } catch (ObjectDisposedException) { /* snapshot already succeeded; nothing left to release into */ }
         }
     }
 
@@ -253,7 +253,7 @@ public sealed class SnapshotScheduler : IDisposable
 
         foreach (var watcher in _watchers)
         {
-            try { watcher.EnableRaisingEvents = false; watcher.Dispose(); } catch { }
+            try { watcher.EnableRaisingEvents = false; watcher.Dispose(); } catch { /* best-effort teardown; nothing left to do if disposal itself fails */ }
         }
 
         _watchers.Clear();
