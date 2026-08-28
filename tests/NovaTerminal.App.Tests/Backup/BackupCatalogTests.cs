@@ -128,6 +128,20 @@ public sealed class BackupCatalogTests
             "BackupCatalog.ExcludedRelativePaths:\n  " + string.Join("\n  ", unclassified));
     }
 
+    /// <summary>
+    /// M4: AtomicFile (TerminalSettings, CommandPaletteUsageStore) leaves a ".bak" sibling of the
+    /// previous good content next to every file it writes. Only history.json.bak was excluded
+    /// before this fix; these two are the same kind of artifact and belong on the same list.
+    /// </summary>
+    [Fact]
+    public void AtomicFileBakSiblings_AreExcluded()
+    {
+        Assert.True(BackupCatalog.IsClassified("command-palette-usage.json.bak"));
+        Assert.True(BackupCatalog.IsClassified("settings.json.bak"));
+        Assert.DoesNotContain("command-palette-usage.json.bak", BackupCatalog.Entries.Select(e => e.SourceRelativePath));
+        Assert.DoesNotContain("settings.json.bak", BackupCatalog.Entries.Select(e => e.SourceRelativePath));
+    }
+
     [Fact]
     public void BackupsDirectory_IsUnderRootAndExcluded()
     {

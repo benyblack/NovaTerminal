@@ -172,12 +172,15 @@ public sealed class SnapshotSchedulerTests
     }
 
     /// <summary>
-    /// The backups filter must be anchored on a trailing separator, not a bare substring match:
-    /// "backups-legacy" contains "backups" but is not our snapshot directory, so it must still be
-    /// treated as a real config write.
+    /// I2 fix round: the filter changed from a denylist (a couple of known-noisy prefixes) to a
+    /// positive allowlist (only real backed-up paths). "backups-legacy" was previously the
+    /// regression test for the denylist's prefix anchoring (it contains "backups" as a bare
+    /// substring but is not the real snapshot directory); under the allowlist it is simply not a
+    /// catalog path at all — same conclusion (not our own machinery) reached without needing any
+    /// prefix-anchoring logic in the first place.
     /// </summary>
     [Fact]
-    public void SimilarlyNamedDirectory_MarksAChangePending()
+    public void SimilarlyNamedDirectory_DoesNotMarkAChangePending()
     {
         using var tree = BackupTestTree.CreatePopulated();
         var service = new BackupService(tree.Root, Clock());
@@ -185,7 +188,113 @@ public sealed class SnapshotSchedulerTests
 
         scheduler.NotifyFileSystemEvent(Path.Combine(tree.Root, "backups-legacy", "whatever.json"));
 
+        Assert.False(scheduler.HasPendingChange);
+    }
+
+    /// <summary>
+    /// I2's core regression: logs/debug.log is appended continuously by AppLogger.Log during
+    /// active use, and sits inside the watched tree (RootDirectory, IncludeSubdirectories: true).
+    /// It is not, and never has been, a backed-up path — but the old denylist only named
+    /// "backups" and ".import-", so a write here used to mark a change pending and kept the
+    /// debounce from ever elapsing. The positive allowlist rejects it outright.
+    /// </summary>
+    [Fact]
+    public void WriteToLogFile_DoesNotMarkAChangePending()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+        using var scheduler = new SnapshotScheduler(service, TimeSpan.FromMilliseconds(10));
+
+        scheduler.NotifyFileSystemEvent(Path.Combine(tree.Root, "logs", "debug.log"));
+
+        Assert.False(scheduler.HasPendingChange);
+    }
+
+    /// <summary>
+    /// Same regression as <see cref="WriteToLogFile_DoesNotMarkAChangePending"/>, for the other
+    /// continuously-written, never-backed-up file called out in I2: command history.
+    /// </summary>
+    [Fact]
+    public void WriteToCommandHistory_DoesNotMarkAChangePending()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+        using var scheduler = new SnapshotScheduler(service, TimeSpan.FromMilliseconds(10));
+
+        scheduler.NotifyFileSystemEvent(Path.Combine(tree.Root, "command-assist", "history.jsonl"));
+
+        Assert.False(scheduler.HasPendingChange);
+    }
+
+    /// <summary>
+    /// I2's second half: a continuously-busy tree must still get a snapshot eventually. Each
+    /// NotifyChanged() call resets the trailing debounce, so without a cap a tree that is never
+    /// quiet for a full debounce window would never schedule a flush at all. Driven through the
+    /// injected TimeProvider (no real waiting): the first change schedules the full debounce:
+    /// the clock then advances close to the max-delay boundary and a second change schedules
+    /// only the remaining budget, less than a full debounce; advancing past the boundary
+    /// entirely collapses the next scheduled delay to zero, forcing an effectively-immediate
+    /// flush regardless of how many changes keep arriving.
+    /// </summary>
+    [Fact]
+    public void NotifyChanged_ContinuousChanges_EventuallyCapAtZeroDelay()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = new FixedTimeProvider(new DateTimeOffset(2026, 8, 27, 9, 14, 0, TimeSpan.Zero));
+        var service = new BackupService(tree.Root, clock);
+        using var scheduler = new SnapshotScheduler(
+            service,
+            debounce: TimeSpan.FromSeconds(30),
+            maxDelay: TimeSpan.FromMinutes(2),
+            timeProvider: clock);
+
+        scheduler.NotifyChanged();
+        Assert.Equal(TimeSpan.FromSeconds(30), scheduler.LastScheduledDelayForTest);
+
+        clock.Advance(TimeSpan.FromSeconds(110)); // within the 2-minute cap, but close to it
+        scheduler.NotifyChanged();
+        Assert.True(scheduler.LastScheduledDelayForTest < TimeSpan.FromSeconds(30));
+        Assert.True(scheduler.LastScheduledDelayForTest > TimeSpan.Zero);
+
+        clock.Advance(TimeSpan.FromSeconds(15)); // now past the 2-minute cap
+        scheduler.NotifyChanged();
+        Assert.Equal(TimeSpan.Zero, scheduler.LastScheduledDelayForTest);
+    }
+
+    /// <summary>
+    /// I4: a change debounced but not yet fired must not be silently dropped just because the
+    /// process is quitting. A long debounce here proves the timer never fires on its own within
+    /// the test - the snapshot on disk can only be explained by Dispose's own best-effort flush.
+    /// </summary>
+    [Fact]
+    public void Dispose_WithPendingChange_FlushesBeforeTearingDown()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+        var scheduler = new SnapshotScheduler(service, TimeSpan.FromMinutes(5));
+
+        scheduler.NotifyChanged();
         Assert.True(scheduler.HasPendingChange);
+
+        scheduler.Dispose();
+
+        Assert.Single(service.ListSnapshots());
+    }
+
+    /// <summary>
+    /// The common case must stay a no-op: disposing with nothing pending must not write a
+    /// spurious snapshot.
+    /// </summary>
+    [Fact]
+    public void Dispose_WithNoPendingChange_WritesNoSnapshot()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+        var scheduler = new SnapshotScheduler(service, TimeSpan.FromMinutes(5));
+
+        scheduler.Dispose();
+
+        Assert.Empty(service.ListSnapshots());
     }
 
     private static TimeProvider Clock() =>

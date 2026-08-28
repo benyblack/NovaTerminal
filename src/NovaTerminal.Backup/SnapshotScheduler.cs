@@ -19,9 +19,18 @@ public sealed class SnapshotScheduler : IDisposable
 {
     private static readonly TimeSpan DefaultDebounce = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// A continuously-busy tree (a long-running session appending to files under a watched,
+    /// backed-up path) must still get a snapshot eventually rather than never, since each new
+    /// change keeps resetting the trailing debounce forever (I2). This caps the total wait from
+    /// the first pending change, independent of how many further changes arrive in the meantime.
+    /// </summary>
+    private static readonly TimeSpan DefaultMaxDelay = TimeSpan.FromMinutes(5);
+
     private readonly BackupService _service;
     private readonly TimeSpan _debounce;
-    private readonly string _backupsPrefix;
+    private readonly TimeSpan _maxDelay;
+    private readonly TimeProvider _timeProvider;
     private readonly Action<string> _log;
     private readonly List<FileSystemWatcher> _watchers = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -29,6 +38,7 @@ public sealed class SnapshotScheduler : IDisposable
 
     private Timer? _timer;
     private bool _pending;
+    private DateTimeOffset? _pendingSince;
     private bool _disposed;
     private bool _started;
 
@@ -41,14 +51,25 @@ public sealed class SnapshotScheduler : IDisposable
     /// </summary>
     internal Action? BeforeSnapshotForTest;
 
-    public SnapshotScheduler(BackupService service, TimeSpan? debounce = null, Action<string>? log = null)
+    /// <summary>
+    /// Test-only seam: the delay <see cref="NotifyChanged"/> most recently scheduled the timer
+    /// for. Lets a test pin the I2 max-delay cap deterministically (via an injected
+    /// <see cref="TimeProvider"/>) without waiting on the real <see cref="Timer"/> to fire.
+    /// </summary>
+    internal TimeSpan LastScheduledDelayForTest { get; private set; }
+
+    public SnapshotScheduler(
+        BackupService service,
+        TimeSpan? debounce = null,
+        Action<string>? log = null,
+        TimeSpan? maxDelay = null,
+        TimeProvider? timeProvider = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _debounce = debounce ?? DefaultDebounce;
+        _maxDelay = maxDelay ?? DefaultMaxDelay;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _log = log ?? (static _ => { });
-        // Anchored with a trailing separator so a sibling like "backups2/" or "backups-legacy/"
-        // is never mistaken for our own snapshot directory.
-        _backupsPrefix = Path.Combine(_service.RootDirectory, "backups") + Path.DirectorySeparatorChar;
     }
 
     /// <summary>
@@ -90,16 +111,36 @@ public sealed class SnapshotScheduler : IDisposable
         }
     }
 
-    /// <summary>Marks a change pending and (re)starts the debounce timer.</summary>
+    /// <summary>
+    /// Marks a change pending and (re)starts the debounce timer. A continuously busy tree keeps
+    /// calling this before the debounce ever elapses, so the delay scheduled here is capped at
+    /// <c>_maxDelay</c> measured from the FIRST change in the current pending streak (I2) —
+    /// otherwise a tree that is never quiet for <c>_debounce</c> would never get a snapshot at
+    /// all.
+    /// </summary>
     public void NotifyChanged()
     {
         if (_disposed) return;
 
         lock (_timerLock)
         {
-            _pending = true;
+            var now = _timeProvider.GetUtcNow();
+            if (!_pending)
+            {
+                _pending = true;
+                _pendingSince = now;
+            }
+
+            var elapsed = now - (_pendingSince ?? now);
+            var remainingBudget = _maxDelay - elapsed;
+            var delay = remainingBudget < _debounce
+                ? (remainingBudget < TimeSpan.Zero ? TimeSpan.Zero : remainingBudget)
+                : _debounce;
+
+            LastScheduledDelayForTest = delay;
+
             _timer ??= new Timer(_ => _ = FlushAsync(), null, Timeout.Infinite, Timeout.Infinite);
-            _timer.Change(_debounce, Timeout.InfiniteTimeSpan);
+            _timer.Change(delay, Timeout.InfiniteTimeSpan);
         }
     }
 
@@ -116,6 +157,7 @@ public sealed class SnapshotScheduler : IDisposable
             {
                 if (!_pending) return null;
                 _pending = false;
+                _pendingSince = null;
             }
 
             BeforeSnapshotForTest?.Invoke();
@@ -179,18 +221,24 @@ public sealed class SnapshotScheduler : IDisposable
     /// <see cref="FileSystemWatcher"/> — event timing is not deterministic enough to assert on,
     /// and CI's ubuntu runners hit inotify limits.
     ///
-    /// Never let the scheduler re-trigger on our own writes. Two sources:
-    ///  - backups/       snapshot bundles written by Snapshot()
-    ///  - .import-&lt;guid&gt;/ the import scratch tree (extracted/, final/, undo/). It lives beside
-    ///    the live tree rather than in TEMP because Directory.Move is a bare rename and throws
-    ///    across a volume boundary — so it IS under RootDirectory and the watcher does see it.
-    /// WatchedDirectories() resolves RootDirectory itself (it is settings.json's parent) with
-    /// IncludeSubdirectories = true, so without this both would wake the debounce on every file.
+    /// A positive allowlist (I2): only a path that is itself, or falls under, one of the real
+    /// backed-up <see cref="BackupCatalog.Entries"/> ever wakes the debounce. WatchedDirectories()
+    /// resolves RootDirectory itself with <see cref="FileSystemWatcher.IncludeSubdirectories"/>
+    /// true, so every file under the app data root reaches this method — that includes both our
+    /// own machinery (backups/, the .import-&lt;guid&gt;/ scratch tree) and, more importantly,
+    /// continuously-appended files that are simply never backed up at all
+    /// (logs/debug.log, command-assist/history.jsonl). A denylist that only named the former left
+    /// the latter free to keep the debounce from ever elapsing during active use — an
+    /// <c>auto</c> snapshot effectively never fired — and, if a snapshot write itself kept
+    /// failing, produced a self-retrigger loop (each failure logs into logs/debug.log, which sat
+    /// inside the watched tree and woke the debounce again). Backed-up paths only, checked here
+    /// against <see cref="BackupCatalog.IsBackedUpPath"/>, excludes both problems at once: neither
+    /// a log file nor our own scratch/output directories are ever a real catalog path.
     /// </summary>
     internal void NotifyFileSystemEvent(string fullPath)
     {
-        if (fullPath.Contains(_backupsPrefix, StringComparison.Ordinal)) return;
-        if (fullPath.Contains($"{Path.DirectorySeparatorChar}.import-", StringComparison.Ordinal)) return;
+        string relative = Path.GetRelativePath(_service.RootDirectory, fullPath);
+        if (!BackupCatalog.IsBackedUpPath(relative)) return;
 
         NotifyChanged();
     }
@@ -214,6 +262,37 @@ public sealed class SnapshotScheduler : IDisposable
         {
             _timer?.Dispose();
             _timer = null;
+        }
+
+        // Best-effort final flush (I4): a change debounced but not yet fired must not be
+        // silently dropped just because the timer was torn down above without ever firing.
+        // Only attempted when the gate is free right now (Wait(0), non-blocking): if a flush is
+        // already in flight — e.g. the timer fired a moment before this call and FlushAsync is
+        // mid-Snapshot on another thread — that flush will complete the pending change on its
+        // own. Blocking here to wait it out (or unconditionally touching _pending/Snapshot
+        // concurrently with it) would reintroduce exactly the "Dispose races an in-flight flush"
+        // hazard already fixed in FlushAsync's own finally block — see its remarks and
+        // Flush_SurvivesDisposeRacingAnInFlightSnapshot.
+        if (_pending && _gate.Wait(0))
+        {
+            try
+            {
+                bool stillPending;
+                lock (_timerLock)
+                {
+                    stillPending = _pending;
+                    _pending = false;
+                    _pendingSince = null;
+                }
+
+                // Snapshot() never throws (see its own remarks) - it logs and returns null on
+                // failure, so no extra try/catch is needed around this call.
+                if (stillPending) _service.Snapshot(SnapshotReason.Auto);
+            }
+            finally
+            {
+                _gate.Release();
+            }
         }
 
         _gate.Dispose();

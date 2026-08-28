@@ -57,6 +57,14 @@ public static class BackupCatalog
         // JsonlHistoryStore renames history.json to history.json.bak once migrated to JSONL.
         // Same privacy-sensitive command history under a different name — never back it up.
         Path.Combine(CommandAssist, "history.json.bak"),
+
+        // AtomicFile (used by TerminalSettings and CommandPaletteUsageStore) keeps a ".bak"
+        // sibling of the previous good content next to every file it writes. Harmless if backed
+        // up today, but inconsistent with the precedent set above for history.json.bak, and a
+        // ".bak" is never something a restore should reintroduce as if it were current state
+        // (M4).
+        "command-palette-usage.json.bak",
+        "settings.json.bak",
     };
 
     public static IReadOnlyList<BackupCategory> AllCategories { get; } =
@@ -90,6 +98,30 @@ public static class BackupCatalog
         foreach (var excluded in ExcludedRelativePaths)
         {
             if (IsSameOrUnder(normalized, Normalize(excluded))) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="relativePath"/> (relative to the app data root) is itself, or
+    /// falls under, one of the actual backed-up <see cref="Entries"/> — unlike
+    /// <see cref="IsClassified"/>, this deliberately excludes <see cref="ExcludedRelativePaths"/>.
+    /// <see cref="SnapshotScheduler"/> uses this as a positive allowlist (I2): only a change under
+    /// a real backed-up path should ever wake the debounce. A denylist of "everything except a
+    /// couple of known-noisy prefixes" previously let continuous writers like the debug log or
+    /// command-assist history keep the debounce from ever elapsing, since both live under the
+    /// watched tree and matched nothing on the denylist.
+    /// </summary>
+    public static bool IsBackedUpPath(string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)) return false;
+
+        string normalized = Normalize(relativePath);
+
+        foreach (var entry in Entries)
+        {
+            if (IsSameOrUnder(normalized, Normalize(entry.SourceRelativePath))) return true;
         }
 
         return false;
