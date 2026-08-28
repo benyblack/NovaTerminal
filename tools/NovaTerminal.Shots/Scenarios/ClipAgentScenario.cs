@@ -29,11 +29,30 @@ internal sealed class ClipAgentScenario : IScenario
 
     private const int Fps = 20;
 
-    /// <summary>A settled beat of the pane before the agent starts, so the clip has a visible "before".</summary>
-    private const int PreRollFrames = 10;
+    /// <summary>
+    /// How long a rendered picture must hold still before a scene counts as settled, for the
+    /// purposes of this clip's own pacing. Shorter than <c>ShotContext</c>'s 600ms QuietFor
+    /// deliberately: that value exists to be certain a *still* is finished drawing before it is
+    /// published, where being slow costs nothing; this one decides how long to keep sampling a
+    /// clip scene for further motion before moving on, where being slow costs frame budget on
+    /// every single scene.
+    /// </summary>
+    private static readonly TimeSpan ChangeQuietFor = TimeSpan.FromMilliseconds(120);
 
-    /// <summary>Frames captured while each command lands and draws. 3 commands * 30 + 10 pre-roll = 100 frames at 20fps = 5s.</summary>
-    private const int FramesPerCommand = 30;
+    /// <summary>How long any one scene may take to finish changing before this clip gives up on it.</summary>
+    private static readonly TimeSpan MaxSceneWait = TimeSpan.FromSeconds(5);
+
+    /// <summary>Frames held on the settled "before" pane, so the clip has a beat to open on.</summary>
+    private const int PreRollHoldFrames = 6;
+
+    /// <summary>Frames held on a command's finished output before moving on.</summary>
+    private const int CommandHoldFrames = 8;
+
+    /// <summary>Frames held on the open journal window before closing it.</summary>
+    private const int JournalHoldFrames = 10;
+
+    /// <summary>Frames held on the finished transcript before recording stops.</summary>
+    private const int FinalHoldFrames = 10;
 
     /// <summary>The commands the agent runs, in order - the same three <see cref="AgentSessionScenario"/> uses.</summary>
     private static readonly string[] AgentCommands =
@@ -50,11 +69,13 @@ internal sealed class ClipAgentScenario : IScenario
         Tier: 4,
         LogicalWidth: 1280,
         LogicalHeight: 800,
-        Intent: "A ~5 second clip of the main window: the demo pane already showing its banner, " +
-                "then an MCP agent sends three commands one after another through the real agent " +
-                "host - a git status, a commit graph, and a passing test run - while the amber " +
-                "'agent typed' segment lights in the status bar. Ends on a settled still of the " +
-                "finished transcript.");
+        Intent: "A short clip of the main window: the demo pane already showing its banner, then " +
+                "an MCP agent sends three commands one after another through the real agent host " +
+                "- a git status, a commit graph, and a passing test run - while the amber 'agent " +
+                "typed' segment lights in the status bar. After each command the clip cuts to the " +
+                "real agent activity journal, open and on screen, whose entry count has grown by " +
+                "one since the last time it was shown. Ends on a settled still of the finished " +
+                "transcript.");
 
     /// <summary>Act on, so the clip shows what the toggle actually buys - same as agent-session.</summary>
     public Action<TerminalSettings>? Settings => settings =>
@@ -79,19 +100,22 @@ internal sealed class ClipAgentScenario : IScenario
 
         await context.RecordAsync(async () =>
         {
-            // A beat of the settled "before" pane, deliberately: with no pre-roll the clip would
+            // A beat on the settled "before" pane, deliberately: with no pre-roll the clip would
             // open mid-transcript, and a viewer scrubbing back to frame zero would see the same
             // fully-typed picture the still already shows.
-            for (int i = 0; i < PreRollFrames; i++)
+            context.CaptureUntilSettled(context.Window, ChangeQuietFor, MaxSceneWait, PreRollHoldFrames);
+
+            for (int i = 0; i < AgentCommands.Length; i++)
             {
-                context.Driver.Pump(1);
-                context.Recorder!.CaptureFrame();
+                await RunAnimatedCommandAsync(context, pane, AgentCommands[i]);
+
+                // The journal is what makes this an honest clip of an agent acting, not just a
+                // clip of a terminal - so it is shown ticking on camera, once per command, rather
+                // than opened only after recording stops to be checked and thrown away.
+                ShowJournalTick(context, journalBefore + i + 1);
             }
 
-            foreach (string command in AgentCommands)
-            {
-                await RunAnimatedCommandAsync(context, pane, command);
-            }
+            context.CaptureUntilSettled(context.Window, ChangeQuietFor, MaxSceneWait, FinalHoldFrames);
         }, Fps);
 
         if (AgentActivityJournal.Instance.Count < journalBefore + AgentCommands.Length)
@@ -103,7 +127,6 @@ internal sealed class ClipAgentScenario : IScenario
         }
 
         RequireLitAgentSegment(pane);
-        VerifyJournalWindowReflectsTheRun(context, journalBefore + AgentCommands.Length);
 
         // The clip's final frame is already a settled transcript - this is the still that ships
         // alongside it, at the run's configured scale rather than the recorder's 1x.
@@ -111,16 +134,17 @@ internal sealed class ClipAgentScenario : IScenario
     }
 
     /// <summary>
-    /// Delivers <paramref name="command"/> through the agent host and captures frames while it
-    /// lands and draws, so the picture fills in across the clip instead of jumping straight to
-    /// the finished transcript.
+    /// Delivers <paramref name="command"/> through the agent host and captures the pane while its
+    /// output lands and draws.
     /// </summary>
     /// <remarks>
-    /// Frames are captured by calling <see cref="FrameRecorder.CaptureFrame"/> in a loop after
-    /// each <see cref="Driver.Pump"/>, deliberately, rather than by a timer: a timer-driven
-    /// recorder races the dispatcher thread this scenario itself runs on and drops exactly the
-    /// frames that matter, where a Pump-then-capture loop only ever samples between one pumped
-    /// batch of dispatcher jobs and the next.
+    /// <see cref="AgentHostService.HandleRequestLineAsync"/> submits the whole command in one
+    /// call - the real <c>send_input</c> path genuinely does not stream keystrokes - so there is
+    /// no gradual "typing" to capture within a single command; the shell renders its answer in
+    /// one paint well inside one <see cref="Driver.Pump"/>. <see cref="ShotContext.CaptureUntilSettled"/>
+    /// still earns its keep here: it captures that one real paint transition and nothing more,
+    /// rather than the fixed-size loop of duplicate frames a blind Pump-N-times approach would
+    /// have spent regardless of whether anything was still moving.
     /// </remarks>
     private static async Task RunAnimatedCommandAsync(ShotContext context, TerminalPane pane, string command)
     {
@@ -135,11 +159,7 @@ internal sealed class ClipAgentScenario : IScenario
         {
             await DeliverAsAgentAsync(pane, command);
 
-            for (int i = 0; i < FramesPerCommand; i++)
-            {
-                context.Driver.Pump(1);
-                context.Recorder!.CaptureFrame();
-            }
+            context.CaptureUntilSettled(context.Window, ChangeQuietFor, MaxSceneWait, CommandHoldFrames);
 
             if (Volatile.Read(ref chunks) == 0)
             {
@@ -154,6 +174,71 @@ internal sealed class ClipAgentScenario : IScenario
             session.OnOutputReceived -= OnOutput;
         }
     }
+
+    /// <summary>
+    /// Opens the real journal window, waits for its list to actually show
+    /// <paramref name="expectedMinimumEntries"/> rows, captures it on camera, then closes it.
+    /// </summary>
+    /// <remarks>
+    /// Called once per command, so across the clip the journal is shown three times with a
+    /// growing entry count each time - the honest version of "the activity journal ticks": real
+    /// rows a user could open and read, not a fake counter animating upward. The wait for the
+    /// list to actually reach the expected count (rather than opening once and hoping) is this
+    /// clip's version of the same "did the count really grow" gate <see cref="AgentSessionScenario"/>
+    /// applies to its still, just paid before the frame is captured instead of after.
+    /// </remarks>
+    private static void ShowJournalTick(ShotContext context, int expectedMinimumEntries)
+    {
+        Button indicator = context.Driver.Require<Button>("AgentObserveIndicator");
+
+        if (!indicator.IsVisible)
+        {
+            throw new InvalidOperationException(
+                "The title bar's agent observe light is hidden, so the journal cannot be shown " +
+                "ticking in this clip. Check that observe is on.");
+        }
+
+        indicator.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        context.Driver.WaitFor(
+            () => TryFindEntries(context, out int itemCount) && itemCount >= expectedMinimumEntries,
+            TimeSpan.FromSeconds(10),
+            $"the journal window to list at least {expectedMinimumEntries} entries");
+
+        Window journal = FindJournalWindow(context)
+            ?? throw new InvalidOperationException(
+                $"Clicking the agent observe light opened no '{JournalWindowTitle}' window, so " +
+                "this clip's journal tick cannot be shown.");
+
+        try
+        {
+            context.CaptureUntilSettled(journal, ChangeQuietFor, MaxSceneWait, JournalHoldFrames);
+        }
+        finally
+        {
+            journal.Close();
+            context.Driver.Pump(3);
+        }
+    }
+
+    private static bool TryFindEntries(ShotContext context, out int itemCount)
+    {
+        if (FindJournalWindow(context) is { } journal && FindEntriesList(journal) is { } entries)
+        {
+            itemCount = entries.ItemCount;
+            return true;
+        }
+
+        itemCount = 0;
+        return false;
+    }
+
+    private static Window? FindJournalWindow(ShotContext context) =>
+        context.Window.OwnedWindows.FirstOrDefault(
+            window => string.Equals(window.Title, JournalWindowTitle, StringComparison.Ordinal));
+
+    private static ItemsControl? FindEntriesList(Window journal) =>
+        journal.GetLogicalDescendants().OfType<ItemsControl>().FirstOrDefault();
 
     /// <summary>
     /// Issues <paramref name="command"/> exactly as NovaTerminal.McpServer's <c>send_input</c>
@@ -205,54 +290,6 @@ internal sealed class ClipAgentScenario : IScenario
             throw new InvalidOperationException(
                 $"The pane's agent segment reads '{label.Text}' rather than '{WroteSegmentLabel}', " +
                 "so the clip would not show the agent's writes being reported.");
-        }
-    }
-
-    /// <summary>
-    /// Opens the real journal window and checks it lists at least <paramref name="expectedMinimumEntries"/>
-    /// entries, then closes it without capturing it - this clip's deliverable is the main window
-    /// alone, but its honesty gate is the same kind <see cref="AgentSessionScenario"/> uses for
-    /// the still: proof that what the journal shows is not just a count incremented somewhere,
-    /// but a window a user could actually open and read the same rows in.
-    /// </summary>
-    private static void VerifyJournalWindowReflectsTheRun(ShotContext context, int expectedMinimumEntries)
-    {
-        Button indicator = context.Driver.Require<Button>("AgentObserveIndicator");
-
-        if (!indicator.IsVisible)
-        {
-            throw new InvalidOperationException(
-                "The title bar's agent observe light is hidden, so this clip's journal honesty " +
-                "gate cannot be reached. Check that observe is on.");
-        }
-
-        indicator.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        context.Driver.Pump(5);
-
-        Window journal = context.Window.OwnedWindows.FirstOrDefault(
-                window => string.Equals(window.Title, JournalWindowTitle, StringComparison.Ordinal))
-            ?? throw new InvalidOperationException(
-                $"Clicking the agent observe light opened no '{JournalWindowTitle}' window, so " +
-                "this clip's journal entries cannot be verified as real.");
-
-        try
-        {
-            ItemsControl entries = journal.GetLogicalDescendants().OfType<ItemsControl>().FirstOrDefault()
-                ?? throw new InvalidOperationException(
-                    "The journal window contains no ItemsControl, so it cannot be listing anything.");
-
-            if (entries.ItemCount < expectedMinimumEntries)
-            {
-                throw new InvalidOperationException(
-                    $"The journal window lists {entries.ItemCount} of the {expectedMinimumEntries} " +
-                    "entries this clip's commands should have produced, so the clip's story would " +
-                    "not be backed by a real journal.");
-            }
-        }
-        finally
-        {
-            journal.Close();
-            context.Driver.Pump(3);
         }
     }
 }

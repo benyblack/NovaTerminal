@@ -101,6 +101,60 @@ public sealed class ShotContext
     }
 
     /// <summary>
+    /// Captures frames into <see cref="Recorder"/> only while <paramref name="window"/>'s
+    /// rendered picture is actually changing, then a short, deliberate hold once it settles - so
+    /// a clip's frame budget tracks real state changes instead of a fixed-size loop's worth of
+    /// duplicate bitmaps.
+    /// </summary>
+    /// <remarks>
+    /// Reuses the same frame-fingerprint comparison <see cref="WaitForQuiet"/> uses for its own
+    /// "has this settled" check. This exists because a first cut of clip-agent captured a blind
+    /// fixed number of frames per command regardless of whether the picture was still moving, and
+    /// review found 94 of its 100 frames were byte-identical duplicates - the shape of a
+    /// slideshow with long static holds wearing a video's file extension, not a clip of motion.
+    /// A scene that never changes now costs exactly <paramref name="settleHoldFrames"/> frames (a
+    /// deliberately short pause, long enough to be readable, short enough not to dominate the
+    /// clip); a scene that keeps changing captures every distinct paint until it stops or
+    /// <paramref name="timeout"/> elapses.
+    /// </remarks>
+    public void CaptureUntilSettled(Window window, TimeSpan quietFor, TimeSpan timeout, int settleHoldFrames)
+    {
+        FrameRecorder recorder = Recorder
+            ?? throw new InvalidOperationException("CaptureUntilSettled was called outside RecordAsync.");
+
+        string? previous = null;
+        DateTime deadline = DateTime.UtcNow + timeout;
+        DateTime quietSince = DateTime.UtcNow;
+        bool everChanged = false;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            Driver.Pump(1);
+
+            using SKBitmap frame = Rasterizer.CaptureWindow(window, 1.0);
+            string fingerprint = Fingerprint(frame);
+
+            if (fingerprint != previous)
+            {
+                previous = fingerprint;
+                quietSince = DateTime.UtcNow;
+                everChanged = true;
+                recorder.CaptureFrame(window);
+            }
+            else if (everChanged && DateTime.UtcNow - quietSince >= quietFor)
+            {
+                break;
+            }
+        }
+
+        for (int i = 0; i < settleHoldFrames; i++)
+        {
+            Driver.Pump(1);
+            recorder.CaptureFrame(window);
+        }
+    }
+
+    /// <summary>
     /// Opens a tab through MainWindow's own AddTab, so the pane is wired, registered with the
     /// agent-session registry, and themed exactly as a user-opened tab is.
     /// </summary>
