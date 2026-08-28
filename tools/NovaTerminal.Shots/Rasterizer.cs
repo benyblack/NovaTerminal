@@ -49,6 +49,14 @@ public static class Rasterizer
     /// </summary>
     public static double InkFraction(SKBitmap bitmap)
     {
+        if (bitmap.Width == 0 || bitmap.Height == 0)
+        {
+            throw new ArgumentException(
+                $"Bitmap has no pixels ({bitmap.Width}x{bitmap.Height}). InkFraction cannot tell a " +
+                "degenerate capture from a detected-blank one, so it refuses rather than returning 0.0.",
+                nameof(bitmap));
+        }
+
         var counts = new Dictionary<uint, int>();
 
         for (int y = 0; y < bitmap.Height; y++)

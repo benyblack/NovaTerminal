@@ -52,4 +52,13 @@ public sealed class RasterizerTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public void InkFraction_ThrowsOnAZeroPixelBitmap()
+    {
+        using var bitmap = new SKBitmap(0, 0);
+
+        ArgumentException ex = Assert.Throws<ArgumentException>(() => Rasterizer.InkFraction(bitmap));
+        Assert.Equal("bitmap", ex.ParamName);
+    }
 }
