@@ -8,6 +8,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia;
 using NovaTerminal.Controls;
+using NovaTerminal.CommandAssist.ShellIntegration;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.Rendering;
 using NovaTerminal.Pty;
@@ -386,7 +387,15 @@ namespace NovaTerminal.Shell
 
                     pane = new TerminalPane(
                         restoredCommand,
-                        commandSubstituted ? "" : node.Arguments ?? "",
+                        // Sanitized, not taken verbatim. Sessions saved before the pane
+                        // stopped persisting its merged command line carry the shell-
+                        // integration bootstrap in these arguments; restoring them makes the
+                        // provider see its own -File / -EncodedCommand, take the "user
+                        // supplied a script" bail-out, and relaunch the stale bootstrap
+                        // forever. That fix cannot reach sessions already on disk; this can.
+                        commandSubstituted
+                            ? ""
+                            : ShellIntegrationArguments.StripInjected(node.Arguments),
                         settings);
                 }
 

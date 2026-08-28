@@ -14,7 +14,7 @@ public sealed class BashShellIntegrationProviderTests
     [InlineData("BASH", "/usr/local/bin/bash")]
     public void CanIntegrate_ForBashShells_ReturnsTrue(string shellKind, string command)
     {
-        var provider = new BashShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
+        var provider = new BashShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller());
 
         Assert.True(provider.CanIntegrate(shellKind, command));
     }
@@ -25,7 +25,7 @@ public sealed class BashShellIntegrationProviderTests
     [InlineData("cmd", "cmd.exe")]
     public void CanIntegrate_ForOtherShells_ReturnsFalse(string shellKind, string command)
     {
-        var provider = new BashShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
+        var provider = new BashShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller());
 
         Assert.False(provider.CanIntegrate(shellKind, command));
     }
@@ -33,7 +33,7 @@ public sealed class BashShellIntegrationProviderTests
     [Fact]
     public void CreateLaunchPlan_ForVanillaBash_InjectsBootstrapViaRcfileAndMarksIntegrated()
     {
-        var provider = new BashShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
+        var provider = new BashShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller());
 
         ShellIntegrationLaunchPlan plan = provider.CreateLaunchPlan("/bin/bash", shellArguments: null, workingDirectory: null);
 
@@ -48,7 +48,7 @@ public sealed class BashShellIntegrationProviderTests
     [Fact]
     public void CreateLaunchPlan_WithExistingUserArguments_PreservesThem()
     {
-        var provider = new BashShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
+        var provider = new BashShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller());
 
         ShellIntegrationLaunchPlan plan = provider.CreateLaunchPlan("/bin/bash", "--login", null);
 
@@ -63,7 +63,7 @@ public sealed class BashShellIntegrationProviderTests
     [InlineData("--init-file /my/init")]
     public void CreateLaunchPlan_WhenUserForcesIncompatibleStartupMode_DisablesIntegration(string userArgs)
     {
-        var provider = new BashShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
+        var provider = new BashShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller());
 
         ShellIntegrationLaunchPlan plan = provider.CreateLaunchPlan("/bin/bash", userArgs, null);
 

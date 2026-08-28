@@ -35,7 +35,7 @@ public sealed class ShellIntegrationRegistryTests
     {
         var registry = new ShellIntegrationRegistry(new IShellIntegrationProvider[]
         {
-            new PowerShellShellIntegrationProvider(() => AppPaths.CommandAssistDirectory)
+            new PowerShellShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller())
         });
 
         IShellIntegrationProvider? provider = registry.GetProvider(
@@ -51,7 +51,7 @@ public sealed class ShellIntegrationRegistryTests
     {
         var registry = new ShellIntegrationRegistry(new IShellIntegrationProvider[]
         {
-            new PowerShellShellIntegrationProvider(() => AppPaths.CommandAssistDirectory)
+            new PowerShellShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller())
         });
 
         IShellIntegrationProvider? provider = registry.GetProvider(

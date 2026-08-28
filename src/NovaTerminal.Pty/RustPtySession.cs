@@ -235,12 +235,6 @@ namespace NovaTerminal.Pty
         // sourced it (the script deletes itself on the happy path). Both are written from
         // the injection task and read by Dispose, hence the volatile access.
         private Task? _powerShellInitTask;
-        private volatile string? _powerShellInitScriptPath;
-
-        // Test hook: lets the #107 cleanup guard assert on the exact file this session
-        // created, rather than inferring it by diffing %TEMP% (which cannot tell "never
-        // created" apart from "created and cleaned up").
-        internal string? PowerShellInitScriptPath => _powerShellInitScriptPath;
 
         // Bounded queue for back-pressure - prevents OOM on high-throughput output
         private readonly BlockingCollection<string> _outputQueue = new BlockingCollection<string>(boundedCapacity: 100);
@@ -800,66 +794,21 @@ namespace NovaTerminal.Pty
                     {
                         await Task.Delay(300, _cts.Token).ConfigureAwait(false);
 
-                        string tempScript = System.IO.Path.Combine(
-                            System.IO.Path.GetTempPath(),
-                            $"nova_init_{Guid.NewGuid()}.ps1");
-                        string cleanPath = tempScript.Replace("'", "''");
-
-                        var sb = new StringBuilder();
-                        // 1. Set Encoding cleanly
-                        sb.AppendLine("$OutputEncoding = [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8;");
-                        // 2. Clear output (wipes the injected command text)
-                        sb.AppendLine("Clear-Host;");
-                        // 3. Print Banner
-                        sb.AppendLine("Write-Host 'Windows PowerShell';");
-                        sb.AppendLine("Write-Host 'Copyright (C) Microsoft Corporation. All rights reserved.';");
-                        sb.AppendLine("Write-Host ''");
-                        sb.AppendLine("Write-Host 'Install the latest PowerShell for new features and improvements! https://aka.ms/PSWindows';");
-                        sb.AppendLine("Write-Host ''");
-                        // 4. Delete this script. Self-deletion is what actually fixes the
-                        //    %TEMP% leak (#107): the file is removed the moment the shell
-                        //    has finished sourcing it, with no timer to guess at. The
-                        //    Dispose-time cleanup below is only a backstop for the case
-                        //    where the shell never runs it at all.
-                        sb.AppendLine($"Remove-Item -LiteralPath '{cleanPath}' -Force -ErrorAction SilentlyContinue;");
-
-                        // Record the path before writing, so a failure between write and
-                        // injection still leaves something for Dispose to clean up.
-                        _powerShellInitScriptPath = tempScript;
-
-                        // Deliberately the synchronous write, matching the original code.
-                        // An awaited WriteAllTextAsync adds a scheduling hop between the
-                        // delay and SendInput, which moved the injected keystrokes later
-                        // and made PtySmokeTests.AgentSentInput_IsByteFaithful flaky - the
-                        // injection landed inside that test's recording window. Injection
-                        // timing is observable behaviour, so it is kept as it was.
-                        System.IO.File.WriteAllText(tempScript, sb.ToString());
-
-                        SendInput($"& '{cleanPath}'\r");
+                        // Sent as input rather than written to %TEMP% and invoked. Loading a
+                        // .ps1 is gated by PowerShell's execution policy, whose stock Windows
+                        // default is Restricted, so the old `& '<path>'` form failed with a red
+                        // UnauthorizedAccess error on any machine that had not loosened it -
+                        // reported from a real install. Nothing is loaded from disk now, so no
+                        // policy applies, and the #107 %TEMP% leak has no file to leak.
+                        SendInput(PowerShellPostLaunchInit.BuildInjection());
                     }
                     catch (OperationCanceledException)
                     {
-                        // Session closed inside the delay window — nothing to inject.
+                        // Session closed inside the delay window - nothing to inject.
                     }
                     catch (Exception ex)
                     {
                         PtyLogger.Warning($"[RustPtySession] PS Injection Failed: {ex.Message}");
-                    }
-                    finally
-                    {
-                        // Close the window where Dispose finished before this task did.
-                        // Dispose waits only briefly for us; if the write ran long, its
-                        // single delete attempt could hit a file still open here, or run
-                        // before the file existed at all. Whichever of the two finishes
-                        // last performs the delete, so neither ordering leaks.
-                        //
-                        // Guarded on teardown: on the happy path the shell sources the
-                        // script and it deletes itself, and deleting it here would race
-                        // that read.
-                        if (_cts.IsCancellationRequested || Volatile.Read(ref _disposed) != 0)
-                        {
-                            TryDeleteInitScript();
-                        }
                     }
                 });
             }
@@ -1102,12 +1051,6 @@ namespace NovaTerminal.Pty
                         // Dispose() is idempotent so a later disposal still works.
                         _handle.Dispose();
 
-                        // Make the emergency path self-contained rather than deferring to
-                        // the owner's eventual Dispose. If the shell died without sourcing
-                        // the init script, the script would otherwise survive for as long
-                        // as the dead pane stayed open. Safe here: the handle is already
-                        // released, so no shell can be mid-source.
-                        TryDeleteInitScript();
                     }
                     catch (Exception ex)
                     {
@@ -1393,30 +1336,8 @@ namespace NovaTerminal.Pty
                 }
             }
 
-            TryDeleteInitScript();
         }
 
-        /// Removes the init script if one was written. Idempotent and never throws, so it
-        /// is safe to call from both Dispose and the injection task's finally - whichever
-        /// runs last wins, which is what makes the two orderings equivalent.
-        private void TryDeleteInitScript()
-        {
-            string? scriptPath = _powerShellInitScriptPath;
-            if (scriptPath == null) return;
-
-            try
-            {
-                // Normally already gone - the script's last line deletes itself once the
-                // shell sources it, so this is the backstop for the case where the shell
-                // never ran it (spawn failed, session closed first, injection faulted).
-                System.IO.File.Delete(scriptPath);
-            }
-            catch (Exception ex)
-            {
-                // Best effort: a leftover temp script must never fail a disposal.
-                PtyLogger.Warning($"[RustPtySession] PS init script cleanup failed: {ex.Message}");
-            }
-        }
 
         /// Resolves and notifies the exit without letting the attempt escape the caller.
         ///
