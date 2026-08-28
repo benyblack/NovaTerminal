@@ -37,6 +37,69 @@ public sealed class ShotContext
 
     public ShotRun Run { get; }
 
+    public FrameRecorder? Recorder { get; private set; }
+
+    /// <summary>
+    /// Runs <paramref name="body"/> while capturing frames, then encodes WebM and GIF.
+    /// Frames are captured by the scenario calling <c>Recorder.CaptureFrame()</c> between
+    /// steps: a timer-driven recorder would race the dispatcher and drop the frames that
+    /// matter, so the scenario decides when the picture has changed.
+    /// </summary>
+    /// <remarks>
+    /// The frame-count check and the encoding happen after the try/finally, not inside its
+    /// finally, on purpose: a finally that can throw (CA2219) or <c>return</c> out of itself
+    /// (CS0157) does not compile, and even set aside the compiler, a finally that throws its
+    /// own exception silently replaces whatever <paramref name="body"/> failed with - the
+    /// least useful moment to lose that message. Running them after means they execute only
+    /// once <paramref name="body"/> has actually completed; a failed scenario propagates its
+    /// own exception instead and skips encoding, which is what Program.cs's per-scenario catch
+    /// expects. <see cref="Recorder"/> is still always cleared, success or failure, so a later
+    /// scenario never inherits a stale recorder.
+    /// </remarks>
+    public async Task RecordAsync(Func<Task> body, int fps = 20)
+    {
+        string frameDirectory = Path.Combine(Run.OutputDirectory, "frames", _scenario.Spec.Name);
+
+        // Cleared, not just created: ffmpeg's numbered-frame demuxer takes every contiguously
+        // numbered file it finds starting at frame-00000.png, so a previous run's leftover frames
+        // would silently ride along in this run's encode if this run ever produces fewer frames
+        // than that one did - fewer frames this run, not none, because deleting first and letting
+        // FrameRecorder recreate the directory always leaves a contiguous run starting at zero.
+        if (Directory.Exists(frameDirectory))
+        {
+            Directory.Delete(frameDirectory, recursive: true);
+        }
+
+        var recorder = new FrameRecorder(Window, frameDirectory, 1.0);
+        Recorder = recorder;
+
+        try
+        {
+            await body();
+        }
+        finally
+        {
+            Recorder = null;
+        }
+
+        if (recorder.FrameCount == 0)
+        {
+            throw new InvalidOperationException($"'{_scenario.Spec.Name}' recorded no frames.");
+        }
+
+        if (!Encoder.IsAvailable())
+        {
+            Console.Error.WriteLine("[shots] ffmpeg not found; frames kept, clips skipped.");
+            return;
+        }
+
+        string webm = Path.Combine(Run.OutputDirectory, $"{_scenario.Spec.Name}.webm");
+        string gif = Path.Combine(Run.OutputDirectory, $"{_scenario.Spec.Name}.gif");
+
+        Encoder.ToWebm(frameDirectory, webm, fps);
+        Encoder.ToGif(frameDirectory, gif, fps);
+    }
+
     /// <summary>
     /// Opens a tab through MainWindow's own AddTab, so the pane is wired, registered with the
     /// agent-session registry, and themed exactly as a user-opened tab is.
@@ -82,7 +145,8 @@ public sealed class ShotContext
         // Quiet only, deliberately, with no "something changed" phase: there is no action here to
         // sample a baseline before, so the prompt may already be on screen by the time this runs
         // and a change gate would fail a perfectly good pane. The first command's own phase-one
-        // wait is the real gate - it baselines whatever this leaves behind, prompt or blank.
+        // wait does not baseline this, either - it watches the session's own output events, not
+        // the rendered frame, so it has nothing to do with whatever this leaves on screen.
         WaitForQuiet(QuietFor, SettleTimeout, "the shell's first prompt");
 
         return pane;
