@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+printf '\033[38;5;213m  ███╗   ██╗ ██████╗ ██╗   ██╗ █████╗ \033[0m\n'
+printf '\033[38;5;213m  ████╗  ██║██╔═══██╗██║   ██║██╔══██╗\033[0m\n'
+printf '\033[38;5;213m  ██╔██╗ ██║██║   ██║██║   ██║███████║\033[0m\n'
+printf '\033[38;5;177m  ██║╚██╗██║██║   ██║╚██╗ ██╔╝██╔══██║\033[0m\n'
+printf '\033[38;5;177m  ██║ ╚████║╚██████╔╝ ╚████╔╝ ██║  ██║\033[0m\n'
+printf '\n'
+printf '  \033[1mterminal\033[0m   NovaTerminal 0.9.0 (win-x64)\n'
+printf '  \033[1mengine\033[0m     VT parser · conformance matrix 100%%\n'
+printf '  \033[1mrenderer\033[0m   Skia · GPU glyph cache\n'
+printf '  \033[1mbackend\033[0m    Rust PTY\n'
+printf '  \033[1magents\033[0m     MCP observe \033[32m●\033[0m  act \033[32m●\033[0m\n'
+printf '\n'
