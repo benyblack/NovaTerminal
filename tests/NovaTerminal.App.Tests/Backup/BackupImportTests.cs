@@ -60,6 +60,35 @@ public sealed class BackupImportTests
         Assert.Equal(42, settings.RootElement.GetProperty("FontSize").GetInt32());
     }
 
+    /// <summary>
+    /// F4 (Codex review, PR #362): <c>ParseObjectOrThrow</c>'s doc comment says a parse failure
+    /// aborts Phase 1 before any live write — but a syntactically valid JSON document of the WRONG
+    /// ROOT KIND (an array where settings.json must be an object) is not a parse failure;
+    /// <c>JsonNode.Parse</c> succeeds and the failed <c>as JsonObject</c> cast used to just return
+    /// null, which <c>MergeJsonObjectFile</c> then treated identically to "nothing to merge, leave
+    /// live untouched" — Import reported SUCCESS while silently skipping Settings entirely, and
+    /// other categories still applied. Asserts the whole import now fails instead, and that the
+    /// live settings.json is left byte-for-byte untouched — Phase 1 must abort before any live
+    /// write, exactly like every other Phase-1 preparation failure (see
+    /// <c>Import_FailingMidWrite_PreImportSnapshotRestoresOriginalSettings</c> for the mid-COMMIT
+    /// analogue of that same guarantee).
+    /// </summary>
+    [Fact]
+    public void Merge_Settings_BundleSettingsIsWrongJsonRootKind_FailsInsteadOfSilentlySkipping()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        source.WriteFile("settings.json", "[1,2,3]");
+        using var target = BackupTestTree.CreatePopulated();
+        string originalTargetSettings = target.ReadFile("settings.json");
+        string bundle = ExportFrom(source);
+
+        var outcome = new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Merge);
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+        Assert.Equal(originalTargetSettings, target.ReadFile("settings.json"));
+    }
+
     [Fact]
     public void Replace_Settings_DropsLocalOnlyKeys()
     {
@@ -202,6 +231,36 @@ public sealed class BackupImportTests
         Assert.False(target.Exists(Path.Combine("workspace_templates", "dev.json")));
         // The sibling directory in the same category, which the bundle DID carry, still landed.
         Assert.True(target.Exists(Path.Combine("workspaces", "default.json")));
+    }
+
+    /// <summary>
+    /// F3 (Codex review, PR #362): the file-entry analogue of I6 above. A bundle whose Connections
+    /// category carries profiles.json but not native_known_hosts.json passes validation (the
+    /// category has at least one entry), but before this fix the planner only created a swap step
+    /// for a staged file that actually exists — the live native_known_hosts.json survived
+    /// untouched, contradicting Replace's "the bundle becomes the truth for every included
+    /// category". Deletes the source's native_known_hosts.json before exporting so the bundle
+    /// genuinely omits it (rather than exporting an empty one), then asserts Replace removes the
+    /// live file while still landing the bundle's profiles.json.
+    /// </summary>
+    [Fact]
+    public void Replace_ConnectionsBundleOmittingKnownHosts_RemovesLiveKnownHostsFile()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        source.WriteFile(Path.Combine("ssh", "profiles.json"), """{"SchemaVersion":1,"Profiles":[]}""");
+        File.Delete(Path.Combine(source.Root, "ssh", "native_known_hosts.json"));
+
+        using var target = BackupTestTree.CreatePopulated();
+        target.WriteFile(Path.Combine("ssh", "native_known_hosts.json"), """["stale.example ssh-ed25519 AAAA"]""");
+        Assert.True(target.Exists(Path.Combine("ssh", "native_known_hosts.json")));
+
+        string bundle = ExportFrom(source);
+
+        var outcome = new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
+
+        Assert.True(outcome.Success, outcome.Message);
+        Assert.False(target.Exists(Path.Combine("ssh", "native_known_hosts.json")));
+        Assert.True(target.Exists(Path.Combine("ssh", "profiles.json")));
     }
 
     [Fact]

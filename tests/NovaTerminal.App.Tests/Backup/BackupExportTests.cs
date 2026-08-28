@@ -162,6 +162,112 @@ public sealed class BackupExportTests
         Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
     }
 
+    /// <summary>
+    /// F2 (Codex review, PR #362): a destination that resolves onto a live catalog FILE (not a
+    /// directory entry) is the sharpest case - BundleWriter would archive the current
+    /// settings.json into its temp bundle, then <c>File.Move(overwrite: true)</c> replaces the
+    /// live file with ZIP bytes, and Export used to still report success. Asserts both that Export
+    /// now fails AND that the live file's content survives untouched - the second assertion is
+    /// what actually catches a regression back to the old "reject the intent, still clobber the
+    /// file first" bug were the guard placed after BundleWriter ran instead of before it.
+    /// </summary>
+    [Fact]
+    public void Export_ToLiveSettingsFile_IsRejected_AndLeavesTheLiveFileIntact()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        string original = tree.ReadFile("settings.json");
+        var service = new BackupService(tree.Root, FixedClock());
+
+        var outcome = service.Export(Path.Combine(tree.Root, "settings.json"));
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+        Assert.Equal(original, tree.ReadFile("settings.json"));
+    }
+
+    /// <summary>
+    /// Same aliasing hazard, for a directory-shaped catalog entry (Themes): a destination nested
+    /// under "themes/" is still "at-or-under" the catalog source per the finding's wording, even
+    /// though it does not exactly equal the directory itself.
+    ///
+    /// Requests only the Settings category (excluding Themes) so <c>BundleWriter</c> never
+    /// enumerates the themes directory itself - otherwise its own temp-sibling-then-move write
+    /// (the temp file briefly lives right next to the destination) would pick up its own
+    /// in-progress temp file mid-enumeration and fail with an unrelated <c>IOException</c>
+    /// regardless of this guard, defeating the point of a targeted regression test. The guard
+    /// under test here must fire from a full walk of <c>BackupCatalog.Entries</c>, independent of
+    /// which categories were actually requested.
+    /// </summary>
+    [Fact]
+    public void Export_ToPathUnderLiveThemesDirectory_IsRejected()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, FixedClock());
+
+        var outcome = service.Export(
+            Path.Combine(tree.Root, "themes", "sneaky.novabackup"),
+            new[] { BackupCategory.Settings });
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+        Assert.False(File.Exists(Path.Combine(tree.Root, "themes", "sneaky.novabackup")));
+    }
+
+    /// <summary>
+    /// The connections/native_known_hosts.json catalog entry, exercised separately from
+    /// settings.json so the guard is proven to walk every <c>BackupCatalog.Entries</c> row, not
+    /// just the first one checked.
+    /// </summary>
+    [Fact]
+    public void Export_ToLiveConnectionsFile_IsRejected()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, FixedClock());
+
+        var outcome = service.Export(Path.Combine(tree.Root, "ssh", "native_known_hosts.json"));
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+    }
+
+    /// <summary>
+    /// Design decision (documented in the fix's own remarks on
+    /// <c>BackupService.TryDescribeProtectedDestination</c>): <see cref="BackupService.BackupsDirectory"/>
+    /// is rejected too, even though it is not itself a <c>BackupCatalog.Entries</c> source. It is
+    /// where <c>Snapshot</c> writes the pre-import/pre-restore rollback points <c>Restore</c>
+    /// depends on; an Export landing on an existing snapshot's file name would silently destroy
+    /// that rollback point the same way an aliased catalog entry destroys live configuration.
+    /// </summary>
+    [Fact]
+    public void Export_IntoBackupsDirectory_IsRejected()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, FixedClock());
+        Directory.CreateDirectory(service.BackupsDirectory);
+
+        var outcome = service.Export(Path.Combine(service.BackupsDirectory, "sneaky.novabackup"));
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+    }
+
+    /// <summary>
+    /// A destination that merely shares a name PREFIX with a catalog entry (rather than being the
+    /// entry itself or nested under it) must still be allowed - "settings.json.export" is not
+    /// "settings.json", and a naive <c>StartsWith</c> without a separator boundary would wrongly
+    /// reject it.
+    /// </summary>
+    [Fact]
+    public void Export_ToPathWithNamePrefixOfCatalogEntry_IsStillAllowed()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, FixedClock());
+
+        var outcome = service.Export(Path.Combine(tree.Root, "settings.json.export"));
+
+        Assert.True(outcome.Success, outcome.Message);
+    }
+
     private static TimeProvider FixedClock() =>
         new FixedTimeProvider(new DateTimeOffset(2026, 8, 27, 9, 14, 0, TimeSpan.Zero));
 }

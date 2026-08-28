@@ -6320,8 +6320,7 @@ namespace NovaTerminal
             // The preview handlers below mutate _settings directly; without this,
             // closing the dialog without saving left the preview values live, and any
             // later unrelated Save() persisted them to disk.
-            var previewSnapshot = new
-            {
+            var previewSnapshot = new PreviewSnapshot(
                 _settings.WindowOpacity,
                 _settings.BlurEffect,
                 _settings.BackgroundImagePath,
@@ -6329,8 +6328,7 @@ namespace NovaTerminal
                 _settings.BackgroundImageStretch,
                 _settings.FontFamily,
                 _settings.FontSize,
-                _settings.ThemeName
-            };
+                _settings.ThemeName);
 
             // Wire up live preview events
             sw.OnOpacityChanged += (val) => { _settings.WindowOpacity = val; ApplyThemeToUI(); ApplySettingsToAllTabs(); };
@@ -6358,7 +6356,36 @@ namespace NovaTerminal
 
             bool saved = await sw.ShowDialog<bool>(this);
 
-            if (saved)
+            ApplySettingsWindowResult(sw, saved, previewSnapshot);
+        }
+
+        /// <summary>
+        /// F1: a successful Import or Restore run from the Backup page changes settings.json (and
+        /// possibly more) on disk while this dialog is still open (see
+        /// <c>SettingsWindow.ReloadSettingsAfterExternalChange</c>). Before this fix, only the
+        /// <paramref name="saved"/> == true branch below adopted that change; closing the dialog any
+        /// other way - Cancel, or the window's X, both of which surface here as
+        /// <paramref name="saved"/> == false - left <c>_settings</c> pointing at the stale
+        /// PRE-import object. <c>_settings.Save()</c> runs from roughly ten ordinary places in this
+        /// class (e.g. the "Font: Increase" / "Font: Decrease" palette commands), so the very next
+        /// one of those silently overwrote the just-imported configuration on disk.
+        ///
+        /// <see cref="SettingsWindow.ConfigurationReplacedExternally"/> is the signal: when it is
+        /// set, this method takes the <paramref name="saved"/> == true path's handling regardless of
+        /// what <paramref name="saved"/> actually is, so both branches leave <c>MainWindow</c> in
+        /// equivalent state. The plain-Cancel path (no import/restore happened) is unchanged: it
+        /// still reverts the live-previewed fields captured in <paramref name="previewSnapshot"/>.
+        ///
+        /// Pulled out of <see cref="OpenSettings"/> as its own method purely for testability -
+        /// <c>OpenSettings</c> itself reaches a real <c>Window.ShowDialog</c>, which this repo's
+        /// headless test host cannot return from. A test can build a <see cref="SettingsWindow"/>
+        /// through the same reflection seam <c>SettingsWindowBackupSectionTests</c> uses to invoke
+        /// <c>ReloadSettingsAfterExternalChange</c>, then call this method directly with
+        /// <paramref name="saved"/> = false to simulate Cancel/X after a successful import.
+        /// </summary>
+        internal void ApplySettingsWindowResult(SettingsWindow sw, bool saved, PreviewSnapshot previewSnapshot)
+        {
+            if (saved || sw.ConfigurationReplacedExternally)
             {
                 // Use the settings object directly from the dialog to avoid disk I/O race conditions
                 if (sw.Settings != null)
@@ -6406,6 +6433,22 @@ namespace NovaTerminal
                 ApplyTabLayout();
             }
         }
+
+        /// <summary>
+        /// The live-previewed fields <see cref="OpenSettings"/> snapshots before showing the dialog
+        /// (#167), so a plain Cancel can revert them. A named type rather than the anonymous type
+        /// this used to be, so <see cref="ApplySettingsWindowResult"/> can take it as a parameter and
+        /// be called from a test without going through <c>OpenSettings</c> itself.
+        /// </summary>
+        internal readonly record struct PreviewSnapshot(
+            double WindowOpacity,
+            string BlurEffect,
+            string BackgroundImagePath,
+            double BackgroundImageOpacity,
+            string BackgroundImageStretch,
+            string FontFamily,
+            double FontSize,
+            string ThemeName);
 
         private async Task ShowNewSshConnectionDialogAsync(TerminalProfile? existingProfile)
         {

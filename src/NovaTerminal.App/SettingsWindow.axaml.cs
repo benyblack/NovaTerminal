@@ -31,6 +31,18 @@ namespace NovaTerminal
         private TerminalSettings _settings;
         public TerminalSettings Settings => _settings; // Expose for main window to grab without reloading disk
 
+        /// <summary>
+        /// F1: set once a successful Import or Restore has replaced configuration on disk out from
+        /// under this window (see <see cref="ReloadSettingsAfterExternalChange"/>). The owning
+        /// <c>MainWindow.OpenSettings</c> must adopt the reloaded <see cref="Settings"/> regardless
+        /// of how this dialog eventually closes - Save, Cancel, or the window's X - because closing
+        /// any other way than Save previously left <c>MainWindow._settings</c> pointing at the
+        /// stale PRE-import object. Any later ordinary <c>_settings.Save()</c> from MainWindow (e.g.
+        /// the "Font: Increase" palette command) would then silently overwrite the just-imported
+        /// configuration on disk.
+        /// </summary>
+        internal bool ConfigurationReplacedExternally { get; private set; }
+
         private TerminalProfile? _selectedProfile;
         private System.Collections.Generic.List<TerminalProfile> _profilesList = new();
         private Dictionary<string, string> _shortcutDraftBindings = new(StringComparer.OrdinalIgnoreCase);
@@ -1179,6 +1191,12 @@ namespace NovaTerminal
         /// </summary>
         private void ReloadSettingsAfterExternalChange()
         {
+            // F1: record that configuration was replaced externally so MainWindow.OpenSettings can
+            // adopt the reload below no matter how this dialog eventually closes. Set unconditionally
+            // here rather than only in the Import/Restore click handlers, so any current or future
+            // caller of this method gets the same guarantee.
+            ConfigurationReplacedExternally = true;
+
             // Captured before anything below moves on: _selectedProfile currently points at an
             // object inside the PRE-reload _profilesList, which is about to be discarded and
             // rebuilt from fresh TerminalProfile instances. The Id is the only thing that still

@@ -49,6 +49,31 @@ public sealed class BackupService
                 "Destination path must not be empty.");
         }
 
+        // F2: both the CLI and the MCP tool accept an arbitrary destination path. If it resolves
+        // onto (or under) one of the live paths BackupCatalog.Entries actually backs up - e.g.
+        // "<root>/settings.json" - BundleWriter first archives that live file into its temp
+        // bundle, then File.Move(overwrite: true) replaces it with ZIP bytes and Export still
+        // reports success: the export "succeeds" by destroying the very configuration it was
+        // asked to preserve. Caught here, before BundleWriter ever runs, rather than left to
+        // surface as a corrupt settings.json the next time the app starts.
+        //
+        // Only the PUBLIC entry point checks this - Snapshot() below writes into
+        // BackupsDirectory (one of the paths this guard rejects) via ExportCore directly,
+        // deliberately bypassing it. Snapshot is this service's own internal, fully-controlled
+        // write - the id it builds is unique per call (timestamp + content hash), so it can never
+        // collide with an existing snapshot the way an arbitrary caller-supplied path could.
+        if (TryDescribeProtectedDestination(destinationPath, out string? conflictReason))
+        {
+            return BackupOutcome.Fail(
+                BackupFailureKind.WriteFailed,
+                $"Cannot export to '{destinationPath}': {conflictReason}");
+        }
+
+        return ExportCore(destinationPath, categories);
+    }
+
+    private BackupOutcome ExportCore(string destinationPath, IReadOnlyCollection<BackupCategory>? categories)
+    {
         var requested = categories ?? BackupCatalog.AllCategories;
         var present = requested.Where(HasContent).ToArray();
 
@@ -339,7 +364,14 @@ public sealed class BackupService
     }
 
     /// <summary>One live path that Phase 2 will swap for computed/extracted content.</summary>
-    private sealed record SwapStep(BackupCategory Category, string LivePath, string SourcePath, bool IsDirectory);
+    /// <summary>
+    /// One Phase-2 commit step. <paramref name="SourcePath"/> is null for an F3 removal step -
+    /// "this category is selected, the bundle is authoritative for it (Replace mode), and the
+    /// bundle simply omits this file" - in which case the live path is renamed aside by
+    /// <see cref="CommitWithUndo"/> like any other step (so a later category's failure still rolls
+    /// it back) but nothing is moved back into its place, leaving it removed.
+    /// </summary>
+    private sealed record SwapStep(BackupCategory Category, string LivePath, string? SourcePath, bool IsDirectory);
 
     /// <summary>Carries which category was being prepared when Phase 1 failed.</summary>
     private sealed class CategoryPrepareException(BackupCategory category, Exception inner)
@@ -434,6 +466,19 @@ public sealed class BackupService
                         // file straight to Phase 2, unmodified.
                         steps.Add(new SwapStep(category, livePath, stagedPath, IsDirectory: false));
                     }
+                    else if (mode == ImportMode.Replace && File.Exists(livePath))
+                    {
+                        // F3: the file-entry analogue of BuildDirectoryPlan's Replace handling
+                        // above. This category was selected and Replace means the bundle becomes
+                        // the truth for it — a bundle that omits this particular catalog file
+                        // (e.g. Connections carrying profiles.json but not
+                        // native_known_hosts.json) must remove the live file, not leave it as a
+                        // pre-import leftover. Routed through the same commit/undo journal as
+                        // every other step (SourcePath: null means "removal" — see SwapStep and
+                        // CommitWithUndo), so it rolls back exactly like any other step if a later
+                        // category fails.
+                        steps.Add(new SwapStep(category, livePath, SourcePath: null, IsDirectory: false));
+                    }
                 }
                 break;
         }
@@ -517,9 +562,15 @@ public sealed class BackupService
                 // its own rename-aside back, not just the steps that came before it.
                 journal.Add((step.LivePath, undoPath, step.IsDirectory, hadOriginal));
 
-                Directory.CreateDirectory(Path.GetDirectoryName(step.LivePath)!);
-                if (step.IsDirectory) Directory.Move(step.SourcePath, step.LivePath);
-                else File.Move(step.SourcePath, step.LivePath);
+                // F3: a null SourcePath is a removal step - the rename-aside above already
+                // cleared step.LivePath (recorded in the journal for rollback); there is nothing
+                // to move back into its place.
+                if (step.SourcePath is not null)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(step.LivePath)!);
+                    if (step.IsDirectory) Directory.Move(step.SourcePath, step.LivePath);
+                    else File.Move(step.SourcePath, step.LivePath);
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
             {
@@ -581,7 +632,6 @@ public sealed class BackupService
         if (!File.Exists(stagedPath)) return null;
 
         var incoming = ParseObjectOrThrow(stagedPath);
-        if (incoming is null) return null;
 
         var existing = TryParseObject(livePath);
 
@@ -617,7 +667,6 @@ public sealed class BackupService
         if (!File.Exists(stagedPath)) return null;
 
         var incoming = ParseObjectOrThrow(stagedPath);
-        if (incoming is null) return null;
 
         var existing = TryParseObject(livePath);
         if (existing is null)
@@ -683,7 +732,6 @@ public sealed class BackupService
         if (!File.Exists(stagedPath)) return null;
 
         var incoming = ParseArrayOrThrow(stagedPath);
-        if (incoming is null) return null;
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var merged = new JsonArray();
@@ -726,11 +774,41 @@ public sealed class BackupService
         return null;
     }
 
-    /// <summary>Bundle content must be well-formed. Lets a parse failure propagate so Phase 1 aborts before any live write (I4).</summary>
-    private static JsonObject? ParseObjectOrThrow(string path) => JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+    /// <summary>
+    /// Bundle content must be well-formed. Lets a parse failure propagate so Phase 1 aborts before
+    /// any live write (I4). F4: a syntactically valid JSON document whose root is the wrong KIND
+    /// (e.g. an array where an object is required) is not a parse failure - <c>JsonNode.Parse</c>
+    /// succeeds and the failed <c>as JsonObject</c> cast used to just return null, which every
+    /// caller treated identically to "nothing to merge, leave live untouched". That silently
+    /// skipped the whole category instead of aborting the import, so this throws
+    /// <see cref="InvalidDataException"/> instead - caught alongside every other Phase-1
+    /// preparation failure in <see cref="BuildFullPlan"/> and surfaced as a typed
+    /// <see cref="BackupOutcome"/> failure, not an escaped exception.
+    /// </summary>
+    private static JsonObject ParseObjectOrThrow(string path)
+    {
+        var node = JsonNode.Parse(File.ReadAllText(path));
+        return node as JsonObject
+            ?? throw new InvalidDataException(
+                $"'{path}' must contain a JSON object at its root, but found {DescribeJsonRootKind(node)}.");
+    }
 
-    /// <summary>Bundle content must be well-formed. Lets a parse failure propagate so Phase 1 aborts before any live write (I4).</summary>
-    private static JsonArray? ParseArrayOrThrow(string path) => JsonNode.Parse(File.ReadAllText(path)) as JsonArray;
+    /// <summary>Bundle content must be well-formed. Lets a parse failure propagate so Phase 1 aborts before any live write (I4). See <see cref="ParseObjectOrThrow"/>'s remarks on the F4 wrong-root-kind case this also covers.</summary>
+    private static JsonArray ParseArrayOrThrow(string path)
+    {
+        var node = JsonNode.Parse(File.ReadAllText(path));
+        return node as JsonArray
+            ?? throw new InvalidDataException(
+                $"'{path}' must contain a JSON array at its root, but found {DescribeJsonRootKind(node)}.");
+    }
+
+    private static string DescribeJsonRootKind(JsonNode? node) => node switch
+    {
+        null => "a JSON null",
+        JsonArray => "a JSON array",
+        JsonObject => "a JSON object",
+        _ => "a JSON scalar value",
+    };
 
     /// <summary>Malformed or absent LOCAL content must not abort the import — treated as absent so the bundle wins wholesale (I4).</summary>
     private static JsonObject? TryParseObject(string path)
@@ -815,7 +893,10 @@ public sealed class BackupService
 
             Directory.CreateDirectory(BackupsDirectory);
 
-            var outcome = Export(path);
+            // F2: ExportCore, not Export - this write's destination is inside BackupsDirectory,
+            // one of the paths the public Export's guard rejects for an arbitrary caller-supplied
+            // destination. See Export's own remarks on why this internal call is exempt.
+            var outcome = ExportCore(path, categories: null);
             if (!outcome.Success)
             {
                 _log($"[backup] snapshot failed: {outcome.Message}");
@@ -984,6 +1065,77 @@ public sealed class BackupService
 
         info = new SnapshotInfo(id, reason, created, new FileInfo(path).Length, hashToken, path);
         return true;
+    }
+
+    /// <summary>
+    /// F2: true when <paramref name="destinationPath"/> resolves onto, or underneath, a path
+    /// <see cref="BackupCatalog.Entries"/> actually backs up, or underneath
+    /// <see cref="BackupsDirectory"/> itself. <paramref name="reason"/> names which.
+    ///
+    /// Compares fully-resolved paths so a relative destination, a trailing separator, or a
+    /// <c>..</c> segment can't slip past - the same OS-appropriate comparer
+    /// <see cref="BackupCatalog"/> already uses (case-insensitive on Windows, where the live paths
+    /// this guards actually run, case-sensitive elsewhere).
+    ///
+    /// <see cref="BackupsDirectory"/> is rejected too, even though it is not itself a
+    /// <see cref="BackupCatalog.Entries"/> source: it is where <see cref="Snapshot"/> writes the
+    /// pre-import/pre-restore rollback points <see cref="Restore"/> depends on and
+    /// <see cref="ListSnapshots"/>/pruning manage by file name. An export that happened to land on
+    /// an existing snapshot's exact file name (matching by GUID or timestamp is unlikely by
+    /// accident, but the CLI and MCP tool both accept an arbitrary path, so not impossible) would
+    /// silently destroy that rollback point the same way an aliased catalog entry destroys live
+    /// configuration - and pruning already depends on nothing but this service writing into that
+    /// directory, an invariant an arbitrary Export destination would break either way.
+    /// </summary>
+    private bool TryDescribeProtectedDestination(string destinationPath, out string? reason)
+    {
+        string comparableDestination;
+        try
+        {
+            comparableDestination = Path.GetFullPath(destinationPath, RootDirectory);
+        }
+        catch (ArgumentException)
+        {
+            // An invalid path (illegal characters, etc.) is BundleWriter's failure to report -
+            // this guard only cares about a path that resolved successfully onto something live.
+            reason = null;
+            return false;
+        }
+
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        foreach (var entry in BackupCatalog.Entries)
+        {
+            string source = Path.GetFullPath(BackupCatalog.ResolveSource(RootDirectory, entry));
+            if (IsSameOrUnder(comparableDestination, source, comparison))
+            {
+                reason = $"it is the live '{entry.SourceRelativePath}' NovaTerminal backs up (or a path under it); " +
+                    "exporting there would overwrite it with the bundle before the export finished writing.";
+                return true;
+            }
+        }
+
+        string backupsDirectory = Path.GetFullPath(BackupsDirectory);
+        if (IsSameOrUnder(comparableDestination, backupsDirectory, comparison))
+        {
+            reason = "it is inside the backups directory NovaTerminal manages for snapshots; " +
+                "exporting there could silently overwrite an existing snapshot.";
+            return true;
+        }
+
+        reason = null;
+        return false;
+    }
+
+    private static bool IsSameOrUnder(string candidate, string ancestor, StringComparison comparison)
+    {
+        string candidateNormalized = candidate.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string ancestorNormalized = ancestor.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        return string.Equals(candidateNormalized, ancestorNormalized, comparison)
+            || candidateNormalized.StartsWith(ancestorNormalized + Path.DirectorySeparatorChar, comparison);
     }
 
     /// <summary>True when at least one file exists on disk for this category.</summary>

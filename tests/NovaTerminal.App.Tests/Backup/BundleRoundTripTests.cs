@@ -228,6 +228,56 @@ public sealed class BundleRoundTripTests
         Assert.Equal(BackupFailureKind.NotABackup, outcome.Failure);
     }
 
+    /// <summary>
+    /// F5 (Codex review, PR #362): <c>BackupManifest.Categories</c> has an
+    /// <c>= Array.Empty&lt;string&gt;()</c> initializer, but System.Text.Json overwrites it when the
+    /// JSON explicitly says <c>"categories": null</c> — the initializer only runs when the property
+    /// is absent, not when it is present-but-null. Before this fix, <c>Open</c>'s
+    /// <c>foreach (string name in manifest.Categories)</c> then threw <see cref="NullReferenceException"/>,
+    /// which this method's catch clauses (<c>JsonException</c>, <c>InvalidDataException</c>,
+    /// <c>IOException</c>) do not cover — an untrusted bundle could crash the Settings click handler
+    /// or the CLI instead of getting the typed <see cref="BackupFailureKind.NotABackup"/> this test
+    /// asserts on. <c>Assert.False</c>/<c>Assert.Equal</c> below would themselves have thrown the
+    /// escaped <c>NullReferenceException</c> pre-fix, rather than failing normally — which is the
+    /// point: this is exactly the "faults the caller" failure mode the finding describes.
+    /// </summary>
+    [Fact]
+    public void Open_RejectsManifestWithNullCategories()
+    {
+        using var tree = BackupTestTree.CreateEmpty();
+        string bundle = Path.Combine(tree.Root, "null-categories.novabackup");
+        WriteManifestOnlyBundle(
+            bundle,
+            """{"schemaVersion":1,"appVersion":"1.0.0","createdUtc":"2026-08-27T00:00:00+00:00","machine":"X","categories":null}""");
+
+        var outcome = BundleReader.Open(bundle);
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.NotABackup, outcome.Failure);
+    }
+
+    /// <summary>
+    /// Same exposure, for <c>AppVersion</c> — a non-nullable string with a <c>= string.Empty</c>
+    /// initializer that System.Text.Json overrides identically to <c>Categories</c> above. Nothing
+    /// dereferences <c>Manifest.AppVersion</c> unsafely today, but the fix validates it for the
+    /// same reason it validates <c>Machine</c>: consistency, and closing the exposure before some
+    /// future caller adds an unguarded use.
+    /// </summary>
+    [Fact]
+    public void Open_RejectsManifestWithNullAppVersion()
+    {
+        using var tree = BackupTestTree.CreateEmpty();
+        string bundle = Path.Combine(tree.Root, "null-app-version.novabackup");
+        WriteManifestOnlyBundle(
+            bundle,
+            """{"schemaVersion":1,"appVersion":null,"createdUtc":"2026-08-27T00:00:00+00:00","machine":"X","categories":["settings"]}""");
+
+        var outcome = BundleReader.Open(bundle);
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.NotABackup, outcome.Failure);
+    }
+
     [Fact]
     public void Open_RejectsNewerSchemaVersion()
     {

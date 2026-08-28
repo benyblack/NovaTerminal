@@ -50,6 +50,26 @@ public static class BundleReader
                     $"{Path.GetFileName(bundlePath)} has an empty manifest.");
             }
 
+            // F5: BackupManifest declares Categories/AppVersion/Machine as non-nullable with
+            // initializers ("= Array.Empty<string>()", "= string.Empty"), but System.Text.Json
+            // overwrites the initializer whenever the JSON explicitly carries a null for that
+            // property — the initializer only ever runs when the property is absent entirely.
+            // An untrusted bundle's manifest.json saying `"categories": null` used to sail
+            // through here with a null Categories; the foreach below then threw
+            // NullReferenceException, which this method's catch clauses (JsonException,
+            // InvalidDataException, IOException) do not cover — it escaped Open() and could
+            // fault whatever called it (the Settings click handler, or the CLI) instead of
+            // returning the typed NotABackup this method exists to produce. AppVersion and
+            // Machine carry the identical exposure — nothing dereferences them unsafely today,
+            // but validating all three here, consistently, closes it before some future caller
+            // does.
+            if (manifest.Categories is null || manifest.AppVersion is null || manifest.Machine is null)
+            {
+                return InspectOutcome.Fail(
+                    BackupFailureKind.NotABackup,
+                    $"{Path.GetFileName(bundlePath)} has a malformed manifest — a required field is missing.");
+            }
+
             if (manifest.SchemaVersion > BackupManifest.CurrentSchemaVersion)
             {
                 return InspectOutcome.Fail(
