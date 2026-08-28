@@ -26,8 +26,31 @@ SSH profile, known-host entry, command history and workspace.
 
 **Do not "tidy" the packId to match the app name.** `--packTitle` is what the user sees in
 shortcuts and Add/Remove Programs; only nupkg file names and the install directory derive from
-`--packId`. Note also that a packId *is* the app's identity to the updater, so changing it after
-a release ships orphans every installed client.
+`--packId`.
+
+### Changing the packId orphans installed clients, and does it silently
+
+A packId is the app's identity to the updater, so it can only be changed before a release
+ships. What makes this dangerous is *how* it fails — observed for real when 0.5.0 shipped
+under a new packId while a tester had a 0.4.1 build installed under the old one:
+
+- **The old client is still offered the new release.** `UpdateManager.CheckForUpdatesAsync`
+  is a bare `feed.Where(Full).MaxBy(x => x.Version)` — it does **not** compare the feed's
+  `PackageId` against the installed app's id. The client fetches the latest non-prerelease
+  release's `releases.win.json`, sees a higher version, and raises an update toast across
+  the packId boundary.
+- **The update is not a no-op it can recover from.** Applying it leaves the client running
+  new code out of the *old* install root — which, for a packId that matched the app name,
+  is the config root. That machine is then permanently in the state this whole document
+  exists to prevent, and no later update moves it out.
+- **There is no in-band fix.** Deleting the old release does not help: the client reads the
+  latest release's feed regardless of which release it was installed from. The only clean
+  path is manual — back up the config root, uninstall, reinstall from the new `Setup.exe`,
+  restore.
+
+So a packId change is a **breaking, un-migratable** change for anyone already installed.
+Before making one, confirm nobody has the old id installed — including from throwaway test
+releases, which is exactly the case that got missed.
 
 ## Secrets live outside the config root
 
