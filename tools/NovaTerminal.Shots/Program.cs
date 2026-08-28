@@ -71,9 +71,22 @@ public static class Program
                         // Before Close(), not after and not instead: closing the window tears down
                         // timers and the agent host but leaves every pane - and every shell - alive,
                         // and this process outlives the scenario.
-                        context.DisposePanes();
-                        window.Close();
-                        driver.Pump(3);
+                        //
+                        // window.Close() is nested in its own finally so it runs even if
+                        // DisposePanes() throws (its WaitFor has a 30s deadline; InvokePrivate
+                        // throws if DisposeAllTabs is ever renamed). Skipping Close() then skips
+                        // PerformAppTeardown entirely, and its timers, global hotkey and
+                        // agent-host hooks would stay live into the next scenario's MainWindow -
+                        // which matters once a scenario drives the agent host.
+                        try
+                        {
+                            context.DisposePanes();
+                        }
+                        finally
+                        {
+                            window.Close();
+                            driver.Pump(3);
+                        }
                     }
                 });
 

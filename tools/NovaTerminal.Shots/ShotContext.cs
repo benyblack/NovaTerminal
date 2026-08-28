@@ -208,9 +208,13 @@ public sealed class ShotContext
             return;
         }
 
+        // Every pane in every tab, not just the first per tab: a split tab (hero-split, Task 10)
+        // holds more than one TerminalPane, and FindPane's Panel case only returns the first
+        // match. Missing the siblings does not leak anything - DisposeAllTabs still walks and
+        // disposes the whole content tree below - but it weakens the wait below to "the first
+        // pane per tab is gone", which is not the guarantee DemoWorld.Dispose depends on.
         ITerminalSession[] sessions = tabs.Items.OfType<TabItem>()
-            .Select(FindPane)
-            .OfType<TerminalPane>()
+            .SelectMany(FindPanes)
             .Select(pane => pane.Session)
             .OfType<ITerminalSession>()
             .ToArray();
@@ -223,13 +227,39 @@ public sealed class ShotContext
             "the scenario's shells to exit after their panes were disposed");
     }
 
+    /// <summary>Every TerminalPane reachable from <paramref name="control"/>, not just the first.</summary>
+    private static IEnumerable<TerminalPane> FindPanes(Control control) => control switch
+    {
+        TerminalPane pane => [pane],
+        ContentControl content when content.Content is Control inner => FindPanes(inner),
+        Decorator decorator when decorator.Child is Control child => FindPanes(child),
+        Panel panel => panel.Children.OfType<Control>().SelectMany(FindPanes),
+        _ => []
+    };
+
     /// <summary>Captures the window and records it in the run manifest.</summary>
     public void Capture(string? suffix = null)
     {
         string name = suffix is null ? _scenario.Spec.Name : $"{_scenario.Spec.Name}-{suffix}";
+        CaptureAndRecord(Window, name);
+    }
+
+    /// <summary>
+    /// Captures a window other than the main one — the settings window is its own Window, so
+    /// it never appears in a MainWindow frame.
+    /// </summary>
+    public void CaptureOther(Window window, string suffix)
+    {
+        string name = $"{_scenario.Spec.Name}-{suffix}";
+        CaptureAndRecord(window, name);
+    }
+
+    /// <summary>Shared body of <see cref="Capture"/> and <see cref="CaptureOther"/>.</summary>
+    private void CaptureAndRecord(Window window, string name)
+    {
         string path = Path.Combine(Run.OutputDirectory, $"{name}@{Run.Scale:0}x.png");
 
-        using SKBitmap bitmap = Rasterizer.CaptureWindow(Window, Run.Scale);
+        using SKBitmap bitmap = Rasterizer.CaptureWindow(window, Run.Scale);
 
         double ink = Rasterizer.InkFraction(bitmap);
         if (ink < 0.01)

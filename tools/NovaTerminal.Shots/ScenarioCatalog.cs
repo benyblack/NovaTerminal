@@ -6,7 +6,8 @@ public static class ScenarioCatalog
 {
     private static readonly IScenario[] Scenarios =
     [
-        new HeroSingleScenario()
+        new HeroSingleScenario(),
+        new SettingsAgentAccessScenario()
     ];
 
     public static IReadOnlyList<IScenario> All() => Scenarios;

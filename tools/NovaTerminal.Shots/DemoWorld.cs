@@ -284,7 +284,15 @@ public sealed class DemoWorld : IDisposable
             // README, in a docs page, as a gallery thumbnail - and at 14 the transcript stops being
             // readable well before the image stops being shown. 18 survives that scaling, and it is
             // what presenters and screencasts use for the same reason. Every scenario inherits it.
-            FontSize = 18
+            FontSize = 18,
+
+            // The agent scenarios photograph these toggles; the rest of the catalogue is
+            // unaffected by them being on. Observe-on/act-off is the honest default - the one
+            // that makes the separate opt-in legible - so it is the baseline every scenario
+            // inherits, not a one-off override. A scenario that needs something else (the
+            // act-toggle-on half of the agent story) overrides it via customize below.
+            AgentAccessObserveEnabled = true,
+            AgentAccessActEnabled = false
         };
 
         settings.Profiles.Clear();
