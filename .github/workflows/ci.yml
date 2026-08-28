@@ -625,7 +625,7 @@ jobs:
           # why. set -x records the resolved command so a failure explains itself.
           set -x
           dotnet --version
-          filter="Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
+          filter="Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng&Category!=ShotsSmoke"
           # Which projects are measured, and why these:
           #
           # Architecture.Tests is deliberately absent. It has no coverlet.collector
