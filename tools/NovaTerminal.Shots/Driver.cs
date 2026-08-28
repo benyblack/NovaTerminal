@@ -52,6 +52,24 @@ public sealed class Driver
         ?? throw new InvalidOperationException(
             $"No control named '{name}' of type {typeof(T).Name}. The markup changed — update the scenario.");
 
+    // CA1822 is deliberately suppressed for the same reason as Pump's: RequireIn reads no
+    // instance state, but it is an instance member so it reads the same as Require<T> above
+    // rather than as an unrelated static helper a scenario would have to call through the type.
+#pragma warning disable CA1822
+    /// <summary>
+    /// Same as <see cref="Require{T}(string)"/> but scoped to <paramref name="root"/>'s own tree
+    /// rather than the whole window. Some names exist on more than one surface at once — e.g.
+    /// SearchPanel/SearchCount exist both on MainWindow and inside every TerminalPane — so a
+    /// window-rooted lookup would silently find whichever instance FindControl happens to walk to
+    /// first, not necessarily the one a scenario just opened.
+    /// </summary>
+    public T RequireIn<T>(Control root, string name) where T : Control =>
+        root.FindControl<T>(name)
+        ?? throw new InvalidOperationException(
+            $"No control named '{name}' of type {typeof(T).Name} inside {root.GetType().Name}. " +
+            "The markup changed — update the scenario.");
+#pragma warning restore CA1822
+
     public object? InvokePrivate(object target, string method, params object?[] arguments)
     {
         MethodInfo info = target.GetType().GetMethod(
