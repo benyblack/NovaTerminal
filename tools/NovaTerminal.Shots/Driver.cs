@@ -73,11 +73,18 @@ public sealed class Driver
     {
         DateTime deadline = DateTime.UtcNow + timeout;
 
-        while (DateTime.UtcNow < deadline)
+        // Check-first: condition() is always evaluated at least once, even with a zero or
+        // negative timeout, so a condition that is already true never reports a timeout.
+        while (true)
         {
             if (condition())
             {
                 return;
+            }
+
+            if (DateTime.UtcNow >= deadline)
+            {
+                break;
             }
 
             pump();

@@ -22,4 +22,13 @@ public sealed class DriverWaitTests
 
         Assert.Equal(3, calls);
     }
+
+    [Fact]
+    public void WaitFor_ChecksTheConditionAtLeastOnceEvenWithAZeroTimeout()
+    {
+        // A zero timeout must not skip the check: a condition that is already true when
+        // WaitFor is called must return normally, never report a timeout on something that
+        // already happened.
+        Driver.WaitFor(() => true, TimeSpan.Zero, "an already-satisfied condition", pump: () => { });
+    }
 }
