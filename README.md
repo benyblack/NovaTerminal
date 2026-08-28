@@ -265,6 +265,12 @@ Enforced invariants (`NovaTerminal.Architecture.Tests`): `VT` is a leaf with zer
   [`docs/RENDERING_PERF_CONTRACT.md`](docs/RENDERING_PERF_CONTRACT.md).
   Historical design context:
   [`docs/gpu-hardening/`](docs/gpu-hardening/).
+- **Configuration storage contract** — where user state lives, what an update
+  versus an uninstall deletes, why the Velopack `packId` deliberately differs
+  from the app name, and why secrets are not in the config folder. Read before
+  building anything that reads or writes user configuration (backup/restore,
+  export/import, sync, migrations). See
+  [`docs/CONFIG_STORAGE_CONTRACT.md`](docs/CONFIG_STORAGE_CONTRACT.md).
 
 ---
 

@@ -12,6 +12,7 @@ public static class ShortcutCatalog
         new("settings", "Settings", "General", ShortcutScope.App, "Ctrl+,"),
         new("connections", "Connection Manager", "General", ShortcutScope.App, "Ctrl+Shift+K"),
         new("new_tab", "New Tab", "General", ShortcutScope.App, "Ctrl+Shift+T"),
+        new("toggle_tab_orientation", "Tabs: Toggle Vertical Tab Sidebar", "General", ShortcutScope.App, "Ctrl+Shift+L"),
         new("close_tab", "Close Tab", "General", ShortcutScope.App, "Ctrl+W"),
         new("next_tab", "Tab: Next (MRU)", "General", ShortcutScope.App, "Ctrl+Tab"),
         new("prev_tab", "Tab: Previous (MRU)", "General", ShortcutScope.App, "Ctrl+Shift+Tab"),

@@ -118,6 +118,7 @@ NovaTerminal.McpServer  ── local IPC (named pipe / unix socket) ──▶  N
 |---|---|---|
 | list sessions, read screen/scrollback, session status | off | user enables Agent Access (observe) |
 | notifications (completion / stall) | off | same toggle |
+| live indicators (pane status segment, tab marker, window light) | off | tied to observe / act; cannot be silenced separately |
 | send input, spawn/close sessions & panes | off | separate explicit opt-in, per-profile allowlist for SSH |
 | replay export | off | observe permission + explicit export action |
 | screenshot (render a pane to PNG) | off | observe permission + explicit screenshot opt-in |

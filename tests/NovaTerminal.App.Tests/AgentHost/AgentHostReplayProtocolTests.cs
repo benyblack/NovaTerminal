@@ -292,6 +292,52 @@ public class AgentHostReplayProtocolTests : IDisposable
     }
 
     [Fact]
+    public void An_allowed_export_marks_the_pane_watched()
+    {
+        // exportReplay writes the pane's entire flight recording to disk -
+        // strictly more disclosure than readScreen, which marks the pane, and
+        // comparable to captureScreen, which marks it too. It used to mark
+        // nothing, so an agent could take the whole scrollback of a pane with
+        // no bar and no glyph and leave no live trace at all.
+        var registry = new AgentSessionRegistry();
+        var registration = Register(registry);
+        var session = new FlightStubSession();
+        registration.SetLifecycle(session);
+        registration.EnableFlightRecording(AgentHostProtocol.FlightRecorderMaxBytesPerSession);
+        session.FeedOutput("secret output");
+
+        using var service = NewService(registry);
+        service.ReplayExportEnabled = true;
+
+        var response = Handle(service, ExportRequestLine(registration.PaneId));
+
+        Assert.Null(response.Error);
+        Assert.Equal(AgentAttentionTier.Watched, registration.AttentionMachine.Snapshot().Tier);
+    }
+
+    [Fact]
+    public void A_denied_export_marks_nothing()
+    {
+        // The mark sits after the replay-export sub-toggle check, mirroring how
+        // captureScreen sequences its own: a denied export discloses nothing,
+        // so it must not claim the pane was read.
+        var registry = new AgentSessionRegistry();
+        var registration = Register(registry);
+        var session = new FlightStubSession();
+        registration.SetLifecycle(session);
+        registration.EnableFlightRecording(AgentHostProtocol.FlightRecorderMaxBytesPerSession);
+        session.FeedOutput("secret output");
+
+        using var service = NewService(registry);
+        service.ReplayExportEnabled = false;
+
+        var response = Handle(service, ExportRequestLine(registration.PaneId));
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.ExportDisabled, response.Error?.Code);
+        Assert.Equal(AgentAttentionTier.Idle, registration.AttentionMachine.Snapshot().Tier);
+    }
+
+    [Fact]
     public void Export_for_unknown_pane_reports_session_not_found()
     {
         using var service = NewService(new AgentSessionRegistry());

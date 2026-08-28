@@ -10,8 +10,49 @@ namespace NovaTerminal.Shell
         void ApplyRememberPasswordPreference(TerminalProfile profile, bool rememberPasswordInVault, string? password = null);
     }
 
+    /// <summary>
+    /// Read/clear access to the password a profile has saved in the OS credential store.
+    /// </summary>
+    /// <remarks>
+    /// Both members operate on <em>profile-scoped</em> keys only — the canonical
+    /// <c>SSH:PROFILE:{guid}</c> key plus legacy keys <em>derived from this profile's current
+    /// Name/SshUser/SshHost</em> (see <see cref="VaultService.GetLegacySshKeys"/>), not from
+    /// its id. The shared <c>SSH:{user}@{host}</c> alias is excluded on purpose: sibling
+    /// profiles on the same host resolve through it, so clearing it here would silently break
+    /// them.
+    ///
+    /// Consequence: a password stored <em>only</em> under that shared alias reports
+    /// <see cref="HasSavedPassword"/> as <see langword="false"/> even though
+    /// <see cref="VaultService.ResolveSshPasswordForProfile"/> will still auto-fill from it at
+    /// connect time. Such a secret migrates to a profile-scoped key on first use, after which
+    /// this reports correctly. That is a legacy-store artifact, and preferable to letting one
+    /// profile delete another's password.
+    ///
+    /// Because the legacy keys are name-derived rather than id-derived, two further quirks
+    /// follow. First, two profiles that happen to share identical Name + SshUser + SshHost
+    /// share that legacy key too, so forgetting or deleting one clears a key the sibling also
+    /// resolves through — the same failure mode the shared-alias exclusion above was designed
+    /// to prevent, reached through a narrower door. Second, if a profile was renamed (or its
+    /// SshUser/SshHost changed) after a legacy secret was written under the old values,
+    /// <see cref="ForgetSavedPassword"/> can no longer derive that key and the secret stays in
+    /// the OS credential store permanently; it is inert
+    /// (<see cref="VaultService.ResolveSshPasswordForProfile"/> derives the same name-based
+    /// keys and also cannot find it) but it is never removed.
+    /// </remarks>
+    public interface ISavedPasswordAccess
+    {
+        /// <summary>True when the underlying credential store can be read and written.</summary>
+        bool IsVaultAvailable { get; }
+
+        /// <summary>True when a profile-scoped password is stored for <paramref name="profile"/>.</summary>
+        bool HasSavedPassword(TerminalProfile profile);
+
+        /// <summary>Clears every profile-scoped password key; true if anything was removed.</summary>
+        bool ForgetSavedPassword(TerminalProfile profile);
+    }
+
     public class VaultService
-        : ISshPasswordVault
+        : ISshPasswordVault, ISavedPasswordAccess
     {
         private readonly ISecretStore _store;
 
@@ -25,6 +66,38 @@ namespace NovaTerminal.Shell
         }
 
         public bool PersistenceAvailable => _store.IsAvailable;
+
+        public bool IsVaultAvailable => _store.IsAvailable;
+
+        public bool HasSavedPassword(TerminalProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            // GetSecret, not ResolveSshPasswordForProfile: the latter migrates a legacy hit
+            // to the canonical key, and this runs on every selection change in the UI.
+            foreach (string key in GetProfileScopedSshPasswordKeysForProfile(profile))
+            {
+                if (!string.IsNullOrEmpty(GetSecret(key)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool ForgetSavedPassword(TerminalProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            bool removedAny = false;
+            foreach (string key in GetProfileScopedSshPasswordKeysForProfile(profile))
+            {
+                removedAny |= RemoveSecret(key);
+            }
+
+            return removedAny;
+        }
 
         public static string GetCanonicalSshProfileKey(Guid profileId)
         {

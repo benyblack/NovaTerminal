@@ -2802,6 +2802,14 @@ namespace NovaTerminal
             if (agentScreenshotToggle != null) agentScreenshotToggle.IsChecked = _settings.AgentScreenshotEnabled;
             var agentAccessActToggle = this.FindControl<CheckBox>("AgentAccessActToggle");
             if (agentAccessActToggle != null) agentAccessActToggle.IsChecked = _settings.AgentAccessActEnabled;
+            var agentIndicatorTabRollupList = this.FindControl<ComboBox>("AgentIndicatorTabRollupList");
+            if (agentIndicatorTabRollupList != null)
+            {
+                agentIndicatorTabRollupList.SelectedItem = agentIndicatorTabRollupList.Items
+                    .Cast<ComboBoxItem>()
+                    .FirstOrDefault(item => string.Equals(item.Content?.ToString(), _settings.AgentIndicatorTabRollup, StringComparison.Ordinal));
+                if (agentIndicatorTabRollupList.SelectedItem == null) agentIndicatorTabRollupList.SelectedIndex = 0;
+            }
             var longCommandNotificationsToggle = this.FindControl<CheckBox>("LongCommandNotificationsToggle");
             if (longCommandNotificationsToggle != null) longCommandNotificationsToggle.IsChecked = _settings.LongCommandNotificationsEnabled;
             var automaticUpdateChecksToggle = this.FindControl<CheckBox>("AutomaticUpdateChecksToggle");
@@ -2876,6 +2884,20 @@ namespace NovaTerminal
                     }
                 }
                 if (blurList.SelectedItem == null && blurList.ItemCount > 0) blurList.SelectedIndex = 0;
+            }
+
+            var tabOrientationList = this.FindControl<ComboBox>("TabOrientationList");
+            if (tabOrientationList != null)
+            {
+                foreach (ComboBoxItem item in tabOrientationList.Items.Cast<ComboBoxItem>())
+                {
+                    if (string.Equals(item.Content?.ToString(), _settings.TabStripOrientation, StringComparison.OrdinalIgnoreCase))
+                    {
+                        tabOrientationList.SelectedItem = item;
+                        break;
+                    }
+                }
+                if (tabOrientationList.SelectedItem == null && tabOrientationList.ItemCount > 0) tabOrientationList.SelectedIndex = 0;
             }
 
             if (bgStretchList != null)
@@ -3059,6 +3081,11 @@ namespace NovaTerminal
             if (agentScreenshotToggle != null) _settings.AgentScreenshotEnabled = agentScreenshotToggle.IsChecked == true;
             var agentAccessActToggle = this.FindControl<CheckBox>("AgentAccessActToggle");
             if (agentAccessActToggle != null) _settings.AgentAccessActEnabled = agentAccessActToggle.IsChecked == true;
+            var agentIndicatorTabRollupList = this.FindControl<ComboBox>("AgentIndicatorTabRollupList");
+            if (agentIndicatorTabRollupList?.SelectedItem is ComboBoxItem agentRollupItem)
+            {
+                _settings.AgentIndicatorTabRollup = agentRollupItem.Content?.ToString() ?? "WritesOnly";
+            }
             var longCommandNotificationsToggle = this.FindControl<CheckBox>("LongCommandNotificationsToggle");
             if (longCommandNotificationsToggle != null) _settings.LongCommandNotificationsEnabled = longCommandNotificationsToggle.IsChecked == true;
             var automaticUpdateChecksToggle = this.FindControl<CheckBox>("AutomaticUpdateChecksToggle");
@@ -3072,6 +3099,10 @@ namespace NovaTerminal
 
             if (blurList?.SelectedItem is ComboBoxItem blurItem)
                 _settings.BlurEffect = blurItem.Content?.ToString() ?? "Acrylic";
+
+            var tabOrientationList = this.FindControl<ComboBox>("TabOrientationList");
+            if (tabOrientationList?.SelectedItem is ComboBoxItem tabOrientationItem)
+                _settings.TabStripOrientation = tabOrientationItem.Content?.ToString() ?? "Horizontal";
 
             if (bgPathInput != null) _settings.BackgroundImagePath = bgPathInput.Text ?? "";
             if (bgOpacitySlider != null) _settings.BackgroundImageOpacity = bgOpacitySlider.Value;

@@ -123,6 +123,14 @@
             <Setter Property="Foreground" Value="{StaticResource NtRed}"/>
         </Style>
 
+        <!-- Favourite toggle's "on" state. This replaces a separate yellow indicator star that
+             used to sit beside the title: once the toggle moved into the title row the two would
+             have been adjacent stars meaning different things, so one control now carries both
+             the action and the state. Unset, the icon inherits IconBtn's Foreground. -->
+        <Style Selector="PathIcon.favOn">
+            <Setter Property="Foreground" Value="{StaticResource NtYellow}"/>
+        </Style>
+
         <!-- Filter chip toggle -->
         <Style Selector="ToggleButton.Chip">
             <Setter Property="Background" Value="Transparent"/>
@@ -481,7 +489,14 @@
                         BorderThickness="0,0,0,1"
                         Padding="24,20,24,16">
                     <StackPanel Spacing="6">
-                        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto">
+                        <!-- Title row. The title column is `*` with ellipsis trimming, NOT Auto: an Auto
+                             column grows with a long connection name and would push the icon cluster and the
+                             status badge out of the panel, which is the clipping failure this panel already
+                             had once. The title yields instead.
+                             The secondary icon cluster lives here rather than in the action bar below, filling
+                             the void that used to sit between the title and the IDLE badge. That keeps the
+                             action bar a single row and puts destructive Delete far from the primary Open. -->
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                             <Ellipse Width="10" Height="10" Fill="{StaticResource NtFg4}" VerticalAlignment="Center"/>
                             <TextBlock Grid.Column="1"
                                        Name="DetailTitle"
@@ -489,19 +504,36 @@
                                        Text="—"
                                        FontSize="20"
                                        FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis"
                                        Foreground="{StaticResource NtFg}"
                                        VerticalAlignment="Center"/>
-                            <PathIcon Grid.Column="2"
-                                      Name="DetailFavStar"
-                                      Margin="10,0,0,0"
-                                      Data="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z"
-                                      Width="16" Height="16"
-                                      Foreground="{StaticResource NtYellow}"
-                                      IsVisible="False"
-                                      VerticalAlignment="Center"/>
-                            <StackPanel Grid.Column="4"
+                            <WrapPanel Grid.Column="2"
+                                       Name="DetailActionBarIcons"
+                                       Orientation="Horizontal"
+                                       Margin="16,0,0,0"
+                                       VerticalAlignment="Center"
+                                       ItemSpacing="6"
+                                       LineSpacing="6">
+                                <Button Classes="IconBtn" Click="OnFavoriteClick" ToolTip.Tip="Toggle favorite">
+                                    <PathIcon Name="DetailFavStar" Data="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z" Width="14" Height="14"/>
+                                </Button>
+                                <Button Classes="IconBtn" Click="OnEditClick" ToolTip.Tip="Edit connection">
+                                    <PathIcon Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z" Width="14" Height="14"/>
+                                </Button>
+                                <Button Classes="IconBtn" Click="OnCopyCommandClick" ToolTip.Tip="Copy launch command">
+                                    <PathIcon Data="M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M19,21H8V7H19V21Z" Width="14" Height="14"/>
+                                </Button>
+                                <Button Classes="IconBtn" Click="OnDetailsClick" ToolTip.Tip="Connection details">
+                                    <PathIcon Data="M11,17H13V11H11M12,9A1,1 0 0,0 13,8A1,1 0 0,0 12,7A1,1 0 0,0 11,8A1,1 0 0,0 12,9M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" Width="14" Height="14"/>
+                                </Button>
+                                <Button Classes="IconBtn Danger" Click="OnDeleteClick" ToolTip.Tip="Delete connection">
+                                    <PathIcon Data="M9,3V4H4V6H5V19A2,2 0 0,0 7,21H17A2,2 0 0,0 19,19V6H20V4H15V3H9M7,6H17V19H7V6M9,8V17H11V8H9M13,8V17H15V8H13Z" Width="14" Height="14"/>
+                                </Button>
+                            </WrapPanel>
+                            <StackPanel Grid.Column="3"
                                         Orientation="Horizontal"
                                         Spacing="6"
+                                        Margin="16,0,0,0"
                                         VerticalAlignment="Center">
                                 <Ellipse Width="8" Height="8" Fill="{StaticResource NtFg4}" VerticalAlignment="Center"/>
                                 <TextBlock Text="IDLE"
@@ -518,10 +550,18 @@
                                    FontSize="13"
                                    Foreground="{StaticResource NtFg3}"/>
 
-                        <!-- Action bar -->
-                        <Grid Margin="0,10,0,0" ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto">
-                            <Button Grid.Column="0"
-                                    Classes="Primary"
+                        <!-- Action bar: the launch actions only. The secondary icon cluster moved up into the
+                             title row, so this is a single row again.
+                             Still a WrapPanel, not a fixed-column Grid: the detail panel is ~516px (the overlay
+                             is MaxWidth=1080 and this column gets 3/5 of width-220), and a Grid here previously
+                             arranged the trailing controls outside the panel where they were clipped and
+                             unreachable. Wrapping degrades instead of hiding. -->
+                        <WrapPanel Name="DetailActionBar"
+                                   Margin="0,10,0,0"
+                                   Orientation="Horizontal"
+                                   ItemSpacing="6"
+                                   LineSpacing="6">
+                            <Button Classes="Primary"
                                     Click="OnOpenCurrentClick"
                                     ToolTip.Tip="Open in current pane">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -529,30 +569,15 @@
                                     <TextBlock Text="Open"/>
                                 </StackPanel>
                             </Button>
-                            <Button Grid.Column="1" Classes="Pill" Margin="6,0,0,0" Content="+ Tab"     Click="OnOpenNewTabClick"/>
-                            <Button Grid.Column="2" Classes="Pill" Margin="6,0,0,0" Content="Split ⇒"   Click="OnSplitHorizontalClick"/>
-                            <Button Grid.Column="3" Classes="Pill" Margin="6,0,0,0" Content="Split ⇓"   Click="OnSplitVerticalClick"/>
+                            <Button Classes="Pill" Content="+ Tab"   Click="OnOpenNewTabClick"/>
+                            <Button Classes="Pill" Content="Split &#x21D2;" Click="OnSplitHorizontalClick"/>
+                            <Button Classes="Pill" Content="Split &#x21D3;" Click="OnSplitVerticalClick"/>
 
                             <ComboBox Name="DiagnosticsCombo"
-                                      Grid.Column="5"
                                       Classes="Diag"
                                       Width="130"
-                                      Margin="6,0,8,0"
                                       ToolTip.Tip="Diagnostics level"/>
-
-                            <Button Grid.Column="6" Classes="IconBtn" Click="OnFavoriteClick" ToolTip.Tip="Toggle favorite">
-                                <PathIcon Data="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z" Width="14" Height="14"/>
-                            </Button>
-                            <Button Grid.Column="7" Classes="IconBtn" Click="OnEditClick" ToolTip.Tip="Edit connection">
-                                <PathIcon Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z" Width="14" Height="14"/>
-                            </Button>
-                            <Button Grid.Column="8" Classes="IconBtn" Click="OnCopyCommandClick" ToolTip.Tip="Copy launch command">
-                                <PathIcon Data="M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M19,21H8V7H19V21Z" Width="14" Height="14"/>
-                            </Button>
-                            <Button Grid.Column="9" Classes="IconBtn" Click="OnDetailsClick" ToolTip.Tip="Connection details">
-                                <PathIcon Data="M11,17H13V11H11M12,9A1,1 0 0,0 13,8A1,1 0 0,0 12,7A1,1 0 0,0 11,8A1,1 0 0,0 12,9M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" Width="14" Height="14"/>
-                            </Button>
-                        </Grid>
+                        </WrapPanel>
                     </StackPanel>
                 </Border>
 
@@ -563,7 +588,7 @@
                         <!-- Connection details -->
                         <StackPanel Spacing="10">
                             <TextBlock Classes="SectionHeader" Text="CONNECTION"/>
-                            <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,0">
+                            <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,0">
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Host"        Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
                                 <TextBlock Grid.Row="0" Grid.Column="1" Name="KvHost"  Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" Margin="0,4"/>
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Port"        Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
@@ -574,6 +599,15 @@
                                 <TextBlock Grid.Row="3" Grid.Column="1" Name="KvGroup" Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" Margin="0,4"/>
                                 <TextBlock Grid.Row="4" Grid.Column="0" Text="Auth"        Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
                                 <TextBlock Grid.Row="4" Grid.Column="1" Name="KvAuth"  Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" Margin="0,4"/>
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="Saved password" Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
+                                <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Spacing="10" Margin="0,4" VerticalAlignment="Center">
+                                    <TextBlock Name="KvSavedPassword" Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" VerticalAlignment="Center"/>
+                                    <Button Name="BtnForgetSavedPassword"
+                                            Classes="Pill"
+                                            Content="Forget saved password"
+                                            Click="OnForgetSavedPasswordClick"
+                                            ToolTip.Tip="Remove this connection's password from the OS credential store"/>
+                                </StackPanel>
                             </Grid>
                         </StackPanel>
 

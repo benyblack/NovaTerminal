@@ -40,6 +40,8 @@ public static class SettingsTools
         | `EnableComplexShaping` | bool | Default true. |
         | `CursorStyle` | string (enum-like) | e.g. "Underline", "Block", "Bar"/"Beam". Type-checked only. |
         | `CursorBlink` | bool | Default true. |
+        | `TabStripOrientation` | string (enum-like) | "Horizontal"/"Vertical". Default "Horizontal". Places the tab strip in the title bar (horizontal) or in a left sidebar with per-tab agent status and a last-output preview line (vertical). Type-checked only; unrecognised values behave as "Horizontal". |
+        | `VerticalTabStripWidth` | number | Sidebar width in px when `TabStripOrientation` is "Vertical". Default 220; applied clamped to 140–600. |
 
         ## Behavior
         | Field | Type | Notes |
@@ -54,6 +56,7 @@ public static class SettingsTools
         | `WheelLinesPerNotch` | number | > 0 (≤ 0 falls back to 3.0). Default 3.0. |
         | `PaneClosePolicy` | string (enum-like) | e.g. "Confirm", "Force". Type-checked only. |
         | `ShellExitPolicy` | string (enum-like) | "Never"/"Graceful"/"Always". Default "Graceful". What happens to a pane when its shell exits: keep it with a banner, close it on a clean exit, or always close it. "Graceful" closes the pane on exit code 0 only, so closing the last pane of the last tab quits the app the way `exit` does in any terminal. SSH panes ignore this and always keep their reconnect banner. Type-checked only; unrecognised values behave as "Never" (a typo must not be more destructive than the default). |
+        | `AgentIndicatorTabRollup` | string (enum-like) | "WritesOnly"/"All". Default "WritesOnly". Which agent attention tiers reach the tab strip. An agent write always shows there, so this only decides whether an agent *read* does too. Type-checked only; unrecognised values behave as "WritesOnly" (a typo must not make the chrome noisier than the default). |
         | `QuakeModeEnabled` | bool | Default true. |
         | `GlobalHotkey` | string | Default "Alt+OemTilde". |
         | `ExperimentalNativeSshEnabled` | bool | Default true. |
@@ -107,6 +110,8 @@ public static class SettingsTools
           "EnableComplexShaping": true,
           "CursorStyle": "Underline",
           "CursorBlink": true,
+          "TabStripOrientation": "Horizontal",
+          "VerticalTabStripWidth": 220,
           "BellAudioEnabled": true,
           "BellVisualEnabled": true,
           "SmoothScrolling": true,
@@ -116,6 +121,7 @@ public static class SettingsTools
           "WheelLinesPerNotch": 3.0,
           "PaneClosePolicy": "Confirm",
           "ShellExitPolicy": "Graceful",
+          "AgentIndicatorTabRollup": "WritesOnly",
           "Keybindings": { "Ctrl+Shift+C": "copy" },
           "TabTemplateRules": [],
           "TitleBarItems": { "open_tab_list": "Overflow" },
@@ -167,7 +173,8 @@ public static class SettingsTools
     internal static readonly string[] StringFields =
     {
         "FontFamily", "ThemeName", "BackgroundImagePath", "GlobalHotkey",
-        "BlurEffect", "CursorStyle", "PaneClosePolicy", "ShellExitPolicy", "BackgroundImageStretch",
+        "BlurEffect", "CursorStyle", "PaneClosePolicy", "ShellExitPolicy", "AgentIndicatorTabRollup",
+        "BackgroundImageStretch", "TabStripOrientation",
     };
 
     internal static readonly string[] ArrayFields = { "Profiles", "TabTemplateRules", "TitleBarOrder" };
@@ -176,10 +183,11 @@ public static class SettingsTools
     internal static readonly HashSet<string> KnownFields = new(StringComparer.Ordinal)
     {
         "FontSize", "MaxHistory", "FontFamily", "ThemeName", "WindowOpacity", "BlurEffect",
-        "EnableLigatures", "EnableComplexShaping", "CursorStyle", "CursorBlink",
+        "EnableLigatures", "EnableComplexShaping", "CursorStyle", "CursorBlink", "TabStripOrientation", "VerticalTabStripWidth",
         "BellAudioEnabled", "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection",
         "EnableKittyKeyboardProtocol", "AllowOsc52ClipboardWrite",
-        "WheelLinesPerNotch", "PaneClosePolicy", "ShellExitPolicy", "Keybindings", "TabTemplateRules",
+        "WheelLinesPerNotch", "PaneClosePolicy", "ShellExitPolicy", "AgentIndicatorTabRollup",
+        "Keybindings", "TabTemplateRules",
         "BackgroundImagePath", "BackgroundImageOpacity", "BackgroundImageStretch",
         "QuakeModeEnabled", "GlobalHotkey", "CommandAssistEnabled", "CommandAssistHistoryEnabled",
         "CommandAssistMaxHistoryEntries", "CommandAssistPassiveBubbleEnabled",
@@ -236,6 +244,7 @@ public static class SettingsTools
         CheckNumber(root, "FontSize", v => v > 0, "must be > 0", errors);
         CheckNumber(root, "WindowOpacity", v => v >= 0 && v <= 1, "must be between 0 and 1", errors);
         CheckNumber(root, "BackgroundImageOpacity", v => v >= 0 && v <= 1, "must be between 0 and 1", errors);
+        CheckNumber(root, "VerticalTabStripWidth", v => v >= 140 && v <= 600, "must be between 140 and 600", errors);
 
         // WheelLinesPerNotch: a non-number is an error; <= 0 is only a warning (runtime falls back).
         if (root.TryGetProperty("WheelLinesPerNotch", out var wheelEl))

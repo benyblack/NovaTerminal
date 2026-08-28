@@ -152,6 +152,27 @@
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0" Spacing="10">
                     <TextBlock Name="StatusBarLabel" Foreground="#AAA" FontSize="10" VerticalAlignment="Center"/>
                     <StackPanel Name="StatusBarRules" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"/>
+                    <!-- Flat, chrome-free button so the segment is clickable (it opens the
+                         Agent Activity journal, like the window-level AgentObserveIndicator)
+                         without looking like a control in a 22px status bar. Focusable=False:
+                         it must never take keyboard focus from the terminal. Visibility of
+                         both this and the inner segment is owned solely by
+                         TerminalPane.UpdateStatusBarVisibility. -->
+                    <Button Name="AgentStatusButton"
+                            IsVisible="False"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Padding="0"
+                            MinWidth="0"
+                            MinHeight="0"
+                            Focusable="False"
+                            Cursor="Hand"
+                            VerticalAlignment="Center">
+                        <StackPanel Name="AgentStatusSegment" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center" IsVisible="False">
+                            <Ellipse Name="AgentStatusDot" Width="6" Height="6" Fill="#6B737F" VerticalAlignment="Center"/>
+                            <TextBlock Name="AgentStatusText" Foreground="#AAA" FontSize="10" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                     <Separator Width="1" Height="12" Background="#444" Margin="4,0" VerticalAlignment="Center"/>
                     <StackPanel Name="SftpStatus" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center" IsVisible="False">
                         <TextBlock Name="SftpIcon" Text="⬇" Foreground="#AAA" FontSize="10" VerticalAlignment="Center"/>

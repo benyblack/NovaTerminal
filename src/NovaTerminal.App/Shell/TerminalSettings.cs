@@ -17,6 +17,20 @@ namespace NovaTerminal.Shell
         public string ThemeName { get; set; } = "Default";
         public double WindowOpacity { get; set; } = 1.0;
         public string BlurEffect { get; set; } = "Acrylic";
+
+        /// <summary>
+        /// Where the tab strip lives: "Horizontal" (title-bar strip, the default) or
+        /// "Vertical" (left sidebar with per-tab agent status and output preview).
+        /// Parsed case-insensitively; unrecognized values behave as "Horizontal".
+        /// </summary>
+        public string TabStripOrientation { get; set; } = "Horizontal";
+
+        /// <summary>
+        /// Sidebar width in px when <see cref="TabStripOrientation"/> is "Vertical".
+        /// Clamped to 140–600 at apply time.
+        /// </summary>
+        public double VerticalTabStripWidth { get; set; } = 220;
+
         public bool EnableLigatures { get; set; } = false;
         public bool EnableComplexShaping { get; set; } = true;
         public string CursorStyle { get; set; } = "Underline";
@@ -60,6 +74,14 @@ namespace NovaTerminal.Shell
         // their reconnect banner. Unrecognised values behave as "Never" — a typo must not be more
         // destructive than the default.
         public string ShellExitPolicy { get; set; } = "Graceful";
+        /// <summary>
+        /// Which agent attention tiers reach the tab strip: "WritesOnly"
+        /// (default) or "All". Unrecognised values behave as "WritesOnly" — a
+        /// typo must not make the chrome noisier than the default. Read by
+        /// MainWindow, which owns the tab strip; the pane never reads it, so it
+        /// is deliberately absent from TerminalPane.ApplySettings.
+        /// </summary>
+        public string AgentIndicatorTabRollup { get; set; } = "WritesOnly";
         public System.Collections.Generic.Dictionary<string, string> Keybindings { get; set; } = new();
 
         // Title bar customization. Deltas only: an id absent here takes its TitleBarCatalog default,

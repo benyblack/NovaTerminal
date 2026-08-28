@@ -15,33 +15,7 @@ namespace NovaTerminal.AppTests.AgentHost;
 /// </summary>
 public class AgentHostActProtocolTests
 {
-    private sealed class InputStubSession : NovaTerminal.Pty.ITerminalSession
-    {
-        private readonly bool _running;
-        public InputStubSession(bool running = true) => _running = running;
-
-        public readonly List<string> Inputs = new();
-
-        public void SendInput(string input) => Inputs.Add(input);
-        public bool IsProcessRunning => _running;
-
-        public Guid Id { get; } = Guid.NewGuid();
-        public string ShellCommand => "stub";
-        public string? ShellArguments => null;
-        public bool HasActiveChildProcesses => false;
-        public int? ExitCode => null;
-        public bool IsRecording => false;
-        public event Action<string>? OnOutputReceived { add { } remove { } }
-        public event Action<int>? OnExit { add { } remove { } }
-        public void Resize(int cols, int rows) { }
-        public void StartRecording(string filePath) { }
-        public void StopRecording() { }
-        public bool IsFlightRecording => false;
-        public void EnableFlightRecording(long maxTotalBytes) { }
-        public void DisableFlightRecording() { }
-        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info) { info = default; return false; }
-        public void Dispose() { }
-    }
+    // InputStubSession now lives in InputStubSession.cs, shared with the attention tests.
 
     private static AgentSessionRegistration Register(
         AgentSessionRegistry registry, string kind, InputStubSession session, Guid? profileId = null)
@@ -319,29 +293,7 @@ public class AgentHostActProtocolTests
     }
 
     // ── spawnSession / closeSession ──────────────────────────────────────────
-
-    private sealed class StubExecutor : IAgentActionExecutor
-    {
-        public Func<string?, (AgentSpawnResult?, AgentSpawnError?)>? OnSpawn;
-        public Func<Guid, bool>? OnClose;
-        public string? LastSpawnProfile;
-        public Guid? LastClosePane;
-        public int SpawnCalls;
-
-        public Task<(AgentSpawnResult? Result, AgentSpawnError? Error)> SpawnAsync(string? profileName)
-        {
-            SpawnCalls++;
-            LastSpawnProfile = profileName;
-            var r = OnSpawn?.Invoke(profileName) ?? (null, AgentSpawnError.SpawnFailed);
-            return Task.FromResult(r);
-        }
-
-        public Task<bool> ClosePaneAsync(Guid paneId)
-        {
-            LastClosePane = paneId;
-            return Task.FromResult(OnClose?.Invoke(paneId) ?? false);
-        }
-    }
+    // StubExecutor now lives in StubExecutor.cs, shared with the attention tests.
 
     private static string SpawnLine(string? profile, long id = 1)
     {
