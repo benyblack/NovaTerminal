@@ -19,11 +19,38 @@ const groups = [
     body: 'A modern UI for people who live in the terminal: tabs, splits, command palette, search, profiles, and live settings — no restart required.',
     items: [
       'Tabs, split panes, and workspace templates',
+      'Vertical tab sidebar with per-tab status and output preview',
       'Command palette (Ctrl+Shift+P) and tab list',
       'Search overlay with regex support',
       'Profiles for local and SSH sessions',
       'Themes, fonts, and font sizing',
       'Live settings — no restart required',
+    ],
+  },
+  {
+    title: 'Command Assist',
+    eyebrow: 'Assistance',
+    body: 'Suggestions anchored to what the shell actually reports, not to a guess about where your prompt ends — built on OSC 133 shell-integration marks, with a one-line installer for remote hosts.',
+    items: [
+      'Reads the live command line from the grid, not a shadow copy',
+      'History search, snippets, and a tldr-derived command catalogue',
+      'Fix mode proposes a correction from a failed command’s own output',
+      'Passive suggestion bubble with rebindable shortcuts',
+      'One-line shell-integration installer for remote hosts over SSH',
+      'Works in sessions with no marks at all',
+    ],
+  },
+  {
+    title: 'Backup & restore',
+    eyebrow: 'Your config',
+    body: 'Move your setup between machines, or roll it back after something goes wrong — settings, themes, connections, workspaces, policy and snippets in one portable file.',
+    items: [
+      'Export and import a single portable .novabackup file',
+      'Six independently selectable categories',
+      'Merge into an existing setup, or replace it outright',
+      'Automatic background snapshots, deduplicated by content hash',
+      'A snapshot is taken before every import and restore',
+      'Settings page, command palette, and CLI verbs for scripted setups',
     ],
   },
   {
