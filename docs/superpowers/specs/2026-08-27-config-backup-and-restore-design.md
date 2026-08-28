@@ -198,7 +198,10 @@ Every failure surfaces as a typed result, not an exception at the UI layer:
 `NovaTerminal.App.Tests`, driven against a temp tree via the existing `NOVATERM_APPDATA_ROOT`
 override. No new test project, so `ci.yml` needs no changes.
 
-- Round trip: export → import into an empty tree reproduces the original byte-for-byte per category.
+- Round trip (Replace mode, import into an empty tree): reproduces the original byte-for-byte per
+  category. Merge does not hold to this: it re-serializes JSON files through `WriteIndented`, so a
+  merged file's bytes differ from the source even when its content is identical — the better
+  behavior (consistently formatted output), not a bug to fix.
 - Merge semantics per category: conflicting id updated, local extra survives, settings merge by key.
 - Replace semantics per category: local items in included categories dropped, excluded categories untouched.
 - Corrupt zip, truncated zip, missing manifest, malformed manifest each refused with the right result.
