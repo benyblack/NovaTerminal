@@ -27,6 +27,9 @@ public static class AppServices
         var tracker = StartupPerformanceTracker.Current ?? new StartupPerformanceTracker();
         var coordinator = new StartupRestoreCoordinator(action => action());
         var orchestrator = new StartupOrchestrator(tracker, coordinator);
-        return new AppServiceBundle(orchestrator, CommandAssistServices.CreateDefault());
+        // Fresh default settings, never TerminalSettings.Load(): designer previews and the tests
+        // that build windows through this path must not depend on whatever settings.json the
+        // developer's machine happens to carry (the #357 settings-bleed pathology).
+        return new AppServiceBundle(orchestrator, CommandAssistServices.CreateDefault(), new TerminalSettings());
     }
 }

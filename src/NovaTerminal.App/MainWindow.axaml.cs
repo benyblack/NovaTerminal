@@ -2531,7 +2531,7 @@ namespace NovaTerminal
             _commandAssistServices = services.CommandAssist;
             InitializeComponent();
             _startup.Checkpoint("MainWindow.AfterInitializeComponent");
-            _settings = TerminalSettings.Load();
+            _settings = services.Settings ?? TerminalSettings.Load();
             _startup.Checkpoint("MainWindow.AfterSettingsLoad");
             _commandPaletteUsageStore = new CommandPaletteUsageStore(AppPaths.CommandPaletteUsageFilePath);
             _commandPaletteUsage = new Dictionary<string, CommandPaletteUsageEntry>(_commandPaletteUsageStore.Load(), StringComparer.OrdinalIgnoreCase);
