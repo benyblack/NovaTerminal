@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
@@ -43,8 +42,13 @@ public sealed class PowerShellShellIntegrationProvider : IShellIntegrationProvid
                 BootstrapScriptPath: null);
         }
 
+        // The script is still written to disk, but the on-disk copy is now purely diagnostic
+        // (and what the remote-host installer reuses) — what the shell actually executes is the
+        // encoded copy on the command line. BootstrapScriptPath stays on the plan for both.
         string bootstrapScriptPath = PowerShellBootstrapBuilder.WriteScript(_bootstrapDirectory());
-        string mergedArguments = BuildPowerShellArguments(shellArguments, bootstrapScriptPath);
+        string mergedArguments = BuildPowerShellArguments(
+            shellArguments,
+            PowerShellBootstrapBuilder.BuildScript());
         return new ShellIntegrationLaunchPlan(
             IsIntegrated: true,
             ShellCommand: shellCommand,
@@ -52,19 +56,29 @@ public sealed class PowerShellShellIntegrationProvider : IShellIntegrationProvid
             BootstrapScriptPath: bootstrapScriptPath);
     }
 
-    private static string BuildPowerShellArguments(string? shellArguments, string bootstrapScriptPath)
+    /// <summary>
+    /// Builds <c>-NoLogo -NoExit -EncodedCommand &lt;base64&gt;</c>.
+    /// </summary>
+    /// <remarks>
+    /// The bootstrap is passed as an encoded command rather than <c>-File</c> because
+    /// <c>-File</c> is gated by PowerShell's execution policy. The stock Windows client
+    /// default is <c>Restricted</c>, which blocks every script file, so every PowerShell tab
+    /// opened with a red <c>UnauthorizedAccess</c> error and Command Assist silently did not
+    /// work. Reported from a real first-run install.
+    ///
+    /// <c>-EncodedCommand</c> was chosen over <c>-ExecutionPolicy Bypass</c> for two reasons:
+    /// <c>-ExecutionPolicy</c> on the command line is IGNORED when policy is set through Group
+    /// Policy, so it would not fix managed machines at all; and it relaxes the policy for the
+    /// whole session, meaning scripts the USER later runs in that tab would also bypass — a
+    /// side effect a terminal has no business imposing. Nothing is loaded from disk here, so
+    /// no policy applies, and the user's own policy is left exactly as they set it.
+    ///
+    /// Size is not a concern: the emitted script is ~2.7 KB, so ~7.4 KB once base64'd from
+    /// UTF-16LE, against a command-line limit of 32767.
+    /// </remarks>
+    private static string BuildPowerShellArguments(string? shellArguments, string bootstrapScript)
     {
         string original = shellArguments?.Trim() ?? string.Empty;
-
-        // Pass the bootstrap path to -File UNQUOTED. PowerShell's -File parser
-        // reads the raw command-line tail (not standard argv splitting), so any
-        // surrounding double quotes would be retained as part of the path value
-        // and rejected as "Illegal characters in path" (since '"' is an illegal
-        // Windows path char). The generated bootstrap path lives under
-        // %LOCALAPPDATA%\NovaTerminal\command-assist\ and only contains a space
-        // if the Windows username does -- in that uncommon case we fall back to
-        // the 8.3 short name, which has no spaces.
-        string fileArgPath = ResolveSpacelessPath(bootstrapScriptPath);
 
         if (!original.Contains("-NoLogo", StringComparison.OrdinalIgnoreCase))
         {
@@ -80,56 +94,39 @@ public sealed class PowerShellShellIntegrationProvider : IShellIntegrationProvid
                 : $"{original} -NoExit";
         }
 
-        if (!original.Contains("-File", StringComparison.OrdinalIgnoreCase))
-        {
-            original = string.IsNullOrWhiteSpace(original)
-                ? $"-File {fileArgPath}"
-                : $"{original} -File {fileArgPath}";
-        }
+        // -EncodedCommand goes LAST and unquoted. PowerShell treats every token after it as
+        // part of the command, so an argument placed afterwards is silently absorbed rather
+        // than applied. Base64 is alphanumeric plus '+/=' and never needs quoting.
+        string encoded = EncodeCommand(bootstrapScript);
+        original = string.IsNullOrWhiteSpace(original)
+            ? $"-EncodedCommand {encoded}"
+            : $"{original} -EncodedCommand {encoded}";
 
         return original.Trim();
     }
 
-    private static string ResolveSpacelessPath(string path)
-    {
-        if (!OperatingSystem.IsWindows() || !path.Any(char.IsWhiteSpace))
-        {
-            return path;
-        }
+    /// <summary>Base64 of the UTF-16LE bytes — the encoding PowerShell's -EncodedCommand expects.</summary>
+    private static string EncodeCommand(string script)
+        => Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script));
 
-        var buffer = new System.Text.StringBuilder(260);
-        uint result = NativeMethods.GetShortPathNameW(path, buffer, (uint)buffer.Capacity);
-        if (result == 0)
-        {
-            return path;
-        }
-
-        if (result > buffer.Capacity)
-        {
-            buffer.EnsureCapacity((int)result);
-            result = NativeMethods.GetShortPathNameW(path, buffer, (uint)buffer.Capacity);
-            if (result == 0)
-            {
-                return path;
-            }
-        }
-
-        string shortPath = buffer.ToString();
-        return shortPath.Any(char.IsWhiteSpace) ? path : shortPath;
-    }
-
-    private static class NativeMethods
-    {
-        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
-        public static extern uint GetShortPathNameW(
-            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] string lpszLongPath,
-            System.Text.StringBuilder lpszShortPath,
-            uint cchBuffer);
-    }
-
+    /// <summary>
+    /// True when the user's own arguments already carry a script or command, in which case we
+    /// stay out of the way entirely.
+    /// </summary>
+    /// <remarks>
+    /// <c>-Command</c> and <c>-EncodedCommand</c> have to be caught alongside <c>-File</c>:
+    /// appending ours after the user's would be swallowed into theirs, and prepending would
+    /// swallow theirs into ours. Neither is recoverable, so integration is declined.
+    /// </remarks>
     private static bool ContainsUserScriptFile(string? shellArguments)
     {
-        return !string.IsNullOrWhiteSpace(shellArguments) &&
-               shellArguments.Contains("-File", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(shellArguments))
+        {
+            return false;
+        }
+
+        return shellArguments.Contains("-File", StringComparison.OrdinalIgnoreCase) ||
+               shellArguments.Contains("-EncodedCommand", StringComparison.OrdinalIgnoreCase) ||
+               shellArguments.Contains("-Command", StringComparison.OrdinalIgnoreCase);
     }
 }
