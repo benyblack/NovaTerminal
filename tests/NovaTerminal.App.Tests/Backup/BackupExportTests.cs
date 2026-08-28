@@ -6,6 +6,18 @@ namespace NovaTerminal.Tests.Backup;
 
 public sealed class BackupExportTests
 {
+    // Fix round 3 (Codex review): Export_WithRelativeDestination_ResolvesAgainstCurrentDirectory_NotRootDirectory
+    // mutates the process-global Environment.CurrentDirectory around a get/set/restore that is
+    // not itself atomic. xunit.v3 does not guarantee serial execution of test methods within one
+    // class, so another test interleaving its own CWD-relative work between this one's set and
+    // its own restore would read the wrong directory - the same hazard BackupToolsTests.EnvVarGate
+    // documents for NOVATERM_APPDATA_ROOT. Nothing else in this assembly does CWD-relative file
+    // I/O today (BackupTestTree builds only absolute paths by design), so this isn't a live flake
+    // - it is a latent trap for the next relative-path test, closed the same way: a private lock
+    // around just the one body that touches this global, rather than a whole extra
+    // collection-definition type for a single file.
+    private static readonly object CurrentDirectoryGate = new();
+
     [Fact]
     public void Export_WritesBundleWithAllCategoriesByDefault()
     {
@@ -289,23 +301,31 @@ public sealed class BackupExportTests
         using var tree = BackupTestTree.CreatePopulated();
         var service = new BackupService(tree.Root, FixedClock());
         string sshDir = Path.Combine(tree.Root, "ssh");
-        string originalCwd = Environment.CurrentDirectory;
 
-        try
+        // Fix round 3: serialize the whole get/set-CWD/act/restore-CWD sequence under
+        // CurrentDirectoryGate - see the field's own remarks for why an unguarded mutation of
+        // this process-global is a latent trap even though nothing collides with it today.
+        lock (CurrentDirectoryGate)
         {
-            Environment.CurrentDirectory = sshDir;
+            string originalCwd = Environment.CurrentDirectory;
 
-            // Relative to CWD ("<root>/ssh"), this resolves to "<root>/ssh/profiles.json" - the
-            // live Connections catalog file - not "<root>/profiles.json" (not a catalog path at
-            // all), which is what the old RootDirectory-based guard incorrectly checked instead.
-            var outcome = service.Export("profiles.json");
+            try
+            {
+                Environment.CurrentDirectory = sshDir;
 
-            Assert.False(outcome.Success);
-            Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
-        }
-        finally
-        {
-            Environment.CurrentDirectory = originalCwd;
+                // Relative to CWD ("<root>/ssh"), this resolves to "<root>/ssh/profiles.json" -
+                // the live Connections catalog file - not "<root>/profiles.json" (not a catalog
+                // path at all), which is what the old RootDirectory-based guard incorrectly
+                // checked instead.
+                var outcome = service.Export("profiles.json");
+
+                Assert.False(outcome.Success);
+                Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+            }
+            finally
+            {
+                Environment.CurrentDirectory = originalCwd;
+            }
         }
     }
 
