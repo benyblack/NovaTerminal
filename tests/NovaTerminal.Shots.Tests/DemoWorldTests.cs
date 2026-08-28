@@ -86,4 +86,22 @@ public sealed class DemoWorldTests
         string head = File.ReadAllText(Path.Combine(world.WorkspaceRoot, ".git", "HEAD"));
         Assert.Contains("feat/sixel-decoder", head, StringComparison.Ordinal);
     }
+
+    // Git marks files under .git/objects/ read-only on Windows, so a seeded workspace is the one
+    // scenario that actually exercises DemoWorld's ClearReadOnlyAttributes fix in Dispose(). The
+    // other Dispose test (Dispose_RemovesEverythingItCreated) never calls SeedWorkspace, so it
+    // would keep passing even if that fix regressed. Without this test, a regression here would
+    // be silent: Dispose() only writes to Console.Error and never rethrows, so seeded workspaces
+    // would just accumulate on disk with no failing test to catch it.
+    [Fact]
+    public void Dispose_RemovesASeededGitWorkspace_EvenThoughGitMarksItsObjectsReadOnly()
+    {
+        string baseDir = NewBaseDir();
+        var world = DemoWorld.Create(baseDir);
+        world.SeedWorkspace();
+
+        world.Dispose();
+
+        Assert.False(Directory.Exists(baseDir), "DemoWorld left a seeded git workspace behind after disposal.");
+    }
 }
