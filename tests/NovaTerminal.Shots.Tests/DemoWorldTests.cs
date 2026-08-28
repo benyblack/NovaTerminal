@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using NovaTerminal.Shots;
 
 namespace NovaTerminal.ShotsTests;
@@ -129,6 +130,43 @@ public sealed class DemoWorldTests
         Assert.DoesNotContain(@"\u", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain(@"\h", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain(@"\w", prompt, StringComparison.Ordinal);
+    }
+
+    // Every scenario after the first opens a window that would otherwise restore the previous
+    // scenario's tabs, because MainWindow saves them during teardown. Verified end to end as well:
+    // before this existed, a two-scenario run failed on the second scenario with its restored
+    // pane's shell exiting immediately.
+    [Fact]
+    public void ForgetPreviousSession_RemovesTheSavedSessionInsideTheDemoWorld()
+    {
+        using var world = DemoWorld.Create(NewBaseDir());
+        string sessionFile = AppPaths.SessionFilePath;
+        Directory.CreateDirectory(Path.GetDirectoryName(sessionFile)!);
+        File.WriteAllText(sessionFile, "{}");
+        Assert.StartsWith(world.ProfileRoot, sessionFile, StringComparison.OrdinalIgnoreCase);
+
+        world.ForgetPreviousSession();
+
+        Assert.False(File.Exists(sessionFile), $"Expected {sessionFile} to be gone.");
+    }
+
+    [Fact]
+    public void ForgetPreviousSession_RefusesToDeleteOutsideTheDemoWorld()
+    {
+        using var world = DemoWorld.Create(NewBaseDir());
+        string? isolatedRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        try
+        {
+            // Whatever this now resolves to, it is somebody else's - very possibly the developer's
+            // own saved session.
+            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", Path.Combine(Path.GetTempPath(), "not-a-demo-world"));
+
+            Assert.Throws<InvalidOperationException>(world.ForgetPreviousSession);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", isolatedRoot);
+        }
     }
 
     [Fact]

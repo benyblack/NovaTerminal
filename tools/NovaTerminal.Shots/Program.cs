@@ -44,6 +44,10 @@ public static class Program
                 // different theme or tab orientation gets it applied at construction time.
                 world.SeedSettings(scenario.Settings);
 
+                // And started from a clean window: the previous scenario's teardown saved its tabs,
+                // and MainWindow restores them on the next start.
+                world.ForgetPreviousSession();
+
                 await host.RunAsync(async () =>
                 {
                     var window = new MainWindow(AppServices.BuildForDesigner())
@@ -53,16 +57,21 @@ public static class Program
                     };
 
                     var driver = new Driver(window);
+                    var context = new ShotContext(window, driver, world, run, scenario);
 
                     try
                     {
                         window.Show();
                         driver.Pump(5);
 
-                        await scenario.RunAsync(new ShotContext(window, driver, world, run, scenario));
+                        await scenario.RunAsync(context);
                     }
                     finally
                     {
+                        // Before Close(), not after and not instead: closing the window tears down
+                        // timers and the agent host but leaves every pane - and every shell - alive,
+                        // and this process outlives the scenario.
+                        context.DisposePanes();
                         window.Close();
                         driver.Pump(3);
                     }
