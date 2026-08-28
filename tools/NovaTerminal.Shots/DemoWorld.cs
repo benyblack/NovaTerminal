@@ -276,7 +276,19 @@ public sealed class DemoWorld : IDisposable
         // with mainstream Linux, and keeps the patched ones as later preferences.
         var settings = new TerminalSettings
         {
-            ThemeName = "Dracula",
+            // Not "Dracula": src/NovaTerminal.App/themes/Dracula.json declares
+            // "Foreground": "#FF5F1F" (orange), not canonical Dracula's near-white #F8F8F2.
+            // ThemePaletteResources fans that one colour into NtFg/NtFg2/NtFg3, so every piece of
+            // UI chrome text (tab labels, title bar, palette entries, settings text) in every
+            // screenshot this harness took came out orange. That is a product bug, tracked
+            // separately - not this harness's to fix - so the fix here is simply to stop pinning
+            // the broken theme. "GitHub Dark" (light grey #c9d1d9 on near-black #0d1117, per
+            // themes/GitHubDark.json) is a real shipped theme with a normal foreground colour.
+            // The exact string matters: ThemeManager.LoadThemes keys its dictionary by the JSON's
+            // "Name" field, not the filename, and GetTheme falls back to the Default theme
+            // *silently* on a miss - "GitHubDark" (no space) would not error, it would quietly
+            // render Default and produce a wrong-but-plausible-looking image.
+            ThemeName = "GitHub Dark",
             FontFamily = "Cascadia Mono, Cascadia Code, DejaVu Sans Mono, Consolas, Monospace",
 
             // Larger than a working font, because a screenshot is looked at rather than worked in.
