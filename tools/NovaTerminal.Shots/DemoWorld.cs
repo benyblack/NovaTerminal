@@ -155,6 +155,13 @@ public sealed class DemoWorld : IDisposable
 
     private void Commit(string message) => Git($"commit -m \"{message}\"");
 
+    // Deliberate deviation from the brief's original synchronous shape: that version called
+    // WaitForExit() before reading either redirected stream, and only ever read StandardError
+    // (never StandardOutput). Both streams share a fixed-size OS pipe buffer; if a git invocation
+    // ever writes enough combined output to fill it before exiting (autocrlf warnings, a global
+    // hook, hint/advice text), the child blocks on write() and WaitForExit() never returns - the
+    // exact class of redirected-stdout deadlock CLAUDE.md's build-wrapper rule exists to avoid.
+    // Do not "restore" the synchronous version; drain both streams asynchronously instead.
     private void Git(string arguments)
     {
         var psi = new System.Diagnostics.ProcessStartInfo("git", arguments)
@@ -167,14 +174,31 @@ public sealed class DemoWorld : IDisposable
         psi.Environment["GIT_AUTHOR_DATE"] = CommitDate;
         psi.Environment["GIT_COMMITTER_DATE"] = CommitDate;
 
-        using var process = System.Diagnostics.Process.Start(psi)
-            ?? throw new InvalidOperationException("Could not start git.");
+        var stderr = new System.Text.StringBuilder();
+
+        using var process = new System.Diagnostics.Process { StartInfo = psi };
+        process.OutputDataReceived += (_, _) => { };
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data is not null)
+            {
+                stderr.AppendLine(e.Data);
+            }
+        };
+
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("Could not start git.");
+        }
+
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
         process.WaitForExit();
 
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException(
-                $"git {arguments} failed with {process.ExitCode}: {process.StandardError.ReadToEnd()}");
+                $"git {arguments} failed with {process.ExitCode}: {stderr}");
         }
     }
 
