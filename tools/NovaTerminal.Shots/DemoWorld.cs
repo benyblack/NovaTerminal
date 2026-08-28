@@ -337,8 +337,11 @@ public sealed class DemoWorld : IDisposable
     private const string CommitDate = "2026-08-20T10:15:00+00:00";
 
     /// <summary>
-    /// Lays down the demo project and a scripted git history. Author and committer identity
-    /// and dates are fixed so `git log --graph` renders the same story on every run and on
+    /// Lays down the demo project and a scripted git history: a short branch merged back into
+    /// feat/sixel-decoder, ~10 commits total, so `git log --graph --oneline --all` has a real
+    /// graph to draw - not three commits in a straight column, which is all a single unbranched
+    /// history can ever show no matter how deep `-N` asks it to look. Author and committer
+    /// identity and dates are fixed so the graph renders the same story on every run and on
     /// every machine.
     /// </summary>
     public void SeedWorkspace()
@@ -349,6 +352,7 @@ public sealed class DemoWorld : IDisposable
 
         CopyAsset(assets, "nova-banner.sh", Path.Combine(WorkspaceRoot, "scripts", "nova-banner.sh"));
         CopyAsset(assets, "demo-test.sh", Path.Combine(WorkspaceRoot, "scripts", "demo-test.sh"));
+        CopyAsset(assets, "demo-top.sh", Path.Combine(WorkspaceRoot, "scripts", "demo-top.sh"));
         CopyAsset(assets, "sixel-decoder.rs", Path.Combine(WorkspaceRoot, "src", "sixel-decoder.rs"));
 
         Git("init --initial-branch=feat/sixel-decoder");
@@ -362,9 +366,54 @@ public sealed class DemoWorld : IDisposable
         Git("add .");
         Commit("feat(vt): parse sixel raster attributes");
 
+        // A second branch and a merge back into feat/sixel-decoder, so `git log --graph
+        // --oneline --all -12` (hero-split's top-right pane) has an actual graph to draw
+        // instead of three commits in a straight column - SeedWorkspace previously left this
+        // branch with a single linear history, which is the only history --all can ever have
+        // been showing on any machine, decorative -12 notwithstanding.
+        Git("checkout -b feat/sixel-palette");
+
+        File.WriteAllText(
+            Path.Combine(WorkspaceRoot, "src", "sixel-palette.rs"),
+            "//! Colour registers for the sixel decoder.\n\npub struct Palette;\n");
+        Git("add .");
+        Commit("feat(vt): add palette register table");
+
+        File.AppendAllText(
+            Path.Combine(WorkspaceRoot, "src", "sixel-palette.rs"),
+            "\nimpl Palette {\n    pub const LEN: usize = 256;\n}\n");
+        Git("add .");
+        Commit("feat(vt): support 256-color sixel palette");
+
+        Git("checkout feat/sixel-decoder");
+
         File.WriteAllText(Path.Combine(WorkspaceRoot, "README.md"), "# nova-demo\n");
         Git("add .");
         Commit("docs: describe the decoder pipeline");
+
+        Git("merge --no-ff -m \"Merge branch 'feat/sixel-palette' into feat/sixel-decoder\" feat/sixel-palette");
+
+        File.WriteAllText(
+            Path.Combine(WorkspaceRoot, "src", "sixel-decoder.tests.rs"),
+            "//! Golden fixtures for the sixel decoder.\n");
+        Git("add .");
+        Commit("test: add sixel decoder golden fixtures");
+
+        File.AppendAllText(Path.Combine(WorkspaceRoot, "src", "sixel-decoder.rs"),
+            "\n// perf: reuse the scratch buffer across spans\n");
+        Git("add .");
+        Commit("perf(vt): reuse scratch buffer for sixel spans");
+
+        File.AppendAllText(Path.Combine(WorkspaceRoot, "src", "sixel-decoder.rs"),
+            "\n// fix: raster attribute byte order was reversed on big-endian inputs\n");
+        Git("add .");
+        Commit("fix(vt): correct raster attribute byte order");
+
+        File.AppendAllText(
+            Path.Combine(WorkspaceRoot, "src", "sixel-palette.rs"),
+            "\n// refactor: extracted from sixel-decoder.rs\n");
+        Git("add .");
+        Commit("refactor(vt): extract sixel color LUT helper");
 
         LeaveWorkInProgress();
     }
@@ -388,9 +437,13 @@ public sealed class DemoWorld : IDisposable
             Path.Combine(WorkspaceRoot, "README.md"),
             "\nA worked example of the sixel decoder pipeline.\n");
 
+        // A new, still-untracked file. sixel-palette.rs no longer qualifies for that role now
+        // that SeedWorkspace commits it on the feat/sixel-palette branch and merges it in -
+        // overwriting a tracked file here would only leave it modified, not new, which is a
+        // different (and less interesting) row shape in `git status --short`.
         File.WriteAllText(
-            Path.Combine(WorkspaceRoot, "src", "sixel-palette.rs"),
-            "//! Colour registers for the sixel decoder.\n\npub struct Palette;\n");
+            Path.Combine(WorkspaceRoot, "src", "sixel-metrics.rs"),
+            "//! Timing counters for the sixel decode path.\n\npub struct DecodeMetrics;\n");
     }
 
     private static void CopyAsset(string assetsDirectory, string name, string destination)
