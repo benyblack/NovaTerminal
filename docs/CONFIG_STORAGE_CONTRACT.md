@@ -95,6 +95,7 @@ All paths are properties of
 | `ssh\native_known_hosts.json` | native-backend known hosts |
 | `command-assist\history.jsonl` | append-only command history |
 | `command-assist\snippets.json` | saved snippets |
+| `backups\` | automatic configuration snapshots written by the backup subsystem |
 | `recordings\` | terminal recordings |
 | `logs\` | `debug.log`, `startup_error.txt`, `workspace_audit.log`, … |
 
@@ -118,7 +119,13 @@ sometimes contain secrets, and recordings capture arbitrary terminal output. Any
 to be shareable should exclude them or say plainly that it does not. `logs\` is also bulk and
 noise — usually not worth carrying.
 
-**Anything written for recovery belongs under the config root.** Automatic snapshots, exported archives and rollback state must live under `AppPaths.RootDirectory` (or a user-chosen path), never under the install root — the install root is deleted on uninstall, which would take the recovery data with it.
+**Anything written for recovery belongs under the config root.** Automatic snapshots,
+exported archives and rollback state must live under `AppPaths.RootDirectory` (or a
+user-chosen path), never under the install root, which uninstall deletes. `backups\` is
+the concrete case: those snapshots are only safe because the install root is a separate
+directory. Under a packId matching the app name they would sit inside the folder uninstall
+deletes, so the rollback safety net would be destroyed by the exact event you would want to
+roll back from.
 
 **Expect files to be locked on Windows.** A running instance holds `logs\debug.log` open, so a
 naive recursive copy of the config root fails partway. Either exclude `logs\`, or require the
