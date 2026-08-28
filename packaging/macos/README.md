@@ -98,6 +98,10 @@ names, same feed, updater-agnostic.
   governs what actually runs. If an explicit floor is ever needed, pass a fully specified
   plist via `--plist` (mutually exclusive with `--bundleId`) — note the plist must then
   carry the version strings per release itself.
+- The bundle carries ~600 KB of `NovaTerminal.*.pdb` files beside the binary (the IL
+  project symbols the AOT publish emits). vpk's documented `.pdb` default exclusion does
+  not strip these from the macOS bundle contents; harmless, kept rather than spending a
+  release-lane iteration on it.
 - Signing cannot be back-dated onto already-published releases; users who installed an
   unsigned build keep their Gatekeeper approval and continue updating normally (updates
   written by the running app never pass through Gatekeeper).
