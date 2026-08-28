@@ -1,30 +1,41 @@
 ---
 // Release asset names follow the workflow in `.github/workflows/release.yml`:
-// `NovaTerminal-{rid}-{tag}.zip` (e.g. `NovaTerminal-linux-x64-v0.3.0.zip`).
-// The Windows winget package id lives in
+// installers are `NovaTerminal-Setup-{rid}-{tag}.{exe,pkg}`, portable bundles are
+// `NovaTerminal-{rid}-{tag}.zip`. The Windows winget package id lives in
 // `packaging/winget/0.3.0/benyblack.NovaTerminal.yaml`.
+//
+// Ordered Windows, macOS, Linux: the two platforms with an installer come first,
+// because that is the path most people should take.
 const releases = [
   {
     platform: 'Windows',
     arch: 'x64',
+    installer: 'NovaTerminal-Setup-win-x64-<tag>.exe',
+    installerNote:
+      'Per-user install — no admin prompt. Adds Start Menu and Desktop shortcuts, and updates itself in the background.',
     asset: 'NovaTerminal-win-x64-<tag>.zip',
     cmd: 'winget install benyblack.NovaTerminal',
   },
   {
-    platform: 'Linux',
-    arch: 'x64',
-    asset: 'NovaTerminal-linux-x64-<tag>.zip',
-    cmd:
-      'unzip NovaTerminal-linux-x64-<tag>.zip\n' +
-      'chmod +x NovaTerminal && ./NovaTerminal',
-  },
-  {
     platform: 'macOS',
     arch: 'arm64',
+    installer: 'NovaTerminal-Setup-osx-arm64-<tag>.pkg',
+    installerNote:
+      'Installs a proper NovaTerminal.app bundle, and updates itself in the background.',
     asset: 'NovaTerminal-osx-arm64-<tag>.zip',
     cmd:
       'unzip NovaTerminal-osx-arm64-<tag>.zip\n' +
       'open NovaTerminal.app',
+  },
+  {
+    platform: 'Linux',
+    arch: 'x64',
+    installer: null,
+    installerNote: null,
+    asset: 'NovaTerminal-linux-x64-<tag>.zip',
+    cmd:
+      'unzip NovaTerminal-linux-x64-<tag>.zip\n' +
+      'chmod +x NovaTerminal && ./NovaTerminal',
   },
 ];
 
@@ -72,10 +83,25 @@ const buildSteps = [
         Pick a build, get to work.
       </h2>
       <p class="lede mt-4 max-w-2xl">
-        GitHub release assets ship as Native AOT bundles for
+        Windows and macOS have one-click installers that keep themselves up to
+        date — a new version downloads in the background and applies on your next
+        restart. Every platform also ships a portable Native AOT bundle for
         <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">win-x64</code>,
         <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">linux-x64</code>, and
-        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">osx-arm64</code>. Every release runs the gating unit-test lane on all three OSes before any bundle is published. Replace <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">&lt;tag&gt;</code> with the version you downloaded.
+        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">osx-arm64</code>; portable builds have no updater. Every release runs the gating unit-test lane on all three OSes before any bundle is published. Replace <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">&lt;tag&gt;</code> with the version you downloaded.
+      </p>
+      <p class="mt-4 max-w-2xl text-sm text-ink-400">
+        Installers are not code-signed yet, so Windows SmartScreen and macOS
+        Gatekeeper will warn on first run — see
+        {' '}
+        <a
+          href="https://github.com/benyblack/NovaTerminal/issues/91"
+          rel="noopener"
+          class="text-nova-300"
+        >
+          issue #91
+        </a>
+        .
       </p>
     </div>
 
@@ -101,7 +127,23 @@ const buildSteps = [
               </a>
               .
             </p>
-            <p class="mt-2 font-mono text-[11px] text-ink-400">
+
+            {rel.installer && (
+              <div class="mt-4">
+                <p class="text-xs font-semibold uppercase tracking-wider text-nova-300">
+                  Installer — recommended
+                </p>
+                <p class="mt-1 font-mono text-[11px] text-ink-400">
+                  {rel.installer}
+                </p>
+                <p class="mt-1.5 text-sm text-ink-300">{rel.installerNote}</p>
+              </div>
+            )}
+
+            <p class="mt-4 text-xs font-semibold uppercase tracking-wider text-ink-400">
+              {rel.installer ? 'Portable — no updater' : 'Portable'}
+            </p>
+            <p class="mt-1 font-mono text-[11px] text-ink-400">
               {rel.asset}
             </p>
             <pre class="code-block mt-3 text-xs leading-relaxed"><code>{rel.cmd}</code></pre>

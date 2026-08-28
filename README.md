@@ -110,11 +110,39 @@ For build steps, jump to [Build & test](#build--test) below.
 ### UI
 
 - Tabs and split panes
+- Vertical tab sidebar (`Ctrl+Shift+L`) with per-tab status and a live output preview
 - Command palette
 - Search overlay
 - Profiles (local & SSH)
 - Themes and fonts
 - Live settings (no restart)
+
+### Command Assist
+
+Suggestions anchored to what the shell actually reports, rather than to a guess
+about where the prompt ends — built on OSC 133 shell-integration marks.
+
+- Reads the live command line from the terminal grid, not a shadow copy
+- History search, snippet management, and a tldr-derived command catalogue
+- Fix mode proposes a correction from a failed command's own output
+- Passive suggestion bubble with rebindable shortcuts
+- One-line shell-integration installer for remote hosts, with mark detection over SSH
+- Still captures commands in sessions that emit no marks at all
+
+### Configuration backup & restore
+
+- Export settings, themes, connections, workspaces, policy and snippets to a
+  single portable `.novabackup` file, and import it on another machine
+- Six independently selectable categories; import merges or replaces
+- Automatic background snapshots, deduplicated by content hash and retention-capped
+- A snapshot is taken before every import and restore, so both are reversible
+- Available from **Settings → Backup & Restore**, the command palette, and the CLI
+  (`backup export|import|list|restore`); agents get read-only export and list MCP tools
+
+> Connection passwords are **not** included in a bundle. They live in the OS
+> credential store, not in the config folder, so imported SSH profiles need their
+> passwords re-entered on first connect. See
+> [`docs/CONFIG_STORAGE_CONTRACT.md`](docs/CONFIG_STORAGE_CONTRACT.md).
 
 ### Graphics & inline images
 
