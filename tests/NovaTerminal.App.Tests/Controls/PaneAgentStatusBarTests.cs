@@ -21,10 +21,36 @@ namespace NovaTerminal.Tests.Controls;
 /// </summary>
 public class PaneAgentStatusBarTests
 {
+    // Every pane in this class registers into this test-owned registry rather
+    // than the process-wide AgentSessionRegistry.Instance (#357). The singleton
+    // is shared with every concurrently-running test class: a MainWindow test's
+    // window subscribes to it and — when the developer's real settings have
+    // Agent Access enabled — starts the process-wide AgentHostService, whose
+    // SessionRegistered hook and 1 s sweep mark every registration actable.
+    // That made a fresh pane here be born actable and turned this class's
+    // IsAgentActable=true writes into no-change writes that never raise.
+    // xUnit constructs a new instance of this class per test, so the registry
+    // is per-test state: nothing external is subscribed to it, and the
+    // SessionRegistered subscriptions below can only ever see this test's own
+    // panes.
+    private readonly AgentSessionRegistry _registry = new();
+
+    // The override is scoped synchronously around construction only: the pane
+    // captures the registry it registered with for Rekey/Unregister, and a
+    // wider scope could leak onto other test cases interleaved on the shared
+    // headless UI thread.
+    private TerminalPane MakeLocalPane()
+    {
+        using (AgentSessionRegistry.OverrideInstanceForTesting(_registry))
+        {
+            return new TerminalPane("cmd.exe");
+        }
+    }
+
     [AvaloniaFact]
     public void A_non_actable_local_pane_shows_no_status_bar()
     {
-        using var pane = new TerminalPane("cmd.exe");
+        using var pane = MakeLocalPane();
         pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: false);
 
         Assert.False(GetStatusBar(pane).IsVisible);
@@ -33,7 +59,7 @@ public class PaneAgentStatusBarTests
     [AvaloniaFact]
     public void An_actable_pane_shows_the_bar_with_the_baseline_segment()
     {
-        using var pane = new TerminalPane("cmd.exe");
+        using var pane = MakeLocalPane();
         pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: true);
 
         Assert.True(GetStatusBar(pane).IsVisible);
@@ -43,7 +69,7 @@ public class PaneAgentStatusBarTests
     [AvaloniaFact]
     public void Activity_does_not_change_the_bars_visibility()
     {
-        using var pane = new TerminalPane("cmd.exe");
+        using var pane = MakeLocalPane();
         pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: false);
         Assert.False(GetStatusBar(pane).IsVisible);
 
@@ -57,7 +83,7 @@ public class PaneAgentStatusBarTests
     [AvaloniaFact]
     public void The_wrote_tier_names_the_method()
     {
-        using var pane = new TerminalPane("cmd.exe");
+        using var pane = MakeLocalPane();
         pane.ApplyAgentAttention(
             new AgentAttentionSnapshot(AgentAttentionTier.Wrote, DateTimeOffset.UtcNow, "sendInput"),
             isActable: true);
@@ -138,7 +164,7 @@ public class PaneAgentStatusBarTests
         // actually looks at, so leaving it inert while the window-level light is
         // actionable is backwards. Its visibility is still owned solely by
         // UpdateStatusBarVisibility, alongside the panel inside it.
-        using var pane = new TerminalPane("cmd.exe");
+        using var pane = MakeLocalPane();
         pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: false);
         Assert.False(GetAgentButton(pane).IsVisible);
 
@@ -157,7 +183,7 @@ public class PaneAgentStatusBarTests
         // The handler resolves VisualRoot as MainWindow; a pane that is not
         // attached to one (every unit test, and any pane mid-construction) must
         // no-op rather than throw.
-        using var pane = new TerminalPane("cmd.exe");
+        using var pane = MakeLocalPane();
         pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: true);
 
         GetAgentButton(pane).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -168,7 +194,7 @@ public class PaneAgentStatusBarTests
     [AvaloniaFact]
     public void The_tooltip_names_the_tier()
     {
-        using var pane = new TerminalPane("cmd.exe");
+        using var pane = MakeLocalPane();
 
         pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: true);
         Assert.Contains("can read", GetAgentTooltip(pane), StringComparison.OrdinalIgnoreCase);
@@ -183,7 +209,7 @@ public class PaneAgentStatusBarTests
         // "agent typed" is sticky for at least ten seconds, so the two-word
         // label alone cannot distinguish a write from a moment ago from one the
         // user already saw. The tooltip carries the clock time and the method.
-        using var pane = new TerminalPane("cmd.exe");
+        using var pane = MakeLocalPane();
         var writtenAt = DateTimeOffset.UtcNow;
 
         pane.ApplyAgentAttention(
@@ -204,7 +230,7 @@ public class PaneAgentStatusBarTests
         // it. Before the fix, nothing told an already-open idle pane to
         // re-render, so the bar never appeared. No NoteRead/NoteWrote/tier
         // change anywhere in this test — only the actability flip.
-        using var pane = new TerminalPane("cmd.exe");
+        using var pane = MakeLocalPane();
         pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: false);
         Assert.False(GetStatusBar(pane).IsVisible);
 
@@ -225,7 +251,7 @@ public class PaneAgentStatusBarTests
         // every registration. If the setter raised on every write rather than
         // only on an actual change, this would become a perpetual
         // once-per-second Dispatcher.UIThread.Post per pane.
-        using var pane = new TerminalPane("cmd.exe");
+        using var pane = MakeLocalPane();
         var registration = pane.AgentRegistrationForTesting;
         Assert.NotNull(registration);
 
@@ -270,7 +296,7 @@ public class PaneAgentStatusBarTests
         // value. It does not (and cannot, deterministically) reproduce the
         // thread interleave itself; what it pins is the property that makes
         // the interleave harmless.
-        using var pane = new TerminalPane("cmd.exe");
+        using var pane = MakeLocalPane();
         pane.ApplyAgentAttention(new AgentAttentionSnapshot(AgentAttentionTier.Idle, null, null), isActable: false);
         Assert.False(GetStatusBar(pane).IsVisible);
 
@@ -326,11 +352,14 @@ public class PaneAgentStatusBarTests
         // subscribed to anything. No Dispatcher.UIThread.RunJobs() anywhere in
         // this test: the assertion is that the pane was *constructed* with its
         // bar, not that it acquired one later.
+        // Subscribed on this test's own registry, never on the process-wide
+        // Instance: there this handler would also hear (and mark actable) panes
+        // other test classes are registering concurrently (#357).
         void MarkActable(AgentSessionRegistration r) => r.IsAgentActable = true;
-        AgentSessionRegistry.Instance.SessionRegistered += MarkActable;
+        _registry.SessionRegistered += MarkActable;
         try
         {
-            using var pane = new TerminalPane("cmd.exe");
+            using var pane = MakeLocalPane();
 
             Assert.True(GetStatusBar(pane).IsVisible);
             Assert.True(GetAgentSegment(pane).IsVisible);
@@ -340,7 +369,7 @@ public class PaneAgentStatusBarTests
         }
         finally
         {
-            AgentSessionRegistry.Instance.SessionRegistered -= MarkActable;
+            _registry.SessionRegistered -= MarkActable;
         }
     }
 
@@ -353,7 +382,7 @@ public class PaneAgentStatusBarTests
         // up, skip UpdateStatusBarUI, and leave the SSH label blank inside a
         // visible bar until some rule's status happened to change.
         void MarkActable(AgentSessionRegistration r) => r.IsAgentActable = true;
-        AgentSessionRegistry.Instance.SessionRegistered += MarkActable;
+        _registry.SessionRegistered += MarkActable;
         try
         {
             using var pane = MakeSshPaneWithForward();
@@ -365,7 +394,7 @@ public class PaneAgentStatusBarTests
         }
         finally
         {
-            AgentSessionRegistry.Instance.SessionRegistered -= MarkActable;
+            _registry.SessionRegistered -= MarkActable;
         }
     }
 
@@ -432,7 +461,7 @@ public class PaneAgentStatusBarTests
         // The seeding must copy the registration's real answer, not assume one:
         // with nothing marking it actable, a fresh local pane has no bar and so
         // gives up none of the terminal's rows.
-        using var pane = new TerminalPane("cmd.exe");
+        using var pane = MakeLocalPane();
 
         Assert.False(GetStatusBar(pane).IsVisible);
         Assert.False(GetAgentSegment(pane).IsVisible);
@@ -472,7 +501,7 @@ public class PaneAgentStatusBarTests
     // TerminalProfile.Forwards is List<ForwardingRule>; SshProfile.Forwards is
     // List<PortForward> and is a different thing entirely. No real session is
     // started: the status bar only reads Profile.Forwards.
-    private static TerminalPane MakeSshPaneWithForward()
+    private TerminalPane MakeSshPaneWithForward()
     {
         var profile = new TerminalProfile
         {
@@ -485,6 +514,9 @@ public class PaneAgentStatusBarTests
             LocalAddress = "8080",
             RemoteAddress = "localhost:80",
         });
-        return new TerminalPane(profile, SshDiagnosticsLevel.None);
+        using (AgentSessionRegistry.OverrideInstanceForTesting(_registry))
+        {
+            return new TerminalPane(profile, SshDiagnosticsLevel.None);
+        }
     }
 }
