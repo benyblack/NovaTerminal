@@ -42,8 +42,41 @@ public sealed class DemoWorld : IDisposable
         Directory.CreateDirectory(world.ProfileRoot);
         Directory.CreateDirectory(world.WorkspaceRoot);
         Environment.SetEnvironmentVariable(RootOverrideEnvVar, world.ProfileRoot);
+        CreateAppPathsScaffolding();
 
         return world;
+    }
+
+    /// <summary>
+    /// Mirrors the directory scaffolding <see cref="AppPaths.EnsureInitialized"/> creates, because
+    /// that method is gated by a private static bool that flips once per PROCESS, not once per
+    /// root. Without this, only the first DemoWorld created in a process would get a ProfileRoot
+    /// with themes/, logs/, sessions/, etc.; every DemoWorld created afterward in the same process
+    /// (e.g. a second scenario run, or a second instance in a single test) would get a ProfileRoot
+    /// containing nothing but settings.json, because EnsureInitialized already ran once and will
+    /// not run its directory-creation body again.
+    ///
+    /// Pulled from AppPaths' own public path properties (which read NOVATERM_APPDATA_ROOT live)
+    /// rather than a hardcoded list of literal folder names, so this cannot silently drift from
+    /// what AppPaths.EnsureInitialized actually creates.
+    /// </summary>
+    private static void CreateAppPathsScaffolding()
+    {
+        foreach (string directory in new[]
+        {
+            AppPaths.ThemesDirectory,
+            AppPaths.LogsDirectory,
+            AppPaths.SessionsDirectory,
+            AppPaths.WorkspacesDirectory,
+            AppPaths.WorkspaceTemplatesDirectory,
+            AppPaths.PolicyDirectory,
+            AppPaths.RecordingsDirectory,
+            AppPaths.CommandAssistDirectory,
+            AppPaths.SshDirectory
+        })
+        {
+            Directory.CreateDirectory(directory);
+        }
     }
 
     private static TerminalProfile BuildDemoProfile(string workspaceRoot)

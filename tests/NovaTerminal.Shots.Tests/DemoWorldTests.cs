@@ -44,4 +44,31 @@ public sealed class DemoWorldTests
 
         Assert.False(Directory.Exists(baseDir), "DemoWorld left files behind after disposal.");
     }
+
+    // AppPaths.EnsureInitialized() only creates its directory scaffolding (themes/, logs/,
+    // sessions/, workspaces/, policy/, recordings/, command-assist/, ssh/, ...) the FIRST time
+    // it runs in a process - it is gated by a private static bool, not keyed by root. So the
+    // second (and every later) DemoWorld created in this test process must not silently rely on
+    // that one-shot behavior; it must scaffold its own ProfileRoot itself.
+    [Fact]
+    public void SeedSettings_ScaffoldsAppPathsDirectories_ForASecondDemoWorldInTheSameProcess()
+    {
+        using var first = DemoWorld.Create(NewBaseDir());
+        first.SeedSettings();
+
+        using var second = DemoWorld.Create(NewBaseDir());
+        second.SeedSettings();
+
+        string[] expectedSubdirectories =
+        {
+            "themes", "logs", "sessions", "workspaces", "workspace_templates",
+            "policy", "recordings", "command-assist", "ssh"
+        };
+
+        foreach (string subdirectory in expectedSubdirectories)
+        {
+            string path = Path.Combine(second.ProfileRoot, subdirectory);
+            Assert.True(Directory.Exists(path), $"Expected {path} to exist under the second DemoWorld's ProfileRoot.");
+        }
+    }
 }
