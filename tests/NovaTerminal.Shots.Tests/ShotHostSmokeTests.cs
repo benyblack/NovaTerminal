@@ -56,4 +56,24 @@ public sealed class ShotHostSmokeTests
 
         Assert.NotNull(frame);
     }
+
+    [Fact]
+    [Trait("Category", "ShotsSmoke")]
+    public async Task ShotHost_CanBeDisposedAfterADispatchedBodyThrew()
+    {
+        using ShotHost host = ShotHost.Start();
+
+        InvalidOperationException thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => host.RunAsync(() => throw new InvalidOperationException("the scenario failed")));
+
+        Assert.Equal("the scenario failed", thrown.Message);
+
+        // The assertion that matters is the `using` above running to completion. The dispatch
+        // loop completes its TaskCompletionSource synchronously, so an awaiter resumes on the
+        // dispatcher thread; Dispose() there waits on the very task it is running inside. Program
+        // reaches Dispose by exactly this route - catch the scenario's exception, finish the run,
+        // dispose the host - so before ShotHost yielded on the faulted path too, every failing
+        // capture run deadlocked at the end of Main and had to be killed. If that regresses, this
+        // test hangs rather than failing, which is the same signal the harness gave.
+    }
 }

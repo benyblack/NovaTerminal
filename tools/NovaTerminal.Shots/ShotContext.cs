@@ -97,35 +97,34 @@ public sealed class ShotContext
         _ => null
     };
 
-    /// <summary>Sends a command and waits for the pane to answer it and then go quiet.</summary>
+    /// <summary>Sends a command and waits for the shell to answer it and the frame to go quiet.</summary>
     /// <param name="expectsResponse">
-    /// False only for input the pane will not visibly react to. It is very nearly always true:
-    /// an interactive shell echoes the line as it is typed, so even a command that prints nothing
-    /// of its own changes the frame. Passing false skips the "did anything happen" phase and
-    /// waits for quiet alone, which is the pre-existing behaviour and its pre-existing risk.
+    /// False only for input the shell will not answer at all. It is very nearly always true: an
+    /// interactive shell echoes the line as it is typed, so even a command that prints nothing of
+    /// its own puts bytes on the PTY. Passing false skips the "did anything happen" phase and
+    /// waits for quiet alone, which cannot tell a settled frame from a dead one.
     /// </param>
     public Task RunCommandAsync(TerminalPane pane, string command, bool expectsResponse = true)
     {
         ITerminalSession session = pane.Session
             ?? throw new InvalidOperationException("The pane has no session.");
 
-        // Sampled BEFORE the input is sent, so the change phase one waits for can only be this
-        // command's. Sampling afterwards would race the echo and could baseline a frame that
-        // already contains the answer.
-        string beforeSending = CurrentFingerprint();
+        // Attached BEFORE the input is sent, so the output phase one waits for can only be this
+        // command's answer.
+        using var answered = new ShellAnswer(session);
 
         session.SendInput(command + "\n");
 
         if (expectsResponse)
         {
-            WaitForAnyChange(
-                beforeSending,
-                $"the pane to show any response to '{command}'. Nothing changed on screen at all, " +
-                "not even the echo of the typed line, so the shell is wedged or gone. A command " +
-                "that genuinely draws nothing must say so with expectsResponse: false");
+            WaitForAnswer(
+                answered,
+                $"the shell to answer '{command}'. It wrote nothing at all, not even the echo of " +
+                "the typed line, so it is wedged or gone. A command the shell genuinely does not " +
+                "answer must say so with expectsResponse: false");
         }
 
-        // Phase two: it finished.
+        // Phase two: it finished drawing.
         WaitForQuiet(QuietFor, SettleTimeout, command);
 
         return Task.CompletedTask;
@@ -133,7 +132,7 @@ public sealed class ShotContext
 
     /// <summary>
     /// Waits for a command this scenario did not type - <paramref name="deliver"/> puts it into
-    /// the pane by some other route - to be answered and then to finish drawing.
+    /// <paramref name="pane"/> by some other route - to be answered and then to finish drawing.
     /// </summary>
     /// <remarks>
     /// The same two phases as <see cref="RunCommandAsync"/>, and for the same reasons, minus the
@@ -142,38 +141,82 @@ public sealed class ShotContext
     /// <c>RunCommandAsync(pane, string.Empty)</c> stand-in would settle correctly but would also
     /// press Enter at a prompt the agent had already submitted.
     ///
-    /// The delivery is taken as a delegate rather than being left to the caller so the baseline
-    /// cannot be sampled on the wrong side of it: phase one is only meaningful against a frame
-    /// from before the input landed. Here that phase carries extra weight - it is the proof that
-    /// the agent's bytes actually reached the shell, not just that the host said "ok".
+    /// The delivery is taken as a delegate rather than being left to the caller so the watch
+    /// cannot be attached on the wrong side of it: phase one is only meaningful if it is listening
+    /// before the input lands. Here that phase carries extra weight - it is the proof that the
+    /// agent's bytes actually reached the shell, not just that the host said "ok".
     /// </remarks>
-    public async Task RunDeliveredCommandAsync(Func<Task> deliver, string what)
+    public async Task RunDeliveredCommandAsync(TerminalPane pane, Func<Task> deliver, string what)
     {
+        ArgumentNullException.ThrowIfNull(pane);
         ArgumentNullException.ThrowIfNull(deliver);
 
-        string beforeDelivery = CurrentFingerprint();
+        ITerminalSession session = pane.Session
+            ?? throw new InvalidOperationException("The pane has no session.");
+
+        using var answered = new ShellAnswer(session);
 
         await deliver();
 
-        WaitForAnyChange(
-            beforeDelivery,
-            $"the pane to show any response to {what}. Nothing changed on screen at all, not even " +
-            "the echo of the delivered line, so the input never reached the shell even though the " +
-            "delivery reported success");
+        WaitForAnswer(
+            answered,
+            $"the shell to answer {what}. It wrote nothing at all, not even the echo of the " +
+            "delivered line, so the input never reached it even though the delivery reported " +
+            "success");
 
         WaitForQuiet(QuietFor, SettleTimeout, what);
     }
 
     /// <summary>
-    /// Phase one: something happened. Without it, a shell that is slow to answer - a slow PTY
+    /// Phase one: the shell answered. Without it, a shell that is slow to answer - a slow PTY
     /// round trip, a script that pauses before its first byte - reads as "settled" after 600ms of
     /// the unchanged pre-command frame, and the scenario types its next command into a busy shell
     /// or captures a half-drawn transcript. That failure is silent: the blank-raster guard cannot
     /// catch it, because a half-drawn transcript is far above 1% ink. Failing here instead names
     /// the command that never answered.
     /// </summary>
-    private void WaitForAnyChange(string before, string description) =>
-        Driver.WaitFor(() => CurrentFingerprint() != before, ResponseTimeout, description);
+    /// <remarks>
+    /// It asks the session rather than the picture, and that distinction is what makes the phase
+    /// usable at all. The rendered frame is not a witness of "the shell answered": `clear` sent to
+    /// a pane that is already showing nothing but the prompt on row 0 ends exactly where it
+    /// started, and the one frame that differs - the echoed word before the screen is wiped - is
+    /// usually never rasterized, because the pane invalidates on a 16ms timer and this harness only
+    /// renders between Pump() calls, while the whole round trip takes a couple of milliseconds. A
+    /// frame comparison therefore failed *every* scenario whose shell happened to be fast enough,
+    /// which is every scenario after the first in a warm process. Bytes on the PTY have neither
+    /// problem: a wedged or dead shell writes none, which is precisely the condition this phase
+    /// exists to catch, and an answer that draws nothing new still counts as an answer.
+    /// </remarks>
+    private void WaitForAnswer(ShellAnswer answered, string description) =>
+        Driver.WaitFor(() => answered.Answered, ResponseTimeout, description);
+
+    /// <summary>
+    /// Watches one shell for any output at all, from the moment it is constructed until it is
+    /// disposed.
+    /// </summary>
+    /// <remarks>
+    /// A second subscriber on top of the pane's own, which is deliberate and safe: RustPtySession
+    /// replays its startup buffer only to the *first* subscriber ever attached, and by the time a
+    /// scenario runs a command that is long since the pane. So this counts nothing but output that
+    /// arrives while it is listening.
+    /// </remarks>
+    private sealed class ShellAnswer : IDisposable
+    {
+        private readonly ITerminalSession _session;
+        private readonly Action<string> _handler;
+        private int _chunks;
+
+        public ShellAnswer(ITerminalSession session)
+        {
+            _session = session;
+            _handler = _ => Interlocked.Increment(ref _chunks);
+            _session.OnOutputReceived += _handler;
+        }
+
+        public bool Answered => Volatile.Read(ref _chunks) > 0;
+
+        public void Dispose() => _session.OnOutputReceived -= _handler;
+    }
 
     /// <summary>
     /// Waits until the rendered frame stops changing. Sleeping a fixed interval would either
@@ -206,12 +249,6 @@ public sealed class ShotContext
             },
             timeout,
             $"output of '{what}' to settle");
-    }
-
-    private string CurrentFingerprint()
-    {
-        using SKBitmap frame = Rasterizer.CaptureWindow(Window, 1.0);
-        return Fingerprint(frame);
     }
 
     private static string Fingerprint(SKBitmap bitmap)

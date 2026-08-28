@@ -58,19 +58,30 @@ public sealed class ShotHost : IDisposable
 
     public async Task<T> RunAsync<T>(Func<Task<T>> body)
     {
-        T result = await _session.Dispatch(body, CancellationToken.None).ConfigureAwait(false);
-
-        // HeadlessUnitTestSession's dispatch loop completes its TaskCompletionSource without
-        // RunContinuationsAsynchronously, so the awaiter above resumes synchronously, inline,
-        // on the dispatcher thread itself. Without this yield, a caller's `using` block would
-        // then call Dispose() on that same thread, which blocks waiting for the dispatch loop
-        // task to exit - the very task it is currently running inside of. Self-deadlock,
-        // confirmed via a hung-process dump: Dispose -> HeadlessUnitTestSession.Dispose ->
-        // _dispatchTask.Wait(), stuck under DispatchCore's own TrySetResult continuation on
-        // the dispatcher's OS thread. Yielding here forces the rest of the caller onto a
-        // thread-pool thread before this method returns.
-        await Task.Yield();
-        return result;
+        try
+        {
+            return await _session.Dispatch(body, CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            // HeadlessUnitTestSession's dispatch loop completes its TaskCompletionSource without
+            // RunContinuationsAsynchronously, so the awaiter above resumes synchronously, inline,
+            // on the dispatcher thread itself. Without this yield, a caller's `using` block would
+            // then call Dispose() on that same thread, which blocks waiting for the dispatch loop
+            // task to exit - the very task it is currently running inside of. Self-deadlock,
+            // confirmed via a hung-process dump: Dispose -> HeadlessUnitTestSession.Dispose ->
+            // _dispatchTask.Wait(), stuck under DispatchCore's own TrySetResult continuation on
+            // the dispatcher's OS thread. Yielding here forces the rest of the caller onto a
+            // thread-pool thread before this method returns.
+            //
+            // In a finally, not after the await, because a *faulted* dispatch resumes the caller
+            // on the dispatcher thread exactly like a successful one does - and that is the path
+            // that mattered. Program.cs catches a scenario's exception and carries on to
+            // host.Dispose(), so with the yield only on the success path every failing run
+            // deadlocked at the end of Main instead of exiting non-zero: the harness had to be
+            // killed, which in CI reads as a hang rather than as a red run.
+            await Task.Yield();
+        }
     }
 
     public Task RunAsync(Func<Task> body) => RunAsync(async () =>
