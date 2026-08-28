@@ -103,6 +103,22 @@ namespace NovaTerminal.Platform.Tests.Export
             Assert.Equal("hello", text);
         }
 
+        [Fact]
+        public void GetVisibleRowTexts_ReturnsPerRowTrimmedTexts_TopToBottom()
+        {
+            var buffer = new TerminalBuffer(80, 3);
+            WriteRow(buffer, 0, "alpha");
+            WriteRow(buffer, 1, "beta   ");
+            // row 2 left blank
+
+            string[] rows = TerminalExporter.GetVisibleRowTexts(buffer);
+
+            Assert.Equal(3, rows.Length);
+            Assert.Equal("alpha", rows[0]);
+            Assert.Equal("beta", rows[1]);
+            Assert.Equal(string.Empty, rows[2]);
+        }
+
         // Writes each character of `text` directly into row `row`'s cells, starting at column 0 —
         // mirrors the direct ViewportRows[].Cells[] construction used above for precise per-cell
         // control (buffer.WriteContent doesn't interpret \r/\n as cursor motion, so it can't be

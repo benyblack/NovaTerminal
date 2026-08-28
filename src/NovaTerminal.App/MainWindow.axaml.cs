@@ -100,6 +100,15 @@ namespace NovaTerminal
         private readonly SshLegacyProfileMigrationService _sshLegacyMigrationService;
         private static readonly TimeSpan BellDebounceWindow = TimeSpan.FromMilliseconds(750);
 
+        /// <summary>
+        /// Minimum spacing between preview-line recomputes for a given tab while it is marked
+        /// dirty. Recomputing on every batched visual refresh is O(rows*cols) grapheme reads
+        /// under the buffer's read lock per tab per pass (contending with the parser's writes),
+        /// which gets expensive with several streaming tabs refreshing many times a second. See
+        /// <see cref="UpdateVerticalTabExtras"/> for the dirty+throttle gate this backs.
+        /// </summary>
+        private static readonly TimeSpan PreviewRefreshInterval = TimeSpan.FromMilliseconds(250);
+
         /// <summary>Tab-label marker for "an agent typed into a pane in this tab".</summary>
         internal const string AgentWroteGlyph = "⌨";  // keyboard
 
@@ -175,6 +184,9 @@ namespace NovaTerminal
             public AgentHost.AgentAttentionTier AgentTier { get; set; }
             public TabStatusTracker Status { get; } = new();
             public TabTrackerStatus RenderedStatus { get; set; }
+            public TabPreviewTracker Preview { get; } = new();
+            public bool PreviewDirty { get; set; }
+            public DateTime LastPreviewUpdateUtc { get; set; }
         }
 
         internal enum TabHeaderPointerAction
@@ -395,6 +407,10 @@ namespace NovaTerminal
         }
 
         internal TabStatusTracker GetTabStatusTracker(TabItem tab) => GetOrCreateTabState(tab).Status;
+
+        internal bool GetTabPreviewDirtyForTest(TabItem tab) => GetOrCreateTabState(tab).PreviewDirty;
+
+        internal void SetTabPreviewDirtyForTest(TabItem tab, bool dirty) => GetOrCreateTabState(tab).PreviewDirty = dirty;
 
         /// <summary>Timer-driven decay pass: re-evaluates every tab's heuristic status and queues a
         /// visual refresh only for tabs whose rendered status changed. Vertical mode only.</summary>
@@ -876,6 +892,12 @@ namespace NovaTerminal
             foreach (var tab in tabs.Items.Cast<TabItem>())
             {
                 ConfigureTabHeader(tab, GetTabHeaderText(tab));
+
+                // A mode swap rebuilds the header content, discarding whatever text the
+                // TabPreviewLine TextBlock previously held - mark dirty so the first vertical
+                // pass after this repopulates it instead of leaving it blank until the next
+                // output/status-timer tick.
+                GetOrCreateTabState(tab).PreviewDirty = true;
             }
 
             if (vertical && _tabStatusTimer == null)
@@ -3311,7 +3333,9 @@ namespace NovaTerminal
             var tab = ResolveOwningTabForPane(pane);
             if (tab == null) return;
 
-            GetOrCreateTabState(tab).Status.NoteOutput(DateTime.UtcNow);
+            var tabState = GetOrCreateTabState(tab);
+            tabState.Status.NoteOutput(DateTime.UtcNow);
+            tabState.PreviewDirty = true;
 
             if (TryGetSelectedTab(out var selectedTabForStartup) && selectedTabForStartup == tab && ResolvePaneForTab(selectedTabForStartup) == pane)
             {
@@ -5147,30 +5171,53 @@ namespace NovaTerminal
                 };
             }
 
+            // Preview recompute is gated behind a dirty flag + throttle: with several streaming
+            // tabs, this visual-refresh pass can run many times a second, and each recompute is
+            // an O(rows*cols) grapheme walk under the buffer's read lock (contending with the
+            // parser's writes) plus per-row string allocation. Freshness is therefore best-effort
+            // (<= PreviewRefreshInterval behind the latest output) while a tab streams; the
+            // 1s tab-status timer's Working -> quiet transition (and selection changes, which
+            // also trigger a refresh) always fires at least one more pass after a burst ends, so
+            // the final line still lands even if the last throttle window was mid-recompute.
             if (FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine") is { } preview)
             {
-                preview.Text = ReadPaneLastLine(ResolvePaneForTab(tab));
+                if (state.PreviewDirty)
+                {
+                    var now = DateTime.UtcNow;
+                    if (now - state.LastPreviewUpdateUtc >= PreviewRefreshInterval)
+                    {
+                        preview.Text = ReadPaneLastLine(ResolvePaneForTab(tab), state);
+                        state.PreviewDirty = false;
+                        state.LastPreviewUpdateUtc = now;
+                    }
+                    // else: still within the throttle window - skip this pass, stay dirty so a
+                    // later pass picks it up.
+                }
+                // else: nothing new since the last recompute - leave the existing text alone.
             }
         }
 
-        private static string ReadPaneLastLine(TerminalPane? pane)
+        private static string ReadPaneLastLine(TerminalPane? pane, TabRuntimeState state)
         {
             var buffer = pane?.Buffer;
             if (buffer == null) return string.Empty;
 
-            // GetLastNonEmptyRowText takes the buffer read lock itself (NoRecursion —
+            // GetVisibleRowTexts takes the buffer read lock itself (NoRecursion —
             // do NOT wrap this call in another Lock.EnterReadLock).
-            string text = NovaTerminal.VT.Export.TerminalExporter.GetLastNonEmptyRowText(buffer);
+            string[] rows = NovaTerminal.VT.Export.TerminalExporter.GetVisibleRowTexts(buffer);
 
             // Unwritten mid-row cells can surface as raw NUL graphemes; a NUL reaching the
             // preview TextBlock renders as invisible garbage, so swap it for a space and re-trim
             // (the exporter's own TrimEnd may no longer be meaningful once NULs become spaces).
-            if (text.IndexOf('\0') >= 0)
+            for (int i = 0; i < rows.Length; i++)
             {
-                text = text.Replace('\0', ' ').TrimEnd();
+                if (rows[i].IndexOf('\0') >= 0)
+                {
+                    rows[i] = rows[i].Replace('\0', ' ').TrimEnd();
+                }
             }
 
-            return text;
+            return state.Preview.Update(rows);
         }
 
         private void SplitPane(Avalonia.Layout.Orientation orientation)

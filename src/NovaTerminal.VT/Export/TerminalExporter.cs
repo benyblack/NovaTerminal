@@ -61,24 +61,10 @@ namespace NovaTerminal.VT.Export
             {
                 for (int r = buffer.Rows - 1; r >= 0; r--)
                 {
-                    int lastNonEmpty = -1;
-                    var rowSb = new StringBuilder();
-                    for (int c = 0; c < buffer.Cols; c++)
+                    string text = ReadRowText(buffer, r);
+                    if (text.Length > 0)
                     {
-                        var cell = buffer.GetCell(c, r);
-                        if (cell.IsWideContinuation) continue;
-
-                        string text = buffer.GetGrapheme(c, r);
-                        rowSb.Append(text);
-                        if (!string.IsNullOrWhiteSpace(text) && text != "\0")
-                        {
-                            lastNonEmpty = rowSb.Length;
-                        }
-                    }
-
-                    if (lastNonEmpty >= 0)
-                    {
-                        return rowSb.ToString().Substring(0, lastNonEmpty);
+                        return text;
                     }
                 }
 
@@ -88,6 +74,63 @@ namespace NovaTerminal.VT.Export
             {
                 buffer.Lock.ExitReadLock();
             }
+        }
+
+        /// <summary>
+        /// One trimmed-of-trailing-whitespace string per viewport row, top-to-bottom (index 0 =
+        /// top row) — the per-row building block behind <see cref="GetLastNonEmptyRowText"/>,
+        /// exposed so callers can apply their own "which row is the interesting one" heuristic
+        /// instead of always taking the bottom-most non-empty row. Acquires the buffer read lock
+        /// itself; callers must NOT already hold it (<see cref="TerminalBuffer.Lock"/> is a
+        /// <see cref="System.Threading.ReaderWriterLockSlim"/> with <see cref="System.Threading.LockRecursionPolicy.NoRecursion"/>,
+        /// so re-entering it throws).
+        /// </summary>
+        public static string[] GetVisibleRowTexts(TerminalBuffer buffer)
+        {
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                var rows = new string[buffer.Rows];
+                for (int r = 0; r < buffer.Rows; r++)
+                {
+                    rows[r] = ReadRowText(buffer, r);
+                }
+
+                return rows;
+            }
+            finally
+            {
+                buffer.Lock.ExitReadLock();
+            }
+        }
+
+        /// <summary>
+        /// Shared per-row cell walk behind <see cref="GetLastNonEmptyRowText"/> and
+        /// <see cref="GetVisibleRowTexts"/>: builds row <paramref name="row"/>'s text (skipping
+        /// wide-continuation cells, appending each cell's grapheme), then trims it to end right
+        /// after the last character that isn't whitespace or a NUL grapheme — i.e. trailing
+        /// whitespace/NUL is dropped, same as a <c>TrimEnd</c> that also treats "\0" as
+        /// trimmable. Returns <see cref="string.Empty"/> for a row with no such character.
+        /// Callers must already hold <see cref="TerminalBuffer.Lock"/> (read lock is sufficient).
+        /// </summary>
+        private static string ReadRowText(TerminalBuffer buffer, int row)
+        {
+            int lastNonEmpty = -1;
+            var rowSb = new StringBuilder();
+            for (int c = 0; c < buffer.Cols; c++)
+            {
+                var cell = buffer.GetCell(c, row);
+                if (cell.IsWideContinuation) continue;
+
+                string text = buffer.GetGrapheme(c, row);
+                rowSb.Append(text);
+                if (!string.IsNullOrWhiteSpace(text) && text != "\0")
+                {
+                    lastNonEmpty = rowSb.Length;
+                }
+            }
+
+            return lastNonEmpty >= 0 ? rowSb.ToString(0, lastNonEmpty) : string.Empty;
         }
 
         public static string ExportToAnsi(TerminalBuffer buffer)

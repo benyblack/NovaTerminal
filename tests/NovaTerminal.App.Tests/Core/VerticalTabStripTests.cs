@@ -143,7 +143,14 @@ public sealed class VerticalTabStripTests
     [AvaloniaFact]
     public void HorizontalMode_KeepsPlainHeaders()
     {
-        var window = CreateShownWindow(); // default settings = horizontal
+        var window = CreateShownWindow();
+        // Force horizontal explicitly rather than trusting the loaded settings: window-creating
+        // tests read the developer's real TerminalSettings, and a dev machine left in vertical
+        // mode would otherwise make this test's premise false.
+        GetSettings(window).TabStripOrientation = "Horizontal";
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+
         var tabs = window.FindControl<TabControl>("Tabs")!;
         var tab = tabs.Items.Cast<TabItem>().First();
         Assert.Null(NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine"));
@@ -187,7 +194,14 @@ public sealed class VerticalTabStripTests
     [AvaloniaFact]
     public void VerticalMode_ShowsResizeGrip_HorizontalHidesIt()
     {
-        var window = CreateShownWindow(); // default settings = horizontal
+        var window = CreateShownWindow();
+        // Force horizontal explicitly rather than trusting the loaded settings: window-creating
+        // tests read the developer's real TerminalSettings, and a dev machine left in vertical
+        // mode would otherwise make this test's premise false.
+        GetSettings(window).TabStripOrientation = "Horizontal";
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+
         var gripHorizontal = FindResizeGrip(window);
         Assert.NotNull(gripHorizontal);
         Assert.False(gripHorizontal!.IsVisible);
@@ -297,5 +311,94 @@ public sealed class VerticalTabStripTests
         var method = typeof(NovaTerminal.MainWindow).GetMethod("PopulateTabListMenu", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(window, new object[] { false });
+    }
+
+    // Regression coverage for the perf fix: recomputing the preview line on every batched
+    // visual refresh is an O(rows*cols) grapheme walk under the buffer's read lock per tab per
+    // pass, which gets expensive with several streaming tabs. The fix gates the recompute behind
+    // a PreviewDirty flag + a 250ms throttle (PreviewRefreshInterval) - these three tests drive
+    // that gate directly via the GetTabPreviewDirtyForTest/SetTabPreviewDirtyForTest seam
+    // (mirroring the GetTabStatusTracker seam already used above) since real pane output isn't
+    // practical to simulate in the headless test host.
+
+    [AvaloniaFact]
+    public void UpdateTabVisuals_PreviewNotDirty_LeavesExistingTextUntouched()
+    {
+        var window = CreateShownWindow();
+        var settings = GetSettings(window);
+        settings.TabStripOrientation = "Vertical";
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs(); // let the initial dirty-from-mode-switch pass settle
+
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var tab = tabs.Items.Cast<TabItem>().First();
+        var preview = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
+        Assert.NotNull(preview);
+
+        window.SetTabPreviewDirtyForTest(tab, false);
+        preview!.Text = "SENTINEL_UNCHANGED";
+
+        window.UpdateTabVisuals();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("SENTINEL_UNCHANGED", preview.Text);
+    }
+
+    [AvaloniaFact]
+    public void UpdateTabVisuals_PreviewDirtyPastThrottleWindow_RecomputesAndReplacesSentinel()
+    {
+        var window = CreateShownWindow();
+        var settings = GetSettings(window);
+        settings.TabStripOrientation = "Vertical";
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs(); // let the initial dirty-from-mode-switch pass settle
+
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var tab = tabs.Items.Cast<TabItem>().First();
+        var preview = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
+        Assert.NotNull(preview);
+
+        preview!.Text = "SENTINEL_STALE";
+        window.SetTabPreviewDirtyForTest(tab, true);
+        // Clear the 250ms throttle window left over from the initial settle pass above, so this
+        // recompute isn't itself throttled.
+        System.Threading.Thread.Sleep(300);
+
+        window.UpdateTabVisuals();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotEqual("SENTINEL_STALE", preview.Text);
+    }
+
+    [AvaloniaFact]
+    public void ApplyTabLayout_ModeSwitch_MarksPreviewDirty_SoFirstPassRepopulatesIt()
+    {
+        var window = CreateShownWindow();
+        var settings = GetSettings(window);
+        settings.TabStripOrientation = "Horizontal";
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var tab = tabs.Items.Cast<TabItem>().First();
+        // Clear it so the upcoming mode switch is the only possible source of "dirty" below.
+        window.SetTabPreviewDirtyForTest(tab, false);
+        // Window startup itself may already have applied a vertical pass and recomputed the
+        // preview (TestMainWindowFactory loads the developer's real settings.json, which can be
+        // vertical) - clear the 250ms throttle window left over from that so the switch below
+        // isn't itself throttled into leaving the dirty flag set.
+        System.Threading.Thread.Sleep(300);
+
+        settings.TabStripOrientation = "Vertical";
+        window.ApplyTabLayout();
+
+        Assert.True(window.GetTabPreviewDirtyForTest(tab),
+            "mode switch must mark the preview dirty so the first vertical pass repopulates it");
+
+        Dispatcher.UIThread.RunJobs(); // the deferred UpdateTabVisuals pass consumes the dirty flag
+
+        var preview = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
+        Assert.NotNull(preview);
+        Assert.False(window.GetTabPreviewDirtyForTest(tab), "the first vertical pass should have recomputed and cleared dirty");
     }
 }
