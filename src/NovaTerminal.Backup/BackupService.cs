@@ -1092,12 +1092,26 @@ public sealed class BackupService
         string comparableDestination;
         try
         {
-            comparableDestination = Path.GetFullPath(destinationPath, RootDirectory);
+            // Fix round 2 (Codex review): Path.GetFullPath(destinationPath) - NOT
+            // Path.GetFullPath(destinationPath, RootDirectory). A relative destinationPath must
+            // resolve against the process's current working directory, exactly like
+            // BundleWriter.Write's own FileStream/File.Move do with the raw string it is handed -
+            // resolving it against RootDirectory here instead let a relative path bypass this
+            // guard while still landing on a live catalog file: with CWD =
+            // "<appdata>/ssh", "backup export profiles.json" resolved here to
+            // "<appdata>/profiles.json" (not a catalog entry - allowed) but was actually written
+            // to "<appdata>/ssh/profiles.json" (the live Connections file) by BundleWriter, which
+            // never heard of RootDirectory at all. No base directory means both agree.
+            comparableDestination = Path.GetFullPath(destinationPath);
         }
-        catch (ArgumentException)
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
         {
-            // An invalid path (illegal characters, etc.) is BundleWriter's failure to report -
-            // this guard only cares about a path that resolved successfully onto something live.
+            // An invalid or unnormalizable path is BundleWriter's failure to report (it hits the
+            // same GetFullPath/FileStream normalization and already has a typed WriteFailed path
+            // for exactly this) - this guard only cares about a path that resolved successfully
+            // onto something live. Widened past ArgumentException (fix round 2) to match every
+            // exception GetFullPath's own documentation lists for a malformed path, so one of
+            // these doesn't escape Export unhandled the way ArgumentException-only did before.
             reason = null;
             return false;
         }

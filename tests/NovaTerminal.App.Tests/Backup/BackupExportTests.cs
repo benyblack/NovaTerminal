@@ -268,6 +268,47 @@ public sealed class BackupExportTests
         Assert.True(outcome.Success, outcome.Message);
     }
 
+    /// <summary>
+    /// Fix round 2 (Codex review, PR #362): TryDescribeProtectedDestination used to resolve a
+    /// relative destinationPath against RootDirectory
+    /// (Path.GetFullPath(destinationPath, RootDirectory)), but BundleWriter.Write hands the raw
+    /// string straight to FileStream/File.Move, which resolve a relative path against the
+    /// process's CURRENT WORKING DIRECTORY instead - a different base entirely. That mismatch
+    /// partially defeated the F2 fix: reachable from the CLI (BackupCommand.Execute passes the
+    /// bundle path through to Export verbatim), a caller running with CWD set to "&lt;root&gt;/ssh"
+    /// and exporting the bare relative filename "profiles.json" had it checked against
+    /// "&lt;root&gt;/profiles.json" (not a catalog entry - allowed) while BundleWriter actually wrote
+    /// to "&lt;root&gt;/ssh/profiles.json" - the live Connections file - destroying it exactly like
+    /// the original F2 defect. Sets the real process CWD, since that is the only way to exercise
+    /// BundleWriter's actual resolution path; restores it in a finally, since other tests in this
+    /// process share it.
+    /// </summary>
+    [Fact]
+    public void Export_WithRelativeDestination_ResolvesAgainstCurrentDirectory_NotRootDirectory()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, FixedClock());
+        string sshDir = Path.Combine(tree.Root, "ssh");
+        string originalCwd = Environment.CurrentDirectory;
+
+        try
+        {
+            Environment.CurrentDirectory = sshDir;
+
+            // Relative to CWD ("<root>/ssh"), this resolves to "<root>/ssh/profiles.json" - the
+            // live Connections catalog file - not "<root>/profiles.json" (not a catalog path at
+            // all), which is what the old RootDirectory-based guard incorrectly checked instead.
+            var outcome = service.Export("profiles.json");
+
+            Assert.False(outcome.Success);
+            Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+        }
+        finally
+        {
+            Environment.CurrentDirectory = originalCwd;
+        }
+    }
+
     private static TimeProvider FixedClock() =>
         new FixedTimeProvider(new DateTimeOffset(2026, 8, 27, 9, 14, 0, TimeSpan.Zero));
 }

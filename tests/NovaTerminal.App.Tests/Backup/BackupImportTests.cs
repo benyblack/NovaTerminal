@@ -703,6 +703,52 @@ public sealed class BackupImportTests
     }
 
     /// <summary>
+    /// Fix round 2 (Codex review): F3's removal step (a null <c>SwapStep.SourcePath</c>, meaning
+    /// "this live file was renamed aside and must NOT be replaced") is the riskiest new code path
+    /// on this branch and had no rollback coverage. Replace whose Connections category omits
+    /// native_known_hosts.json plans a removal step for it (see
+    /// <see cref="Replace_ConnectionsBundleOmittingKnownHosts_RemovesLiveKnownHostsFile"/>).
+    /// Connections sorts before Snippets in manifest/enum order, so its removal step - and the
+    /// Settings replace step before it - both commit to the live tree before Snippets (blocked
+    /// here with the same "park a directory on the destination" technique
+    /// <see cref="Import_FailingMidWrite_SelfHealsWithoutExplicitRestore"/> uses) fails. Asserts
+    /// the removed file comes back byte-for-byte: <c>RollBack</c> needs no special case for a
+    /// removal step (see its own remarks) - it just deletes whatever the forward move placed at
+    /// LivePath, which for a removal is nothing, then restores the renamed-aside original exactly
+    /// like any other journaled step. Also asserts Settings (committed before the failure) rolled
+    /// back too, and Connections' own profiles.json (which the bundle DID carry) is unaffected by
+    /// the failure of an unrelated, later category.
+    /// </summary>
+    [Fact]
+    public void Import_ReplaceRemovalStepRollsBackWhenALaterCategoryFails()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        source.WriteFile("settings.json", """{"FontSize":999,"ThemeName":"FromBundle"}""");
+        File.Delete(Path.Combine(source.Root, "ssh", "native_known_hosts.json"));
+        string bundle = ExportFrom(source);
+
+        using var target = BackupTestTree.CreatePopulated();
+        string originalSettings = target.ReadFile("settings.json");
+        string originalKnownHosts = target.ReadFile(Path.Combine("ssh", "native_known_hosts.json"));
+        string originalProfiles = target.ReadFile(Path.Combine("ssh", "profiles.json"));
+        var service = new BackupService(target.Root, Clock());
+
+        // Obstruct Snippets - the LAST category in enum/manifest order - so it fails mid-commit,
+        // after Settings and Connections (including the removal step) have already committed.
+        string blocked = Path.Combine(target.Root, "command-assist", "snippets.json");
+        File.Delete(blocked);
+        Directory.CreateDirectory(blocked);
+
+        var outcome = service.Import(bundle, ImportMode.Replace);
+
+        Assert.False(outcome.Success);
+        Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+        Assert.Equal(originalSettings, target.ReadFile("settings.json"));
+        Assert.Equal(originalKnownHosts, target.ReadFile(Path.Combine("ssh", "native_known_hosts.json")));
+        Assert.Equal(originalProfiles, target.ReadFile(Path.Combine("ssh", "profiles.json")));
+    }
+
+    /// <summary>
     /// Even though a mid-write failure now self-heals within the same Import call (see
     /// <see cref="Import_FailingMidWrite_SelfHealsWithoutExplicitRestore"/>), the pre-import
     /// snapshot it also takes must still be a genuine, independent rollback in its own right —
