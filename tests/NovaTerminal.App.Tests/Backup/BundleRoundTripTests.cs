@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using NovaTerminal.Backup;
 
@@ -308,6 +310,111 @@ public sealed class BundleRoundTripTests
 
         Assert.False(outcome.Success);
         Assert.Equal(BackupFailureKind.MissingCategoryContent, outcome.Failure);
+    }
+
+    /// <summary>
+    /// F4 (Codex review round 2, PR #362): when the path exists but the file's ACL denies reading
+    /// it, <c>ZipFile.OpenRead</c> throws <see cref="UnauthorizedAccessException"/> - not an
+    /// <see cref="IOException"/> subclass, so it fell through every existing catch in
+    /// <c>BundleReader.Open</c> and faulted Settings import / the CLI instead of returning a typed
+    /// failure. Also asserts the message is distinguishable from the "not a valid bundle" wording
+    /// <see cref="Open_RejectsNonZipFile"/> gets - the two point the user somewhere different (fix
+    /// permissions vs. pick a different file).
+    /// </summary>
+    /// <remarks>
+    /// Denies read access and verifies - rather than assumes - that this actually blocks
+    /// <c>File.OpenRead</c> before asserting on <c>BundleReader.Open</c>, the same "decide the skip
+    /// by trying it" pattern used throughout this branch's ACL-dependent tests (e.g.
+    /// <c>SettingsWindowBackupSectionTests.TryBlockDirectoryListing</c>) - an elevated or root
+    /// process can ignore a deny ACL / zeroed Unix mode entirely, in which case this skips rather
+    /// than asserting a false negative.
+    /// </remarks>
+    [Fact]
+    public void Open_RejectsFileWithAccessDenied_WithAMessageDistinctFromNotABackup()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        string bundle = Path.Combine(tree.Root, "denied.novabackup");
+        BundleWriter.Write(tree.Root, bundle, BackupCatalog.AllCategories, NewManifest());
+
+        bool blocked = TryDenyFileRead(bundle, out Action restore);
+        try
+        {
+            if (!blocked)
+            {
+                Assert.Skip("this process can read a file it just denied itself access to (root, or an unrestricted account)");
+            }
+
+            var outcome = BundleReader.Open(bundle);
+
+            Assert.False(outcome.Success);
+            Assert.Equal(BackupFailureKind.AccessDenied, outcome.Failure);
+            Assert.DoesNotContain("not a NovaTerminal backup", outcome.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("not a readable archive", outcome.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            restore();
+        }
+    }
+
+    /// <summary>
+    /// Denies read access to <paramref name="path"/> for the current process, verifying - rather
+    /// than assuming - that this actually blocks <c>File.OpenRead</c> before reporting success. The
+    /// returned <paramref name="restore"/> action always undoes the change, whether or not the
+    /// block took, so temp-directory cleanup can proceed either way.
+    /// </summary>
+    private static bool TryDenyFileRead(string path, out Action restore)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var fileInfo = new FileInfo(path);
+            var security = fileInfo.GetAccessControl();
+            var currentUser = WindowsIdentity.GetCurrent().User!;
+            var rule = new FileSystemAccessRule(currentUser, FileSystemRights.Read, AccessControlType.Deny);
+
+            security.AddAccessRule(rule);
+            fileInfo.SetAccessControl(security);
+
+            restore = () =>
+            {
+                try
+                {
+                    var current = fileInfo.GetAccessControl();
+                    current.RemoveAccessRule(rule);
+                    fileInfo.SetAccessControl(current);
+                }
+                catch
+                {
+                    // Best-effort restore; the temp tree's Dispose is best-effort too.
+                }
+            };
+        }
+        else
+        {
+            File.SetUnixFileMode(path, UnixFileMode.None);
+
+            restore = () =>
+            {
+                try
+                {
+                    File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+                catch
+                {
+                    // Best-effort restore; the temp tree's Dispose is best-effort too.
+                }
+            };
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            return false; // could still read - the restriction did not take (root, etc.)
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
     }
 
     private static BackupManifest NewManifest() => new()

@@ -503,6 +503,115 @@ public sealed class SettingsWindowBackupSectionTests
     }
 
     /// <summary>
+    /// Finding 1 (Codex review round 2, PR #362): the exact same residual as
+    /// <see cref="Import_BringingNewTheme_ThenSave_PersistsTheImportedThemeName"/> above, for
+    /// fonts. <c>PopulateFonts</c> builds its list via
+    /// <c>BuildFontFamilyChoices(..., _selectedProfile?.FontFamily ?? _settings.FontFamily)</c> —
+    /// it explicitly seeds the configured font even when it is not installed locally. Before the
+    /// fix, <c>ReloadSettingsAfterExternalChange</c> called <c>PopulateThemes</c> but not
+    /// <c>PopulateFonts</c>, so a bundle imported from another machine naming a font absent here
+    /// left <c>FontList</c> holding the pre-import choices; <c>LoadCurrentSettings</c> could not
+    /// select the imported font, and a later Save wrote the stale font back over it.
+    ///
+    /// The target tree's pre-import <c>FontFamily</c> is left unset, defaulting to
+    /// <c>BundledFontCatalog.DefaultTerminalFontFamily</c> — deliberately present in
+    /// <c>FontList</c> both before and after the import (<c>PopulateFonts</c> always seeds the
+    /// bundled default), exactly the "present pre-state name" precedent the theme test above
+    /// documents: an absent pre-state would leave <c>SelectedItem</c> null and the `is
+    /// ComboBoxItem` guard at <c>SaveAndClose</c> would skip the write entirely, silently missing
+    /// this bug.
+    /// </summary>
+    [AvaloniaFact]
+    public void Import_BringingFontNotInstalledLocally_ThenSave_PersistsTheImportedFontFamily()
+    {
+        const string importedFont = "TotallyNotARealFont-XYZ123";
+
+        using var source = BackupTestTree.CreateEmpty();
+        source.WriteFile("settings.json", $$"""{"FontSize":14,"ThemeName":"Default","FontFamily":"{{importedFont}}"}""");
+        string bundle = Path.Combine(source.Root, "import.novabackup");
+        Assert.True(new BackupService(source.Root).Export(bundle).Success);
+
+        // The populated target tree's settings.json does not set FontFamily, so
+        // TerminalSettings.Load() defaults it to the bundled default font — present in FontList
+        // both before and after the import (see remarks above).
+        using var target = BackupTestTree.CreatePopulated();
+
+        using var _ = OverrideAppDataRoot(target.Root);
+        var window = new NovaTerminal.SettingsWindow();
+
+        var targetService = new BackupService(target.Root);
+        var outcome = targetService.Import(bundle, ImportMode.Replace);
+        Assert.True(outcome.Success, outcome.Message);
+
+        var reloadMethod = typeof(NovaTerminal.SettingsWindow).GetMethod(
+            "ReloadSettingsAfterExternalChange", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(reloadMethod);
+        reloadMethod!.Invoke(window, null);
+
+        var btnSave = window.FindControl<Button>("BtnSave")!;
+        btnSave.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        using var afterSave = target.ReadJson("settings.json");
+        Assert.Equal(importedFont, afterSave.RootElement.GetProperty("FontFamily").GetString());
+    }
+
+    /// <summary>
+    /// Finding 2 (Codex review round 2, PR #362): the Merge/Replace import prompt says Merge
+    /// "keeps items you have locally that the bundle does not contain." That is false for
+    /// Snippets — <c>BackupService.BuildPlan</c> replaces <c>snippets.json</c> wholesale in BOTH
+    /// modes (a deliberate, spec'd design decision: the file is a flat array with no stable id, so
+    /// there is nothing to merge by — see <c>BackupImportTests.Snippets_AlwaysReplacedWholesale</c>).
+    /// A user choosing Merge specifically to keep local snippets would lose them with no warning.
+    /// Reaches the wording directly via the private <c>BuildImportModeBodyText</c> helper — the
+    /// same reflection-free-body/reflection-only-for-the-modal-itself split
+    /// <c>RestoreConfirmationText_...</c> above uses for <c>BuildRestoreConfirmationText</c> —
+    /// since a real <c>PromptForImportModeAsync</c>'s <c>ShowDialog</c> hangs this repo's headless
+    /// host (see that test's remarks).
+    /// </summary>
+    [Fact]
+    public void ImportModeBodyText_MentionsSnippetsReplacedWholesale_OnlyWhenBundleContainsSnippets()
+    {
+        var method = typeof(NovaTerminal.SettingsWindow).GetMethod(
+            "BuildImportModeBodyText", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var withSnippets = new BundleInspection(
+            NewManifestForBodyTextTest(),
+            new Dictionary<BackupCategory, int>
+            {
+                [BackupCategory.Settings] = 1,
+                [BackupCategory.Snippets] = 1,
+            });
+
+        var withoutSnippets = new BundleInspection(
+            NewManifestForBodyTextTest(),
+            new Dictionary<BackupCategory, int>
+            {
+                [BackupCategory.Settings] = 1,
+                [BackupCategory.Snippets] = 0,
+            });
+
+        string withSnippetsText = (string)method!.Invoke(null, new object[] { withSnippets })!;
+        string withoutSnippetsText = (string)method.Invoke(null, new object[] { withoutSnippets })!;
+
+        Assert.Contains("replaced entirely", withSnippetsText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("replaced entirely", withoutSnippetsText, StringComparison.OrdinalIgnoreCase);
+
+        // The base guarantee must still hold for a bundle without Snippets — this is a copy fix,
+        // not a semantics change.
+        Assert.Contains("keeps items you have locally", withoutSnippetsText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static BackupManifest NewManifestForBodyTextTest() => new()
+    {
+        SchemaVersion = BackupManifest.CurrentSchemaVersion,
+        AppVersion = "1.0.0-test",
+        CreatedUtc = DateTimeOffset.UnixEpoch,
+        Machine = "TEST",
+        Categories = new[] { "settings", "snippets" }
+    };
+
+    /// <summary>
     /// I1 residual, Fix 2 (scoped re-review): <c>_selectedProfile</c> points at an entry of the
     /// PRE-reload <c>_profilesList</c>. <c>ReloadSettingsAfterExternalChange</c> rebuilds
     /// <c>_profilesList</c> with fresh <c>TerminalProfile</c> instances (freshly deserialized from

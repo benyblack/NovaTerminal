@@ -12,7 +12,22 @@ public enum BackupFailureKind
     CorruptArchive,
     UnsupportedSchemaVersion,
     MissingCategoryContent,
-    WriteFailed
+    WriteFailed,
+
+    /// <summary>
+    /// The path exists but the caller's ACL denies reading it — distinct from
+    /// <see cref="NotABackup"/> (a readable file that isn't a valid bundle) because the two lead
+    /// the user somewhere different: fix permissions, versus pick a different file.
+    /// </summary>
+    AccessDenied,
+
+    /// <summary>
+    /// A defence-in-depth catch converted an escaping exception of a type none of this codebase's
+    /// specific catches recognized. Deliberately distinct from every other kind here so it never
+    /// reads as a diagnosed, known cause — see the backstop catches in
+    /// <see cref="BackupService"/> and <see cref="BundleReader"/> for what this covers.
+    /// </summary>
+    Unexpected
 }
 
 /// <summary>Result of an operation with no return value.</summary>

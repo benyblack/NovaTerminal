@@ -1209,6 +1209,19 @@ namespace NovaTerminal
             _settings.DefaultProfileId = ResolveDefaultLocalProfileId(_settings.DefaultProfileId, _profilesList);
             _shortcutDraftBindings = new Dictionary<string, string>(_settings.Keybindings, StringComparer.OrdinalIgnoreCase);
 
+            // Fix (Codex review round 2, PR #362): the exact same I1-residual-#1 gap as
+            // PopulateThemes below, for fonts. PopulateFonts seeds its choices from
+            // BuildFontFamilyChoices(..., _selectedProfile?.FontFamily ?? _settings.FontFamily),
+            // explicitly adding whatever font is currently configured even when it is not
+            // installed locally - so a bundle imported from another machine naming a font absent
+            // here needs this rerun to make that font selectable at all. Without it,
+            // LoadCurrentSettings' font-selection loop below has no matching ComboBoxItem, leaves
+            // FontList.SelectedItem on the stale pre-reload font, and a subsequent Save writes that
+            // stale font back over the just-imported one. Must run before LoadCurrentSettings,
+            // exactly like the constructor's own sequence (PopulateFonts, then PopulateThemes,
+            // then LoadCurrentSettings).
+            PopulateFonts();
+
             // Fix (I1 residual #1): the theme combo boxes were filled from disk once, at
             // construction (PopulateThemes, called before LoadCurrentSettings there too - see the
             // constructor). An import/restore can bring a new theme file AND a settings.json
@@ -1413,6 +1426,39 @@ namespace NovaTerminal
         }
 
         /// <summary>
+        /// The Merge/Replace prompt's explanatory body text for a bundle whose contents are
+        /// <paramref name="inspection"/>. Factored out of <see cref="PromptForImportModeAsync"/> so
+        /// the wording is unit-testable without going anywhere near <c>ShowDialog</c> - the same
+        /// split <see cref="BuildRestoreConfirmationText"/> uses for the Restore confirmation.
+        /// </summary>
+        /// <remarks>
+        /// (P2, Codex review round 2, PR #362): the base sentence — "Merge keeps items you have
+        /// locally that the bundle does not contain" — is false for Snippets. <c>BackupService</c>'s
+        /// <c>BuildPlan</c> replaces <c>snippets.json</c> wholesale in BOTH modes (a deliberate
+        /// design decision, spec'd: the file is a flat array with no stable id, so there is nothing
+        /// to merge by — see <c>Snippets_AlwaysReplacedWholesale</c>). A user choosing Merge
+        /// specifically to keep local snippets would lose them with no warning. This fixes the
+        /// copy, not the semantics: the caveat only appears when the bundle actually contains the
+        /// Snippets category (an <see cref="BundleInspection.ItemCounts"/> lookup — <c>Inspect</c>
+        /// already gives the caller this for free), so a bundle without Snippets sees the same
+        /// wording as before.
+        /// </remarks>
+        private static string BuildImportModeBodyText(BundleInspection inspection)
+        {
+            bool bundleHasSnippets = inspection.ItemCounts.TryGetValue(BackupCategory.Snippets, out int snippetCount)
+                && snippetCount > 0;
+
+            string snippetsCaveat = bundleHasSnippets
+                ? " Snippets are always replaced entirely in either mode — Merge does not apply to them."
+                : string.Empty;
+
+            return "Merge keeps items you have locally that the bundle does not contain. " +
+                   "Replace makes the bundle the truth for the categories above. " +
+                   "A snapshot is taken first either way, so you can roll back." +
+                   snippetsCaveat;
+        }
+
+        /// <summary>
         /// Asks whether to merge or replace, showing what the bundle contains. Returns null
         /// when the user cancels. Import is destructive, so there is no default —
         /// the user must pick.
@@ -1424,6 +1470,8 @@ namespace NovaTerminal
                 inspection.ItemCounts
                     .Where(pair => pair.Value > 0)
                     .Select(pair => $"{pair.Value} {pair.Key.ToString().ToLowerInvariant()}"));
+
+            string body = BuildImportModeBodyText(inspection);
 
             ImportMode? choice = null;
 
@@ -1457,9 +1505,7 @@ namespace NovaTerminal
                     },
                     new TextBlock
                     {
-                        Text = "Merge keeps items you have locally that the bundle does not contain. " +
-                               "Replace makes the bundle the truth for the categories above. " +
-                               "A snapshot is taken first either way, so you can roll back.",
+                        Text = body,
                         TextWrapping = TextWrapping.Wrap,
                         Opacity = 0.75
                     },

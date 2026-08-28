@@ -108,6 +108,43 @@ public static class BundleReader
                 BackupFailureKind.CorruptArchive,
                 $"Could not read {Path.GetFileName(bundlePath)}: {ex.Message}");
         }
+        // F (Codex review round 2, PR #362): UnauthorizedAccessException is NOT an IOException
+        // subclass, so an ACL that lets the path resolve (File.Exists above succeeds) but denies
+        // actually reading its bytes - ZipFile.OpenRead throws this the moment it tries - fell
+        // through every catch here and faulted Settings import / the CLI instead of returning a
+        // typed failure. Kept as its own BackupFailureKind (AccessDenied) rather than folded into
+        // CorruptArchive: "fix the permissions on this file" and "pick a different, valid bundle"
+        // are different instructions, and the message says which one applies.
+        catch (UnauthorizedAccessException ex)
+        {
+            return InspectOutcome.Fail(
+                BackupFailureKind.AccessDenied,
+                $"Could not read {Path.GetFileName(bundlePath)}: access is denied ({ex.Message}). " +
+                "This does not mean the file isn't a valid backup - check its permissions.");
+        }
+        // Section A backstop (Codex review round 2, PR #362): closes the same hand-maintained
+        // "typed failure, never throw" contract as BackupService's own backstops (see
+        // BackupService.ExportCore's remarks for the full rationale) - this method has already
+        // accumulated narrowly-scoped exception leaks across review rounds (F5's manifest-null
+        // NRE, this round's UnauthorizedAccessException above), each fixed one exception type at a
+        // time. This is the backstop for whatever the next one turns out to be, not a replacement
+        // for the specific catches above - those still produce a more precise
+        // BackupFailureKind and message and must stay. Excludes OperationCanceledException (no
+        // cancellation token flows through this method, but a future caller must not have its own
+        // cancellation silently swallowed here) and OutOfMemoryException (a resource exhaustion
+        // signal, not a bundle-reading failure, and not safe to keep running past). BundleReader is
+        // a static, dependency-free leaf type (no ProjectReference, no injected logger) - unlike
+        // BackupService, which takes an Action<string> log delegate, there is no logging channel
+        // available here, so the exception's type and message are folded into the returned
+        // message itself instead, which is the only diagnostic channel every caller (CLI, Settings,
+        // MCP) actually surfaces to a human.
+        catch (Exception ex) when (ex is not (OperationCanceledException or OutOfMemoryException))
+        {
+            return InspectOutcome.Fail(
+                BackupFailureKind.Unexpected,
+                $"Could not read {Path.GetFileName(bundlePath)}: unexpected error " +
+                $"({ex.GetType().Name}): {ex.Message}");
+        }
     }
 
     /// <summary>

@@ -72,22 +72,42 @@ public sealed class BackupService
         return ExportCore(destinationPath, categories);
     }
 
+    /// <summary>
+    /// Test-only hook: when set, <see cref="ExportCore"/> throws this instead of doing anything
+    /// real. Same rationale as <see cref="SimulateCommitPhaseFailureForTest"/> — real category
+    /// discovery (<see cref="HasContent"/>) and <see cref="BundleWriter.Write"/> only ever throw
+    /// from the types the specific catch below already filters on
+    /// (<see cref="IOException"/>, <see cref="UnauthorizedAccessException"/>,
+    /// <see cref="ArgumentException"/>), so an exception type outside that set cannot be provoked
+    /// portably and deterministically through the real filesystem — this simulates the escape
+    /// directly, to pin the backstop catch immediately below it.
+    /// </summary>
+    internal Func<Exception>? SimulateExportFailureForTest;
+
     private BackupOutcome ExportCore(string destinationPath, IReadOnlyCollection<BackupCategory>? categories)
     {
-        var requested = categories ?? BackupCatalog.AllCategories;
-        var present = requested.Where(HasContent).ToArray();
-
-        var manifest = new BackupManifest
-        {
-            SchemaVersion = BackupManifest.CurrentSchemaVersion,
-            AppVersion = ResolveAppVersion(),
-            CreatedUtc = _timeProvider.GetUtcNow(),
-            Machine = SafeMachineName(),
-            Categories = present.Select(c => c.ToString().ToLowerInvariant()).ToArray()
-        };
-
         try
         {
+            if (SimulateExportFailureForTest is not null) throw SimulateExportFailureForTest();
+
+            // F3 (Codex review round 2, PR #362): HasContent used to run BEFORE this try block.
+            // It enumerates every directory-category's files (Directory.EnumerateFiles(...).Any()),
+            // so an unreadable directory, one that disappears mid-enumeration, or an inaccessible
+            // subtree threw UnauthorizedAccessException/IOException straight out of Export instead
+            // of the documented WriteFailed outcome. Category discovery is now inside the same
+            // guarded region as the write itself.
+            var requested = categories ?? BackupCatalog.AllCategories;
+            var present = requested.Where(HasContent).ToArray();
+
+            var manifest = new BackupManifest
+            {
+                SchemaVersion = BackupManifest.CurrentSchemaVersion,
+                AppVersion = ResolveAppVersion(),
+                CreatedUtc = _timeProvider.GetUtcNow(),
+                Machine = SafeMachineName(),
+                Categories = present.Select(c => c.ToString().ToLowerInvariant()).ToArray()
+            };
+
             BundleWriter.Write(RootDirectory, destinationPath, present, manifest);
             return BackupOutcome.Ok($"Exported {present.Length} categories to {destinationPath}.");
         }
@@ -96,6 +116,28 @@ public sealed class BackupService
             return BackupOutcome.Fail(
                 BackupFailureKind.WriteFailed,
                 $"Could not write {destinationPath}: {ex.Message}");
+        }
+        // Section A backstop (Codex review round 2, PR #362): this contract - Export returns a
+        // typed BackupOutcome and never throws - has now leaked six times across this branch's
+        // reviews (an ArgumentException from Export itself, BundleReader.ExtractTo sitting outside
+        // any catch, a manifest NRE, a PathTooLongException from path normalisation, F3 above, and
+        // BundleReader.Open's own UnauthorizedAccessException gap), each fixed one exception type
+        // at a time. This closes the pattern instead of the next instance of it: whatever type
+        // escapes HasContent or BundleWriter.Write next, this converts it into a typed failure
+        // rather than letting it fault the CLI, the MCP tool, or an async UI handler. Deliberately
+        // NOT applied to Import/Restore (see their own remarks) or ListSnapshots (see its remarks)
+        // - each has an existing, tested contract this blanket approach would break instead of fix.
+        // BackupFailureKind.Unexpected, not WriteFailed, so this never reads as a diagnosed cause -
+        // the specific catch above already owns every cause this codebase actually understands.
+        // Logs the full exception (not just ex.Message) via the caller-supplied _log delegate,
+        // since the returned outcome's Message is the only thing an end user sees and a stack
+        // trace does not belong there.
+        catch (Exception ex) when (ex is not (OperationCanceledException or OutOfMemoryException))
+        {
+            _log($"[backup] export failed unexpectedly: {ex}");
+            return BackupOutcome.Fail(
+                BackupFailureKind.Unexpected,
+                $"Export failed unexpectedly ({ex.GetType().Name}): {ex.Message}");
         }
     }
 
@@ -114,6 +156,20 @@ public sealed class BackupService
     /// it was before this call, not just "recoverable via a separate Restore."
     /// </summary>
     /// <param name="categories">Null means every category the bundle contains.</param>
+    /// <remarks>
+    /// Section A (Codex review round 2, PR #362): deliberately carries NO blanket
+    /// defence-in-depth backstop around <see cref="ImportCore"/>, unlike <see cref="ExportCore"/>
+    /// and <see cref="BundleReader.Open"/>. <c>ImportCore</c>'s own catch-all
+    /// (<c>catch (Exception) { preserveStagingForManualRecovery = true; throw; }</c>) deliberately
+    /// lets an exception type its per-step catch does not recognize escape all the way out of this
+    /// method, so staging survives for manual recovery instead of being destroyed by the
+    /// unconditional cleanup — pinned by
+    /// <c>BackupCommitRollbackTests.Import_WhenCommitPhaseThrowsAnUnrecognizedException_PreservesStagingForManualRecovery</c>,
+    /// which asserts the exact exception TYPE propagates uncaught. Wrapping this method in a
+    /// backstop would catch that escape too and silently convert it into a typed failure, deleting
+    /// the "staging preserved for manual recovery" guarantee the moment it would matter most — a
+    /// parked, intentional residual, not an oversight this backstop should paper over.
+    /// </remarks>
     public BackupOutcome Import(
         string bundlePath,
         ImportMode mode,
@@ -136,6 +192,12 @@ public sealed class BackupService
     /// Rolls the live tree back to a snapshot. Always a Replace of the categories the snapshot
     /// contains — a rollback, not a merge. Categories absent from the snapshot are untouched.
     /// </summary>
+    /// <remarks>
+    /// Section A (Codex review round 2, PR #362): same reasoning as <see cref="Import"/> — this
+    /// also ends in an unguarded call to <see cref="ImportCore"/>, so wrapping this method in a
+    /// blanket backstop would defeat the same "staging preserved for manual recovery" escape
+    /// hatch <see cref="Import"/>'s remarks describe. No backstop added here for that call path.
+    /// </remarks>
     public BackupOutcome Restore(string snapshotId)
     {
         var snapshot = ListSnapshots().FirstOrDefault(s =>
@@ -927,6 +989,21 @@ public sealed class BackupService
     }
 
     /// <summary>Snapshots on disk, newest first. Unparseable file names are ignored.</summary>
+    /// <remarks>
+    /// Section A (Codex review round 2, PR #362): unlike <see cref="Export"/>/<see cref="Import"/>/
+    /// <see cref="Restore"/>/<see cref="Snapshot"/>, this method has never returned a typed
+    /// Outcome, and — unlike those — every known caller already treats that as the contract and
+    /// handles a real escaping <see cref="IOException"/>/<see cref="UnauthorizedAccessException"/>
+    /// itself: <c>BackupCommand.List</c> (CLI) catches it to keep the CLI's 0/1/2 exit-code
+    /// contract, and <c>SettingsWindow.WireBackupSection</c>'s <c>RefreshSnapshots</c> catches it to
+    /// show a specific "Could not read snapshots: …" status message — pinned by
+    /// <c>SettingsWindowBackupSectionTests.Constructing_WhenSnapshotEnumerationFails_StillOpens_WithAnEmptyListAndAStatusMessage</c>.
+    /// Adding a blanket backstop here that swallows those same exception types into a silent empty
+    /// list would defeat both callers' own handling rather than close a gap — so, deliberately, none
+    /// is added. (<c>NovaTerminal.McpServer.Tools.BackupTools.BackupList</c> has no such guard today
+    /// and would let an escaping exception fault the MCP call; that is a real, pre-existing gap, but
+    /// it lives in a caller outside this leaf project's scope, not in this method's own contract.)
+    /// </remarks>
     public IReadOnlyList<SnapshotInfo> ListSnapshots()
     {
         if (!Directory.Exists(BackupsDirectory)) return Array.Empty<SnapshotInfo>();

@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using NovaTerminal.Backup;
 
@@ -326,6 +328,147 @@ public sealed class BackupExportTests
             {
                 Environment.CurrentDirectory = originalCwd;
             }
+        }
+    }
+
+    /// <summary>
+    /// F3 (Codex review round 2, PR #362): <c>var present = requested.Where(HasContent).ToArray();</c>
+    /// used to run BEFORE ExportCore's try block. <c>HasContent</c> enumerates every
+    /// directory-category's files (<c>Directory.EnumerateFiles(...).Any()</c>), so an inaccessible
+    /// category directory threw <see cref="UnauthorizedAccessException"/> straight out of
+    /// <c>Export</c> instead of the documented <see cref="BackupFailureKind.WriteFailed"/> outcome.
+    /// Denies read/list access to the "themes" catalog directory (a real directory-shaped category)
+    /// and verifies — rather than assumes — that this actually blocks enumeration before asserting
+    /// on it, the same "decide the skip by trying it" pattern
+    /// <c>SettingsWindowBackupSectionTests.TryBlockDirectoryListing</c> uses for the analogous
+    /// ListSnapshots gap.
+    /// </summary>
+    [Fact]
+    public void Export_WhenACategoryDirectoryCannotBeEnumerated_ReturnsWriteFailed_InsteadOfThrowing()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        string themesDirectory = Path.Combine(tree.Root, "themes");
+
+        bool blocked = TryBlockDirectoryListing(themesDirectory, out Action restore);
+        try
+        {
+            if (!blocked)
+            {
+                Assert.Skip("this process can enumerate a directory it just denied itself access to (root, or an unrestricted account)");
+            }
+
+            var service = new BackupService(tree.Root, FixedClock());
+            string bundle = Path.Combine(tree.Root, "export.novabackup");
+
+            BackupOutcome? outcome = null;
+            var thrown = Record.Exception(() => outcome = service.Export(bundle));
+
+            Assert.Null(thrown);
+            Assert.NotNull(outcome);
+            Assert.False(outcome!.Success);
+            Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+        }
+        finally
+        {
+            restore();
+        }
+    }
+
+    /// <summary>
+    /// Section A backstop (Codex review round 2, PR #362): real filesystem/zip APIs essentially
+    /// only ever throw from the types <c>ExportCore</c>'s own specific catch already filters on
+    /// (<see cref="IOException"/>, <see cref="UnauthorizedAccessException"/>,
+    /// <see cref="ArgumentException"/>), so an "unrecognized exception type" cannot be provoked
+    /// portably and deterministically through the real filesystem — the same reasoning
+    /// <c>BackupCommitRollbackTests</c> documents for the analogous commit-phase seam. This test
+    /// seam (<see cref="BackupService.SimulateExportFailureForTest"/>) simulates the escape
+    /// directly: whatever throws, the backstop must convert it into a typed
+    /// <see cref="BackupFailureKind.Unexpected"/> failure rather than letting it fault the caller.
+    /// </summary>
+    [Fact]
+    public void Export_WhenAnUnrecognizedExceptionEscapes_ReturnsATypedUnexpectedFailure_InsteadOfThrowing()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, FixedClock())
+        {
+            SimulateExportFailureForTest = () => new InvalidOperationException("simulated exotic export failure"),
+        };
+        string bundle = Path.Combine(tree.Root, "export.novabackup");
+
+        BackupOutcome? outcome = null;
+        var thrown = Record.Exception(() => outcome = service.Export(bundle));
+
+        Assert.Null(thrown);
+        Assert.NotNull(outcome);
+        Assert.False(outcome!.Success);
+        Assert.Equal(BackupFailureKind.Unexpected, outcome.Failure);
+        Assert.Contains("simulated exotic export failure", outcome.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(bundle));
+    }
+
+    /// <summary>
+    /// Denies directory-listing access to <paramref name="directory"/> for the current process,
+    /// verifying - rather than assuming - that this actually blocks <c>Directory.EnumerateFiles</c>
+    /// before reporting success. The returned <paramref name="restore"/> action always undoes the
+    /// change, whether or not the block took, so temp-directory cleanup can proceed either way.
+    /// Mirrors <c>SettingsWindowBackupSectionTests.TryBlockDirectoryListing</c> exactly - duplicated
+    /// locally rather than shared, matching this codebase's existing convention of small
+    /// per-file test helpers (e.g. <c>FixedTimeProvider</c> below).
+    /// </summary>
+    private static bool TryBlockDirectoryListing(string directory, out Action restore)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var dirInfo = new DirectoryInfo(directory);
+            var security = dirInfo.GetAccessControl();
+            var currentUser = WindowsIdentity.GetCurrent().User!;
+            var rule = new FileSystemAccessRule(
+                currentUser,
+                FileSystemRights.ListDirectory | FileSystemRights.Read,
+                AccessControlType.Deny);
+
+            security.AddAccessRule(rule);
+            dirInfo.SetAccessControl(security);
+
+            restore = () =>
+            {
+                try
+                {
+                    var current = dirInfo.GetAccessControl();
+                    current.RemoveAccessRule(rule);
+                    dirInfo.SetAccessControl(current);
+                }
+                catch
+                {
+                    // Best-effort restore; the temp tree's Dispose is best-effort too.
+                }
+            };
+        }
+        else
+        {
+            File.SetUnixFileMode(directory, UnixFileMode.None);
+
+            restore = () =>
+            {
+                try
+                {
+                    File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                }
+                catch
+                {
+                    // Best-effort restore; the temp tree's Dispose is best-effort too.
+                }
+            };
+        }
+
+        try
+        {
+            Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories).Any();
+            return false; // enumeration still succeeded - the restriction did not take (root, etc.)
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
         }
     }
 
