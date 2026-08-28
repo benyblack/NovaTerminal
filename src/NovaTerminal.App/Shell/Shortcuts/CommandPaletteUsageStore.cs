@@ -4,6 +4,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using NovaTerminal.Shell;
 
 namespace NovaTerminal.Shell.Shortcuts;
 
@@ -93,7 +94,28 @@ public sealed class CommandPaletteUsageStore
                     Directory.CreateDirectory(directory);
                 }
 
-                File.WriteAllText(path, json);
+                // Write via a temp sibling + atomic rename (AtomicFile, same pattern as
+                // SessionManager/TerminalSettings) so a concurrent reader never observes a
+                // truncated file: File.WriteAllText held FileAccess.Write for the duration of
+                // the write, and any reader landing in that window either got a sharing
+                // violation or - worse - swallowed a JsonException in Load()'s bare catch and
+                // silently reset the user's usage ranking to empty. The rename itself can still
+                // fail if a reader has the destination open (Windows requires FILE_SHARE_DELETE
+                // to rename over an open handle), so retry a couple of times with a short
+                // backoff rather than silently dropping the save.
+                const int maxAttempts = 3;
+                for (int attempt = 1; attempt <= maxAttempts; attempt++)
+                {
+                    try
+                    {
+                        AtomicFile.WriteAllText(path, json);
+                        break;
+                    }
+                    catch (IOException) when (attempt < maxAttempts)
+                    {
+                        Thread.Sleep(20);
+                    }
+                }
             }
             catch
             {

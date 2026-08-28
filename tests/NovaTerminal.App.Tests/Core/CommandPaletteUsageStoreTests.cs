@@ -74,7 +74,7 @@ public sealed class CommandPaletteUsageStoreTests
         DateTime deadline = DateTime.UtcNow.Add(timeout);
         while (DateTime.UtcNow < deadline)
         {
-            if (condition())
+            if (Evaluate(condition))
             {
                 return;
             }
@@ -82,6 +82,22 @@ public sealed class CommandPaletteUsageStoreTests
             Thread.Sleep(25);
         }
 
-        Assert.True(condition());
+        Assert.True(Evaluate(condition));
+    }
+
+    // A transient sharing violation (the writer still has the file open) means the
+    // condition isn't true *yet*, not that polling should abort. Without this, the first
+    // collision between this poll and a concurrent writer fails the test outright instead
+    // of letting the retry loop do its job.
+    private static bool Evaluate(Func<bool> condition)
+    {
+        try
+        {
+            return condition();
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 }
