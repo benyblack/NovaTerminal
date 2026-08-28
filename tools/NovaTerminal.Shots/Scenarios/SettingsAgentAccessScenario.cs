@@ -1,3 +1,5 @@
+using Avalonia.Controls;
+
 namespace NovaTerminal.Shots.Scenarios;
 
 /// <summary>
@@ -7,10 +9,17 @@ namespace NovaTerminal.Shots.Scenarios;
 /// </summary>
 internal sealed class SettingsAgentAccessScenario : IScenario
 {
+    private const string AgentAccessHeader = "Agent Access";
+
     /// <summary>
     /// Agent Access's 0-based index among SettingsWindow's six tabs (Appearance, Profiles,
     /// Shortcuts, Command Assist, Agent Access, SSH — confirmed against SettingsWindow.axaml,
-    /// where Agent Access is the fifth &lt;TabItem&gt;).
+    /// where Agent Access is the fifth &lt;TabItem&gt;). Selected through the constructor rather
+    /// than a post-construction TabItem lookup so the sidebar nav gets synced for free
+    /// (SyncSidebarFromTabs runs once at construction against whatever tabs.SelectedIndex already
+    /// is). The index is trusted but verified: RunAsync asserts the tab this actually selects
+    /// carries the "Agent Access" header, and throws if the two have drifted apart, rather than
+    /// silently capturing whatever tab index 4 now happens to be.
     /// </summary>
     private const int AgentAccessTabIndex = 4;
 
@@ -24,24 +33,33 @@ internal sealed class SettingsAgentAccessScenario : IScenario
 
     public Task RunAsync(ShotContext context)
     {
-        // Selected via the constructor's initialTab rather than by walking the visual tree for a
-        // TabItem with a matching header. This is the same mechanism the app's own callers use to
-        // land on a specific tab (see the SettingsSection-targeted caller in
-        // SettingsWindow.axaml.cs), it is exercised by production code instead of a
-        // screenshot-only lookup, and it gets the sidebar-nav sync for free: SyncSidebarFromTabs
-        // runs once at construction against whatever tabs.SelectedIndex already is, so the
-        // sidebar and the tab strip agree in the captured frame without any extra plumbing here.
         var settingsWindow = new SettingsWindow(initialTab: AgentAccessTabIndex)
         {
             Width = Spec.LogicalWidth,
             Height = Spec.LogicalHeight
         };
 
-        settingsWindow.Show();
-        context.Driver.Pump(5);
-
+        // Show/Pump run inside the try, not before it: Pump runs Dispatcher.UIThread.RunJobs(),
+        // which executes work tied to the window just shown, so a throw there would otherwise
+        // leak a second live Window past this method with nothing left to close it.
         try
         {
+            settingsWindow.Show();
+            context.Driver.Pump(5);
+
+            TabControl tabs = settingsWindow.FindControl<TabControl>("MainTabs")
+                ?? throw new InvalidOperationException("SettingsWindow has no 'MainTabs' control.");
+
+            string? selectedHeader = (tabs.SelectedItem as TabItem)?.Header as string;
+            if (!string.Equals(selectedHeader, AgentAccessHeader, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Expected initialTab {AgentAccessTabIndex} to select the '{AgentAccessHeader}' tab, but " +
+                    $"SettingsWindow selected '{selectedHeader ?? "(none)"}' instead. SettingsWindow.axaml's " +
+                    "tab order has drifted from what AgentAccessTabIndex assumes - update the constant rather " +
+                    "than silently capturing the wrong tab.");
+            }
+
             context.CaptureOther(settingsWindow, "tab");
         }
         finally

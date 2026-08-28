@@ -34,6 +34,24 @@ public sealed class DemoWorldTests
         Assert.Equal("Demo", world.DemoProfile.Name);
     }
 
+    // Task 7 seeds an observe-on/act-off agent-access baseline inside SeedSettings itself, before
+    // it invokes customize - specifically so a scenario's own Settings override (Task 8's
+    // agent-access-act shot flips AgentAccessActEnabled back on) wins. If the baseline ran after
+    // customize instead - or customize were dropped entirely - this override would be silently
+    // discarded and that shot would render act OFF despite asking for it ON, with no failing test
+    // to catch it.
+    [Fact]
+    public void SeedSettings_LetsCustomizeOverrideTheAgentAccessBaseline()
+    {
+        using var world = DemoWorld.Create(NewBaseDir());
+
+        world.SeedSettings(settings => settings.AgentAccessActEnabled = true);
+
+        TerminalSettings loaded = TerminalSettings.Load();
+        Assert.True(loaded.AgentAccessObserveEnabled, "Expected the baseline's observe-on default to survive.");
+        Assert.True(loaded.AgentAccessActEnabled, "Expected customize's act-on override to win over the baseline.");
+    }
+
     [Fact]
     public void Dispose_RemovesEverythingItCreated()
     {
