@@ -43,8 +43,31 @@ internal sealed class HeroSplitScenario : IScenario
         // summary left roughly the top third of the pane full and the rest empty.
         await context.RunCommandAsync(left, "bash scripts/nova-banner.sh");
 
+        // Still ~29 of 55 rows short after the two commands above (measured on-disk: the test
+        // run and banner together land the fresh prompt at row ~26 of 55). sixel-decoder.rs is
+        // a fabricated ~88-line file (78-line asset plus SeedWorkspace's own appends) - `cat`ing
+        // it unabridged would overshoot by roughly 50 rows and scroll the colourful test run
+        // above (and even part of the file itself) off the top, which the Intent's "test run on
+        // the left" and this task's own guidance both rule out as worse than a small gap.
+        // Piping through `head` keeps the literal `cat src/sixel-decoder.rs` this was specified
+        // as, while tuning the row count to land the fresh prompt within a couple of rows of the
+        // pane's bottom edge instead of scrolling anything important away.
+        await context.RunCommandAsync(left, "cat src/sixel-decoder.rs | head -n 22");
+
         TerminalPane topRight = SplitAndGetNewPane(context, Orientation.Horizontal);
-        await context.RunCommandAsync(topRight, "git log --graph --oneline --all -12");
+
+        // Adds a one-line-per-commit summary ("1 file changed, N insertions(+)") on top of the
+        // existing branch-and-merge history (round 1 took SeedWorkspace from 3 linear commits to
+        // ~10 with a real merge). Measured against the actual captured image, not just the raw
+        // PTY row count: full --stat (a `file | N ++--` line *and* a summary line per commit)
+        // over all 10 commits was 32 rows all told (echo + content + fresh prompt) against ~25
+        // usable, enough to scroll the command's own echo line off the top - the exact failure
+        // this task warns is worse than a gap. --shortstat (summary line only, no per-file line)
+        // over all 10 commits is 23 rows all told - a close, safe fit with a couple of rows to
+        // spare, and (unlike trimming the commit count with -N) keeps the entire branch/merge
+        // shape intact: the docs commit, the merge commit, and both palette-branch commits it
+        // brought in.
+        await context.RunCommandAsync(topRight, "git log --graph --oneline --all -12 --shortstat");
 
         TerminalPane bottomRight = SplitAndGetNewPane(context, Orientation.Vertical);
 
