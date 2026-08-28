@@ -602,6 +602,58 @@ public sealed class SettingsWindowBackupSectionTests
         Assert.Equal(new[] { "Imported snippet" }, SnippetRowNames(window));
     }
 
+    /// <summary>
+    /// Codex review (PR #364, P2): refreshing the Settings snippet panel is only half of what a
+    /// snippet change owes the app. <c>MainWindow.OpenSettings</c> subscribes
+    /// <c>DismissCommandAssistSurfaces</c> to <c>OnCommandAssistSnippetsChanged</c>, and the add,
+    /// edit and delete paths all raise it - the rows an open assist bubble or popup is showing are a
+    /// snapshot of a ranking pass, and nothing else invalidates them (see that method's own remarks,
+    /// written for the identical "Clear history" case).
+    ///
+    /// An import or restore is the most destructive snippet change there is: <c>BackupService</c>
+    /// replaces <c>snippets.json</c> wholesale in BOTH modes, so every snippet the user had can
+    /// vanish at once. Without this notification a popup left open behind the Settings dialog goes on
+    /// displaying - and accepting - snippets the import just deleted, until some later suggestion
+    /// refresh happens to rebuild it.
+    ///
+    /// Asserts on the event rather than on pane state because the event IS the seam MainWindow wires
+    /// to; a pane-level assertion would need a whole MainWindow and would still be testing this same
+    /// handoff one indirection later.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task ReloadAfterExternalChange_NotifiesTheHostThatSnippetsChanged()
+    {
+        // A bundle with no snippets at all: the import removes the local one outright, which is the
+        // case where stale rows in an open popup are actively wrong rather than merely out of date.
+        using var source = BackupTestTree.CreateEmpty();
+        source.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Default"}""");
+        source.WriteFile(Path.Combine("command-assist", "snippets.json"), "[]");
+        string bundle = Path.Combine(source.Root, "import.novabackup");
+        Assert.True(new BackupService(source.Root).Export(bundle).Success);
+
+        using var target = BackupTestTree.CreatePopulated();
+        var targetStore = new JsonSnippetStore(SnippetsPathIn(target));
+        await targetStore.UpsertAsync(NewSnippet("local-1", "Local snippet", "echo local"));
+
+        using var _ = OverrideAppDataRoot(target.Root);
+        var window = new NovaTerminal.SettingsWindow { CommandAssistSnippetStore = targetStore };
+
+        int notifications = 0;
+        window.OnCommandAssistSnippetsChanged += () => notifications++;
+
+        await InvokeReloadCommandAssistSnippetsAsync(window);
+        Assert.Equal(new[] { "Local snippet" }, SnippetRowNames(window));
+
+        var outcome = new BackupService(target.Root).Import(bundle, ImportMode.Replace);
+        Assert.True(outcome.Success, outcome.Message);
+
+        await InvokeReloadAfterExternalChangeAsync(window);
+
+        // The panel emptying is the precondition; the notification is the point.
+        Assert.Empty(SnippetRowNames(window));
+        Assert.Equal(1, notifications);
+    }
+
     private static string SnippetsPathIn(BackupTestTree tree)
         => Path.Combine(tree.Root, "command-assist", "snippets.json");
 
@@ -620,13 +672,19 @@ public sealed class SettingsWindowBackupSectionTests
     /// The names shown by the rows currently in <c>CommandAssistSnippetsPanel</c> — the first
     /// <see cref="TextBox"/> of each row, which <c>CreateCommandAssistSnippetRow</c> seeds with the
     /// snippet's name. Reading the built controls rather than the editor's list is the point: the bug
-    /// is precisely that the two can disagree.
+    /// is precisely that the two can disagree. The empty-list placeholder is not a row and is skipped.
     /// </summary>
     private static string[] SnippetRowNames(NovaTerminal.SettingsWindow window)
     {
         var panel = window.FindControl<StackPanel>("CommandAssistSnippetsPanel")!;
+
+        // FirstOrDefault, not First: an empty snippet list is a legitimate panel state, and
+        // PopulateCommandAssistSnippetsPanel renders it as a single explanatory TextBlock with no
+        // TextBox in it. Only children that actually carry an editor are snippet rows.
         return panel.Children
-            .Select(row => row.GetLogicalDescendants().OfType<TextBox>().First().Text ?? "")
+            .Select(row => row.GetLogicalDescendants().OfType<TextBox>().FirstOrDefault())
+            .Where(nameEditor => nameEditor != null)
+            .Select(nameEditor => nameEditor!.Text ?? "")
             .ToArray();
     }
 

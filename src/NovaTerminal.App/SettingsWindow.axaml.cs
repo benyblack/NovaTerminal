@@ -1269,6 +1269,22 @@ namespace NovaTerminal
             // for a window opened outside MainWindow.OpenSettings: TryGetSnippetEditor returns null
             // when CommandAssistSnippetStore is unset and the panel simply says so.
             await ReloadCommandAssistSnippetsAsync();
+
+            // Codex review (PR #364, P2): refreshing this window's panel is only half of what a
+            // snippet change owes the app. MainWindow.OpenSettings subscribes
+            // DismissCommandAssistSurfaces to this event, and the add/edit/delete paths all raise it,
+            // because the rows an open assist bubble or popup is showing are a snapshot of a ranking
+            // pass that nothing else invalidates (see DismissCommandAssistSurfaces' own remarks,
+            // written for the identical "Clear history" case). An import/restore is the most
+            // destructive snippet change there is - snippets.json is replaced wholesale in BOTH modes
+            // - so without this a popup left open behind the dialog goes on displaying, and
+            // accepting, snippets the import just deleted.
+            //
+            // Raised unconditionally rather than only when the bundle actually carried Snippets, for
+            // the same reason ConfigurationReplacedExternally is set unconditionally above: dismissing
+            // a surface that did not need it costs the user nothing (the next keystroke rebuilds it
+            // from the store), while missing one shows them rows that no longer exist.
+            OnCommandAssistSnippetsChanged?.Invoke();
         }
 
         /// <summary>
