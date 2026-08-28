@@ -9,6 +9,15 @@ namespace NovaTerminal.Shots;
 
 public sealed class ShotContext
 {
+    /// <summary>How long the frame must hold still before a command counts as finished.</summary>
+    private static readonly TimeSpan QuietFor = TimeSpan.FromMilliseconds(600);
+
+    /// <summary>How long a command may take to finish once it has started answering.</summary>
+    private static readonly TimeSpan SettleTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>How long a command may take to show any sign of life at all.</summary>
+    private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(30);
+
     private readonly IScenario _scenario;
 
     public ShotContext(MainWindow window, Driver driver, DemoWorld world, ShotRun run, IScenario scenario)
@@ -69,7 +78,12 @@ public sealed class ShotContext
 
         // A running process is not yet a drawn prompt. Settling here keeps the shell's banner
         // and first prompt out of the middle of the first command's output.
-        WaitForQuiet(TimeSpan.FromMilliseconds(600), TimeSpan.FromSeconds(30), "the shell's first prompt");
+        //
+        // Quiet only, deliberately, with no "something changed" phase: there is no action here to
+        // sample a baseline before, so the prompt may already be on screen by the time this runs
+        // and a change gate would fail a perfectly good pane. The first command's own phase-one
+        // wait is the real gate - it baselines whatever this leaves behind, prompt or blank.
+        WaitForQuiet(QuietFor, SettleTimeout, "the shell's first prompt");
 
         return pane;
     }
@@ -83,14 +97,43 @@ public sealed class ShotContext
         _ => null
     };
 
-    /// <summary>Sends a command and waits for the pane's output to go quiet.</summary>
-    public Task RunCommandAsync(TerminalPane pane, string command)
+    /// <summary>Sends a command and waits for the pane to answer it and then go quiet.</summary>
+    /// <param name="expectsResponse">
+    /// False only for input the pane will not visibly react to. It is very nearly always true:
+    /// an interactive shell echoes the line as it is typed, so even a command that prints nothing
+    /// of its own changes the frame. Passing false skips the "did anything happen" phase and
+    /// waits for quiet alone, which is the pre-existing behaviour and its pre-existing risk.
+    /// </param>
+    public Task RunCommandAsync(TerminalPane pane, string command, bool expectsResponse = true)
     {
         ITerminalSession session = pane.Session
             ?? throw new InvalidOperationException("The pane has no session.");
 
+        // Sampled BEFORE the input is sent, so the change phase one waits for can only be this
+        // command's. Sampling afterwards would race the echo and could baseline a frame that
+        // already contains the answer.
+        string beforeSending = CurrentFingerprint();
+
         session.SendInput(command + "\n");
-        WaitForQuiet(TimeSpan.FromMilliseconds(600), TimeSpan.FromSeconds(30), command);
+
+        if (expectsResponse)
+        {
+            // Phase one: something happened. Without it, a shell that is slow to answer - a slow
+            // PTY round trip, a script that pauses before its first byte - reads as "settled"
+            // after 600ms of the unchanged pre-command frame, and the scenario types its next
+            // command into a busy shell or captures a half-drawn transcript. That failure is
+            // silent: the blank-raster guard cannot catch it, because a half-drawn transcript
+            // is far above 1% ink. Failing here instead names the command that never answered.
+            Driver.WaitFor(
+                () => CurrentFingerprint() != beforeSending,
+                ResponseTimeout,
+                $"the pane to show any response to '{command}'. Nothing changed on screen at all, " +
+                "not even the echo of the typed line, so the shell is wedged or gone. A command " +
+                "that genuinely draws nothing must say so with expectsResponse: false");
+        }
+
+        // Phase two: it finished.
+        WaitForQuiet(QuietFor, SettleTimeout, command);
 
         return Task.CompletedTask;
     }
@@ -99,6 +142,10 @@ public sealed class ShotContext
     /// Waits until the rendered frame stops changing. Sleeping a fixed interval would either
     /// truncate a slow command or waste time on a fast one; comparing frames measures the thing
     /// that actually matters — that the image is finished.
+    ///
+    /// On its own this says only "nothing has changed lately", which is equally true of a frame
+    /// nothing has started happening in yet - see the phase-one wait in
+    /// <see cref="RunCommandAsync"/>.
     /// </summary>
     private void WaitForQuiet(TimeSpan quietFor, TimeSpan timeout, string what)
     {
@@ -124,10 +171,56 @@ public sealed class ShotContext
             $"output of '{what}' to settle");
     }
 
+    private string CurrentFingerprint()
+    {
+        using SKBitmap frame = Rasterizer.CaptureWindow(Window, 1.0);
+        return Fingerprint(frame);
+    }
+
     private static string Fingerprint(SKBitmap bitmap)
     {
         using SKData data = bitmap.Encode(SKEncodedImageFormat.Png, 20);
         return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(data.AsSpan()));
+    }
+
+    /// <summary>
+    /// Disposes every pane in the window, and with it every PTY session and shell process.
+    /// </summary>
+    /// <remarks>
+    /// Closing the window does not do this. MainWindow.OnClosing runs PerformAppTeardown, which
+    /// saves the session, stops its timers and unhooks the agent host but never touches the panes;
+    /// the only thing that disposes an ITerminalSession is DisposeControlTree, reached from the
+    /// close-tab paths and from DisposeAllTabs. That is harmless in the app, where the process
+    /// exits moments later, and not harmless here: this process goes on to the next scenario, so
+    /// without this a twelve-scenario run ends holding a dozen live shells and a dozen
+    /// RustPtySession reader loops - the leaked-session shape issue #81 traced its headless
+    /// dispatcher deadlocks to.
+    ///
+    /// It waits for the shells to actually be gone rather than just asking for it: the session
+    /// teardown DisposeControlTree starts runs on a thread-pool thread, and DemoWorld.Dispose
+    /// cannot delete a workspace that is still some shell's working directory.
+    /// </remarks>
+    public void DisposePanes()
+    {
+        var tabs = Window.FindControl<TabControl>("Tabs");
+        if (tabs is null)
+        {
+            return;
+        }
+
+        ITerminalSession[] sessions = tabs.Items.OfType<TabItem>()
+            .Select(FindPane)
+            .OfType<TerminalPane>()
+            .Select(pane => pane.Session)
+            .OfType<ITerminalSession>()
+            .ToArray();
+
+        Driver.InvokePrivate(Window, "DisposeAllTabs", tabs);
+
+        Driver.WaitFor(
+            () => sessions.All(session => !session.IsProcessRunning),
+            TimeSpan.FromSeconds(30),
+            "the scenario's shells to exit after their panes were disposed");
     }
 
     /// <summary>Captures the window and records it in the run manifest.</summary>

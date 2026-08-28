@@ -279,11 +279,11 @@ public sealed class DemoWorld : IDisposable
             ThemeName = "Dracula",
             FontFamily = "Cascadia Mono, Cascadia Code, DejaVu Sans Mono, Consolas, Monospace",
 
-            // Larger than a working font, because the shot is looked at rather than worked in.
-            // 14 gives a 1280x800 window 44 rows, and no scenario's transcript is 44 rows long -
-            // the hero still came back a third empty below the last prompt. 18 gives 34, which the
-            // hero transcript fills to within a few rows, and it stays legible when the PNG is
-            // scaled down into a README.
+            // Larger than a working font, because a screenshot is looked at rather than worked in.
+            // These PNGs are captured at 1280x800 and then displayed far smaller - inline in a
+            // README, in a docs page, as a gallery thumbnail - and at 14 the transcript stops being
+            // readable well before the image stops being shown. 18 survives that scaling, and it is
+            // what presenters and screencasts use for the same reason. Every scenario inherits it.
             FontSize = 18
         };
 
@@ -293,6 +293,37 @@ public sealed class DemoWorld : IDisposable
 
         customize?.Invoke(settings);
         settings.Save();
+    }
+
+    /// <summary>
+    /// Deletes the session file the previous scenario's window saved on its way out.
+    /// </summary>
+    /// <remarks>
+    /// MainWindow saves the open tabs during teardown (PerformAppTeardown) and restores them on
+    /// the next start (TryRestoreStartupSession), which is right for the application and wrong for
+    /// a capture run: every scenario after the first would open holding the previous scenario's
+    /// tabs instead of a clean window, so what the image showed would depend on what ran before
+    /// it. The save lands inside this world's isolated profile root, so this is the whole of the
+    /// state to clear.
+    /// </remarks>
+    public void ForgetPreviousSession()
+    {
+        // AppPaths resolves live from NOVATERM_APPDATA_ROOT, so this is normally this world's own
+        // session file. Checked rather than assumed, because the one way it could be anything else
+        // is the override having been lost - and then this would be deleting the developer's real
+        // saved session, which is the accident this class exists to make impossible.
+        string sessionFile = AppPaths.SessionFilePath;
+        if (!sessionFile.StartsWith(ProfileRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Refusing to delete '{sessionFile}': it is outside the demo world at '{ProfileRoot}', " +
+                "so NOVATERM_APPDATA_ROOT is no longer pointing at this world.");
+        }
+
+        if (File.Exists(sessionFile))
+        {
+            File.Delete(sessionFile);
+        }
     }
 
     private const string CommitDate = "2026-08-20T10:15:00+00:00";
