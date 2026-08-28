@@ -16,12 +16,34 @@ public sealed class ShotHost : IDisposable
 
     private ShotHost(HeadlessUnitTestSession session) => _session = session;
 
+    /// <summary>
+    /// Starts the one headless Avalonia session this whole process lives on.
+    ///
+    /// <c>AvaloniaTestIsolationLevel.PerAssembly</c> is passed deliberately.
+    /// <c>HeadlessUnitTestSession.StartNew(Type)</c> defaults to
+    /// <c>AvaloniaTestIsolationLevel.PerTest</c>, which tears the <c>Application</c> and
+    /// <c>Dispatcher</c> down and rebuilds them fresh on every single dispatched call
+    /// (decompiled: each dispatch runs <c>EnsureIsolatedApplication</c> -
+    /// <c>Dispatcher.ResetBeforeUnitTests</c>, a new <c>AppBuilder.SetupUnsafe</c>, and on
+    /// the way out <c>FontManager.Dispose</c> / <c>Dispatcher.ResetForUnitTests</c> / locator
+    /// scope exit). That is the right default for xUnit's per-test isolation, but it is the
+    /// wrong shape here: a capture scenario is naturally several sequential
+    /// <c>RunAsync</c> calls against the same window (build it, then capture it), and
+    /// <c>PerTest</c> tears everything down between them, which would hand the second call a
+    /// disposed dispatcher instead of the app the first call built. <c>PerAssembly</c> keeps
+    /// one <c>Application</c>/<c>Dispatcher</c> alive for the process's whole lifetime
+    /// (decompiled: it routes through <c>EnsureSharedApplication</c> instead, which builds
+    /// the app once and reuses it), which also means this tool pays app startup cost once
+    /// instead of on every dispatched call.
+    /// </summary>
     public static ShotHost Start()
     {
         ThreadPool.GetMinThreads(out int workers, out int completionPorts);
         ThreadPool.SetMinThreads(Math.Max(workers, 16), Math.Max(completionPorts, 16));
 
-        return new ShotHost(HeadlessUnitTestSession.StartNew(typeof(ShotsAppBuilder)));
+        return new ShotHost(HeadlessUnitTestSession.StartNew(
+            typeof(ShotsAppBuilder),
+            AvaloniaTestIsolationLevel.PerAssembly));
     }
 
     public async Task<T> RunAsync<T>(Func<Task<T>> body)
