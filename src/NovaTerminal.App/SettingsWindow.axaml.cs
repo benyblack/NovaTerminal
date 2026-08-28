@@ -1179,20 +1179,126 @@ namespace NovaTerminal
         /// </summary>
         private void ReloadSettingsAfterExternalChange()
         {
+            // Captured before anything below moves on: _selectedProfile currently points at an
+            // object inside the PRE-reload _profilesList, which is about to be discarded and
+            // rebuilt from fresh TerminalProfile instances. The Id is the only thing that still
+            // means anything about that selection once the rebuild happens.
+            Guid? previousSelectedProfileId = _selectedProfile?.Id;
+
             _settings = TerminalSettings.Load();
 
             _profilesList = BuildLocalProfilesForEditor(_settings.Profiles);
             _settings.DefaultProfileId = ResolveDefaultLocalProfileId(_settings.DefaultProfileId, _profilesList);
             _shortcutDraftBindings = new Dictionary<string, string>(_settings.Keybindings, StringComparer.OrdinalIgnoreCase);
 
+            // Fix (I1 residual #1): the theme combo boxes were filled from disk once, at
+            // construction (PopulateThemes, called before LoadCurrentSettings there too - see the
+            // constructor). An import/restore can bring a new theme file AND a settings.json
+            // naming it; without repopulating here first, LoadCurrentSettings' theme-selection
+            // loop below has no matching ComboBoxItem to select, SelectedItem is left on the
+            // stale pre-reload theme, and a subsequent Save would write that stale ThemeName back
+            // - the original I1 bug, narrowed to one field. Order matters: this must run before
+            // LoadCurrentSettings, exactly like the constructor's own sequence.
+            PopulateThemes();
+
             LoadCurrentSettings();
             PopulateProfilesList();
+            RepointSelectedProfileAfterReload(previousSelectedProfileId);
 
             var shortcutSearchInput = this.FindControl<TextBox>("ShortcutSearchInput");
             PopulateShortcutBindingsPanel(shortcutSearchInput?.Text ?? "");
 
             LoadTitleBarDraft();
             RebuildTitleBarRows();
+        }
+
+        /// <summary>
+        /// Fix (I1 residual #2): <c>_selectedProfile</c> points at an entry of the PRE-reload
+        /// <c>_profilesList</c>. <see cref="ReloadSettingsAfterExternalChange"/> rebuilds
+        /// <c>_profilesList</c> with fresh <see cref="TerminalProfile"/> instances (freshly
+        /// deserialized from the reloaded settings.json) but, without this, never re-points
+        /// <c>_selectedProfile</c> at the corresponding new instance - it is left dangling,
+        /// referencing an object no longer reachable from <c>_profilesList</c>. The profile
+        /// editor's KeyUp handlers (bound to <c>_selectedProfile</c> directly) would keep mutating
+        /// that detached object, so edits made after an import/restore are silently dropped at
+        /// Save; Delete would likewise become a no-op since the object is no longer in the list to
+        /// remove.
+        /// </summary>
+        /// <remarks>
+        /// Re-points by <see cref="TerminalProfile.Id"/> - the one thing that still identifies
+        /// "the same" profile across the rebuild - by setting the ProfilesListBox's SelectedItem
+        /// to the matching new item. That raises the same SelectionChanged handler a user
+        /// re-clicking the profile by hand would, which calls <see cref="SwitchSelectedProfile"/>
+        /// and re-derives every editor-pane control from the fresh instance - so this reuses the
+        /// existing selection machinery rather than duplicating it. When the previously-selected
+        /// profile no longer exists post-reload (the import/restore removed or renamed it),
+        /// <c>_selectedProfile</c> is cleared and the editor pane's fields are blanked to match,
+        /// rather than continuing to display a profile that is no longer in the list.
+        /// </remarks>
+        private void RepointSelectedProfileAfterReload(Guid? previousSelectedProfileId)
+        {
+            if (previousSelectedProfileId is not Guid id)
+            {
+                return; // Nothing was selected before the reload; nothing to re-point.
+            }
+
+            var profilesListBox = this.FindControl<ListBox>("ProfilesListBox");
+            var matchedItem = profilesListBox?.Items
+                .OfType<ListBoxItem>()
+                .FirstOrDefault(item => item.Tag is TerminalProfile profile && profile.Id == id);
+
+            if (matchedItem != null)
+            {
+                if (profilesListBox != null) profilesListBox.SelectedItem = matchedItem;
+                return;
+            }
+
+            _selectedProfile = null;
+            if (profilesListBox != null) profilesListBox.SelectedItem = null;
+            ClearProfileEditorFields();
+        }
+
+        /// <summary>
+        /// Blanks the profile editor pane's controls, mirroring the field set
+        /// <see cref="SwitchSelectedProfile"/> populates but with neutral/empty values, so the UI
+        /// does not keep showing a profile that is no longer in <c>_profilesList</c>. Does not
+        /// touch event wiring - only sets control values, the same way <see cref="SwitchSelectedProfile"/>
+        /// does.
+        /// </summary>
+        private void ClearProfileEditorFields()
+        {
+            var nameInput = this.FindControl<TextBox>("ProfileNameInput");
+            if (nameInput != null) nameInput.Text = string.Empty;
+            var commandInput = this.FindControl<TextBox>("ProfileCommandInput");
+            if (commandInput != null) commandInput.Text = string.Empty;
+            var argsInput = this.FindControl<TextBox>("ProfileArgsInput");
+            if (argsInput != null) argsInput.Text = string.Empty;
+            var cwdInput = this.FindControl<TextBox>("ProfileCwdInput");
+            if (cwdInput != null) cwdInput.Text = string.Empty;
+            var groupInput = this.FindControl<TextBox>("ProfileGroupInput");
+            if (groupInput != null) groupInput.Text = string.Empty;
+            var tagsInput = this.FindControl<TextBox>("ProfileTagsInput");
+            if (tagsInput != null) tagsInput.Text = string.Empty;
+
+            var sshHostInput = this.FindControl<TextBox>("SshHostInput");
+            if (sshHostInput != null) sshHostInput.Text = string.Empty;
+            var sshPortInput = this.FindControl<NumericUpDown>("SshPortInput");
+            if (sshPortInput != null) sshPortInput.Value = null;
+            var sshUserInput = this.FindControl<TextBox>("SshUserInput");
+            if (sshUserInput != null) sshUserInput.Text = string.Empty;
+            var sshKeyPathInput = this.FindControl<TextBox>("SshKeyPathInput");
+            if (sshKeyPathInput != null) sshKeyPathInput.Text = string.Empty;
+            var sshPasswordInput = this.FindControl<TextBox>("SshPasswordInput");
+            if (sshPasswordInput != null) sshPasswordInput.Text = string.Empty;
+
+            var checkOverrideFont = this.FindControl<CheckBox>("CheckOverrideFont");
+            if (checkOverrideFont != null) checkOverrideFont.IsChecked = false;
+            var checkOverrideSize = this.FindControl<CheckBox>("CheckOverrideSize");
+            if (checkOverrideSize != null) checkOverrideSize.IsChecked = false;
+            var checkOverrideTheme = this.FindControl<CheckBox>("CheckOverrideTheme");
+            if (checkOverrideTheme != null) checkOverrideTheme.IsChecked = false;
+            var checkOverrideLigatures = this.FindControl<CheckBox>("CheckOverrideLigatures");
+            if (checkOverrideLigatures != null) checkOverrideLigatures.IsChecked = false;
         }
 
         private static string ReasonLabel(SnapshotReason reason) => reason switch

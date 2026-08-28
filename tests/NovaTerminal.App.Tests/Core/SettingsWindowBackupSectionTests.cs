@@ -3,6 +3,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.LogicalTree;
 using NovaTerminal.Backup;
 using NovaTerminal.Tests.Backup;
@@ -454,6 +455,124 @@ public sealed class SettingsWindowBackupSectionTests
     }
 
     /// <summary>
+    /// I1 residual, Fix 1 (scoped re-review): <c>PopulateThemes</c> fills the theme combo boxes
+    /// from disk once, at construction. <c>ReloadSettingsAfterExternalChange</c> did not re-run it,
+    /// so an import bringing a NEW theme file plus a settings.json naming it left the combo holding
+    /// the pre-import theme list — no entry for the imported theme. <c>LoadCurrentSettings</c>'s
+    /// theme-selection loop then had nothing to select, left <c>SelectedItem</c> on the stale
+    /// pre-import theme, and <c>SaveAndClose</c> would write that stale name back — the original I1
+    /// bug, narrowed to one field.
+    ///
+    /// The pre-state <c>ThemeName</c> here is "Default", deliberately present in the combo both
+    /// before and after the import (<c>ThemeManager</c> always synthesizes "Default"). The other
+    /// tests in this file use "Changed" as a pre-state, which is absent from every combo — that
+    /// leaves <c>SelectedItem</c> null and the `is ComboBoxItem` guard at <c>SaveAndClose</c> skips
+    /// the write entirely, which would silently miss this bug. A present pre-state name is what
+    /// makes the stale selection observable at Save.
+    /// </summary>
+    [AvaloniaFact]
+    public void Import_BringingNewTheme_ThenSave_PersistsTheImportedThemeName()
+    {
+        using var source = BackupTestTree.CreateEmpty();
+        source.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Imported"}""");
+        source.WriteFile(Path.Combine("themes", "imported.json"), """{"name":"Imported"}""");
+        string bundle = Path.Combine(source.Root, "import.novabackup");
+        Assert.True(new BackupService(source.Root).Export(bundle).Success);
+
+        // The populated target tree's settings.json already names ThemeName "Default" — present
+        // in the combo both before and after the import (see remarks above).
+        using var target = BackupTestTree.CreatePopulated();
+
+        using var _ = OverrideAppDataRoot(target.Root);
+        var window = new NovaTerminal.SettingsWindow();
+
+        var targetService = new BackupService(target.Root);
+        var outcome = targetService.Import(bundle, ImportMode.Replace);
+        Assert.True(outcome.Success, outcome.Message);
+
+        var reloadMethod = typeof(NovaTerminal.SettingsWindow).GetMethod(
+            "ReloadSettingsAfterExternalChange", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(reloadMethod);
+        reloadMethod!.Invoke(window, null);
+
+        var btnSave = window.FindControl<Button>("BtnSave")!;
+        btnSave.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        using var afterSave = target.ReadJson("settings.json");
+        Assert.Equal("Imported", afterSave.RootElement.GetProperty("ThemeName").GetString());
+    }
+
+    /// <summary>
+    /// I1 residual, Fix 2 (scoped re-review): <c>_selectedProfile</c> points at an entry of the
+    /// PRE-reload <c>_profilesList</c>. <c>ReloadSettingsAfterExternalChange</c> rebuilds
+    /// <c>_profilesList</c> with fresh <c>TerminalProfile</c> instances (freshly deserialized from
+    /// the reloaded settings.json) but, before this fix, never re-pointed <c>_selectedProfile</c> —
+    /// it was left dangling, referencing an object no longer reachable from <c>_profilesList</c>.
+    /// The profile editor's KeyUp handlers are bound to <c>_selectedProfile</c> directly, so an
+    /// edit typed right after an import/restore would silently mutate the detached object and be
+    /// dropped at Save instead of landing on the profile actually in the list.
+    ///
+    /// Selects the one profile by a real ListBox selection (which drives the same
+    /// SelectionChanged → SwitchSelectedProfile path a user's click would), reloads (simulating
+    /// what Import/Restore's success handler does), types a name edit via a real KeyUp on the
+    /// name TextBox (exactly how ProfileNameInput's handler is wired), then Saves — proving the
+    /// edit landed on the live post-reload profile object, not a detached pre-reload one.
+    /// </summary>
+    [AvaloniaFact]
+    public void ReloadAfterExternalChange_ThenEditSelectedProfile_ThenSave_PersistsTheEdit()
+    {
+        using var tree = BackupTestTree.CreateEmpty();
+        const string profileId = "11111111-1111-1111-1111-111111111111";
+        tree.WriteFile(
+            "settings.json",
+            $$"""
+            {"FontSize":14,"ThemeName":"Default","DefaultProfileId":"{{profileId}}",
+             "Profiles":[{"Id":"{{profileId}}","Name":"Original","Command":"{{ProfileCommandForThisOs}}"}]}
+            """);
+
+        using var _ = OverrideAppDataRoot(tree.Root);
+        var window = new NovaTerminal.SettingsWindow();
+
+        var profilesListBox = window.FindControl<ListBox>("ProfilesListBox")!;
+        Assert.Single(profilesListBox.Items);
+        profilesListBox.SelectedIndex = 0;
+
+        // The external change: same profile Id (as a real Import/Restore preserves), but a
+        // machine-local field like FontSize also drifted, standing in for whatever else an
+        // import brought along.
+        tree.WriteFile(
+            "settings.json",
+            $$"""
+            {"FontSize":18,"ThemeName":"Default","DefaultProfileId":"{{profileId}}",
+             "Profiles":[{"Id":"{{profileId}}","Name":"Original","Command":"{{ProfileCommandForThisOs}}"}]}
+            """);
+
+        var reloadMethod = typeof(NovaTerminal.SettingsWindow).GetMethod(
+            "ReloadSettingsAfterExternalChange", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(reloadMethod);
+        reloadMethod!.Invoke(window, null);
+
+        // Edit the profile's name exactly as a user typing after the reload would: set the
+        // TextBox's Text, then raise the real KeyUp event ProfileNameInput's handler listens for.
+        var nameInput = window.FindControl<TextBox>("ProfileNameInput")!;
+        nameInput.Text = "EditedAfterReload";
+        nameInput.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyUpEvent,
+            Key = Key.D,
+            Source = nameInput,
+        });
+
+        var btnSave = window.FindControl<Button>("BtnSave")!;
+        btnSave.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        using var afterSave = tree.ReadJson("settings.json");
+        var savedProfiles = afterSave.RootElement.GetProperty("Profiles");
+        Assert.Equal(1, savedProfiles.GetArrayLength());
+        Assert.Equal("EditedAfterReload", savedProfiles[0].GetProperty("Name").GetString());
+    }
+
+    /// <summary>
     /// Fix round 1 (Important finding): the "passwords are not included, re-enter them" copy is
     /// the user-facing half of a guarantee the whole feature is built around. Nothing asserted on
     /// it before this - a future rewording or accidental deletion would still pass every other
@@ -532,6 +651,15 @@ public sealed class SettingsWindowBackupSectionTests
             restore();
         }
     }
+
+    /// <summary>
+    /// A command TerminalSettings.Load() recognizes as a native shell for the OS running the
+    /// test. Without this, Load()'s cross-platform polish (a Local profile whose command targets
+    /// another OS doesn't count as a "native shell found") would silently pad the loaded profile
+    /// list with the current OS's default shells, breaking the count assertion in
+    /// <see cref="ReloadAfterExternalChange_ThenEditSelectedProfile_ThenSave_PersistsTheEdit"/>.
+    /// </summary>
+    private static string ProfileCommandForThisOs => OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/bash";
 
     private static string GetDisplay(object snapshotRow)
     {
