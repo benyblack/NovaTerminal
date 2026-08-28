@@ -20,15 +20,18 @@ public sealed class PowerShellShellIntegrationProviderTests
         Assert.Equal("pwsh.exe", plan.ShellCommand);
         Assert.Contains("-NoLogo", plan.ShellArguments);
         Assert.Contains("-NoExit", plan.ShellArguments);
-        Assert.Contains("-File", plan.ShellArguments);
-        Assert.Contains(plan.BootstrapScriptPath!, plan.ShellArguments, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("-EncodedCommand", plan.ShellArguments!, StringComparison.Ordinal);
         Assert.NotNull(plan.BootstrapScriptPath);
-        // -File must NOT be wrapped in double quotes: powershell.exe's -File
-        // parser reads the raw command-line tail (no argv splitting), so
-        // surrounding quotes get treated as part of the path value and the
-        // launch fails with "Illegal characters in path".
+
+        // The bootstrap path is deliberately NOT on the command line any more. It used to be
+        // passed to -File, which the execution policy blocks on a stock Windows machine; the
+        // script now travels as an encoded command instead. That also retired the whole -File
+        // quoting hazard (unquoted path, 8.3 short-name fallback for usernames with spaces)
+        // this test previously guarded — there is no path left to quote.
+        // See PowerShellBootstrapExecutionPolicyTests for the encoding contract.
+        Assert.DoesNotContain("-File", plan.ShellArguments!, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(
-            $"\"{plan.BootstrapScriptPath}\"",
+            plan.BootstrapScriptPath!,
             plan.ShellArguments!,
             StringComparison.OrdinalIgnoreCase);
     }

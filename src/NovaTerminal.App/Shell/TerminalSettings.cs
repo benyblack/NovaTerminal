@@ -195,26 +195,71 @@ namespace NovaTerminal.Shell
         }
 
         public static System.Collections.Generic.List<TerminalProfile> GetDefaultProfiles()
+            => GetDefaultProfiles(CommandIsInstalled);
+
+        /// <summary>
+        /// Builds the first-run profile list, keeping only the shells that are actually
+        /// installed. <paramref name="commandExists"/> is the seam the tests drive; production
+        /// passes <see cref="CommandIsInstalled"/>.
+        /// </summary>
+        /// <remarks>
+        /// The list used to be unconditional, which meant a "PowerShell" profile pointing at
+        /// <c>pwsh.exe</c> on machines with no PowerShell 7 — a visible, dead entry that failed
+        /// to spawn with a raw FFI error. Every developer machine has pwsh, so it survived seven
+        /// months until the first install on someone else's PC. Same latent bug on Linux, where
+        /// a Zsh profile was created whether or not zsh existed.
+        ///
+        /// Known limitation: profiles persist after first run, so installing PowerShell 7 later
+        /// does not make the profile appear — it has to be added by hand. Re-probing on every
+        /// load was rejected because it would resurrect profiles the user deliberately deleted.
+        /// </remarks>
+        internal static System.Collections.Generic.List<TerminalProfile> GetDefaultProfiles(
+            Func<string, bool> commandExists)
         {
-            if (OperatingSystem.IsWindows())
-            {
-                return new System.Collections.Generic.List<TerminalProfile>
+            ArgumentNullException.ThrowIfNull(commandExists);
+
+            (string Name, string Command)[] candidates = OperatingSystem.IsWindows()
+                ? new[]
                 {
-                    new TerminalProfile { Name = "Command Prompt", Command = "cmd.exe" },
-                    new TerminalProfile { Name = "PowerShell", Command = "pwsh.exe" },
-                    new TerminalProfile { Name = "Windows PowerShell", Command = "powershell.exe" }
-                };
-            }
-            else
-            {
-                return new System.Collections.Generic.List<TerminalProfile>
+                    ("Command Prompt", "cmd.exe"),
+                    ("PowerShell", "pwsh.exe"),
+                    ("Windows PowerShell", "powershell.exe"),
+                }
+                : new[]
                 {
-                    new TerminalProfile { Name = "Bash", Command = "/bin/bash" },
-                    new TerminalProfile { Name = "Zsh", Command = "/bin/zsh" },
-                    new TerminalProfile { Name = "Shell", Command = "/bin/sh" }
+                    ("Bash", "/bin/bash"),
+                    ("Zsh", "/bin/zsh"),
+                    ("Shell", "/bin/sh"),
                 };
+
+            var profiles = new System.Collections.Generic.List<TerminalProfile>();
+            foreach ((string name, string command) in candidates)
+            {
+                if (commandExists(command))
+                {
+                    profiles.Add(new TerminalProfile { Name = name, Command = command });
+                }
             }
+
+            if (profiles.Count == 0)
+            {
+                // A probe can fail wholesale — an empty PATH makes every lookup false. The
+                // constructor immediately does Profiles[0].Id, so an empty list is a startup
+                // crash: strictly worse than one profile that might not launch. Fall back to
+                // the shell the platform is guaranteed to have.
+                (string Name, string Command) floor = OperatingSystem.IsWindows()
+                    ? ("Command Prompt", "cmd.exe")
+                    : ("Shell", "/bin/sh");
+                profiles.Add(new TerminalProfile { Name = floor.Name, Command = floor.Command });
+            }
+
+            return profiles;
         }
+
+        private static bool CommandIsInstalled(string command)
+            => OperatingSystem.IsWindows()
+                ? ShellHelper.InPath(command)
+                : File.Exists(command);
 
         public TerminalSettings()
         {
