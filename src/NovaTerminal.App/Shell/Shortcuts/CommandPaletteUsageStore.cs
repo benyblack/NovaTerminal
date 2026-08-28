@@ -4,7 +4,6 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.Shell;
 
 namespace NovaTerminal.Shell.Shortcuts;
 
@@ -96,13 +95,14 @@ public sealed class CommandPaletteUsageStore
 
                 // Write via a temp sibling + atomic rename (AtomicFile, same pattern as
                 // SessionManager/TerminalSettings) so a concurrent reader never observes a
-                // truncated file: File.WriteAllText held FileAccess.Write for the duration of
-                // the write, and any reader landing in that window either got a sharing
-                // violation or - worse - swallowed a JsonException in Load()'s bare catch and
-                // silently reset the user's usage ranking to empty. The rename itself can still
-                // fail if a reader has the destination open (Windows requires FILE_SHARE_DELETE
-                // to rename over an open handle), so retry a couple of times with a short
-                // backoff rather than silently dropping the save.
+                // truncated file. The old File.WriteAllText held a write handle for up to 850ms
+                // under contention (its own sharing-violation window), which this change
+                // eliminates - the write itself is no longer where a concurrent reader can catch
+                // it. What is left, and what this retry actually guards against, is the rename
+                // step alone: on Windows a rename over an open handle needs FILE_SHARE_DELETE, so
+                // if a reader happens to have the destination open at that instant the rename
+                // throws - a reader's hold is brief (open, read, close), so a couple of short
+                // retries clears it rather than silently dropping the save.
                 const int maxAttempts = 3;
                 for (int attempt = 1; attempt <= maxAttempts; attempt++)
                 {

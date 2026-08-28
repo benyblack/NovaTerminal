@@ -72,9 +72,10 @@ public sealed class CommandPaletteUsageStoreTests
     private static void WaitFor(Func<bool> condition, TimeSpan timeout)
     {
         DateTime deadline = DateTime.UtcNow.Add(timeout);
+        Exception? lastException = null;
         while (DateTime.UtcNow < deadline)
         {
-            if (Evaluate(condition))
+            if (Evaluate(condition, out lastException))
             {
                 return;
             }
@@ -82,21 +83,35 @@ public sealed class CommandPaletteUsageStoreTests
             Thread.Sleep(25);
         }
 
-        Assert.True(Evaluate(condition));
+        // M5: a persistent lock (as opposed to a transient one the retry loop below was meant
+        // to ride out) used to surface here as a bare "false" - indistinguishable from "the
+        // condition is legitimately still false". Surfacing the last IOException in the failure
+        // message means a real, un-clearing lock reads as what it is instead of a mystery
+        // timeout.
+        bool finalResult = Evaluate(condition, out lastException);
+        if (!finalResult)
+        {
+            string detail = lastException is not null
+                ? $" Last exception while evaluating the condition: {lastException}"
+                : string.Empty;
+            Assert.Fail($"Condition did not become true within {timeout}.{detail}");
+        }
     }
 
     // A transient sharing violation (the writer still has the file open) means the
     // condition isn't true *yet*, not that polling should abort. Without this, the first
     // collision between this poll and a concurrent writer fails the test outright instead
     // of letting the retry loop do its job.
-    private static bool Evaluate(Func<bool> condition)
+    private static bool Evaluate(Func<bool> condition, out Exception? exception)
     {
         try
         {
+            exception = null;
             return condition();
         }
-        catch (IOException)
+        catch (IOException ex)
         {
+            exception = ex;
             return false;
         }
     }
