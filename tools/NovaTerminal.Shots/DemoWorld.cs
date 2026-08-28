@@ -365,6 +365,7 @@ public sealed class DemoWorld : IDisposable
         CopyAsset(assets, "nova-banner.sh", Path.Combine(WorkspaceRoot, "scripts", "nova-banner.sh"));
         CopyAsset(assets, "demo-test.sh", Path.Combine(WorkspaceRoot, "scripts", "demo-test.sh"));
         CopyAsset(assets, "demo-top.sh", Path.Combine(WorkspaceRoot, "scripts", "demo-top.sh"));
+        CopyAsset(assets, "demo-monitor.sh", Path.Combine(WorkspaceRoot, "scripts", "demo-monitor.sh"));
         CopyAsset(assets, "sixel-decoder.rs", Path.Combine(WorkspaceRoot, "src", "sixel-decoder.rs"));
 
         Git("init --initial-branch=feat/sixel-decoder");

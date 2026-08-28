@@ -13,7 +13,10 @@ public static class ScenarioCatalog
         new SettingsAgentAccessScenario(),
         new AgentSessionScenario(),
         new ClipAgentScenario(),
-        new ThemesGridScenario()
+        new ThemesGridScenario(),
+        new SearchOverlayScenario(),
+        new TuiVimScenario(),
+        new TuiHtopScenario()
     ];
 
     public static IReadOnlyList<IScenario> All() => Scenarios;
