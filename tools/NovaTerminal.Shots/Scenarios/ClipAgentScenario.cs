@@ -43,10 +43,14 @@ internal sealed class ClipAgentScenario : IScenario
     /// value of 120ms, the ~180ms gap between two suite lines read as "settled" well before the
     /// script actually finished: <see cref="CaptureUntilSettled"/> broke out after the first
     /// quiet 120ms window, burned its hold frames on that partial transcript, and the remaining
-    /// suites only appeared after the journal cut away and back - a jump, not motion. 300ms
-    /// clears the 180ms gap with margin while staying well under the 600ms a still needs.
+    /// suites only appeared after the journal cut away and back - a jump, not motion. Raised
+    /// again from 300ms to 450ms: 300ms left only 120ms of headroom over the 180ms gap, and each
+    /// gap pays a real `sleep` process spawn in Git-Bash - on a loaded machine that spawn alone
+    /// was observed blowing a 600ms budget elsewhere in this harness, so 120ms of margin was not
+    /// enough to trust. 450ms roughly triples that margin while staying safely under the 600ms a
+    /// still needs.
     /// </remarks>
-    private static readonly TimeSpan ChangeQuietFor = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan ChangeQuietFor = TimeSpan.FromMilliseconds(450);
 
     /// <summary>
     /// Set for the lifetime of this scenario's single pane, so <c>demo-test.sh</c> paces its
