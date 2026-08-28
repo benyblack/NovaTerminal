@@ -395,7 +395,7 @@ namespace NovaTerminal.Shell
                         // forever. That fix cannot reach sessions already on disk; this can.
                         commandSubstituted
                             ? ""
-                            : ShellIntegrationArguments.StripInjected(node.Arguments),
+                            : ShellIntegrationArguments.StripInjected(node.Arguments, AppPaths.CommandAssistDirectory),
                         settings);
                 }
 

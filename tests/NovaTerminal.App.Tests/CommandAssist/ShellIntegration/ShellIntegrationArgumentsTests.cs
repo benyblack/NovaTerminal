@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Text;
 using NovaTerminal.CommandAssist.ShellIntegration;
 using Xunit;
@@ -16,71 +17,105 @@ namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
 /// </summary>
 public sealed class ShellIntegrationArgumentsTests
 {
+    private const string BootstrapDir = @"C:\Users\x\AppData\Local\NovaTerminal\command-assist";
+
+    private static string OurBootstrap => Path.Combine(BootstrapDir, "command-assist-bootstrap.ps1");
+
     private static string Encode(string script)
         => Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
 
     [Fact]
     public void StripInjected_RemovesAStaleBootstrapFileArgument()
     {
-        string stale = @"-NoLogo -NoExit -File C:\Users\x\AppData\Local\NovaTerminal\command-assist\command-assist-bootstrap.ps1";
+        string stale = $"-NoLogo -NoExit -File {OurBootstrap}";
 
-        string cleaned = ShellIntegrationArguments.StripInjected(stale);
+        string cleaned = ShellIntegrationArguments.StripInjected(stale, BootstrapDir);
 
         Assert.DoesNotContain("command-assist-bootstrap.ps1", cleaned, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("-File", cleaned, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("-NoLogo", cleaned, StringComparison.Ordinal);
     }
 
     [Fact]
     public void StripInjected_RemovesOurEncodedBootstrap()
     {
-        string encoded = Encode(NovaTerminal.CommandAssist.ShellIntegration.PowerShell.PowerShellBootstrapBuilder.BuildScript());
+        string encoded = Encode(
+            NovaTerminal.CommandAssist.ShellIntegration.PowerShell.PowerShellBootstrapBuilder.BuildScript());
 
-        string cleaned = ShellIntegrationArguments.StripInjected($"-NoLogo -NoExit -EncodedCommand {encoded}");
+        string cleaned = ShellIntegrationArguments.StripInjected(
+            $"-NoLogo -NoExit -EncodedCommand {encoded}", BootstrapDir);
 
         Assert.DoesNotContain("-EncodedCommand", cleaned, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(encoded, cleaned, StringComparison.Ordinal);
     }
 
+    // Greptile P1 on #368. Split-on-space plus a single-space rejoin rewrote every restored
+    // command line, not just ones we had injected into — so a quoted value containing repeated
+    // spaces came back altered and the shell ran something the user never configured.
+    [Theory]
+    [InlineData("-Command \"a  b\"")]
+    [InlineData("-NoLogo   -NoExit")]
+    [InlineData("  -NoLogo ")]
+    [InlineData(@"-File ""C:\my  scripts\run.ps1""")]
+    public void StripInjected_ReturnsTheCommandLineVerbatimWhenNothingWasInjected(string args)
+    {
+        Assert.Equal(args, ShellIntegrationArguments.StripInjected(args, BootstrapDir));
+    }
+
+    // Greptile P1 on #368. A suffix-only check claimed any file with our name, wherever it lived.
+    [Fact]
+    public void StripInjected_KeepsAUserScriptThatMerelySharesTheBootstrapFileName()
+    {
+        // Same file name, a directory we do not own. It is the user's script.
+        const string userArgs = @"-NoLogo -File C:\mine\command-assist-bootstrap.ps1";
+
+        string cleaned = ShellIntegrationArguments.StripInjected(userArgs, BootstrapDir);
+
+        Assert.Equal(userArgs, cleaned);
+    }
+
     [Fact]
     public void StripInjected_KeepsAUsersOwnScript()
     {
-        // The whole point of the bail-out is to stay out of the way of a user script.
-        // Stripping it would launch a shell the user did not ask for.
         const string userArgs = @"-NoLogo -File C:\work\my-profile.ps1";
 
-        string cleaned = ShellIntegrationArguments.StripInjected(userArgs);
-
-        Assert.Equal(userArgs, cleaned);
+        Assert.Equal(userArgs, ShellIntegrationArguments.StripInjected(userArgs, BootstrapDir));
     }
 
     [Fact]
     public void StripInjected_KeepsAUsersOwnEncodedCommand()
     {
         string userEncoded = Encode("Write-Host 'hello'");
+        string args = $"-EncodedCommand {userEncoded}";
 
-        string cleaned = ShellIntegrationArguments.StripInjected($"-EncodedCommand {userEncoded}");
-
-        Assert.Contains(userEncoded, cleaned, StringComparison.Ordinal);
+        Assert.Equal(args, ShellIntegrationArguments.StripInjected(args, BootstrapDir));
     }
 
     [Theory]
     [InlineData(null, "")]
     [InlineData("", "")]
-    [InlineData("   ", "")]
+    [InlineData("   ", "   ")]
     [InlineData("-NoLogo", "-NoLogo")]
     public void StripInjected_LeavesOrdinaryArgumentsAlone(string? input, string expected)
     {
-        Assert.Equal(expected, ShellIntegrationArguments.StripInjected(input));
+        Assert.Equal(expected, ShellIntegrationArguments.StripInjected(input, BootstrapDir));
     }
 
     [Fact]
     public void StripInjected_ToleratesAMalformedEncodedCommand()
     {
-        // Not valid base64. Decoding must not throw and take the pane's launch with it.
         const string args = "-EncodedCommand not-base64!!";
 
-        string cleaned = ShellIntegrationArguments.StripInjected(args);
+        Assert.Equal(args, ShellIntegrationArguments.StripInjected(args, BootstrapDir));
+    }
 
-        Assert.Equal(args, cleaned);
+    [Fact]
+    public void StripInjected_WithoutAKnownBootstrapDirectory_KeepsEverything()
+    {
+        // No directory to compare against means no way to prove a -File is ours, and
+        // guessing would launch a shell without the user's script.
+        string args = $"-File {OurBootstrap}";
+
+        Assert.Equal(args, ShellIntegrationArguments.StripInjected(args, bootstrapDirectory: null));
     }
 }

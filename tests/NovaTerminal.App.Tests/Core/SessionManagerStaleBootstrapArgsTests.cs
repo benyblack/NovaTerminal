@@ -36,8 +36,12 @@ public sealed class SessionManagerStaleBootstrapArgsTests
     public void CreateRestoredTabContent_DropsAStaleBootstrapFromPersistedArguments()
     {
         var settings = new TerminalSettings();
-        var tabSession = LeafWithArguments(
-            @"-NoLogo -NoExit -File C:\Users\x\AppData\Local\NovaTerminal\command-assist\command-assist-bootstrap.ps1");
+        // Built from the real bootstrap directory: ownership is decided by where the path
+        // resolves, not by its file name, so a made-up path is correctly NOT recognised as
+        // ours - which is the point of the directory check.
+        string staleBootstrap = System.IO.Path.Combine(
+            AppPaths.CommandAssistDirectory, "command-assist-bootstrap.ps1");
+        var tabSession = LeafWithArguments($"-NoLogo -NoExit -File {staleBootstrap}");
 
         var pane = Assert.IsType<TerminalPane>(
             SessionManager.CreateRestoredTabContent(tabSession, settings));
