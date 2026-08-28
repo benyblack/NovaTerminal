@@ -1,5 +1,3 @@
-using System.ComponentModel;
-using System.Diagnostics;
 using NovaTerminal.Shots;
 
 namespace NovaTerminal.ShotsTests;
@@ -29,26 +27,37 @@ public sealed class EncoderTests
     }
 
     /// <summary>
-    /// A probe independent of Encoder's own implementation, so this test cannot pass merely
-    /// because both sides share the same bug.
+    /// A probe genuinely independent of Encoder's own implementation: it never launches a
+    /// process at all, so it cannot share Encoder.IsAvailable()'s process-launch machinery (or
+    /// any bug in it) and pass anyway. Instead it does exactly what the OS's own executable
+    /// search does when a caller runs a bare "ffmpeg" - walk PATH, and on Windows, PATHEXT's
+    /// extensions - and checks whether any candidate file exists.
     /// </summary>
+    /// <remarks>
+    /// The previous version of this probe was a verbatim copy of Encoder.IsAvailable()'s
+    /// Process.Start/-version implementation, which defeated the entire point: a shared defect
+    /// (wrong executable name, wrong flag, an over-broad catch) would manifest identically on
+    /// both sides, and this test would still pass - even hide a real detection bug - rather than
+    /// fail. A probe that never calls Process.Start cannot share that failure mode.
+    /// </remarks>
     private static bool ProbeForFfmpeg()
     {
-        try
-        {
-            using Process? process = Process.Start(new ProcessStartInfo("ffmpeg", "-version")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            });
-
-            process?.WaitForExit();
-            return process?.ExitCode == 0;
-        }
-        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        string? pathVariable = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrEmpty(pathVariable))
         {
             return false;
         }
+
+        string[] candidateNames = OperatingSystem.IsWindows()
+            ? (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT;.COM")
+                .Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Select(extension => "ffmpeg" + extension)
+                .ToArray()
+            : ["ffmpeg"];
+
+        return pathVariable
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .SelectMany(directory => candidateNames.Select(name => Path.Combine(directory, name)))
+            .Any(File.Exists);
     }
 }
