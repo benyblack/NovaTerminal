@@ -90,6 +90,49 @@ namespace NovaTerminal.VT.Export
             }
         }
 
+        /// <summary>
+        /// One trimmed-of-trailing-whitespace string per viewport row, top-to-bottom (index 0 =
+        /// top row) — the per-row building block behind <see cref="GetLastNonEmptyRowText"/>,
+        /// exposed so callers can apply their own "which row is the interesting one" heuristic
+        /// instead of always taking the bottom-most non-empty row. Acquires the buffer read lock
+        /// itself; callers must NOT already hold it (<see cref="TerminalBuffer.Lock"/> is a
+        /// <see cref="System.Threading.ReaderWriterLockSlim"/> with <see cref="System.Threading.LockRecursionPolicy.NoRecursion"/>,
+        /// so re-entering it throws).
+        /// </summary>
+        public static string[] GetVisibleRowTexts(TerminalBuffer buffer)
+        {
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                var rows = new string[buffer.Rows];
+                for (int r = 0; r < buffer.Rows; r++)
+                {
+                    int lastNonEmpty = -1;
+                    var rowSb = new StringBuilder();
+                    for (int c = 0; c < buffer.Cols; c++)
+                    {
+                        var cell = buffer.GetCell(c, r);
+                        if (cell.IsWideContinuation) continue;
+
+                        string text = buffer.GetGrapheme(c, r);
+                        rowSb.Append(text);
+                        if (!string.IsNullOrWhiteSpace(text) && text != "\0")
+                        {
+                            lastNonEmpty = rowSb.Length;
+                        }
+                    }
+
+                    rows[r] = lastNonEmpty >= 0 ? rowSb.ToString(0, lastNonEmpty) : string.Empty;
+                }
+
+                return rows;
+            }
+            finally
+            {
+                buffer.Lock.ExitReadLock();
+            }
+        }
+
         public static string ExportToAnsi(TerminalBuffer buffer)
         {
             buffer.Lock.EnterReadLock();

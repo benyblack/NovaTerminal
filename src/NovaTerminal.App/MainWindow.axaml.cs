@@ -175,6 +175,7 @@ namespace NovaTerminal
             public AgentHost.AgentAttentionTier AgentTier { get; set; }
             public TabStatusTracker Status { get; } = new();
             public TabTrackerStatus RenderedStatus { get; set; }
+            public TabPreviewTracker Preview { get; } = new();
         }
 
         internal enum TabHeaderPointerAction
@@ -5149,28 +5150,31 @@ namespace NovaTerminal
 
             if (FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine") is { } preview)
             {
-                preview.Text = ReadPaneLastLine(ResolvePaneForTab(tab));
+                preview.Text = ReadPaneLastLine(ResolvePaneForTab(tab), state);
             }
         }
 
-        private static string ReadPaneLastLine(TerminalPane? pane)
+        private static string ReadPaneLastLine(TerminalPane? pane, TabRuntimeState state)
         {
             var buffer = pane?.Buffer;
             if (buffer == null) return string.Empty;
 
-            // GetLastNonEmptyRowText takes the buffer read lock itself (NoRecursion —
+            // GetVisibleRowTexts takes the buffer read lock itself (NoRecursion —
             // do NOT wrap this call in another Lock.EnterReadLock).
-            string text = NovaTerminal.VT.Export.TerminalExporter.GetLastNonEmptyRowText(buffer);
+            string[] rows = NovaTerminal.VT.Export.TerminalExporter.GetVisibleRowTexts(buffer);
 
             // Unwritten mid-row cells can surface as raw NUL graphemes; a NUL reaching the
             // preview TextBlock renders as invisible garbage, so swap it for a space and re-trim
             // (the exporter's own TrimEnd may no longer be meaningful once NULs become spaces).
-            if (text.IndexOf('\0') >= 0)
+            for (int i = 0; i < rows.Length; i++)
             {
-                text = text.Replace('\0', ' ').TrimEnd();
+                if (rows[i].IndexOf('\0') >= 0)
+                {
+                    rows[i] = rows[i].Replace('\0', ' ').TrimEnd();
+                }
             }
 
-            return text;
+            return state.Preview.Update(rows);
         }
 
         private void SplitPane(Avalonia.Layout.Orientation orientation)
