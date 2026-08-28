@@ -118,15 +118,8 @@ public sealed class ShotContext
 
         if (expectsResponse)
         {
-            // Phase one: something happened. Without it, a shell that is slow to answer - a slow
-            // PTY round trip, a script that pauses before its first byte - reads as "settled"
-            // after 600ms of the unchanged pre-command frame, and the scenario types its next
-            // command into a busy shell or captures a half-drawn transcript. That failure is
-            // silent: the blank-raster guard cannot catch it, because a half-drawn transcript
-            // is far above 1% ink. Failing here instead names the command that never answered.
-            Driver.WaitFor(
-                () => CurrentFingerprint() != beforeSending,
-                ResponseTimeout,
+            WaitForAnyChange(
+                beforeSending,
                 $"the pane to show any response to '{command}'. Nothing changed on screen at all, " +
                 "not even the echo of the typed line, so the shell is wedged or gone. A command " +
                 "that genuinely draws nothing must say so with expectsResponse: false");
@@ -137,6 +130,50 @@ public sealed class ShotContext
 
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Waits for a command this scenario did not type - <paramref name="deliver"/> puts it into
+    /// the pane by some other route - to be answered and then to finish drawing.
+    /// </summary>
+    /// <remarks>
+    /// The same two phases as <see cref="RunCommandAsync"/>, and for the same reasons, minus the
+    /// send. The agent-session scenario delivers its commands through AgentHostService rather
+    /// than the pane's own session, so it needs the wait without the typing; a
+    /// <c>RunCommandAsync(pane, string.Empty)</c> stand-in would settle correctly but would also
+    /// press Enter at a prompt the agent had already submitted.
+    ///
+    /// The delivery is taken as a delegate rather than being left to the caller so the baseline
+    /// cannot be sampled on the wrong side of it: phase one is only meaningful against a frame
+    /// from before the input landed. Here that phase carries extra weight - it is the proof that
+    /// the agent's bytes actually reached the shell, not just that the host said "ok".
+    /// </remarks>
+    public async Task RunDeliveredCommandAsync(Func<Task> deliver, string what)
+    {
+        ArgumentNullException.ThrowIfNull(deliver);
+
+        string beforeDelivery = CurrentFingerprint();
+
+        await deliver();
+
+        WaitForAnyChange(
+            beforeDelivery,
+            $"the pane to show any response to {what}. Nothing changed on screen at all, not even " +
+            "the echo of the delivered line, so the input never reached the shell even though the " +
+            "delivery reported success");
+
+        WaitForQuiet(QuietFor, SettleTimeout, what);
+    }
+
+    /// <summary>
+    /// Phase one: something happened. Without it, a shell that is slow to answer - a slow PTY
+    /// round trip, a script that pauses before its first byte - reads as "settled" after 600ms of
+    /// the unchanged pre-command frame, and the scenario types its next command into a busy shell
+    /// or captures a half-drawn transcript. That failure is silent: the blank-raster guard cannot
+    /// catch it, because a half-drawn transcript is far above 1% ink. Failing here instead names
+    /// the command that never answered.
+    /// </summary>
+    private void WaitForAnyChange(string before, string description) =>
+        Driver.WaitFor(() => CurrentFingerprint() != before, ResponseTimeout, description);
 
     /// <summary>
     /// Waits until the rendered frame stops changing. Sleeping a fixed interval would either
