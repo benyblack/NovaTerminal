@@ -104,4 +104,44 @@ public sealed class DemoWorldTests
 
         Assert.False(Directory.Exists(baseDir), "DemoWorld left a seeded git workspace behind after disposal.");
     }
+
+    // The PTY child inherits the harness process's environment verbatim - TerminalProfile has no
+    // environment member - so these variables are the only thing standing between the developer's
+    // account, home directory and shell prompt and a public marketing image.
+    [Fact]
+    public void Create_PointsTheShellEnvironmentAtTheDemoMachine()
+    {
+        string baseDir = NewBaseDir();
+        using var world = DemoWorld.Create(baseDir);
+
+        Assert.Equal(world.HomeRoot, Environment.GetEnvironmentVariable("HOME"));
+        Assert.Equal(world.HomeRoot, Environment.GetEnvironmentVariable("USERPROFILE"));
+        Assert.StartsWith(baseDir, world.HomeRoot, StringComparison.Ordinal);
+        Assert.True(Directory.Exists(world.HomeRoot), $"Expected a demo home at {world.HomeRoot}.");
+
+        // Everything bash wraps in \[ \] is non-printing (colour changes, the window title), so
+        // stripping those groups leaves exactly the characters the prompt puts on screen.
+        string prompt = Environment.GetEnvironmentVariable("PS1") ?? string.Empty;
+        string rendered = System.Text.RegularExpressions.Regex.Replace(prompt, @"\\\[.*?\\\]", string.Empty);
+        Assert.Equal("nova@demo ~/projects/nova-demo (feat/sixel-decoder) $ ", rendered);
+
+        // The prompt escapes that would print the real account, machine and working directory.
+        Assert.DoesNotContain(@"\u", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\h", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\w", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Dispose_RestoresEveryEnvironmentVariableItChanged()
+    {
+        string? homeBefore = Environment.GetEnvironmentVariable("HOME");
+        string? promptBefore = Environment.GetEnvironmentVariable("PS1");
+        string? pathBefore = Environment.GetEnvironmentVariable("PATH");
+
+        DemoWorld.Create(NewBaseDir()).Dispose();
+
+        Assert.Equal(homeBefore, Environment.GetEnvironmentVariable("HOME"));
+        Assert.Equal(promptBefore, Environment.GetEnvironmentVariable("PS1"));
+        Assert.Equal(pathBefore, Environment.GetEnvironmentVariable("PATH"));
+    }
 }
