@@ -61,24 +61,10 @@ namespace NovaTerminal.VT.Export
             {
                 for (int r = buffer.Rows - 1; r >= 0; r--)
                 {
-                    int lastNonEmpty = -1;
-                    var rowSb = new StringBuilder();
-                    for (int c = 0; c < buffer.Cols; c++)
+                    string text = ReadRowText(buffer, r);
+                    if (text.Length > 0)
                     {
-                        var cell = buffer.GetCell(c, r);
-                        if (cell.IsWideContinuation) continue;
-
-                        string text = buffer.GetGrapheme(c, r);
-                        rowSb.Append(text);
-                        if (!string.IsNullOrWhiteSpace(text) && text != "\0")
-                        {
-                            lastNonEmpty = rowSb.Length;
-                        }
-                    }
-
-                    if (lastNonEmpty >= 0)
-                    {
-                        return rowSb.ToString().Substring(0, lastNonEmpty);
+                        return text;
                     }
                 }
 
@@ -107,22 +93,7 @@ namespace NovaTerminal.VT.Export
                 var rows = new string[buffer.Rows];
                 for (int r = 0; r < buffer.Rows; r++)
                 {
-                    int lastNonEmpty = -1;
-                    var rowSb = new StringBuilder();
-                    for (int c = 0; c < buffer.Cols; c++)
-                    {
-                        var cell = buffer.GetCell(c, r);
-                        if (cell.IsWideContinuation) continue;
-
-                        string text = buffer.GetGrapheme(c, r);
-                        rowSb.Append(text);
-                        if (!string.IsNullOrWhiteSpace(text) && text != "\0")
-                        {
-                            lastNonEmpty = rowSb.Length;
-                        }
-                    }
-
-                    rows[r] = lastNonEmpty >= 0 ? rowSb.ToString(0, lastNonEmpty) : string.Empty;
+                    rows[r] = ReadRowText(buffer, r);
                 }
 
                 return rows;
@@ -131,6 +102,35 @@ namespace NovaTerminal.VT.Export
             {
                 buffer.Lock.ExitReadLock();
             }
+        }
+
+        /// <summary>
+        /// Shared per-row cell walk behind <see cref="GetLastNonEmptyRowText"/> and
+        /// <see cref="GetVisibleRowTexts"/>: builds row <paramref name="row"/>'s text (skipping
+        /// wide-continuation cells, appending each cell's grapheme), then trims it to end right
+        /// after the last character that isn't whitespace or a NUL grapheme — i.e. trailing
+        /// whitespace/NUL is dropped, same as a <c>TrimEnd</c> that also treats "\0" as
+        /// trimmable. Returns <see cref="string.Empty"/> for a row with no such character.
+        /// Callers must already hold <see cref="TerminalBuffer.Lock"/> (read lock is sufficient).
+        /// </summary>
+        private static string ReadRowText(TerminalBuffer buffer, int row)
+        {
+            int lastNonEmpty = -1;
+            var rowSb = new StringBuilder();
+            for (int c = 0; c < buffer.Cols; c++)
+            {
+                var cell = buffer.GetCell(c, row);
+                if (cell.IsWideContinuation) continue;
+
+                string text = buffer.GetGrapheme(c, row);
+                rowSb.Append(text);
+                if (!string.IsNullOrWhiteSpace(text) && text != "\0")
+                {
+                    lastNonEmpty = rowSb.Length;
+                }
+            }
+
+            return lastNonEmpty >= 0 ? rowSb.ToString(0, lastNonEmpty) : string.Empty;
         }
 
         public static string ExportToAnsi(TerminalBuffer buffer)
