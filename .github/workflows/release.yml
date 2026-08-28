@@ -263,7 +263,12 @@ jobs:
           RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
         run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true "-p:Version=$RELEASE_VERSION" "-p:InformationalVersion=$RELEASE_VERSION" -o artifacts/publish/${{ matrix.rid }}
 
+      # osx-arm64 is excluded here: its user-facing zip is the Velopack Portable bundle
+      # (NovaTerminal.app inside a ditto zip) built by the macOS Velopack steps below and
+      # uploaded under this same NovaTerminal-osx-arm64-<tag>.zip name. Archiving the raw
+      # publish directory too would ship a second, near-identical zip.
       - name: Archive bundle
+        if: matrix.rid != 'osx-arm64'
         shell: pwsh
         # Same reasoning as the metadata job's env block, for PowerShell: in a double-quoted
         # string `"$(...)"` is a subexpression PowerShell EXECUTES, so a tag named
@@ -281,29 +286,36 @@ jobs:
           if (Test-Path $dest) { Remove-Item $dest -Force }
           Compress-Archive -Path "$source/*" -DestinationPath $dest
 
+      # osx-arm64 skips this for the same reason as Archive bundle above: the mac zip
+      # uploads from the Velopack output directory instead.
       - name: Upload release asset
+        if: matrix.rid != 'osx-arm64'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.zip
 
-      # ---- Windows installer + update feed (#91). win-x64 only; the other two RIDs
-      # ---- keep shipping portable zips exactly as before.
+      # ---- Velopack installers + update feeds (#91). win-x64 and osx-arm64; linux-x64
+      # ---- keeps shipping its portable zip exactly as before.
       - name: Install vpk
-        if: matrix.rid == 'win-x64'
+        if: matrix.rid == 'win-x64' || matrix.rid == 'osx-arm64'
         run: dotnet tool install -g vpk --version 1.2.0
 
       - name: Download previous Velopack release (for delta generation)
         id: velopack_download
-        if: matrix.rid == 'win-x64'
+        if: matrix.rid == 'win-x64' || matrix.rid == 'osx-arm64'
         continue-on-error: true
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           New-Item -ItemType Directory -Force -Path artifacts/velopack | Out-Null
-          # First release ever, or no prior Velopack assets: nothing to download, and a
-          # full-only release is the correct outcome rather than a failed one.
+          # First release on a channel, or no prior Velopack assets in that channel's feed:
+          # nothing to download, and a full-only release is the correct outcome rather than
+          # a failed one. The channel is resolved from the runner's OS (vpk's
+          # DefaultName.GetDefaultChannel: win on windows-latest, osx on macos-latest), so
+          # each lane only ever sees its own channel's packages even though the step body
+          # is shared.
           vpk download github --repoUrl https://github.com/benyblack/NovaTerminal --token $env:GH_TOKEN --outputDir artifacts/velopack
 
       - name: Pack Windows installer (Velopack)
@@ -335,8 +347,13 @@ jobs:
           # create_release sets from the tag's SemVer suffix) and drafts, so counting a beta's
           # full package here would demand a delta that vpk was never going to download —
           # blocking the first STABLE release after any prerelease. (Codex P2 on #340.)
+          # It also excludes -osx-full.nupkg assets: the win channel's full packages have no
+          # channel suffix (the suffix is only omitted for the default win channel), while
+          # the osx channel's do — so a bare endswith("-full.nupkg") counts BOTH channels
+          # once mac releases exist, demanding a win delta from a download that only ever
+          # fetched the win feed.
           $priorFullRaw = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" `
-            --jq '[.[] | select(.tag_name != env.RELEASE_TAG) | select(.prerelease == false) | select(.draft == false) | .assets[]? | select(.name | endswith("-full.nupkg"))] | length'
+            --jq '[.[] | select(.tag_name != env.RELEASE_TAG) | select(.prerelease == false) | select(.draft == false) | .assets[]? | select(.name | endswith("-full.nupkg") and (endswith("-osx-full.nupkg") | not))] | length'
 
           # Check the exit code before trusting the output, and check it IMMEDIATELY - any
           # other command in between overwrites $LASTEXITCODE. GitHub's pwsh wrapper sets
@@ -454,6 +471,155 @@ jobs:
             artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-full.nupkg
             artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-delta.nupkg
             artifacts/velopack/releases.win.json
+
+      # ---- macOS installer + update feed. osx-arm64 only. vpk builds NovaTerminal.app
+      # ---- from the raw publish directory (generated Info.plist, .icns into
+      # ---- Contents/Resources, everything else into Contents/MacOS — which is what the
+      # ---- app's AppContext.BaseDirectory resource lookups expect), a .pkg installer,
+      # ---- full/delta nupkgs for the osx channel, and a ditto Portable zip of the .app.
+      # ---- The osx channel suffix keeps every asset name distinct from the win lane's
+      # ---- (the suffix is only omitted for the default win channel), so both lanes can
+      # ---- upload into the same GitHub release without collisions.
+      - name: Generate macOS app icon (.icns)
+        if: matrix.rid == 'osx-arm64'
+        run: packaging/macos/make-icns.sh src/NovaTerminal.App/Assets/nova_icon.png artifacts/icon/nova_icon.icns
+
+      - name: Pack macOS installer (Velopack)
+        if: matrix.rid == 'osx-arm64'
+        shell: bash
+        # Same rule as every other script in this file: the tag and version reach the
+        # script through env, never by interpolation into its source. (Codex P1 on #340.)
+        env:
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
+          DOWNLOAD_OUTCOME: ${{ steps.velopack_download.outcome }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ver="$RELEASE_VERSION"
+          tag="$RELEASE_TAG"
+
+          # Same disambiguation as the Windows lane (see its long comment): an empty
+          # artifacts/velopack directory is either "no prior Velopack osx release"
+          # (legitimate — the only correct outcome on the first mac release) or "the
+          # download step failed" (transient). Ask the releases API which case it is.
+          # The filter mirrors what `vpk download github` fetches for the osx channel:
+          # prereleases and drafts excluded, and only -osx-full.nupkg assets counted —
+          # the win lane's full packages (no channel suffix) must not be counted here,
+          # or this lane would demand a delta its download never fetched.
+          if ! prior_full_raw=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq '[.[] | select(.tag_name != env.RELEASE_TAG) | select(.prerelease == false) | select(.draft == false) | .assets[]? | select(.name | endswith("-osx-full.nupkg"))] | length'); then
+            echo "Querying the releases API failed (gh exit code $?). Cannot tell a first mac release from a transient failure, and guessing wrong publishes a release with no delta. Re-run the workflow for this tag." >&2
+            exit 1
+          fi
+          if [[ ! "$prior_full_raw" =~ ^[0-9]+$ ]]; then
+            echo "The releases API query returned '$prior_full_raw', which is not a count. Refusing to guess whether a delta is expected." >&2
+            exit 1
+          fi
+          prior_full_count=$((prior_full_raw))
+          expect_delta=$(( prior_full_count > 0 ? 1 : 0 ))
+          echo "Prior osx full packages on GitHub (excluding $tag): $prior_full_count. Download step outcome: $DOWNLOAD_OUTCOME."
+
+          if (( expect_delta )) && [[ "$DOWNLOAD_OUTCOME" != "success" ]]; then
+            echo "A prior Velopack osx release exists, but 'vpk download github' did not succeed (outcome: $DOWNLOAD_OUTCOME). Packing now would publish a full-only release and silently drop delta updates. Re-run the workflow for this tag once GitHub is reachable." >&2
+            exit 1
+          fi
+          if (( expect_delta )); then
+            echo "A delta is expected and will be asserted after packing."
+          else
+            echo "No prior Velopack osx release; full-only output is the correct result."
+          fi
+
+          # Same re-run idempotency as the Windows lane: `vpk download github` picks the
+          # max-version osx full, which for an already-published tag is the tag's OWN
+          # NovaTerminalApp-$ver-osx-full.nupkg — and `vpk pack` then hard-fails with
+          # "There is a release in channel osx which is equal or greater to the current
+          # version". Drop this version's own artifacts first.
+          rm -f artifacts/velopack/NovaTerminalApp-"$ver"-osx-*.nupkg
+
+          # packId matches the Windows lane deliberately: it is the updater's application
+          # identity. On macOS it only names the update cache
+          # (~/Library/Caches/velopack/NovaTerminalApp); the app itself installs as
+          # /Applications/NovaTerminal.app, so the Windows uninstall-hazard (packId == the
+          # config root) does not apply here. --bundleId: vpk's default would be
+          # com.benyblack.NovaTerminalApp; this matches the public identity (winget:
+          # benyblack.NovaTerminal) instead.
+          #
+          # No --signAppIdentity/--signInstallIdentity/--notaryProfile on purpose: no
+          # Apple Developer certificate exists today. vpk warns "Package will not be
+          # signed or notarized" and packages everything unsigned; the app still runs,
+          # because on arm64 the linker ad-hoc-signs the AOT binary and the Rust dylibs.
+          # The seam for enabling real signing later is exactly these three flags plus a
+          # keychain import — documented in packaging/macos/README.md.
+          # StripSymbols=true leaves a ~94 MB NovaTerminal.dSYM beside the binary (3x the
+          # binary's own size). Delete it at the source AND exclude it in vpk: deletion
+          # keeps empty dSYM directory skeletons out of the bundle entirely, --exclude
+          # (vpk's built-in default exclusion only covers Windows .pdb files) is
+          # defense-in-depth. Nothing else consumes the symbols - the raw publish-dir zip
+          # this dSYM used to ship in no longer exists for macOS.
+          rm -rf artifacts/publish/osx-arm64/NovaTerminal.dSYM
+          vpk pack \
+            --packId NovaTerminalApp \
+            --packVersion "$ver" \
+            --packDir artifacts/publish/osx-arm64 \
+            --mainExe NovaTerminal \
+            --packTitle NovaTerminal \
+            --packAuthors benyblack \
+            --bundleId com.benyblack.NovaTerminal \
+            --icon artifacts/icon/nova_icon.icns \
+            --exclude 'NovaTerminal\.dSYM' \
+            --outputDir artifacts/velopack
+
+          # The installer's and the zip's file names are ours to choose — nothing
+          # resolves them by name. The zip keeps the exact name the raw publish
+          # directory used to ship under, so existing download links keep working;
+          # its content is now the NovaTerminal.app bundle instead of loose files.
+          # Matched by glob because vpk includes the channel in the names it produces.
+          setup_pkg=$(ls artifacts/velopack/*-osx-Setup.pkg 2>/dev/null | head -n 1 || true)
+          if [[ -z "$setup_pkg" ]]; then
+            echo "vpk pack produced no -osx-Setup.pkg" >&2
+            exit 1
+          fi
+          mv "$setup_pkg" "artifacts/velopack/NovaTerminal-Setup-osx-arm64-$tag.pkg"
+
+          portable_zip=$(ls artifacts/velopack/*-osx-Portable.zip 2>/dev/null | head -n 1 || true)
+          if [[ -z "$portable_zip" ]]; then
+            echo "vpk pack produced no -osx-Portable.zip" >&2
+            exit 1
+          fi
+          mv "$portable_zip" "artifacts/velopack/NovaTerminal-osx-arm64-$tag.zip"
+
+          echo "Velopack output:"
+          ls -l artifacts/velopack
+
+          # Assert here rather than at the upload step, for the same reason as the
+          # Windows lane: the first mac release legitimately produces no delta, so
+          # fail_on_unmatched_files must stay permissive and the signal belongs here.
+          if [[ ! -f "artifacts/velopack/NovaTerminalApp-$ver-osx-full.nupkg" ]]; then
+            echo "vpk pack produced no NovaTerminalApp-$ver-osx-full.nupkg - the osx update feed would be unusable." >&2
+            exit 1
+          fi
+          if (( expect_delta )) && [[ ! -f "artifacts/velopack/NovaTerminalApp-$ver-osx-delta.nupkg" ]]; then
+            echo "A prior Velopack osx release exists but vpk pack produced no NovaTerminalApp-$ver-osx-delta.nupkg - delta generation silently failed." >&2
+            exit 1
+          fi
+
+      # Same known-and-benign property as the win feed: releases.osx.json lists the
+      # previous release's full nupkg too (the download step placed it in the output
+      # directory for delta generation and `vpk pack` re-indexes everything). The
+      # version-scoped paths below keep stale nupkgs from being re-uploaded onto this
+      # release.
+      - name: Upload macOS installer and update feed
+        if: matrix.rid == 'osx-arm64'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ needs.release_metadata.outputs.release_tag }}
+          files: |
+            artifacts/velopack/NovaTerminal-Setup-osx-arm64-${{ needs.release_metadata.outputs.release_tag }}.pkg
+            artifacts/velopack/NovaTerminal-osx-arm64-${{ needs.release_metadata.outputs.release_tag }}.zip
+            artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-osx-full.nupkg
+            artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-osx-delta.nupkg
+            artifacts/velopack/releases.osx.json
 
   # Opens a submission PR to microsoft/winget-pkgs for the just-published Windows
   # zip (portable package; see packaging/winget/). Optional and self-skipping:
