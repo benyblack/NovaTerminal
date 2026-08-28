@@ -45,6 +45,9 @@ namespace NovaTerminal.Shell
         public static string WorkspacePolicyFilePath => Path.Combine(PolicyDirectory, "workspace_policy.json");
         public static string WorkspaceAuditLogPath => Path.Combine(LogsDirectory, "workspace_audit.log");
         public static string RecordingsDirectory => Path.Combine(RootDirectory, "recordings");
+
+        /// <summary>Automatic configuration snapshots written by <c>BackupService</c>.</summary>
+        public static string BackupsDirectory => Path.Combine(RootDirectory, "backups");
         public static string CommandPaletteUsageFilePath => Path.Combine(RootDirectory, "command-palette-usage.json");
         public static string CommandAssistDirectory => Path.Combine(RootDirectory, "command-assist");
 
@@ -84,6 +87,7 @@ namespace NovaTerminal.Shell
                     Directory.CreateDirectory(RecordingsDirectory);
                     Directory.CreateDirectory(CommandAssistDirectory);
                     Directory.CreateDirectory(SshDirectory);
+                    Directory.CreateDirectory(BackupsDirectory);
 
                     string legacyBaseDir = AppDomain.CurrentDomain.BaseDirectory;
                     string legacyRoamingRoot = Path.Combine(

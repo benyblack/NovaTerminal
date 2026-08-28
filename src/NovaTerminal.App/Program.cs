@@ -1,4 +1,5 @@
 using NovaTerminal.Shell;
+using NovaTerminal.Shell.Backup;
 using Avalonia;
 using Avalonia.Media;
 using System;
@@ -48,6 +49,19 @@ class Program
             {
                 CliConsoleBindings.Prepare();
                 Environment.ExitCode = ReplayCommand.Execute(args, Console.Out, Console.Error);
+                return;
+            }
+
+            // Same reasoning as ReplayCommand above: `backup` must be servable by this
+            // executable directly, because the AOT/self-contained bundle this dispatch chain
+            // exists for ships no NovaTerminal.Cli. Task 7 originally wired BackupCommand only
+            // into the dev-only Cli shim, which left it unreachable (falling through to the GUI
+            // launch below) in exactly the build shape this feature has to work in. Rooting it
+            // here also keeps AOT trimming from dropping it, same as ReplayCommand.
+            if (BackupCommand.IsSupportedCliMode(args))
+            {
+                CliConsoleBindings.Prepare();
+                Environment.ExitCode = BackupCommand.Execute(args, Console.Out, Console.Error);
                 return;
             }
 

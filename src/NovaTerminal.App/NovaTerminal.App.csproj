@@ -496,6 +496,7 @@
   <ItemGroup>
     <ProjectReference Include="..\NovaTerminal.CommandAssist\NovaTerminal.CommandAssist.csproj" />
     <ProjectReference Include="..\NovaTerminal.Platform\NovaTerminal.Platform.csproj" />
+    <ProjectReference Include="..\NovaTerminal.Backup\NovaTerminal.Backup.csproj" />
     <ProjectReference Include="..\NovaTerminal.VT\NovaTerminal.VT.csproj" />
     <ProjectReference Include="..\NovaTerminal.Rendering\NovaTerminal.Rendering.csproj" />
     <ProjectReference Include="..\NovaTerminal.Pty\NovaTerminal.Pty.csproj" />

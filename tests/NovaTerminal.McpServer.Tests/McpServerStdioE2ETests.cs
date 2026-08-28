@@ -46,6 +46,8 @@ public class McpServerStdioE2ETests
         "novaterminal.send_input",
         "novaterminal.spawn_session",
         "novaterminal.close_session",
+        "novaterminal.backup_export",
+        "novaterminal.backup_list",
     };
 
     [Fact]

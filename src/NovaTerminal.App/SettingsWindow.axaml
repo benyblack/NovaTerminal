@@ -333,6 +333,18 @@
                             </ListBoxItem>
                         </ListBox>
 
+                        <TextBlock Classes="SectionHeader" Text="DATA" Margin="14,18,14,8"/>
+                        <ListBox Name="DataNav"
+                                 Classes="SideNav"
+                                 SelectionMode="Single">
+                            <ListBoxItem>
+                                <Grid ColumnDefinitions="20,*">
+                                    <TextBlock Grid.Column="0" Text="⇩" FontSize="13" Foreground="{StaticResource NtFg3}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="Backup &amp; Restore" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                </Grid>
+                            </ListBoxItem>
+                        </ListBox>
+
                         <Border Margin="14,18,14,8"
                                 Padding="0,12,0,0"
                                 BorderBrush="{StaticResource NtHairline}"
@@ -1024,6 +1036,37 @@
                                 <CheckBox Name="NativeSshToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                             </Grid>
                             <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ┌──── Backup ────┐ -->
+                <TabItem Header="Backup">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="32,28,32,28" Spacing="0">
+
+                            <StackPanel Margin="0,0,0,24">
+                                <TextBlock Classes="H1" Text="Backup &amp; Restore"/>
+                                <TextBlock Classes="Subtitle" Margin="0,4,0,0" TextWrapping="Wrap" Text="Export your settings, themes, connections, workspaces, and snippets to a single file you can carry to another machine. Passwords are never included — they stay in your operating system's keychain, and you re-enter them once after importing."/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+                                <Button Name="BtnBackupExport" Classes="Pill" Content="Export…"/>
+                                <Button Name="BtnBackupImport" Classes="Pill" Content="Import…"/>
+                            </StackPanel>
+
+                            <TextBlock Name="BackupStatusText" Text="" Foreground="{StaticResource NtGreen}" FontSize="11" Margin="0,0,0,10"/>
+
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <StackPanel Margin="0,0,0,10" Spacing="2">
+                                <TextBlock Classes="RowLabel" Text="Snapshots"/>
+                                <TextBlock Classes="RowDesc" Text="Automatic local copies, taken after your configuration changes and before every import or restore. Restoring replaces the categories a snapshot contains."/>
+                            </StackPanel>
+
+                            <ListBox Name="SnapshotList" Height="200" Margin="0,0,0,10"/>
+                            <Button Name="BtnRestoreSnapshot" Classes="Pill" Content="Restore selected" HorizontalAlignment="Left"/>
 
                         </StackPanel>
                     </ScrollViewer>

@@ -19,6 +19,7 @@ using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.CommandAssist.ShellIntegration.Remote;
+using NovaTerminal.Backup;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.Shell.Shortcuts;
 using NovaTerminal.Shell.TitleBar;
@@ -29,6 +30,18 @@ namespace NovaTerminal
     {
         private TerminalSettings _settings;
         public TerminalSettings Settings => _settings; // Expose for main window to grab without reloading disk
+
+        /// <summary>
+        /// F1: set once a successful Import or Restore has replaced configuration on disk out from
+        /// under this window (see <see cref="ReloadSettingsAfterExternalChange"/>). The owning
+        /// <c>MainWindow.OpenSettings</c> must adopt the reloaded <see cref="Settings"/> regardless
+        /// of how this dialog eventually closes - Save, Cancel, or the window's X - because closing
+        /// any other way than Save previously left <c>MainWindow._settings</c> pointing at the
+        /// stale PRE-import object. Any later ordinary <c>_settings.Save()</c> from MainWindow (e.g.
+        /// the "Font: Increase" palette command) would then silently overwrite the just-imported
+        /// configuration on disk.
+        /// </summary>
+        internal bool ConfigurationReplacedExternally { get; private set; }
 
         private TerminalProfile? _selectedProfile;
         private System.Collections.Generic.List<TerminalProfile> _profilesList = new();
@@ -142,19 +155,20 @@ namespace NovaTerminal
             // Keep the sidebar list boxes in sync with the tab control. The previous single
             // list box drove selection via a direct SelectedIndex binding; that breaks once the
             // sidebar is split (InterfaceNav holds tabs 0-2, AssistantNav holds tabs 3-4,
-            // ConnectionNav holds tab 5), so route everything through this small dispatcher
-            // instead. The tab header strip is not the navigation — these lists are — so a new
-            // tab MUST get a sidebar item and a mapping here, or it is unreachable. That is not
-            // hypothetical: the SSH tab initially shipped without one, which silently remapped
-            // the "Agent Access" item onto SSH and stranded the real Agent Access tab
-            // (Codex review finding on #332). New tabs go at the END of the TabControl so the
-            // existing offsets stay true.
+            // ConnectionNav holds tab 5, DataNav holds tab 6), so route everything through this
+            // small dispatcher instead. The tab header strip is not the navigation — these lists
+            // are — so a new tab MUST get a sidebar item and a mapping here, or it is
+            // unreachable. That is not hypothetical: the SSH tab initially shipped without one,
+            // which silently remapped the "Agent Access" item onto SSH and stranded the real
+            // Agent Access tab (Codex review finding on #332). New tabs go at the END of the
+            // TabControl so the existing offsets stay true.
             var interfaceNav = this.FindControl<ListBox>("InterfaceNav");
             var assistantNav = this.FindControl<ListBox>("AssistantNav");
             var connectionNav = this.FindControl<ListBox>("ConnectionNav");
-            if (tabs != null && interfaceNav != null && assistantNav != null && connectionNav != null)
+            var dataNav = this.FindControl<ListBox>("DataNav");
+            if (tabs != null && interfaceNav != null && assistantNav != null && connectionNav != null && dataNav != null)
             {
-                tabs.SelectionChanged += (_, _) => SyncSidebarFromTabs(tabs, interfaceNav, assistantNav, connectionNav);
+                tabs.SelectionChanged += (_, _) => SyncSidebarFromTabs(tabs, interfaceNav, assistantNav, connectionNav, dataNav);
                 interfaceNav.SelectionChanged += (_, _) =>
                 {
                     if (interfaceNav.SelectedIndex < 0) return;
@@ -170,7 +184,12 @@ namespace NovaTerminal
                     if (connectionNav.SelectedIndex < 0) return;
                     tabs.SelectedIndex = connectionNav.SelectedIndex + 5;
                 };
-                SyncSidebarFromTabs(tabs, interfaceNav, assistantNav, connectionNav);
+                dataNav.SelectionChanged += (_, _) =>
+                {
+                    if (dataNav.SelectedIndex < 0) return;
+                    tabs.SelectedIndex = dataNav.SelectedIndex + 6;
+                };
+                SyncSidebarFromTabs(tabs, interfaceNav, assistantNav, connectionNav, dataNav);
             }
 
             // Settings editor is local-profiles only; SSH connections are managed in Connection Manager.
@@ -894,6 +913,8 @@ namespace NovaTerminal
             if (btnSave != null) btnSave.Click += (s, e) => SaveAndClose();
             if (btnCancel != null) btnCancel.Click += (s, e) => Close();
 
+            WireBackupSection();
+
             // Auto-select profile if requested
             if (initialProfileId.HasValue && profilesListBox != null)
             {
@@ -912,38 +933,599 @@ namespace NovaTerminal
         /// <summary>
         /// Mirror the current tab control selection into the sidebar list boxes.
         /// InterfaceNav owns tabs 0-2 (Appearance / Profiles / Shortcuts), AssistantNav owns
-        /// tabs 3-4 (Command Assist / Agent Access), ConnectionNav owns tab 5 (SSH). The other
-        /// list boxes are cleared so only one item ever reads as selected.
+        /// tabs 3-4 (Command Assist / Agent Access), ConnectionNav owns tab 5 (SSH), DataNav
+        /// owns tab 6 (Backup & Restore). The other list boxes are cleared so only one item
+        /// ever reads as selected.
         /// </summary>
-        private static void SyncSidebarFromTabs(TabControl tabs, ListBox interfaceNav, ListBox assistantNav, ListBox connectionNav)
+        private static void SyncSidebarFromTabs(
+            TabControl tabs,
+            ListBox interfaceNav,
+            ListBox assistantNav,
+            ListBox connectionNav,
+            ListBox dataNav)
         {
             var idx = tabs.SelectedIndex;
-            if (idx < 0)
+
+            interfaceNav.SelectedIndex = -1;
+            assistantNav.SelectedIndex = -1;
+            connectionNav.SelectedIndex = -1;
+            dataNav.SelectedIndex = -1;
+
+            if (idx < 0) return;
+
+            if (idx < 3) interfaceNav.SelectedIndex = idx;
+            else if (idx < 5) assistantNav.SelectedIndex = idx - 3;
+            else if (idx < 6) connectionNav.SelectedIndex = idx - 5;
+            else dataNav.SelectedIndex = idx - 6;
+        }
+
+        /// <summary>
+        /// Selects the Backup &amp; Restore tab. Used by the command palette's three backup
+        /// entries (see <c>MainWindow.OpenSettingsToBackupPage</c>).
+        ///
+        /// Looks the tab up by its <c>Header</c> ("Backup") rather than by numeric position, so
+        /// this is immune to Backup's index changing in either direction - a tab removed or
+        /// reordered ahead of it, or a new tab appended after it (Backup is the last tab today,
+        /// per the constructor's remarks on sidebar offsets, but nothing requires it to stay
+        /// that way). A position-based index - hardcoded or derived from <c>Items.Count</c> -
+        /// would get the "appended after" direction wrong. If the tab is ever renamed or removed,
+        /// this is a no-op rather than selecting the wrong page, matching every other
+        /// <c>FindControl</c> guard in this file.
+        /// </summary>
+        public void SelectBackupPage()
+        {
+            var tabs = this.FindControl<TabControl>("MainTabs");
+            if (tabs is null) return;
+
+            var backupTab = tabs.Items.OfType<TabItem>().FirstOrDefault(t => (string?)t.Header == "Backup");
+            if (backupTab is null) return;
+
+            tabs.SelectedIndex = tabs.Items.IndexOf(backupTab);
+        }
+
+        /// <summary>
+        /// Test seam for the "confirm before restoring" gate. Null (the default, and always the
+        /// case in production) uses the real <see cref="ConfirmRestoreAsync"/>, which shows an
+        /// actual modal <see cref="Window.ShowDialog"/> - not drivable headlessly without risking
+        /// a hang (see <see cref="ConfirmRestoreAsync"/>'s remarks). Tests substitute a synchronous
+        /// fake here instead, so both the "confirmed" and "declined" branches of the Restore click
+        /// handler are covered by something that actually runs in CI, without ever touching
+        /// ShowDialog. Internal rather than public: this exists solely so
+        /// NovaTerminal.App.Tests (an InternalsVisibleTo friend) can reach it - it is a test seam,
+        /// not new public API.
+        /// </summary>
+        internal Func<SnapshotRow, System.Threading.Tasks.Task<bool>>? RestoreConfirmationOverride;
+
+        /// <summary>
+        /// Wires the Backup &amp; Restore page. All work goes through <see cref="BackupService"/>;
+        /// this method only picks files and renders outcomes.
+        /// </summary>
+        private void WireBackupSection()
+        {
+            var service = new BackupService(AppPaths.RootDirectory, log: AppLogger.Log);
+
+            var btnExport = this.FindControl<Button>("BtnBackupExport");
+            var btnImport = this.FindControl<Button>("BtnBackupImport");
+            var btnRestore = this.FindControl<Button>("BtnRestoreSnapshot");
+            var status = this.FindControl<TextBlock>("BackupStatusText");
+            var snapshotList = this.FindControl<ListBox>("SnapshotList");
+
+            void SetStatus(string message, bool success)
             {
-                interfaceNav.SelectedIndex = -1;
-                assistantNav.SelectedIndex = -1;
-                connectionNav.SelectedIndex = -1;
+                if (status is null) return;
+                status.Text = message;
+                status.Foreground = success
+                    ? (IBrush?)this.FindResource("NtGreen")
+                    : (IBrush?)this.FindResource("NtRed");
+            }
+
+            void RefreshSnapshots()
+            {
+                if (snapshotList is null) return;
+
+                // WireBackupSection runs unconditionally from the constructor, so a locked
+                // backups directory, a permissions error, or a transient antivirus lock during
+                // Directory.GetFiles must not propagate out of here — that would stop Settings
+                // from opening at all. Fall back to an empty list and say so instead.
+                try
+                {
+                    var rows = service.ListSnapshots()
+                        .Select(s => new SnapshotRow(
+                            s.Id,
+                            $"{s.CreatedUtc.LocalDateTime:yyyy-MM-dd HH:mm}  ·  {ReasonLabel(s.Reason)}  ·  {s.SizeBytes / 1024.0:N0} KB",
+                            s.Reason,
+                            s.CreatedUtc))
+                        .ToArray();
+
+                    snapshotList.ItemsSource = rows;
+                }
+                catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+                {
+                    snapshotList.ItemsSource = Array.Empty<SnapshotRow>();
+                    SetStatus($"Could not read snapshots: {ex.Message}", success: false);
+                }
+            }
+
+            if (snapshotList is not null)
+            {
+                // ListBox has no WPF-style DisplayMemberBinding in Avalonia; a FuncDataTemplate
+                // is the established pattern here (see MainWindow.ShowAgentActivityJournalAsync's
+                // agent-activity ItemsControl).
+                snapshotList.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<SnapshotRow>((row, _) =>
+                    new TextBlock { Text = row?.Display ?? string.Empty, Margin = new Thickness(4, 2) });
+            }
+
+            RefreshSnapshots();
+
+            if (btnExport != null)
+            {
+                btnExport.Click += async (_, _) =>
+                {
+                    var topLevel = TopLevel.GetTopLevel(this);
+                    if (topLevel is null) return;
+
+                    var file = await topLevel.StorageProvider.SaveFilePickerAsync(
+                        new Avalonia.Platform.Storage.FilePickerSaveOptions
+                        {
+                            Title = "Export NovaTerminal configuration",
+                            SuggestedFileName = $"novaterminal-{DateTime.Now:yyyy-MM-dd}{BackupService.BundleExtension}",
+                            DefaultExtension = BackupService.BundleExtension.TrimStart('.')
+                        });
+
+                    if (file is null) return;
+
+                    var outcome = service.Export(file.Path.LocalPath);
+                    SetStatus(outcome.Success ? $"Exported to {file.Name}." : outcome.Message, outcome.Success);
+                };
+            }
+
+            if (btnImport != null)
+            {
+                btnImport.Click += async (_, _) =>
+                {
+                    var topLevel = TopLevel.GetTopLevel(this);
+                    if (topLevel is null) return;
+
+                    var files = await topLevel.StorageProvider.OpenFilePickerAsync(
+                        new Avalonia.Platform.Storage.FilePickerOpenOptions
+                        {
+                            Title = "Import NovaTerminal configuration",
+                            AllowMultiple = false
+                        });
+
+                    if (files.Count == 0) return;
+                    string path = files[0].Path.LocalPath;
+
+                    // Inspect first so the confirmation names what is about to change.
+                    var inspection = service.Inspect(path);
+                    if (!inspection.Success)
+                    {
+                        SetStatus(inspection.Message, success: false);
+                        return;
+                    }
+
+                    var mode = await PromptForImportModeAsync(inspection.Inspection!);
+                    if (mode is null) return;
+
+                    var outcome = service.Import(path, mode.Value);
+                    if (outcome.Success)
+                    {
+                        // I1: a successful Import already changed settings.json (and possibly
+                        // profiles.json, keybindings, etc.) on disk. _settings and everything
+                        // derived from it at construction time are now a stale snapshot of the
+                        // PRE-import state - if this window's Save is clicked afterward, it would
+                        // silently overwrite the very change Import just made with that stale
+                        // snapshot. Reload before anything else can touch _settings again.
+                        ReloadSettingsAfterExternalChange();
+                    }
+
+                    // M2: surface the service's own outcome message rather than a generic one -
+                    // it carries the "connection passwords are not included" note when
+                    // Connections was among the imported categories, the only place a Settings
+                    // window user ever sees that warning.
+                    SetStatus(
+                        outcome.Success
+                            ? $"{outcome.Message} Restart NovaTerminal to pick up all changes."
+                            : outcome.Message,
+                        outcome.Success);
+                    RefreshSnapshots();
+                };
+            }
+
+            if (btnRestore != null)
+            {
+                btnRestore.Click += async (_, _) =>
+                {
+                    if (snapshotList?.SelectedItem is not SnapshotRow row)
+                    {
+                        SetStatus("Select a snapshot first.", success: false);
+                        return;
+                    }
+
+                    // Restore overwrites live configuration immediately, and unlike Import (which
+                    // offers Merge/Replace) it previously asked nothing at all — the more
+                    // surprising of the two destructive actions on this page got the weaker gate.
+                    // Cancel must mean no restore; there is no default "yes" other than the
+                    // affirmative button. RestoreConfirmationOverride is a test seam (see its own
+                    // doc comment) - production always falls through to the real ConfirmRestoreAsync.
+                    Func<SnapshotRow, System.Threading.Tasks.Task<bool>> confirm = RestoreConfirmationOverride ?? ConfirmRestoreAsync;
+                    bool confirmed = await confirm(row);
+                    if (!confirmed) return;
+
+                    var outcome = service.Restore(row.Id);
+                    if (outcome.Success)
+                    {
+                        // I1: same reasoning as the Import handler above - Restore just changed
+                        // settings.json (and possibly more) on disk, and this window's in-memory
+                        // state must not be allowed to stomp it on a later Save.
+                        ReloadSettingsAfterExternalChange();
+                    }
+
+                    SetStatus(
+                        outcome.Success
+                            ? $"{outcome.Message} Restart NovaTerminal to pick up all changes."
+                            : outcome.Message,
+                        outcome.Success);
+                    RefreshSnapshots();
+                };
+            }
+        }
+
+        /// <summary>
+        /// I1: a successful Import or Restore changes settings.json (and possibly
+        /// profiles/keybindings/title-bar layout) on disk out from under this already-open
+        /// window. <c>_settings</c> and everything the constructor derived from it once, up
+        /// front, are now a stale pre-change snapshot; if <see cref="SaveAndClose"/> ran against
+        /// that snapshot afterward, it would silently revert the very change the user just made
+        /// (the bug this fix closes). Reloading <c>_settings</c> alone is not enough -
+        /// <see cref="SaveAndClose"/> also rebuilds <c>_settings.Profiles</c> from
+        /// <c>_profilesList</c>, <c>_settings.Keybindings</c> from <c>_shortcutDraftBindings</c>,
+        /// and <c>_settings.TitleBarItems</c> / <c>_settings.TitleBarOrder</c> from
+        /// <c>_titleBarDraft</c> — each of those must be re-derived from the freshly reloaded
+        /// settings too, or Save would still overwrite the imported/restored values for exactly
+        /// those three areas even though every OTHER field would now be correctly preserved.
+        /// Mirrors the exact sequence the constructor itself runs once at startup
+        /// (profiles/shortcuts/title-bar derivation, then the UI-control population methods), so
+        /// the already-open window's controls reflect the new on-disk state too rather than
+        /// merely fixing what gets written back on the next Save.
+        /// </summary>
+        private void ReloadSettingsAfterExternalChange()
+        {
+            // F1: record that configuration was replaced externally so MainWindow.OpenSettings can
+            // adopt the reload below no matter how this dialog eventually closes. Set unconditionally
+            // here rather than only in the Import/Restore click handlers, so any current or future
+            // caller of this method gets the same guarantee.
+            ConfigurationReplacedExternally = true;
+
+            // Captured before anything below moves on: _selectedProfile currently points at an
+            // object inside the PRE-reload _profilesList, which is about to be discarded and
+            // rebuilt from fresh TerminalProfile instances. The Id is the only thing that still
+            // means anything about that selection once the rebuild happens.
+            Guid? previousSelectedProfileId = _selectedProfile?.Id;
+
+            _settings = TerminalSettings.Load();
+
+            _profilesList = BuildLocalProfilesForEditor(_settings.Profiles);
+            _settings.DefaultProfileId = ResolveDefaultLocalProfileId(_settings.DefaultProfileId, _profilesList);
+            _shortcutDraftBindings = new Dictionary<string, string>(_settings.Keybindings, StringComparer.OrdinalIgnoreCase);
+
+            // Fix (Codex review round 2, PR #362): the exact same I1-residual-#1 gap as
+            // PopulateThemes below, for fonts. PopulateFonts seeds its choices from
+            // BuildFontFamilyChoices(_settings.FontFamily, _selectedProfile?.FontFamily) (round 3:
+            // both are seeded unconditionally now, not ??-ed down to one - see PopulateFonts' own
+            // remarks), explicitly adding whatever font is currently configured even when it is
+            // not installed locally - so a bundle imported from another machine naming a font
+            // absent here needs this rerun to make that font selectable at all. Without it,
+            // LoadCurrentSettings' font-selection loop below has no matching ComboBoxItem, leaves
+            // FontList.SelectedItem on the stale pre-reload font, and a subsequent Save writes that
+            // stale font back over the just-imported one. Must run before LoadCurrentSettings,
+            // exactly like the constructor's own sequence (PopulateFonts, then PopulateThemes,
+            // then LoadCurrentSettings). Note that at this point in Reload, _selectedProfile is
+            // still the PRE-reload object (RepointSelectedProfileAfterReload runs later) - that's
+            // fine for ordering (matches the constructor, where _selectedProfile is always null
+            // here) but not for its VALUE, which is why _settings.FontFamily is seeded
+            // unconditionally rather than only as a ??-fallback.
+            PopulateFonts();
+
+            // Fix (I1 residual #1): the theme combo boxes were filled from disk once, at
+            // construction (PopulateThemes, called before LoadCurrentSettings there too - see the
+            // constructor). An import/restore can bring a new theme file AND a settings.json
+            // naming it; without repopulating here first, LoadCurrentSettings' theme-selection
+            // loop below has no matching ComboBoxItem to select, SelectedItem is left on the
+            // stale pre-reload theme, and a subsequent Save would write that stale ThemeName back
+            // - the original I1 bug, narrowed to one field. Order matters: this must run before
+            // LoadCurrentSettings, exactly like the constructor's own sequence.
+            PopulateThemes();
+
+            LoadCurrentSettings();
+            PopulateProfilesList();
+            RepointSelectedProfileAfterReload(previousSelectedProfileId);
+
+            var shortcutSearchInput = this.FindControl<TextBox>("ShortcutSearchInput");
+            PopulateShortcutBindingsPanel(shortcutSearchInput?.Text ?? "");
+
+            LoadTitleBarDraft();
+            RebuildTitleBarRows();
+        }
+
+        /// <summary>
+        /// Fix (I1 residual #2): <c>_selectedProfile</c> points at an entry of the PRE-reload
+        /// <c>_profilesList</c>. <see cref="ReloadSettingsAfterExternalChange"/> rebuilds
+        /// <c>_profilesList</c> with fresh <see cref="TerminalProfile"/> instances (freshly
+        /// deserialized from the reloaded settings.json) but, without this, never re-points
+        /// <c>_selectedProfile</c> at the corresponding new instance - it is left dangling,
+        /// referencing an object no longer reachable from <c>_profilesList</c>. The profile
+        /// editor's KeyUp handlers (bound to <c>_selectedProfile</c> directly) would keep mutating
+        /// that detached object, so edits made after an import/restore are silently dropped at
+        /// Save; Delete would likewise become a no-op since the object is no longer in the list to
+        /// remove.
+        /// </summary>
+        /// <remarks>
+        /// Re-points by <see cref="TerminalProfile.Id"/> - the one thing that still identifies
+        /// "the same" profile across the rebuild - by setting the ProfilesListBox's SelectedItem
+        /// to the matching new item. That raises the same SelectionChanged handler a user
+        /// re-clicking the profile by hand would, which calls <see cref="SwitchSelectedProfile"/>
+        /// and re-derives every editor-pane control from the fresh instance - so this reuses the
+        /// existing selection machinery rather than duplicating it. When the previously-selected
+        /// profile no longer exists post-reload (the import/restore removed or renamed it),
+        /// <c>_selectedProfile</c> is cleared and the editor pane's fields are blanked to match,
+        /// rather than continuing to display a profile that is no longer in the list.
+        /// </remarks>
+        private void RepointSelectedProfileAfterReload(Guid? previousSelectedProfileId)
+        {
+            if (previousSelectedProfileId is not Guid id)
+            {
+                return; // Nothing was selected before the reload; nothing to re-point.
+            }
+
+            var profilesListBox = this.FindControl<ListBox>("ProfilesListBox");
+            var matchedItem = profilesListBox?.Items
+                .OfType<ListBoxItem>()
+                .FirstOrDefault(item => item.Tag is TerminalProfile profile && profile.Id == id);
+
+            if (matchedItem != null)
+            {
+                if (profilesListBox != null) profilesListBox.SelectedItem = matchedItem;
                 return;
             }
 
-            if (idx < 3)
+            _selectedProfile = null;
+            if (profilesListBox != null) profilesListBox.SelectedItem = null;
+            ClearProfileEditorFields();
+        }
+
+        /// <summary>
+        /// Blanks the profile editor pane's controls, mirroring the field set
+        /// <see cref="SwitchSelectedProfile"/> populates but with neutral/empty values, so the UI
+        /// does not keep showing a profile that is no longer in <c>_profilesList</c>. Does not
+        /// touch event wiring - only sets control values, the same way <see cref="SwitchSelectedProfile"/>
+        /// does.
+        /// </summary>
+        private void ClearProfileEditorFields()
+        {
+            var nameInput = this.FindControl<TextBox>("ProfileNameInput");
+            if (nameInput != null) nameInput.Text = string.Empty;
+            var commandInput = this.FindControl<TextBox>("ProfileCommandInput");
+            if (commandInput != null) commandInput.Text = string.Empty;
+            var argsInput = this.FindControl<TextBox>("ProfileArgsInput");
+            if (argsInput != null) argsInput.Text = string.Empty;
+            var cwdInput = this.FindControl<TextBox>("ProfileCwdInput");
+            if (cwdInput != null) cwdInput.Text = string.Empty;
+            var groupInput = this.FindControl<TextBox>("ProfileGroupInput");
+            if (groupInput != null) groupInput.Text = string.Empty;
+            var tagsInput = this.FindControl<TextBox>("ProfileTagsInput");
+            if (tagsInput != null) tagsInput.Text = string.Empty;
+
+            var sshHostInput = this.FindControl<TextBox>("SshHostInput");
+            if (sshHostInput != null) sshHostInput.Text = string.Empty;
+            var sshPortInput = this.FindControl<NumericUpDown>("SshPortInput");
+            if (sshPortInput != null) sshPortInput.Value = null;
+            var sshUserInput = this.FindControl<TextBox>("SshUserInput");
+            if (sshUserInput != null) sshUserInput.Text = string.Empty;
+            var sshKeyPathInput = this.FindControl<TextBox>("SshKeyPathInput");
+            if (sshKeyPathInput != null) sshKeyPathInput.Text = string.Empty;
+            var sshPasswordInput = this.FindControl<TextBox>("SshPasswordInput");
+            if (sshPasswordInput != null) sshPasswordInput.Text = string.Empty;
+
+            var checkOverrideFont = this.FindControl<CheckBox>("CheckOverrideFont");
+            if (checkOverrideFont != null) checkOverrideFont.IsChecked = false;
+            var checkOverrideSize = this.FindControl<CheckBox>("CheckOverrideSize");
+            if (checkOverrideSize != null) checkOverrideSize.IsChecked = false;
+            var checkOverrideTheme = this.FindControl<CheckBox>("CheckOverrideTheme");
+            if (checkOverrideTheme != null) checkOverrideTheme.IsChecked = false;
+            var checkOverrideLigatures = this.FindControl<CheckBox>("CheckOverrideLigatures");
+            if (checkOverrideLigatures != null) checkOverrideLigatures.IsChecked = false;
+        }
+
+        private static string ReasonLabel(SnapshotReason reason) => reason switch
+        {
+            SnapshotReason.Auto => "automatic",
+            SnapshotReason.PreImport => "before import",
+            SnapshotReason.PreRestore => "before restore",
+            _ => "automatic"
+        };
+
+        internal sealed record SnapshotRow(string Id, string Display, SnapshotReason Reason, DateTimeOffset CreatedUtc);
+
+        /// <summary>
+        /// The restore confirmation dialog's headline and body text for <paramref name="row"/>.
+        /// Factored out of <see cref="ConfirmRestoreAsync"/> so the wording — which must name the
+        /// snapshot being restored and describe what happens — is unit-testable on its own.
+        /// </summary>
+        /// <remarks>
+        /// The dialog itself (<see cref="ConfirmRestoreAsync"/>, like <see cref="PromptForImportModeAsync"/>)
+        /// is not: a real modal <c>Window.ShowDialog</c> with no owner ever shown and no button for
+        /// anything to click does not return in this repo's headless test host — confirmed
+        /// previously in <c>MainWindowShellExitTests</c> (a declined-confirmation branch behind the
+        /// same pattern was deleted rather than risk the hang). This split keeps the requirement —
+        /// name the snapshot's timestamp and reason, state that it replaces the categories the
+        /// snapshot contains, and note the pre-restore snapshot taken first — covered by a test
+        /// without driving the modal itself.
+        /// </remarks>
+        private static (string Headline, string Body) BuildRestoreConfirmationText(SnapshotRow row)
+        {
+            string when = $"{row.CreatedUtc.LocalDateTime:yyyy-MM-dd HH:mm}";
+            string headline = $"Restore the snapshot from {when} ({ReasonLabel(row.Reason)})?";
+            string body =
+                "This replaces the categories the snapshot contains with their state at that time. " +
+                "A snapshot of your current configuration is taken first, so this restore itself can be undone.";
+            return (headline, body);
+        }
+
+        /// <summary>
+        /// Confirms before restoring a snapshot. Restore is the more surprising destructive action
+        /// on this page (Import at least offers Merge/Replace); this brings it in line. Returns
+        /// false when the user cancels — there is no default "yes" other than the affirmative
+        /// button.
+        /// </summary>
+        private async System.Threading.Tasks.Task<bool> ConfirmRestoreAsync(SnapshotRow row)
+        {
+            var (headline, body) = BuildRestoreConfirmationText(row);
+
+            bool confirmed = false;
+
+            var dialog = new Window
             {
-                interfaceNav.SelectedIndex = idx;
-                assistantNav.SelectedIndex = -1;
-                connectionNav.SelectedIndex = -1;
-            }
-            else if (idx < 5)
+                Title = "Restore configuration",
+                Width = 460,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false
+            };
+
+            var restoreButton = new Button { Content = "Restore", Classes = { "Pill" } };
+            var cancelButton = new Button { Content = "Cancel", Classes = { "Pill" } };
+
+            restoreButton.Click += (_, _) => { confirmed = true; dialog.Close(); };
+            cancelButton.Click += (_, _) => dialog.Close();
+
+            dialog.Content = new StackPanel
             {
-                interfaceNav.SelectedIndex = -1;
-                assistantNav.SelectedIndex = idx - 3;
-                connectionNav.SelectedIndex = -1;
-            }
-            else
+                Margin = new Thickness(20),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = headline,
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    new TextBlock
+                    {
+                        Text = body,
+                        TextWrapping = TextWrapping.Wrap,
+                        Opacity = 0.75
+                    },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 8,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Children = { cancelButton, restoreButton }
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
+            return confirmed;
+        }
+
+        /// <summary>
+        /// The Merge/Replace prompt's explanatory body text for a bundle whose contents are
+        /// <paramref name="inspection"/>. Factored out of <see cref="PromptForImportModeAsync"/> so
+        /// the wording is unit-testable without going anywhere near <c>ShowDialog</c> - the same
+        /// split <see cref="BuildRestoreConfirmationText"/> uses for the Restore confirmation.
+        /// </summary>
+        /// <remarks>
+        /// (P2, Codex review round 2, PR #362): the base sentence — "Merge keeps items you have
+        /// locally that the bundle does not contain" — is false for Snippets. <c>BackupService</c>'s
+        /// <c>BuildPlan</c> replaces <c>snippets.json</c> wholesale in BOTH modes (a deliberate
+        /// design decision, spec'd: the file is a flat array with no stable id, so there is nothing
+        /// to merge by — see <c>Snippets_AlwaysReplacedWholesale</c>). A user choosing Merge
+        /// specifically to keep local snippets would lose them with no warning. This fixes the
+        /// copy, not the semantics: the caveat only appears when the bundle actually contains the
+        /// Snippets category (an <see cref="BundleInspection.ItemCounts"/> lookup — <c>Inspect</c>
+        /// already gives the caller this for free), so a bundle without Snippets sees the same
+        /// wording as before.
+        /// </remarks>
+        private static string BuildImportModeBodyText(BundleInspection inspection)
+        {
+            bool bundleHasSnippets = inspection.ItemCounts.TryGetValue(BackupCategory.Snippets, out int snippetCount)
+                && snippetCount > 0;
+
+            string snippetsCaveat = bundleHasSnippets
+                ? " Snippets are always replaced entirely in either mode — Merge does not apply to them."
+                : string.Empty;
+
+            return "Merge keeps items you have locally that the bundle does not contain. " +
+                   "Replace makes the bundle the truth for the categories above. " +
+                   "A snapshot is taken first either way, so you can roll back." +
+                   snippetsCaveat;
+        }
+
+        /// <summary>
+        /// Asks whether to merge or replace, showing what the bundle contains. Returns null
+        /// when the user cancels. Import is destructive, so there is no default —
+        /// the user must pick.
+        /// </summary>
+        private async System.Threading.Tasks.Task<ImportMode?> PromptForImportModeAsync(BundleInspection inspection)
+        {
+            string summary = string.Join(
+                ", ",
+                inspection.ItemCounts
+                    .Where(pair => pair.Value > 0)
+                    .Select(pair => $"{pair.Value} {pair.Key.ToString().ToLowerInvariant()}"));
+
+            string body = BuildImportModeBodyText(inspection);
+
+            ImportMode? choice = null;
+
+            var dialog = new Window
             {
-                interfaceNav.SelectedIndex = -1;
-                assistantNav.SelectedIndex = -1;
-                connectionNav.SelectedIndex = idx - 5;
-            }
+                Title = "Import configuration",
+                Width = 460,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false
+            };
+
+            var mergeButton = new Button { Content = "Merge", Classes = { "Pill" } };
+            var replaceButton = new Button { Content = "Replace", Classes = { "Pill" } };
+            var cancelButton = new Button { Content = "Cancel", Classes = { "Pill" } };
+
+            mergeButton.Click += (_, _) => { choice = ImportMode.Merge; dialog.Close(); };
+            replaceButton.Click += (_, _) => { choice = ImportMode.Replace; dialog.Close(); };
+            cancelButton.Click += (_, _) => dialog.Close();
+
+            dialog.Content = new StackPanel
+            {
+                Margin = new Thickness(20),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = $"This bundle contains: {summary}.",
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    new TextBlock
+                    {
+                        Text = body,
+                        TextWrapping = TextWrapping.Wrap,
+                        Opacity = 0.75
+                    },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 8,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Children = { cancelButton, mergeButton, replaceButton }
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
+            return choice;
         }
 
         /// <summary>
@@ -971,9 +1553,22 @@ namespace NovaTerminal
             if (fontList != null) fontList.Items.Clear();
             if (overrideFontList != null) overrideFontList.Items.Clear();
 
+            // Codex review round 3: seed BOTH the global font and the selected profile's own
+            // override (if any), rather than ??-ing them down to one. In the reload path
+            // (ReloadSettingsAfterExternalChange), _selectedProfile is still the PRE-reload
+            // object — RepointSelectedProfileAfterReload does not run until after this — so a
+            // profile with a font override used to make _selectedProfile?.FontFamily win the ??
+            // and silently hide _settings.FontFamily from this seeding entirely. That left a
+            // freshly-imported global font unselectable (not data loss - LoadCurrentSettings'
+            // selection loop then finds nothing, SelectedItem stays null, and SaveAndClose's
+            // `is ComboBoxItem` guard skips the write - but the user could not pick the imported
+            // font until the window was reopened). Adding both to the SortedSet costs nothing:
+            // BuildFontFamilyChoices dedupes case-insensitively, and this is only ever a "make
+            // sure it's visible even if not installed" seed - not a selection decision.
             var fonts = BuildFontFamilyChoices(
                     SkiaSharp.SKFontManager.Default.FontFamilies,
-                    _selectedProfile?.FontFamily ?? _settings.FontFamily)
+                    _settings.FontFamily,
+                    _selectedProfile?.FontFamily)
                 .Select(f => new ComboBoxItem { Content = f })
                 .ToList();
 
@@ -985,9 +1580,18 @@ namespace NovaTerminal
             }
         }
 
+        /// <param name="additionalConfiguredFontFamily">
+        /// A second font name to guarantee is present, independent of
+        /// <paramref name="configuredFontFamily"/> (Codex review round 3) — e.g. a selected
+        /// profile's own font override, seeded alongside the global font rather than instead of
+        /// it. Both are seeded unconditionally (each ignored only when null/blank); which one
+        /// ultimately gets selected is <c>LoadCurrentSettings</c>'/the caller's decision, not
+        /// this method's — it only guarantees visibility in the choice list.
+        /// </param>
         internal static System.Collections.Generic.List<string> BuildFontFamilyChoices(
             System.Collections.Generic.IEnumerable<string> systemFonts,
-            string? configuredFontFamily)
+            string? configuredFontFamily,
+            string? additionalConfiguredFontFamily = null)
         {
             var names = new System.Collections.Generic.SortedSet<string>(
                 systemFonts?.Where(f => !string.IsNullOrWhiteSpace(f)) ?? System.Array.Empty<string>(),
@@ -998,6 +1602,11 @@ namespace NovaTerminal
             if (!string.IsNullOrWhiteSpace(configuredFontFamily))
             {
                 names.Add(configuredFontFamily);
+            }
+
+            if (!string.IsNullOrWhiteSpace(additionalConfiguredFontFamily))
+            {
+                names.Add(additionalConfiguredFontFamily);
             }
 
             return names.ToList();

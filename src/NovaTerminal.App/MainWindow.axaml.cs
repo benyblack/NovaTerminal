@@ -29,6 +29,7 @@ using NovaTerminal.Pty;
 
 using NovaTerminal.Controls;
 using NovaTerminal.Services.Ssh;
+using NovaTerminal.Backup;
 using NovaTerminal.Platform.Ssh.Launch;
 using NovaTerminal.Shell.Shortcuts;
 using NovaTerminal.Models;
@@ -83,6 +84,11 @@ namespace NovaTerminal
         private DispatcherTimer? _tabStatusTimer;
         private TerminalSettings _settings;
         private GlobalHotkey? _globalHotkey;
+        // Started at the end of the constructor, not from SetupCommandPalette() - that method is
+        // lazy (runs on palette-open / settings-save), so starting the scheduler there would mean
+        // automatic snapshots only begin after the user's first palette open. Disposed in
+        // PerformAppTeardown alongside the window's other constructor-owned services.
+        private SnapshotScheduler? _snapshotScheduler;
         // Ids of stateful title bar toggles that are currently ON. An overflowed toggle in this set
         // is auto-surfaced into the bar by TitleBarLayoutResolver, which is how Record stays visible
         // while recording without being permanently pinned.
@@ -3057,6 +3063,12 @@ namespace NovaTerminal
             // startup: the initial window's title bar has to exist before the user opens anything.
             RebuildTitleBar();
 
+            // Snapshot scheduling starts with the app, not with the first palette open - see the
+            // field's remarks. Start() is best-effort (never throws even if a watch target is
+            // missing), so this can't fail the constructor.
+            _snapshotScheduler = new SnapshotScheduler(new BackupService(AppPaths.RootDirectory, log: AppLogger.Log), log: AppLogger.Log);
+            _snapshotScheduler.Start();
+
             _startup.Checkpoint("MainWindow.CtorComplete");
         }
 
@@ -5632,6 +5644,33 @@ namespace NovaTerminal
             CommandRegistry.Register("Open Recording...", "General", () => _ = ExecuteUiCommandAsync(ExecuteOpenRecordingCommandAsync, "Open Recording..."), "");
             CommandRegistry.Register("Open Recordings Folder", "General", () => OpenRecordingsFolder(), "");
 
+            // All three route to the same Backup & Restore settings page rather than acting
+            // directly from the palette. Export and import both need a file picker plus a
+            // merge/replace mode prompt, and Restore needs the "this replaces your current
+            // config" confirmation - all of which already live on that page. Duplicating any of
+            // that into the palette would create a second copy of the destructive-action
+            // confirmation, which is exactly the part that must not drift between two call sites.
+            // Method-group, not a lambda wrapper: keeps the delegate's Method identity as
+            // OpenSettingsToBackupPage itself, so a test can assert what these route to via
+            // reflection without ever invoking through to the real (headlessly-hanging) ShowDialog.
+            CommandRegistry.Register(
+                "Export configuration…",
+                "Backup",
+                OpenSettingsToBackupPage,
+                id: "backup.export");
+
+            CommandRegistry.Register(
+                "Import configuration…",
+                "Backup",
+                OpenSettingsToBackupPage,
+                id: "backup.import");
+
+            CommandRegistry.Register(
+                "Restore from snapshot…",
+                "Backup",
+                OpenSettingsToBackupPage,
+                id: "backup.restore");
+
             // SFTP Actions
             CommandRegistry.Register("SFTP: Toggle Remote Files", "Remote", () => _currentPane?.ToggleRemoteFilesSidebar(), "");
             CommandRegistry.Register("SFTP: Upload File...", "Remote", () => _ = InitiateSftpTransfer(null, TransferDirection.Upload, TransferKind.File), "");
@@ -6277,9 +6316,27 @@ namespace NovaTerminal
         private static (int TabIndex, SettingsSection Section) CustomizeTitleBarSettingsTarget()
             => (0, SettingsSection.TitleBar);
 
-        private async Task OpenSettings(int tabIndex, Guid? profileId = null, SettingsSection section = SettingsSection.None)
+        /// <summary>
+        /// Opens Settings on the Backup &amp; Restore page. Routes through <see cref="OpenSettings"/> -
+        /// this window's one construction site - rather than constructing a <see cref="SettingsWindow"/>
+        /// directly, so Backup gets the same save/legacy-migration handling as every other entry
+        /// point. The tab index itself is never hardcoded here: <c>selectBackupPage</c> makes
+        /// <see cref="OpenSettings"/> call <see cref="SettingsWindow.SelectBackupPage"/> after
+        /// construction, which derives the index from the tab count, so inserting a tab before
+        /// Backup can't silently point this at the wrong page.
+        /// </summary>
+        private void OpenSettingsToBackupPage()
+        {
+            _ = OpenSettings(0, selectBackupPage: true);
+        }
+
+        private async Task OpenSettings(int tabIndex, Guid? profileId = null, SettingsSection section = SettingsSection.None, bool selectBackupPage = false)
         {
             var sw = new SettingsWindow(tabIndex, profileId, section);
+            if (selectBackupPage)
+            {
+                sw.SelectBackupPage();
+            }
 
             // The one live history store, so Settings' "Clear history" acts on the same instance the
             // panes append to (V2 Phase 3b task 5). Reading the property constructs it lazily, which is
@@ -6310,8 +6367,7 @@ namespace NovaTerminal
             // The preview handlers below mutate _settings directly; without this,
             // closing the dialog without saving left the preview values live, and any
             // later unrelated Save() persisted them to disk.
-            var previewSnapshot = new
-            {
+            var previewSnapshot = new PreviewSnapshot(
                 _settings.WindowOpacity,
                 _settings.BlurEffect,
                 _settings.BackgroundImagePath,
@@ -6319,8 +6375,7 @@ namespace NovaTerminal
                 _settings.BackgroundImageStretch,
                 _settings.FontFamily,
                 _settings.FontSize,
-                _settings.ThemeName
-            };
+                _settings.ThemeName);
 
             // Wire up live preview events
             sw.OnOpacityChanged += (val) => { _settings.WindowOpacity = val; ApplyThemeToUI(); ApplySettingsToAllTabs(); };
@@ -6348,7 +6403,36 @@ namespace NovaTerminal
 
             bool saved = await sw.ShowDialog<bool>(this);
 
-            if (saved)
+            ApplySettingsWindowResult(sw, saved, previewSnapshot);
+        }
+
+        /// <summary>
+        /// F1: a successful Import or Restore run from the Backup page changes settings.json (and
+        /// possibly more) on disk while this dialog is still open (see
+        /// <c>SettingsWindow.ReloadSettingsAfterExternalChange</c>). Before this fix, only the
+        /// <paramref name="saved"/> == true branch below adopted that change; closing the dialog any
+        /// other way - Cancel, or the window's X, both of which surface here as
+        /// <paramref name="saved"/> == false - left <c>_settings</c> pointing at the stale
+        /// PRE-import object. <c>_settings.Save()</c> runs from roughly ten ordinary places in this
+        /// class (e.g. the "Font: Increase" / "Font: Decrease" palette commands), so the very next
+        /// one of those silently overwrote the just-imported configuration on disk.
+        ///
+        /// <see cref="SettingsWindow.ConfigurationReplacedExternally"/> is the signal: when it is
+        /// set, this method takes the <paramref name="saved"/> == true path's handling regardless of
+        /// what <paramref name="saved"/> actually is, so both branches leave <c>MainWindow</c> in
+        /// equivalent state. The plain-Cancel path (no import/restore happened) is unchanged: it
+        /// still reverts the live-previewed fields captured in <paramref name="previewSnapshot"/>.
+        ///
+        /// Pulled out of <see cref="OpenSettings"/> as its own method purely for testability -
+        /// <c>OpenSettings</c> itself reaches a real <c>Window.ShowDialog</c>, which this repo's
+        /// headless test host cannot return from. A test can build a <see cref="SettingsWindow"/>
+        /// through the same reflection seam <c>SettingsWindowBackupSectionTests</c> uses to invoke
+        /// <c>ReloadSettingsAfterExternalChange</c>, then call this method directly with
+        /// <paramref name="saved"/> = false to simulate Cancel/X after a successful import.
+        /// </summary>
+        internal void ApplySettingsWindowResult(SettingsWindow sw, bool saved, PreviewSnapshot previewSnapshot)
+        {
+            if (saved || sw.ConfigurationReplacedExternally)
             {
                 // Use the settings object directly from the dialog to avoid disk I/O race conditions
                 if (sw.Settings != null)
@@ -6396,6 +6480,22 @@ namespace NovaTerminal
                 ApplyTabLayout();
             }
         }
+
+        /// <summary>
+        /// The live-previewed fields <see cref="OpenSettings"/> snapshots before showing the dialog
+        /// (#167), so a plain Cancel can revert them. A named type rather than the anonymous type
+        /// this used to be, so <see cref="ApplySettingsWindowResult"/> can take it as a parameter and
+        /// be called from a test without going through <c>OpenSettings</c> itself.
+        /// </summary>
+        internal readonly record struct PreviewSnapshot(
+            double WindowOpacity,
+            string BlurEffect,
+            string BackgroundImagePath,
+            double BackgroundImageOpacity,
+            string BackgroundImageStretch,
+            string FontFamily,
+            double FontSize,
+            string ThemeName);
 
         private async Task ShowNewSshConnectionDialogAsync(TerminalProfile? existingProfile)
         {
@@ -6982,6 +7082,11 @@ namespace NovaTerminal
             _updateCheckTimer.Stop();
             _tabStatusTimer?.Stop();
             _globalHotkey?.Dispose();
+            // Dispose the snapshot scheduler before the agent-host teardown below: its Dispose
+            // performs a best-effort final flush, which writes a snapshot, which logs — and the
+            // agent-host stop path below is not something a snapshot write should race.
+            _snapshotScheduler?.Dispose();
+            _snapshotScheduler = null;
             AgentHost.AgentHostService.Instance.ObserveActivityChanged -= OnAgentObserveActivityChanged;
             AgentHost.AgentSessionRegistry.Instance.SessionRegistered -= OnAgentSessionRegisteredForAttention;
             AgentHost.AgentSessionRegistry.Instance.SessionUnregistered -= OnAgentSessionUnregisteredForAttention;

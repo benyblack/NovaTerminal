@@ -1,4 +1,5 @@
 using NovaTerminal;
+using NovaTerminal.Shell.Backup;
 
 internal static class Program
 {
@@ -18,6 +19,11 @@ internal static class Program
         if (ReplayCommand.IsSupportedCliMode(args))
         {
             return ReplayCommand.Execute(args, Console.Out, Console.Error);
+        }
+
+        if (BackupCommand.IsSupportedCliMode(args))
+        {
+            return BackupCommand.Execute(args, Console.Out, Console.Error);
         }
 
         Console.Error.WriteLine("Unsupported CLI mode.");

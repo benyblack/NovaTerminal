@@ -23,8 +23,10 @@ public class ProjectFileLayeringTests
     // TreatWarningsAsErrors, so the analyzer is enforced rather than advisory (#108).
     private static readonly string[] VtOnly = ["NovaTerminal.VT"];
 
-    // Same CA1861 reasoning as VtOnly above.
-    private static readonly string[] AgentHostContractsOnly = ["NovaTerminal.AgentHost.Contracts"];
+    // Same CA1861 reasoning as VtOnly above. Order matches the csproj's own ItemGroup so
+    // Assert.Equal's ordered comparison doesn't need a Sort/OrderBy on either side.
+    private static readonly string[] AgentHostContractsAndBackup =
+        ["NovaTerminal.AgentHost.Contracts", "NovaTerminal.Backup"];
 
     private static string RepoRoot()
     {
@@ -146,6 +148,18 @@ public class ProjectFileLayeringTests
     /// the protocol, so it is worth an assertion rather than only prose in
     /// <c>docs/MODULE_OWNERSHIP.md</c>.
     ///
+    /// <c>NovaTerminal.Backup</c> is allowed alongside the contracts leaf (Task 10a): the
+    /// read-only backup MCP tools need <c>BackupService</c>. Fix round 1 of that same task
+    /// first tried reaching it through <c>NovaTerminal.Platform</c> instead - which passed
+    /// this exact assertion, because at the csproj level "references one extra project"
+    /// looks the same regardless of what that project drags in. It shipped a real hole:
+    /// Platform references Pty, so McpServer -> Platform -> Pty transitively broke "does not
+    /// reference App, VT, Pty, or Rendering" with the reasoning behind that rule fully
+    /// intact. <c>NovaTerminal.Backup</c> closes that hole by construction rather than by
+    /// naming every forbidden transitive hop: <see cref="Backup_csproj_has_no_project_references"/>
+    /// pins it as a leaf, so nothing it brings in can ever be more than the BCL, no matter
+    /// what future code adds to it.
+    ///
     /// Asserted at the csproj level only: the IL-level sibling in <see cref="LayeringTests"/>
     /// would need Architecture.Tests to take a ProjectReference on McpServer (an Exe) purely
     /// to load it for inspection. A forbidden *project reference* is the failure mode being
@@ -153,10 +167,28 @@ public class ProjectFileLayeringTests
     /// P2 on PR #245.
     /// </summary>
     [Fact]
-    public void McpServer_csproj_only_references_AgentHostContracts()
+    public void McpServer_csproj_only_references_AgentHostContractsAndBackup()
     {
         var refs = ProjectReferences("src/NovaTerminal.McpServer/NovaTerminal.McpServer.csproj");
-        Assert.Equal(AgentHostContractsOnly, refs);
+        Assert.Equal(AgentHostContractsAndBackup, refs);
+    }
+
+    /// <summary>
+    /// The assertion that actually keeps <see cref="McpServer_csproj_only_references_AgentHostContractsAndBackup"/>
+    /// meaningful long-term. That test only pins McpServer's own reference list; it says
+    /// nothing about what <c>NovaTerminal.Backup</c> itself can reach. Without this test,
+    /// someone could add e.g. <c>NovaTerminal.Platform</c> as a "small, surely harmless"
+    /// reference to Backup one day - reopening precisely the McpServer -> Platform -> Pty
+    /// hole fix round 1 of Task 10a just closed, since McpServer's own csproj would look
+    /// untouched. A leaf has no project references, ever: that is the entire safety argument,
+    /// so it has to be checked directly rather than inferred from what currently happens to
+    /// be true.
+    /// </summary>
+    [Fact]
+    public void Backup_csproj_has_no_project_references()
+    {
+        var refs = ProjectReferences("src/NovaTerminal.Backup/NovaTerminal.Backup.csproj");
+        Assert.Empty(refs);
     }
 
     /// <summary>

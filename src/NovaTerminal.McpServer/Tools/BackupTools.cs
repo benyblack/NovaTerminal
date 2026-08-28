@@ -1,0 +1,103 @@
+using System.ComponentModel;
+using System.Globalization;
+using System.Text;
+using ModelContextProtocol.Server;
+using NovaTerminal.Backup;
+
+namespace NovaTerminal.McpServer.Tools;
+
+/// <summary>
+/// Read-only backup tools. Export and list only — deliberately no import or restore.
+/// Those replace the user's live configuration, and an out-of-process agent doing that
+/// silently is a destructive action the user never sees. Export-before-you-change is the
+/// useful half and carries no risk.
+/// </summary>
+[McpServerToolType]
+public static class BackupTools
+{
+    [McpServerTool(Name = "novaterminal.backup_export"),
+     Description("Export NovaTerminal's configuration (settings, themes, connections, workspaces, policy, snippets) " +
+                 "to a .novabackup file. Passwords are never included. Use this before changing configuration " +
+                 "so the user can roll back.")]
+    public static string BackupExport(
+        [Description("Absolute path for the .novabackup file to write.")] string destinationPath,
+        [Description("App data root. Omit to use the current user's NovaTerminal directory.")] string? rootDirectory = null)
+    {
+        // An MCP client that treats "not provided" and "" as the same thing for an optional
+        // string parameter is plausible; without this check that "" would reach BackupService's
+        // constructor and throw ArgumentException out of this method, unlike every other failure
+        // mode here, which is reported back as text.
+        if (!Path.IsPathRooted(destinationPath))
+        {
+            return $"Could not write '{destinationPath}': destinationPath must be an absolute path.";
+        }
+
+        var service = new BackupService(ResolveRoot(rootDirectory));
+        var outcome = service.Export(destinationPath);
+        return outcome.Success
+            ? $"Exported configuration to {destinationPath}."
+            : outcome.Message;
+    }
+
+    [McpServerTool(Name = "novaterminal.backup_list"),
+     Description("List NovaTerminal's automatic configuration snapshots, newest first, with id, reason, " +
+                 "timestamp, and size. The user restores a snapshot from Settings > Backup & Restore.")]
+    public static string BackupList(
+        [Description("App data root. Omit to use the current user's NovaTerminal directory.")] string? rootDirectory = null)
+    {
+        IReadOnlyList<SnapshotInfo> snapshots;
+        try
+        {
+            snapshots = new BackupService(ResolveRoot(rootDirectory)).ListSnapshots();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // ListSnapshots() carries no "never throws" contract (see its own remarks) - a
+            // permissions problem or a backups directory that vanishes mid-enumeration surfaces as
+            // a real exception. Guarded here the same way BackupCommand.List guards it for the CLI,
+            // so this reports back as text like every other failure mode in this file instead of
+            // faulting the tool call.
+            return $"Could not list snapshots: {ex.Message}";
+        }
+
+        if (snapshots.Count == 0) return "No snapshots yet.";
+
+        var builder = new StringBuilder();
+        foreach (var snapshot in snapshots)
+        {
+            builder.AppendLine(string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}  {1}  {2}  {3:N0} bytes",
+                snapshot.Id,
+                snapshot.Reason,
+                snapshot.CreatedUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss'Z'", CultureInfo.InvariantCulture),
+                snapshot.SizeBytes));
+        }
+
+        return builder.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// An empty or whitespace-only <paramref name="rootDirectory"/> (a plausible shape for an
+    /// MCP client that does not distinguish "omitted" from "" on an optional string) falls back
+    /// to <see cref="ResolveDefaultRoot"/> exactly like a null/omitted argument — <c>??</c> alone
+    /// only substitutes on null and would let "" reach <see cref="BackupService"/>'s constructor,
+    /// which throws.
+    /// </summary>
+    private static string ResolveRoot(string? rootDirectory) =>
+        string.IsNullOrWhiteSpace(rootDirectory) ? ResolveDefaultRoot() : rootDirectory;
+
+    /// <summary>
+    /// Mirrors AppPaths.RootDirectory, including the NOVATERM_APPDATA_ROOT override, without
+    /// depending on the App assembly's static initializer (which creates directories).
+    /// </summary>
+    private static string ResolveDefaultRoot()
+    {
+        string? overrideRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        if (!string.IsNullOrWhiteSpace(overrideRoot)) return Path.GetFullPath(overrideRoot);
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "NovaTerminal");
+    }
+}

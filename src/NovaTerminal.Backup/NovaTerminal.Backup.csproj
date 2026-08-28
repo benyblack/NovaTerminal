@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Leaf library for configuration backup/export/import/snapshot (Task 10a fix round 1).
+    Zero project references, on purpose: NovaTerminal.McpServer's read-only backup MCP
+    tools (Task 10b) need BackupService without dragging in App, VT, Pty, or Rendering -
+    referencing NovaTerminal.Platform pulled in Pty transitively and broke that invariant
+    (docs/MODULE_OWNERSHIP.md). Shared by NovaTerminal.App (the running GUI) and
+    NovaTerminal.McpServer (the read-only tools). Enforced by
+    NovaTerminal.Architecture.Tests.
+  -->
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="NovaTerminal.App.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -144,11 +144,20 @@ dev-companion set:
 | `novaterminal.validate_settings_json` | `settingsJson` | Validates a settings.json string (top-level shape); reports wrong types, out-of-range numerics, malformed `DefaultProfileId`, bad collection shapes, and warns on unknown fields and any stray `Password`. Embedded profiles are not deep-validated. |
 | `novaterminal.generate_codex_prompt_for_issue` | `title`, `description?` | A structured implementation prompt (relevant areas, constraints, PR size, steps, tests, acceptance, risks). |
 | `novaterminal.suggest_relevant_files` | `topic` | The concrete source/test files most relevant to a topic (e.g. `reflow`, `glyph atlas`, `ssh key auth`). |
+| `novaterminal.backup_export` | `destinationPath`, `rootDirectory?` | Exports NovaTerminal's configuration (settings, themes, connections, workspaces, policy, snippets — never passwords) to a `.novabackup` file at `destinationPath`. `destinationPath` must be absolute — a relative path is rejected with a text failure rather than resolved against the server process's own working directory. Use before changing configuration so the user can roll back. |
+| `novaterminal.backup_list` | `rootDirectory?` | Lists automatic configuration snapshots, newest first, with id, reason, timestamp, and size. |
 
 Self-contained tools (no filesystem access): `get_project_summary`, `get_theme_schema`,
 `validate_theme_json`, `get_connection_profile_schema`, `validate_connection_profile_json`,
 `get_settings_schema`, `validate_settings_json`, `generate_codex_prompt_for_issue`. The rest read
-files under `docs/` and need the repo root.
+files under `docs/` and need the repo root; `backup_export` and `backup_list` read/write the app
+data root instead (`rootDirectory`, defaulting to the current user's NovaTerminal directory).
+
+**`backup_export` and `backup_list` are deliberately read-only — there is no `backup_import` or
+`backup_restore` tool.** Those would replace the user's live configuration, and an out-of-process
+MCP agent doing that silently is a destructive action the user never sees. Export-before-you-change
+is the useful half of backup/restore and carries no risk; import and restore stay confined to the
+in-app Settings page and the `backup` CLI verb, where the user is present.
 
 ### Example: validate a profile
 

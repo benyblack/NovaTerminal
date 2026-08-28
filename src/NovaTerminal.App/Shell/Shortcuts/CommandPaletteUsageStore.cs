@@ -93,7 +93,29 @@ public sealed class CommandPaletteUsageStore
                     Directory.CreateDirectory(directory);
                 }
 
-                File.WriteAllText(path, json);
+                // Write via a temp sibling + atomic rename (AtomicFile, same pattern as
+                // SessionManager/TerminalSettings) so a concurrent reader never observes a
+                // truncated file. The old File.WriteAllText held a write handle for up to 850ms
+                // under contention (its own sharing-violation window), which this change
+                // eliminates - the write itself is no longer where a concurrent reader can catch
+                // it. What is left, and what this retry actually guards against, is the rename
+                // step alone: on Windows a rename over an open handle needs FILE_SHARE_DELETE, so
+                // if a reader happens to have the destination open at that instant the rename
+                // throws - a reader's hold is brief (open, read, close), so a couple of short
+                // retries clears it rather than silently dropping the save.
+                const int maxAttempts = 3;
+                for (int attempt = 1; attempt <= maxAttempts; attempt++)
+                {
+                    try
+                    {
+                        AtomicFile.WriteAllText(path, json);
+                        break;
+                    }
+                    catch (IOException) when (attempt < maxAttempts)
+                    {
+                        Thread.Sleep(20);
+                    }
+                }
             }
             catch
             {
