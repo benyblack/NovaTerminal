@@ -1040,6 +1040,72 @@ jobs:
       - name: Publish AOT
         run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o artifacts/publish/${{ matrix.rid }}
 
+      # ---- macOS packaging dry run (osx-arm64 only): the same vpk pack invocation
+      # ---- release.yml runs, minus the download/upload-release steps. None of this is
+      # ---- runnable from a Windows or Linux dev box, so this dispatch lane is the only
+      # ---- way to verify the NovaTerminal.app bundle, the .pkg installer and the osx
+      # ---- feed asset names BEFORE a real tag ships them. The vpk version is pinned to
+      # ---- the same 1.2.0 as release.yml and Directory.Packages.props — the three must
+      # ---- stay in lockstep.
+      - name: Install vpk
+        if: matrix.rid == 'osx-arm64'
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      - name: Generate macOS app icon (.icns)
+        if: matrix.rid == 'osx-arm64'
+        run: packaging/macos/make-icns.sh src/NovaTerminal.App/Assets/nova_icon.png artifacts/icon/nova_icon.icns
+
+      # 0.0.1-ci: a dry-run version that can never collide with a real release's feed
+      # (vpk rejects anything below 0.0.1, so 0.0.0-ci is not an option here).
+      # Assertions mirror what release.yml asserts post-pack, so a silent vpk change
+      # fails HERE rather than at the next tag.
+      - name: Pack macOS bundle (Velopack dry run)
+        if: matrix.rid == 'osx-arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # StripSymbols=true leaves a ~94 MB NovaTerminal.dSYM beside the binary (3x the
+          # binary's own size). Delete it at the source AND exclude it in vpk: deletion
+          # keeps empty dSYM directory skeletons out of the bundle entirely, --exclude
+          # (vpk's built-in default covers only .pdb) is defense-in-depth. Nothing else
+          # consumes the symbols - the raw publish-dir zip this dSYM used to ship in no
+          # longer exists for macOS.
+          rm -rf artifacts/publish/osx-arm64/NovaTerminal.dSYM
+          vpk pack \
+            --packId NovaTerminalApp \
+            --packVersion 0.0.1-ci \
+            --packDir artifacts/publish/osx-arm64 \
+            --mainExe NovaTerminal \
+            --packTitle NovaTerminal \
+            --packAuthors benyblack \
+            --bundleId com.benyblack.NovaTerminal \
+            --icon artifacts/icon/nova_icon.icns \
+            --exclude 'NovaTerminal\.dSYM' \
+            --outputDir artifacts/velopack-dryrun
+
+          echo "Velopack dry-run output:"
+          ls -l artifacts/velopack-dryrun
+
+          test -n "$(ls artifacts/velopack-dryrun/*-osx-Setup.pkg 2>/dev/null || true)" || { echo "vpk pack produced no -osx-Setup.pkg" >&2; exit 1; }
+          test -n "$(ls artifacts/velopack-dryrun/*-osx-Portable.zip 2>/dev/null || true)" || { echo "vpk pack produced no -osx-Portable.zip" >&2; exit 1; }
+          test -f artifacts/velopack-dryrun/NovaTerminalApp-0.0.1-ci-osx-full.nupkg || { echo "vpk pack produced no full nupkg" >&2; exit 1; }
+          test -f artifacts/velopack-dryrun/releases.osx.json || { echo "vpk pack produced no releases.osx.json" >&2; exit 1; }
+          # StripSymbols leaves the dSYM beside the binary; the rm + --exclude above keep
+          # it out of the bundle users download. Pin that: no dSYM entry may appear in
+          # the Portable zip at all, not even an empty directory skeleton.
+          if unzip -l artifacts/velopack-dryrun/NovaTerminalApp-osx-Portable.zip | grep -q "dSYM"; then
+            echo "NovaTerminal.dSYM leaked into the Portable bundle" >&2
+            exit 1
+          fi
+
+      - name: Upload macOS packaging dry-run artifacts
+        if: matrix.rid == 'osx-arm64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-packaging-dryrun
+          retention-days: 7
+          path: artifacts/velopack-dryrun
+
       - name: Upload AOT bundle
         if: always()
         uses: actions/upload-artifact@v4

@@ -70,9 +70,27 @@ so SmartScreen will warn on first run. Choose *More info → Run anyway*.
 
 **Linux / macOS**
 
-Installer packaging is not available yet — download the `linux-x64` or `osx-arm64` zip from the
-[latest release](https://github.com/benyblack/NovaTerminal/releases/latest) and extract it
-anywhere, or build from source.
+- **macOS (Apple Silicon)** — download `NovaTerminal-Setup-osx-arm64-<tag>.pkg` from the
+  [latest release](https://github.com/benyblack/NovaTerminal/releases/latest) and run it;
+  it installs into `/Applications` (or `~/Applications`) as a proper `NovaTerminal.app`
+  bundle. Alternatively grab `NovaTerminal-osx-arm64-<tag>.zip`, open it, and drag
+  `NovaTerminal.app` to `/Applications`.
+- **Linux** — download the `linux-x64` zip and extract it anywhere, or build from source.
+
+macOS builds installed via the `.pkg` check for updates in the background and apply them
+on restart, same as Windows. If the app lives in `/Applications`, macOS will ask for your
+password once per update.
+
+The installer and the app are **not code-signed or notarized yet**
+([#91](https://github.com/benyblack/NovaTerminal/issues/91)), so Gatekeeper blocks the
+first launch. On macOS 13+:
+
+1. Try to open `NovaTerminal` once (it will be blocked — that's expected).
+2. Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
+3. Confirm — macOS remembers the approval for subsequent launches and updates.
+
+From a terminal, the one-liner equivalent is
+`xattr -cr /Applications/NovaTerminal.app`.
 
 For build steps, jump to [Build & test](#build--test) below.
 
