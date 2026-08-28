@@ -1,4 +1,6 @@
 using NovaTerminal.Shell;
+using NovaTerminal.Shots.Scenarios;
+using SkiaSharp;
 
 namespace NovaTerminal.Shots;
 
@@ -54,62 +56,20 @@ public static class Program
             {
                 try
                 {
-                    // Re-seeded per scenario, before the window exists, so a scenario that needs a
-                    // different theme or tab orientation gets it applied at construction time.
-                    world.SeedSettings(scenario.Settings);
-
-                    // And started from a clean window: the previous scenario's teardown saved its tabs,
-                    // and MainWindow restores them on the next start.
-                    world.ForgetPreviousSession();
-
-                    // Also before construction, and for the same reason Settings is: MainWindow
-                    // spawns (or restores) its startup tab's shell during construction/Show(), so an
-                    // environment variable that shell must inherit has to be set before `new
-                    // MainWindow(...)` runs, not from inside RunAsync - see PrepareEnvironment's
-                    // remarks for why "inside RunAsync" is too late for every scenario's first pane.
-                    scenario.PrepareEnvironment?.Invoke();
-
-                    await host.RunAsync(async () =>
+                    // themes-grid is the one scenario that cannot run through the loop body below:
+                    // a theme only fully applies at MainWindow construction time (see
+                    // IScenario.Settings's remarks), so five different themes need five separate
+                    // windows in one pass, not one window whose scenario.RunAsync tries to re-theme
+                    // it mid-run. ScenarioCatalog.All() still lists it (for --list and "all"), so it
+                    // has to be excluded here rather than left out of the catalogue.
+                    if (scenario is ThemesGridScenario themesGrid)
                     {
-                        var window = new MainWindow(AppServices.BuildForDesigner())
-                        {
-                            Width = scenario.Spec.LogicalWidth,
-                            Height = scenario.Spec.LogicalHeight
-                        };
-
-                        var driver = new Driver(window);
-                        var context = new ShotContext(window, driver, world, run, scenario);
-
-                        try
-                        {
-                            window.Show();
-                            driver.Pump(5);
-
-                            await scenario.RunAsync(context);
-                        }
-                        finally
-                        {
-                            // Before Close(), not after and not instead: closing the window tears down
-                            // timers and the agent host but leaves every pane - and every shell - alive,
-                            // and this process outlives the scenario.
-                            //
-                            // window.Close() is nested in its own finally so it runs even if
-                            // DisposePanes() throws (its WaitFor has a 30s deadline; InvokePrivate
-                            // throws if DisposeAllTabs is ever renamed). Skipping Close() then skips
-                            // PerformAppTeardown entirely, and its timers, global hotkey and
-                            // agent-host hooks would stay live into the next scenario's MainWindow -
-                            // which matters once a scenario drives the agent host.
-                            try
-                            {
-                                context.DisposePanes();
-                            }
-                            finally
-                            {
-                                window.Close();
-                                driver.Pump(3);
-                            }
-                        }
-                    });
+                        await ComposeThemesGridAsync(host, world, run, themesGrid);
+                    }
+                    else
+                    {
+                        await RunScenarioAsync(host, world, run, scenario);
+                    }
 
                     Console.WriteLine($"[shots] {scenario.Spec.Name} ok");
                 }
@@ -129,6 +89,173 @@ public static class Program
         Console.WriteLine($"[shots] {run.Assets.Count} asset(s) in {outputDirectory}");
 
         return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// The normal one-window-per-scenario path: seed settings and the environment, construct a
+    /// fresh MainWindow, run the scenario's own body, and tear the window down again. Pulled out
+    /// of <see cref="Main"/>'s loop so <see cref="ComposeThemesGridAsync"/> can drive the same
+    /// window lifecycle several times in one iteration without duplicating it.
+    /// </summary>
+    private static async Task RunScenarioAsync(ShotHost host, DemoWorld world, ShotRun run, IScenario scenario)
+    {
+        // Re-seeded per scenario, before the window exists, so a scenario that needs a
+        // different theme or tab orientation gets it applied at construction time.
+        world.SeedSettings(scenario.Settings);
+
+        // And started from a clean window: the previous scenario's teardown saved its tabs,
+        // and MainWindow restores them on the next start.
+        world.ForgetPreviousSession();
+
+        // Also before construction, and for the same reason Settings is: MainWindow
+        // spawns (or restores) its startup tab's shell during construction/Show(), so an
+        // environment variable that shell must inherit has to be set before `new
+        // MainWindow(...)` runs, not from inside RunAsync - see PrepareEnvironment's
+        // remarks for why "inside RunAsync" is too late for every scenario's first pane.
+        scenario.PrepareEnvironment?.Invoke();
+
+        await host.RunAsync(async () =>
+        {
+            var window = new MainWindow(AppServices.BuildForDesigner())
+            {
+                Width = scenario.Spec.LogicalWidth,
+                Height = scenario.Spec.LogicalHeight
+            };
+
+            var driver = new Driver(window);
+            var context = new ShotContext(window, driver, world, run, scenario);
+
+            try
+            {
+                window.Show();
+                driver.Pump(5);
+
+                await scenario.RunAsync(context);
+            }
+            finally
+            {
+                // Before Close(), not after and not instead: closing the window tears down
+                // timers and the agent host but leaves every pane - and every shell - alive,
+                // and this process outlives the scenario.
+                //
+                // window.Close() is nested in its own finally so it runs even if
+                // DisposePanes() throws (its WaitFor has a 30s deadline; InvokePrivate
+                // throws if DisposeAllTabs is ever renamed). Skipping Close() then skips
+                // PerformAppTeardown entirely, and its timers, global hotkey and
+                // agent-host hooks would stay live into the next scenario's MainWindow -
+                // which matters once a scenario drives the agent host.
+                try
+                {
+                    context.DisposePanes();
+                }
+                finally
+                {
+                    window.Close();
+                    driver.Pump(3);
+                }
+            }
+        });
+    }
+
+    /// <summary>
+    /// Renders themes-grid: one MainWindow per theme in <see cref="ThemesGridScenario.Themes"/>,
+    /// each replaying hero-single's transcript, tiled together at the end with
+    /// <see cref="PostProcess.Grid"/>. This is not a variant of <see cref="RunScenarioAsync"/>
+    /// because it needs several full window lifecycles - not one - inside a single manifest entry,
+    /// and it must capture each pass itself rather than through <see cref="ShotContext.Capture"/>,
+    /// which would write (and record) five separate PNGs nobody asked for.
+    /// </summary>
+    private static async Task ComposeThemesGridAsync(ShotHost host, DemoWorld world, ShotRun run, ThemesGridScenario scenario)
+    {
+        var tiles = new List<SKBitmap>();
+
+        try
+        {
+            foreach (string themeName in ThemesGridScenario.Themes)
+            {
+                world.SeedSettings(settings => settings.ThemeName = themeName);
+
+                // ThemeManager.GetTheme falls back to "Default" silently on a miss - see
+                // ThemesGridScenario.Themes's remarks. Checked here, immediately after seeding and
+                // before a window is even constructed, so a wrong name fails loudly and by name
+                // instead of producing a grid of plausible-but-wrong tiles. A fresh ThemeManager,
+                // not one pulled off some settings instance: it reads AppPaths.ThemesDirectory,
+                // which DemoWorld.Create already pointed at this world's isolated root via
+                // NOVATERM_APPDATA_ROOT, so this sees exactly what MainWindow's own settings load
+                // will see once the window below is constructed.
+                string loadedThemeName = new ThemeManager().GetTheme(themeName).Name;
+                if (!string.Equals(loadedThemeName, themeName, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"Theme '{themeName}' did not load: ThemeManager.GetTheme silently returned " +
+                        $"'{loadedThemeName}' instead. Check that the name matches the theme JSON's " +
+                        "\"Name\" field exactly (spaces included), not its filename.");
+                }
+
+                world.ForgetPreviousSession();
+
+                await host.RunAsync(async () =>
+                {
+                    var window = new MainWindow(AppServices.BuildForDesigner())
+                    {
+                        Width = scenario.Spec.LogicalWidth,
+                        Height = scenario.Spec.LogicalHeight
+                    };
+
+                    var driver = new Driver(window);
+                    var context = new ShotContext(window, driver, world, run, scenario);
+
+                    try
+                    {
+                        window.Show();
+                        driver.Pump(5);
+
+                        await HeroSingleScenario.PlayAsync(context);
+
+                        tiles.Add(Rasterizer.CaptureWindow(window, run.Scale));
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            context.DisposePanes();
+                        }
+                        finally
+                        {
+                            window.Close();
+                            driver.Pump(3);
+                        }
+                    }
+                });
+            }
+
+            using SKBitmap grid = PostProcess.Grid(
+                tiles,
+                columns: 2,
+                gap: 24,
+                background: new SKColor(0x0E, 0x10, 0x14));
+
+            string path = Path.Combine(run.OutputDirectory, $"{scenario.Spec.Name}@{run.Scale:0}x.png");
+            Rasterizer.WritePng(grid, path);
+
+            run.Record(new ShotAsset(
+                Name: scenario.Spec.Name,
+                Tier: scenario.Spec.Tier,
+                File: path,
+                Width: grid.Width,
+                Height: grid.Height,
+                Scenario: scenario.Spec.Name,
+                Commit: run.Commit,
+                Os: run.Os,
+                TimestampUtc: DateTime.UtcNow.ToString("O")));
+        }
+        finally
+        {
+            foreach (SKBitmap tile in tiles)
+            {
+                tile.Dispose();
+            }
+        }
     }
 
     /// <summary>

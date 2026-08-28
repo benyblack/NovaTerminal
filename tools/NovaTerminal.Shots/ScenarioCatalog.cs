@@ -12,7 +12,8 @@ public static class ScenarioCatalog
         new CommandPaletteScenario(),
         new SettingsAgentAccessScenario(),
         new AgentSessionScenario(),
-        new ClipAgentScenario()
+        new ClipAgentScenario(),
+        new ThemesGridScenario()
     ];
 
     public static IReadOnlyList<IScenario> All() => Scenarios;
