@@ -506,6 +506,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="NovaTerminal.App.Tests" />
     <InternalsVisibleTo Include="NovaTerminal.Cli" />
+    <InternalsVisibleTo Include="NovaTerminal.Shots" />
   </ItemGroup>
 
   <!-- Stamp the git short-SHA (with a +dirty marker for uncommitted changes) into an
