@@ -14,7 +14,7 @@ public sealed class FishShellIntegrationProviderTests
     [InlineData("FISH", "/opt/homebrew/bin/fish")]
     public void CanIntegrate_ForFishShells_ReturnsTrue(string shellKind, string command)
     {
-        var provider = new FishShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
+        var provider = new FishShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller());
 
         Assert.True(provider.CanIntegrate(shellKind, command));
     }
@@ -25,7 +25,7 @@ public sealed class FishShellIntegrationProviderTests
     [InlineData("zsh", "/bin/zsh")]
     public void CanIntegrate_ForOtherShells_ReturnsFalse(string shellKind, string command)
     {
-        var provider = new FishShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
+        var provider = new FishShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller());
 
         Assert.False(provider.CanIntegrate(shellKind, command));
     }
@@ -33,7 +33,7 @@ public sealed class FishShellIntegrationProviderTests
     [Fact]
     public void CreateLaunchPlan_ForVanillaFish_InjectsBootstrapViaXdgConfigHomeOverride()
     {
-        var provider = new FishShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
+        var provider = new FishShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller());
 
         ShellIntegrationLaunchPlan plan = provider.CreateLaunchPlan("/usr/local/bin/fish", shellArguments: null, workingDirectory: null);
 
@@ -51,7 +51,7 @@ public sealed class FishShellIntegrationProviderTests
     [Fact]
     public void CreateLaunchPlan_WithExistingUserArguments_PreservesThem()
     {
-        var provider = new FishShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
+        var provider = new FishShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller());
 
         ShellIntegrationLaunchPlan plan = provider.CreateLaunchPlan("/usr/local/bin/fish", "--login", null);
 
@@ -65,7 +65,7 @@ public sealed class FishShellIntegrationProviderTests
     [InlineData("-N")]
     public void CreateLaunchPlan_WhenUserForcesIncompatibleStartupMode_DisablesIntegration(string userArgs)
     {
-        var provider = new FishShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
+        var provider = new FishShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller());
 
         ShellIntegrationLaunchPlan plan = provider.CreateLaunchPlan("/usr/local/bin/fish", userArgs, null);
 

@@ -67,27 +67,26 @@ namespace NovaTerminal.Tests
                 return;
             }
 
+            string[] before = Directory.GetFiles(Path.GetTempPath(), "nova_init_*.ps1");
+
             var session = new RustPtySession("powershell.exe", 80, 24);
-            string? scriptPath;
             try
             {
-                // The injection fires on a 300 ms delay; wait past it so the script is
-                // actually written and sourced rather than skipped by cancellation.
+                // The injection fires on a 300 ms delay; wait well past it.
                 await Task.Delay(2500);
-                scriptPath = session.PowerShellInitScriptPath;
-
-                Assert.NotNull(scriptPath);
             }
             finally
             {
                 session.Dispose();
             }
 
-            // The script deletes itself once sourced, and Dispose removes it if the shell
-            // never ran it. Either way, the file this session created must not survive.
-            Assert.False(
-                File.Exists(scriptPath),
-                $"PowerShell init script survived disposal: {scriptPath}");
+            // Stronger than the guarantee this test used to make. The init is no longer a
+            // script at all - it is typed into the shell - because loading a .ps1 is blocked
+            // under the default execution policy. So there is nothing to clean up rather
+            // than something cleaned up correctly, and #107 cannot recur.
+            string[] after = Directory.GetFiles(Path.GetTempPath(), "nova_init_*.ps1");
+
+            Assert.Equal(before.Length, after.Length);
         }
 
         [Fact]
@@ -114,14 +113,10 @@ namespace NovaTerminal.Tests
                 sw.Elapsed < TimeSpan.FromSeconds(5),
                 $"Dispose took {sw.Elapsed.TotalSeconds:F1}s — it should not block on the init task");
 
-            // Cancelled before the write, so no script should ever have been created; if
-            // one was, it must not have survived.
+            // No script is written on any path now, cancelled or not.
             await Task.Delay(750);
-            string? scriptPath = session.PowerShellInitScriptPath;
 
-            Assert.False(
-                scriptPath != null && File.Exists(scriptPath),
-                $"cancelled init left a script behind: {scriptPath}");
+            Assert.Empty(Directory.GetFiles(Path.GetTempPath(), "nova_init_*.ps1"));
         }
     }
 }

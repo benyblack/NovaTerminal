@@ -20,7 +20,7 @@ namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
 public sealed class PowerShellBootstrapExecutionPolicyTests
 {
     private static PowerShellShellIntegrationProvider NewProvider()
-        => new(() => AppPaths.CommandAssistDirectory);
+        => new(() => BootstrapTestDirectory.ForCaller());
 
     [Fact]
     public void CreateLaunchPlan_DoesNotUseFile_BecauseExecutionPolicyBlocksIt()

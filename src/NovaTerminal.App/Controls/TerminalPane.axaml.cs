@@ -3084,8 +3084,18 @@ namespace NovaTerminal.Controls
                 if (profile == null || profile.Type != ConnectionType.SSH)
                 {
                     ApplyShellIntegrationLaunchPlan(profile, ref effectiveShell, ref args, startingDir);
-                    ShellCommand = effectiveShell;
-                    ShellArgs = args;
+
+                    // ShellCommand/ShellArgs are deliberately NOT updated with the merged
+                    // command line. SessionManager persists them, and a launch plan written
+                    // back to disk is a trap: on the next launch the provider sees its own
+                    // -File / -EncodedCommand in the incoming arguments, takes the "the user
+                    // supplied a script" bail-out, and passes the stale line through — so
+                    // integration silently stops and the old bootstrap is launched forever.
+                    // Every launch re-saves it, so it never recovers on its own.
+                    //
+                    // They hold what the USER configured; the merge is a launch-time detail
+                    // that `args` carries into the session below. A relaunch re-runs the plan
+                    // from the user's arguments, which is what makes it self-correcting.
                 }
                 else
                 {
