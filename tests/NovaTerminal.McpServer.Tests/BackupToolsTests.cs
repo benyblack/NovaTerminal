@@ -5,6 +5,18 @@ namespace NovaTerminal.McpServer.Tests;
 
 public sealed class BackupToolsTests
 {
+    // M7: BackupList_WithNoRootDirectory_UsesAppDataRootOverride,
+    // BackupList_WithEmptyRootDirectory_BehavesLikeOmitted, and
+    // BackupExport_WithEmptyRootDirectory_BehavesLikeOmitted all mutate the process-global
+    // NOVATERM_APPDATA_ROOT environment variable around a get/set/restore that is not itself
+    // atomic. xunit.v3 does not guarantee serial execution of test methods within one class, so
+    // two of these interleaving their set/reset of the same env var is a genuine, CI-only race
+    // (a local single-threaded run would never surface it) - one test's "restore to null/original"
+    // landing between another's "set" and its own read would leak into that other test's
+    // assertions. A private lock around just these three bodies is simpler than introducing a
+    // whole extra collection-definition type for a single file.
+    private static readonly object EnvVarGate = new();
+
     [Fact]
     public void BackupExport_WritesBundleAndReportsIt()
     {
@@ -81,68 +93,77 @@ public sealed class BackupToolsTests
     [Fact]
     public void BackupList_WithNoRootDirectory_UsesAppDataRootOverride()
     {
-        string root = CreateTree();
-        string? originalOverride = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
-        try
+        lock (EnvVarGate)
         {
-            // Seed a real snapshot through BackupService directly, so the on-disk file name
-            // format (reason-timestamp-hash.novabackup) is whatever the real writer produces,
-            // not a hand-guessed literal that could drift from it.
-            var seeded = new BackupService(root).Snapshot(SnapshotReason.PreImport);
-            Assert.NotNull(seeded);
+            string root = CreateTree();
+            string? originalOverride = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+            try
+            {
+                // Seed a real snapshot through BackupService directly, so the on-disk file name
+                // format (reason-timestamp-hash.novabackup) is whatever the real writer produces,
+                // not a hand-guessed literal that could drift from it.
+                var seeded = new BackupService(root).Snapshot(SnapshotReason.PreImport);
+                Assert.NotNull(seeded);
 
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", root);
+                Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", root);
 
-            string result = BackupTools.BackupList();
+                string result = BackupTools.BackupList();
 
-            Assert.Contains(seeded!.Id, result);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", originalOverride);
-            Directory.Delete(root, recursive: true);
+                Assert.Contains(seeded!.Id, result);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", originalOverride);
+                Directory.Delete(root, recursive: true);
+            }
         }
     }
 
     [Fact]
     public void BackupList_WithEmptyRootDirectory_BehavesLikeOmitted()
     {
-        string root = CreateTree();
-        string? originalOverride = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
-        try
+        lock (EnvVarGate)
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", root);
+            string root = CreateTree();
+            string? originalOverride = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+            try
+            {
+                Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", root);
 
-            string result = BackupTools.BackupList(rootDirectory: "");
+                string result = BackupTools.BackupList(rootDirectory: "");
 
-            Assert.Contains("No snapshots", result, StringComparison.OrdinalIgnoreCase);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", originalOverride);
-            Directory.Delete(root, recursive: true);
+                Assert.Contains("No snapshots", result, StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", originalOverride);
+                Directory.Delete(root, recursive: true);
+            }
         }
     }
 
     [Fact]
     public void BackupExport_WithEmptyRootDirectory_BehavesLikeOmitted()
     {
-        string root = CreateTree();
-        string? originalOverride = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
-        try
+        lock (EnvVarGate)
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", root);
-            string destination = Path.Combine(root, "empty-root-export.novabackup");
+            string root = CreateTree();
+            string? originalOverride = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+            try
+            {
+                Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", root);
+                string destination = Path.Combine(root, "empty-root-export.novabackup");
 
-            string result = BackupTools.BackupExport(destination, rootDirectory: "");
+                string result = BackupTools.BackupExport(destination, rootDirectory: "");
 
-            Assert.True(File.Exists(destination));
-            Assert.Contains(destination, result);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", originalOverride);
-            Directory.Delete(root, recursive: true);
+                Assert.True(File.Exists(destination));
+                Assert.Contains(destination, result);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", originalOverride);
+                Directory.Delete(root, recursive: true);
+            }
         }
     }
 
