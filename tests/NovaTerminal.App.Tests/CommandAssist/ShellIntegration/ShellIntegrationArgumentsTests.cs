@@ -74,6 +74,66 @@ public sealed class ShellIntegrationArgumentsTests
         Assert.Equal(userArgs, cleaned);
     }
 
+    // Greptile P1 round 2 on #368. The seam cleanup was a GLOBAL Replace("  ", " "), so a
+    // removal anywhere re-spaced the whole retained line - including the user's quoted values.
+    [Fact]
+    public void StripInjected_RemovingOurArgumentLeavesTheUsersQuotedSpacingIntact()
+    {
+        string args = $"-Command \"a  b\" -File {OurBootstrap} -NoLogo";
+
+        string cleaned = ShellIntegrationArguments.StripInjected(args, BootstrapDir);
+
+        Assert.DoesNotContain("command-assist-bootstrap.ps1", cleaned, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("-Command \"a  b\"", cleaned, StringComparison.Ordinal);
+        Assert.Contains("-NoLogo", cleaned, StringComparison.Ordinal);
+    }
+
+    // Greptile P1 round 2 on #368. The provider converts a bootstrap path containing spaces to
+    // its 8.3 short form (PowerShellShellIntegrationProvider.ResolveSpacelessPath), so a legacy
+    // session can hold a short path. Path.GetFullPath does not expand 8.3, so a purely lexical
+    // comparison rejected our own file and left the stale -File in place forever.
+    [Fact]
+    public void StripInjected_RecognisesTheShortPathFormOfOurOwnBootstrap()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // 8.3 short names are a Windows filesystem feature.
+        }
+
+        // A directory whose long name contains a space is what triggers the short-path form.
+        string dir = Path.Combine(Path.GetTempPath(), "nova bootstrap short " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string longPath = Path.Combine(dir, "command-assist-bootstrap.ps1");
+            File.WriteAllText(longPath, "# bootstrap");
+
+            string shortPath = ShortPath(longPath);
+            Assert.NotEqual(longPath, shortPath); // otherwise the test proves nothing
+
+            string cleaned = ShellIntegrationArguments.StripInjected($"-NoLogo -File {shortPath}", dir);
+
+            Assert.Equal("-NoLogo", cleaned);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    private static string ShortPath(string path)
+    {
+        var buffer = new System.Text.StringBuilder(512);
+        uint n = GetShortPathNameW(path, buffer, (uint)buffer.Capacity);
+        return n == 0 ? path : buffer.ToString();
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetShortPathNameW(
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] string lpszLongPath,
+        System.Text.StringBuilder lpszShortPath,
+        uint cchBuffer);
+
     [Fact]
     public void StripInjected_KeepsAUsersOwnScript()
     {

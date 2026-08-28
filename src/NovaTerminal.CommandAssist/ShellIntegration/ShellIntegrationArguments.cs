@@ -70,7 +70,23 @@ public static class ShellIntegrationArguments
 
             if (ours)
             {
-                (cuts ??= new List<(int, int)>()).Add((start, valueEnd - start));
+                // Swallow one adjacent delimiter with the pair, so removing it cannot leave a
+                // double space behind. That is what makes a post-hoc normalising pass
+                // unnecessary - and the previous global Replace("  ", " ") was re-spacing the
+                // user's own quoted values as collateral. (Greptile P1 round 2 on #368.)
+                int cutStart = start;
+                int cutEnd = valueEnd;
+
+                if (cutStart > 0 && arguments[cutStart - 1] == ' ')
+                {
+                    cutStart--;
+                }
+                else if (cutEnd < arguments.Length && arguments[cutEnd] == ' ')
+                {
+                    cutEnd++;
+                }
+
+                (cuts ??= new List<(int, int)>()).Add((cutStart, cutEnd - cutStart));
             }
         }
 
@@ -92,8 +108,9 @@ public static class ShellIntegrationArguments
 
         kept.Append(arguments, cursor, arguments.Length - cursor);
 
-        // Only the seams left by a removal are normalised — never the untouched remainder.
-        return kept.ToString().Replace("  ", " ").Trim();
+        // No normalising pass: each cut already took its own delimiter, so what remains is
+        // the user's spacing exactly as they wrote it.
+        return kept.ToString();
     }
 
     /// <summary>Yields each whitespace-delimited token with its span in the original string.</summary>
@@ -138,20 +155,31 @@ public static class ShellIntegrationArguments
             return false;
         }
 
+        // Compared as a whole path, not directory-plus-name. A stored path can be in 8.3 short
+        // form - the PowerShell provider converts the bootstrap path to its short name when the
+        // long one contains a space (a username with a space is enough) - and in that form BOTH
+        // halves are unrecognisable: the directory is mangled and the file is COMMAN~1.PS1, so a
+        // name pre-filter rejects our own file before any directory check runs. Matching the
+        // short form of the full path is what actually identifies it.
+        // (Greptile P1 round 2 on #368.)
         string path = token.Trim('"');
-        if (!path.EndsWith(BootstrapFileName, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
 
-        // The name matches; ownership is decided by the directory it actually resolves to.
         try
         {
-            string? parent = Path.GetDirectoryName(Path.GetFullPath(path));
-            return parent != null && string.Equals(
-                Path.TrimEndingDirectorySeparator(parent),
-                Path.TrimEndingDirectorySeparator(Path.GetFullPath(bootstrapDirectory)),
-                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+            string candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            string ourLong = Path.TrimEndingDirectorySeparator(
+                Path.GetFullPath(Path.Combine(bootstrapDirectory, BootstrapFileName)));
+
+            if (SamePath(candidate, ourLong))
+            {
+                return true;
+            }
+
+            // Only reachable while the file still exists; GetShortPathNameW resolves against the
+            // filesystem. A stale short path whose file is already gone stays put, which is the
+            // safe direction - it launches as the user's own rather than being silently dropped.
+            string? ourShort = TryGetShortPath(ourLong);
+            return ourShort != null && SamePath(candidate, Path.TrimEndingDirectorySeparator(ourShort));
         }
         catch (ArgumentException)
         {
@@ -165,6 +193,48 @@ public static class ShellIntegrationArguments
         {
             return false;
         }
+    }
+
+    private static bool SamePath(string left, string right)
+        => string.Equals(
+            left,
+            right,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    /// <summary>The 8.3 short form of an existing directory, or null when unavailable.</summary>
+    private static string? TryGetShortPath(string path)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+
+        try
+        {
+            var buffer = new StringBuilder(512);
+            uint written = NativeMethods.GetShortPathNameW(path, buffer, (uint)buffer.Capacity);
+
+            // 0 means the API failed - most often the path no longer exists, or the volume has
+            // 8.3 name generation disabled. Either way there is no short form to compare against.
+            return written == 0 || written > buffer.Capacity ? null : buffer.ToString();
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return null;
+        }
+        catch (DllNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    private static class NativeMethods
+    {
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        public static extern uint GetShortPathNameW(
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] string lpszLongPath,
+            StringBuilder lpszShortPath,
+            uint cchBuffer);
     }
 
     private static bool IsOurEncodedBootstrap(string token)
