@@ -6409,7 +6409,7 @@ namespace NovaTerminal
         /// <summary>
         /// F1: a successful Import or Restore run from the Backup page changes settings.json (and
         /// possibly more) on disk while this dialog is still open (see
-        /// <c>SettingsWindow.ReloadSettingsAfterExternalChange</c>). Before this fix, only the
+        /// <c>SettingsWindow.ReloadSettingsAfterExternalChangeAsync</c>). Before this fix, only the
         /// <paramref name="saved"/> == true branch below adopted that change; closing the dialog any
         /// other way - Cancel, or the window's X, both of which surface here as
         /// <paramref name="saved"/> == false - left <c>_settings</c> pointing at the stale
@@ -6427,7 +6427,7 @@ namespace NovaTerminal
         /// <c>OpenSettings</c> itself reaches a real <c>Window.ShowDialog</c>, which this repo's
         /// headless test host cannot return from. A test can build a <see cref="SettingsWindow"/>
         /// through the same reflection seam <c>SettingsWindowBackupSectionTests</c> uses to invoke
-        /// <c>ReloadSettingsAfterExternalChange</c>, then call this method directly with
+        /// <c>ReloadSettingsAfterExternalChangeAsync</c>, then call this method directly with
         /// <paramref name="saved"/> = false to simulate Cancel/X after a successful import.
         /// </summary>
         internal void ApplySettingsWindowResult(SettingsWindow sw, bool saved, PreviewSnapshot previewSnapshot)
