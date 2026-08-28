@@ -12,6 +12,7 @@
     <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.0.4" />
     <PackageVersion Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.0" />
     <PackageVersion Include="Avalonia.Headless.XUnit" Version="12.0.4" />
+    <PackageVersion Include="Avalonia.Headless" Version="12.0.4" />
 
     <!-- Rendering. Pinned to stable 3.119.4 (matches the floor required by
          Avalonia.Skia 12.0.4 via Avalonia.Desktop's transitive dependency). -->
