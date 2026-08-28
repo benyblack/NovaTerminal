@@ -1096,9 +1096,24 @@ namespace NovaTerminal
                     if (mode is null) return;
 
                     var outcome = service.Import(path, mode.Value);
+                    if (outcome.Success)
+                    {
+                        // I1: a successful Import already changed settings.json (and possibly
+                        // profiles.json, keybindings, etc.) on disk. _settings and everything
+                        // derived from it at construction time are now a stale snapshot of the
+                        // PRE-import state - if this window's Save is clicked afterward, it would
+                        // silently overwrite the very change Import just made with that stale
+                        // snapshot. Reload before anything else can touch _settings again.
+                        ReloadSettingsAfterExternalChange();
+                    }
+
+                    // M2: surface the service's own outcome message rather than a generic one -
+                    // it carries the "connection passwords are not included" note when
+                    // Connections was among the imported categories, the only place a Settings
+                    // window user ever sees that warning.
                     SetStatus(
                         outcome.Success
-                            ? $"Imported ({mode}). Restart NovaTerminal to pick up all changes."
+                            ? $"{outcome.Message} Restart NovaTerminal to pick up all changes."
                             : outcome.Message,
                         outcome.Success);
                     RefreshSnapshots();
@@ -1126,14 +1141,58 @@ namespace NovaTerminal
                     if (!confirmed) return;
 
                     var outcome = service.Restore(row.Id);
+                    if (outcome.Success)
+                    {
+                        // I1: same reasoning as the Import handler above - Restore just changed
+                        // settings.json (and possibly more) on disk, and this window's in-memory
+                        // state must not be allowed to stomp it on a later Save.
+                        ReloadSettingsAfterExternalChange();
+                    }
+
                     SetStatus(
                         outcome.Success
-                            ? "Restored. Restart NovaTerminal to pick up all changes."
+                            ? $"{outcome.Message} Restart NovaTerminal to pick up all changes."
                             : outcome.Message,
                         outcome.Success);
                     RefreshSnapshots();
                 };
             }
+        }
+
+        /// <summary>
+        /// I1: a successful Import or Restore changes settings.json (and possibly
+        /// profiles/keybindings/title-bar layout) on disk out from under this already-open
+        /// window. <c>_settings</c> and everything the constructor derived from it once, up
+        /// front, are now a stale pre-change snapshot; if <see cref="SaveAndClose"/> ran against
+        /// that snapshot afterward, it would silently revert the very change the user just made
+        /// (the bug this fix closes). Reloading <c>_settings</c> alone is not enough -
+        /// <see cref="SaveAndClose"/> also rebuilds <c>_settings.Profiles</c> from
+        /// <c>_profilesList</c>, <c>_settings.Keybindings</c> from <c>_shortcutDraftBindings</c>,
+        /// and <c>_settings.TitleBarItems</c> / <c>_settings.TitleBarOrder</c> from
+        /// <c>_titleBarDraft</c> — each of those must be re-derived from the freshly reloaded
+        /// settings too, or Save would still overwrite the imported/restored values for exactly
+        /// those three areas even though every OTHER field would now be correctly preserved.
+        /// Mirrors the exact sequence the constructor itself runs once at startup
+        /// (profiles/shortcuts/title-bar derivation, then the UI-control population methods), so
+        /// the already-open window's controls reflect the new on-disk state too rather than
+        /// merely fixing what gets written back on the next Save.
+        /// </summary>
+        private void ReloadSettingsAfterExternalChange()
+        {
+            _settings = TerminalSettings.Load();
+
+            _profilesList = BuildLocalProfilesForEditor(_settings.Profiles);
+            _settings.DefaultProfileId = ResolveDefaultLocalProfileId(_settings.DefaultProfileId, _profilesList);
+            _shortcutDraftBindings = new Dictionary<string, string>(_settings.Keybindings, StringComparer.OrdinalIgnoreCase);
+
+            LoadCurrentSettings();
+            PopulateProfilesList();
+
+            var shortcutSearchInput = this.FindControl<TextBox>("ShortcutSearchInput");
+            PopulateShortcutBindingsPanel(shortcutSearchInput?.Text ?? "");
+
+            LoadTitleBarDraft();
+            RebuildTitleBarRows();
         }
 
         private static string ReasonLabel(SnapshotReason reason) => reason switch

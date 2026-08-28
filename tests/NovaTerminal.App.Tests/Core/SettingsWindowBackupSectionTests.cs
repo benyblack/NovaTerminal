@@ -302,7 +302,14 @@ public sealed class SettingsWindowBackupSectionTests
         snapshotList.SelectedIndex = 0;
         btnRestore.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
 
-        Assert.Equal("Restored. Restart NovaTerminal to pick up all changes.", status.Text);
+        // M2: the status text now surfaces BackupService's own outcome message (which is why it
+        // says "Restored", not "Imported" - M1's operation-noun fix - and carries the
+        // credentials note, since the populated tree's ssh/profiles.json makes Connections one
+        // of the restored categories) rather than a generic, hand-composed string.
+        Assert.Equal(
+            "Restored 6 categories (Replace). Connection passwords are not included in a bundle " +
+            "— re-enter them on first connect. Restart NovaTerminal to pick up all changes.",
+            status.Text);
 
         // The tracked file rolled back to the snapshot's content on disk.
         using var restoredSettings = tree.ReadJson("settings.json");
@@ -351,6 +358,99 @@ public sealed class SettingsWindowBackupSectionTests
         var reasons = service.ListSnapshots().Select(s => s.Reason).ToArray();
         Assert.DoesNotContain(SnapshotReason.PreRestore, reasons);
         Assert.Single(reasons);
+    }
+
+    /// <summary>
+    /// I1 (final whole-branch review, Important, user-visible data loss): SettingsWindow loads
+    /// <c>_settings</c> once at construction. Restore changes settings.json on disk directly, but
+    /// before this fix nothing told the already-open window - clicking Save afterward called
+    /// <c>_settings.Save()</c> with the pre-restore snapshot still in memory, silently reverting
+    /// the restore that had just completed and telling the user the opposite ("Restart
+    /// NovaTerminal to pick up all changes"). Fully click-driven (real BtnRestoreSnapshot and
+    /// BtnSave clicks, via the same <see cref="SettingsWindow.RestoreConfirmationOverride"/> seam
+    /// the other Restore tests use) rather than reflecting into a private method, since Restore's
+    /// only modal (the confirmation dialog) already has a test seam - unlike Import, which needs
+    /// a file picker AND a mode-selection dialog neither of which can run headlessly (see
+    /// <see cref="Import_ThenSave_DoesNotRevertTheImportedSettings"/> below for that path, driven
+    /// directly instead).
+    /// </summary>
+    [AvaloniaFact]
+    public void RestoreSelected_ThenSave_DoesNotRevertTheRestoredSettings()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        tree.WriteFile("settings.json", """{"FontSize":77,"ThemeName":"FromSnapshot"}""");
+        var service = new BackupService(tree.Root);
+        var snapshot = service.Snapshot(SnapshotReason.Auto);
+        Assert.NotNull(snapshot);
+
+        // Drift after the snapshot: this is both what Restore rolls back AND what the already-open
+        // window's own _settings (loaded at construction, before this write) reflects.
+        tree.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Changed"}""");
+
+        using var _ = OverrideAppDataRoot(tree.Root);
+        var window = new NovaTerminal.SettingsWindow { RestoreConfirmationOverride = _ => Task.FromResult(true) };
+
+        var snapshotList = window.FindControl<ListBox>("SnapshotList")!;
+        var btnRestore = window.FindControl<Button>("BtnRestoreSnapshot")!;
+        var btnSave = window.FindControl<Button>("BtnSave")!;
+
+        snapshotList.SelectedIndex = 0;
+        btnRestore.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        // Sanity: the restore itself worked (already covered elsewhere; repeated here so a
+        // failure below points at Save, not at Restore).
+        using (var restored = tree.ReadJson("settings.json"))
+        {
+            Assert.Equal(77, restored.RootElement.GetProperty("FontSize").GetInt32());
+        }
+
+        btnSave.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        using var afterSave = tree.ReadJson("settings.json");
+        Assert.Equal(77, afterSave.RootElement.GetProperty("FontSize").GetInt32());
+        Assert.Equal("FromSnapshot", afterSave.RootElement.GetProperty("ThemeName").GetString());
+    }
+
+    /// <summary>
+    /// The same I1 bug, for the scenario the review actually names (Import, Replace mode).
+    /// Import's own click handler needs a real file picker AND a mode-selection dialog - neither
+    /// drivable headlessly (see <see cref="ConfirmRestoreAsync"/>'s remarks on why a bare
+    /// <c>Window.ShowDialog</c> hangs this host) - and unlike Restore's confirmation, no test seam
+    /// exists for either. Per the plan's own guidance, this drives the underlying method chain
+    /// directly instead: a real <see cref="BackupService.Import"/> call, then the private
+    /// <c>ReloadSettingsAfterExternalChange</c> the click handler calls on success (reached via
+    /// reflection, the same established pattern <c>BuildRestoreConfirmationText</c> uses
+    /// elsewhere in this file), then a real BtnSave click.
+    /// </summary>
+    [AvaloniaFact]
+    public void Import_ThenSave_DoesNotRevertTheImportedSettings()
+    {
+        using var source = BackupTestTree.CreatePopulated();
+        source.WriteFile("settings.json", """{"FontSize":77,"ThemeName":"FromImport"}""");
+        string bundle = Path.Combine(source.Root, "import.novabackup");
+        Assert.True(new BackupService(source.Root).Export(bundle).Success);
+
+        using var target = BackupTestTree.CreatePopulated();
+        target.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Changed"}""");
+
+        using var _ = OverrideAppDataRoot(target.Root);
+        var window = new NovaTerminal.SettingsWindow();
+
+        var targetService = new BackupService(target.Root);
+        var outcome = targetService.Import(bundle, ImportMode.Replace);
+        Assert.True(outcome.Success, outcome.Message);
+
+        var reloadMethod = typeof(NovaTerminal.SettingsWindow).GetMethod(
+            "ReloadSettingsAfterExternalChange", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(reloadMethod);
+        reloadMethod!.Invoke(window, null);
+
+        var btnSave = window.FindControl<Button>("BtnSave")!;
+        btnSave.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        using var afterSave = target.ReadJson("settings.json");
+        Assert.Equal(77, afterSave.RootElement.GetProperty("FontSize").GetInt32());
+        Assert.Equal("FromImport", afterSave.RootElement.GetProperty("ThemeName").GetString());
     }
 
     /// <summary>
