@@ -27,8 +27,25 @@ internal sealed class AgentSessionScenario : IScenario
     /// <summary>Title given to the journal window by MainWindow.ShowAgentActivityJournalAsync.</summary>
     private const string JournalWindowTitle = "Agent activity";
 
-    /// <summary>One entry per <c>sendInput</c> below; the assertions below are written against it.</summary>
-    private const int ExpectedJournalEntries = 2;
+    /// <summary>
+    /// One entry per <c>sendInput</c> this scenario issues - the three the shell runs plus the one
+    /// that is refused. Every assertion written against it is a *minimum* or a *delta*, never an
+    /// exact count: AgentActivityJournal.Instance is a process-wide singleton, so an `all` run in
+    /// which some later scenario also drives the agent host would push the total above this.
+    /// </summary>
+    private const int ExpectedJournalEntries = 4;
+
+    /// <summary>
+    /// The commands the agent runs in the pane, in order. Three rather than the two this scenario
+    /// started with, because the journal image is a picture of an activity log, and two rows that
+    /// differ only in their timestamp do not read as one.
+    /// </summary>
+    private static readonly string[] AgentCommands =
+    [
+        "git status --short --branch",
+        "git log --graph --oneline -5",
+        "bash scripts/demo-test.sh"
+    ];
 
     /// <summary>
     /// The pane segment's label in the Wrote tier (TerminalPane.ApplyAgentAttention). Matching on
@@ -53,8 +70,9 @@ internal sealed class AgentSessionScenario : IScenario
                 "'agent typed' in the status bar at the pane's bottom-left, the agent access light " +
                 "at the right end of the title bar, and a transcript ending in a git commit graph " +
                 "and a passing test run. 'agent-session-journal' shows the agent activity journal, " +
-                "headed 'Recent actions taken (or attempted) by AI agents', listing two " +
-                "'sendInput [ok] Demo' rows with timestamps and a pane id.");
+                "headed 'Recent actions taken (or attempted) by AI agents', listing timestamped " +
+                "'sendInput' rows newest first: several reading '[ok] Demo · pane <id>' and one " +
+                "reading '[denied: sessionNotFound]', with no empty half to the window.");
 
     /// <summary>
     /// Act on, for this scenario only. DemoWorld.SeedSettings seeds observe-on/act-off — the
@@ -83,8 +101,13 @@ internal sealed class AgentSessionScenario : IScenario
 
         int journalBefore = AgentActivityJournal.Instance.Count;
 
-        await SendAsAgentAsync(context, pane, "git log --graph --oneline -5");
-        await SendAsAgentAsync(context, pane, "bash scripts/demo-test.sh");
+        // Two of the three run before the refusal and one after it, so the journal reads the way a
+        // real one does - a run of successes with a denial in the middle of it - rather than as a
+        // block of successes with an afterthought on top.
+        await SendAsAgentAsync(context, pane, AgentCommands[0]);
+        await SendAsAgentAsync(context, pane, AgentCommands[1]);
+        await AttemptDeniedSendAsync();
+        await SendAsAgentAsync(context, pane, AgentCommands[2]);
 
         if (AgentActivityJournal.Instance.Count < journalBefore + ExpectedJournalEntries)
         {
@@ -103,11 +126,15 @@ internal sealed class AgentSessionScenario : IScenario
         Window journal = OpenJournal(context);
         try
         {
+            FrameJournal(context, journal);
             context.CaptureOther(journal, "journal");
         }
         finally
         {
-            // Also what lets the click handler's `await dialog.ShowDialog(this)` finish.
+            // Also what lets the click handler's `await dialog.ShowDialog(this)` finish. In a
+            // finally that now covers the assertions too: they used to run inside OpenJournal,
+            // after the window had been found, so a failing one left a modal dialog open over a
+            // disabled MainWindow for the rest of the process.
             journal.Close();
             context.Driver.Pump(3);
         }
@@ -146,6 +173,7 @@ internal sealed class AgentSessionScenario : IScenario
     /// </summary>
     private static Task SendAsAgentAsync(ShotContext context, TerminalPane pane, string command) =>
         context.RunDeliveredCommandAsync(
+            pane,
             () => DeliverAsAgentAsync(pane, command),
             $"the agent-delivered '{command}'");
 
@@ -163,20 +191,7 @@ internal sealed class AgentSessionScenario : IScenario
     /// </remarks>
     private static async Task DeliverAsAgentAsync(TerminalPane pane, string command)
     {
-        var request = new AgentHostRequest
-        {
-            Version = AgentHostProtocol.Version,
-            Id = Interlocked.Increment(ref _requestId),
-            Method = AgentHostProtocol.Methods.SendInput,
-            Params = JsonSerializer.SerializeToElement(
-                new SendInputParams { PaneId = pane.PaneId, Text = command, Submit = true },
-                AgentHostJsonContext.Default.SendInputParams)
-        };
-
-        string line = JsonSerializer.Serialize(request, AgentHostJsonContext.Default.AgentHostRequest);
-
-        AgentHostResponse response = await AgentHostService.Instance
-            .HandleRequestLineAsync(line, CancellationToken.None);
+        AgentHostResponse response = await SendInputAsAgentAsync(pane.PaneId, command);
 
         if (response.Error is not null)
         {
@@ -184,6 +199,75 @@ internal sealed class AgentSessionScenario : IScenario
                 $"agent sendInput was rejected: {response.Error.Code} {response.Error.Message}. " +
                 "Act is probably still disabled, or the pane is not registered.");
         }
+    }
+
+    /// <summary>
+    /// Makes one acting attempt that the host must refuse, so the journal in the image carries a
+    /// denial as well as a run of successes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the shot's whole security claim in one row: the journal exists so that nothing an
+    /// agent does is silent, and a list in which every row says <c>[ok]</c> illustrates only half
+    /// of that. The refusal is real - the pane id below was never registered, which is what an
+    /// agent addressing a session that has since been closed looks like - so AgentHostService takes
+    /// its <c>sessionNotFound</c> branch and journals the attempt through the same
+    /// <c>Journaled(...)</c> wrapper the successes go through. Nothing here writes to the journal.
+    /// </para>
+    /// <para>
+    /// It deliberately does not go through <see cref="ShotContext.RunDeliveredCommandAsync"/>: a
+    /// refused call never reaches a shell, so there is no output to wait for, and that wait would
+    /// time out by design.
+    /// </para>
+    /// </remarks>
+    private static async Task AttemptDeniedSendAsync()
+    {
+        // Never registered with AgentSessionRegistry, and a fresh value each run so it cannot
+        // collide with a pane this process really has.
+        var closedPane = Guid.NewGuid();
+
+        // The text is arbitrary and goes nowhere: the pane lookup fails before anything is
+        // written, and the journal row records the method and the pane, never the input. A
+        // dangerous-looking command here would imply the refusal was about what was being typed,
+        // which it is not.
+        AgentHostResponse response = await SendInputAsAgentAsync(closedPane, "ls");
+
+        if (response.Error is null)
+        {
+            throw new InvalidOperationException(
+                $"sendInput to the unregistered pane '{closedPane}' succeeded. That is a hole in " +
+                "the act gate, and it also means the journal has no denied row for this capture.");
+        }
+
+        if (!string.Equals(response.Error.Code, AgentHostProtocol.ErrorCodes.SessionNotFound, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"sendInput to an unregistered pane was refused with '{response.Error.Code}' " +
+                $"rather than '{AgentHostProtocol.ErrorCodes.SessionNotFound}'. The journal row " +
+                "would read denied for a different reason than the one this scenario is " +
+                "illustrating, so the image would not match its Intent.");
+        }
+    }
+
+    /// <summary>
+    /// The one wire call both deliveries share: a serialized <c>sendInput</c> frame handed to
+    /// AgentHostService's line-level entry point.
+    /// </summary>
+    private static async Task<AgentHostResponse> SendInputAsAgentAsync(Guid paneId, string command)
+    {
+        var request = new AgentHostRequest
+        {
+            Version = AgentHostProtocol.Version,
+            Id = Interlocked.Increment(ref _requestId),
+            Method = AgentHostProtocol.Methods.SendInput,
+            Params = JsonSerializer.SerializeToElement(
+                new SendInputParams { PaneId = paneId, Text = command, Submit = true },
+                AgentHostJsonContext.Default.SendInputParams)
+        };
+
+        string line = JsonSerializer.Serialize(request, AgentHostJsonContext.Default.AgentHostRequest);
+
+        return await AgentHostService.Instance.HandleRequestLineAsync(line, CancellationToken.None);
     }
 
     /// <summary>
@@ -231,13 +315,27 @@ internal sealed class AgentSessionScenario : IScenario
         indicator.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         context.Driver.Pump(5);
 
-        Window journal = context.Window.OwnedWindows.FirstOrDefault(
+        // Returned the moment it is found, and nothing is asserted after this point: from here on
+        // the window is a live modal child of a now-disabled MainWindow, so anything that throws
+        // between finding it and handing it back would leak it. The checks that used to live here
+        // are in FrameJournal, which the caller runs inside the try that closes it.
+        return context.Window.OwnedWindows.FirstOrDefault(
                 window => string.Equals(window.Title, JournalWindowTitle, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
                 $"Clicking the agent observe light opened no '{JournalWindowTitle}' window. Its " +
                 "Click handler swallows exceptions, so the failure is upstream in " +
                 "MainWindow.ShowAgentActivityJournalAsync.");
+    }
 
+    /// <summary>
+    /// Checks the open journal is showing what the Intent claims, and trims the window down to it.
+    /// </summary>
+    /// <remarks>
+    /// Called by <c>RunAsync</c> inside the try whose finally closes the dialog, so a failure here
+    /// cannot leave a modal window over a disabled MainWindow for the rest of the process.
+    /// </remarks>
+    private static void FrameJournal(ShotContext context, Window journal)
+    {
         // The count check in RunAsync proves the journal recorded the calls; this proves the
         // window being photographed is showing them. Only the second one is a claim about the
         // image, and the image is the deliverable.
@@ -253,6 +351,51 @@ internal sealed class AgentSessionScenario : IScenario
                 "journal that under-reports what the agent did.");
         }
 
-        return journal;
+        ShrinkToEntries(context, journal, entries);
+    }
+
+    /// <summary>
+    /// Takes the empty height out of the journal window, so the capture is of a list rather than
+    /// of the room below one.
+    /// </summary>
+    /// <remarks>
+    /// Framing, not staging: MainWindow builds this dialog with <c>canResize: true</c>, so a
+    /// user's window can be any height, and 720x460 is only the size it happens to open at. The
+    /// list is the one part of the layout that stretches, so the empty space is exactly the
+    /// difference between its scroll viewport and the entries inside it; subtracting that leaves
+    /// every real element untouched. Nothing is hidden - the count above has already established
+    /// that all the entries are there, and the assertion below re-checks the fit afterwards.
+    /// </remarks>
+    private static void ShrinkToEntries(ShotContext context, Window journal, ItemsControl entries)
+    {
+        ScrollViewer viewport = journal.GetLogicalDescendants().OfType<ScrollViewer>().FirstOrDefault()
+            ?? throw new InvalidOperationException(
+                "The journal window's list is not in a ScrollViewer. The dialog's layout changed - " +
+                "update the scenario.");
+
+        // DesiredSize, not Bounds: the ItemsControl stretches to fill its scroll viewport, so its
+        // Bounds are the viewport's and the difference would always be zero. DesiredSize is what it
+        // asked for when the ScrollViewer measured it against an unbounded height - i.e. the height
+        // the rows actually need.
+        double needed = entries.DesiredSize.Height;
+
+        // A little air under the last row, so the list does not look clipped.
+        const double Breathing = 12;
+        double surplus = viewport.Bounds.Height - needed - Breathing;
+        if (surplus <= 0)
+        {
+            return;
+        }
+
+        journal.Height -= surplus;
+        context.Driver.Pump(5);
+
+        if (viewport.Bounds.Height < needed)
+        {
+            throw new InvalidOperationException(
+                $"Trimming the journal window to {journal.Height:0} left its list scrolling " +
+                $"({needed:0}px of entries in a {viewport.Bounds.Height:0}px viewport), so the " +
+                "capture would cut entries off. Leave the window at its natural size instead.");
+        }
     }
 }
