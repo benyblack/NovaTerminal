@@ -41,6 +41,16 @@ public sealed class ShotHost : IDisposable
         ThreadPool.GetMinThreads(out int workers, out int completionPorts);
         ThreadPool.SetMinThreads(Math.Max(workers, 16), Math.Max(completionPorts, 16));
 
+        // Opt out of the ConPTY PSEUDOCONSOLE_PASSTHROUGH spawn path (native/src/lib.rs picks it
+        // whenever the host has a real console, which a console app like this one does).
+        // Passthrough hands the child the host's own console: the shell's output goes to this
+        // process's stdout instead of into the pane - so every capture would be of an empty
+        // terminal - and its stdin comes from the host's, which under a redirected or
+        // non-interactive parent is at EOF, so bash reads EOF at the first prompt, echoes `exit`
+        // and dies before a scenario can send it anything. Both observed on the first end-to-end
+        // run. The portable-pty path this selects is the one the GUI app itself always takes.
+        Environment.SetEnvironmentVariable("NOVA_PTY_NO_PASSTHROUGH", "1");
+
         return new ShotHost(HeadlessUnitTestSession.StartNew(
             typeof(ShotsAppBuilder),
             AvaloniaTestIsolationLevel.PerAssembly));
