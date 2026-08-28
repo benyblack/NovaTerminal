@@ -23,13 +23,23 @@ internal sealed class HeroSingleScenario : IScenario
 
     public async Task RunAsync(ShotContext context)
     {
+        await PlayAsync(context);
+        context.Capture();
+    }
+
+    /// <summary>
+    /// The command sequence alone, without capturing. Reused by ThemesGridScenario's multi-pass
+    /// composer in Program, which needs this exact transcript rendered once per theme but must
+    /// capture (and not record in the manifest) each pass itself rather than getting five
+    /// separate PNGs out of <see cref="ShotContext.Capture"/>.
+    /// </summary>
+    internal static async Task PlayAsync(ShotContext context)
+    {
         TerminalPane pane = context.OpenTab(context.World.DemoProfile);
 
         await context.RunCommandAsync(pane, "clear");
         await context.RunCommandAsync(pane, "bash scripts/nova-banner.sh");
         await context.RunCommandAsync(pane, "git status --short --branch");
         await context.RunCommandAsync(pane, "bash scripts/demo-test.sh");
-
-        context.Capture();
     }
 }
