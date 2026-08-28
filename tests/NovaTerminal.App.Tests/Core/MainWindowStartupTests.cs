@@ -24,6 +24,45 @@ public sealed class MainWindowStartupTests
         Assert.NotNull(window);
     }
 
+    /// <summary>
+    /// Guards the settings-bleed pathology (#357's sibling): factory-created windows must take the
+    /// deterministic defaults BuildForDesigner puts on AppServiceBundle.Settings, never whatever
+    /// settings.json the machine happens to carry. Five MainWindowTitleBarTests failed on any dev
+    /// box whose live file said TabStripOrientation=Vertical while CI (no file at all) stayed
+    /// green - a revert of the seam only reproduces on such a machine, so this writes the
+    /// poisonous file explicitly and fails everywhere.
+    /// </summary>
+    [AvaloniaFact]
+    public void MainWindow_IgnoresOnDiskSettings_UsesBundleDefaults()
+    {
+        string tempRoot = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), $"novaterm_settings_bleed_guard_{System.Guid.NewGuid():N}");
+        string? previousRoot = System.Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        System.IO.Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            System.Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+            System.IO.File.WriteAllText(
+                System.IO.Path.Combine(tempRoot, "settings.json"),
+                """{"TabStripOrientation":"Vertical","FontSize":99}""");
+
+            var window = TestMainWindowFactory.Create();
+
+            var settings = (TerminalSettings)typeof(NovaTerminal.MainWindow)
+                .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(window)!;
+
+            Assert.Equal("Horizontal", settings.TabStripOrientation);
+            Assert.Equal(14, settings.FontSize);
+        }
+        finally
+        {
+            System.Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
+            try { System.IO.Directory.Delete(tempRoot, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
     [AvaloniaFact]
     public void MainWindow_LoadsWindowIconOnlyAfterDeferredHookRuns()
     {

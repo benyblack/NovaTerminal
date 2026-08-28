@@ -383,10 +383,10 @@ public sealed class VerticalTabStripTests
         var tab = tabs.Items.Cast<TabItem>().First();
         // Clear it so the upcoming mode switch is the only possible source of "dirty" below.
         window.SetTabPreviewDirtyForTest(tab, false);
-        // Window startup itself may already have applied a vertical pass and recomputed the
-        // preview (TestMainWindowFactory loads the developer's real settings.json, which can be
-        // vertical) - clear the 250ms throttle window left over from that so the switch below
-        // isn't itself throttled into leaving the dirty flag set.
+        // Window startup's own initial tab-visuals pass may have armed the 250ms preview
+        // throttle - wait it out so the mode switch below isn't itself throttled into
+        // leaving the dirty flag set. (Startup uses deterministic default settings via
+        // AppServiceBundle.Settings, so that pass is always horizontal now.)
         System.Threading.Thread.Sleep(300);
 
         settings.TabStripOrientation = "Vertical";
