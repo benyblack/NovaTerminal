@@ -14,7 +14,7 @@ public sealed class SnapshotTests
         var info = service.Snapshot(SnapshotReason.Auto);
 
         Assert.NotNull(info);
-        Assert.StartsWith("auto-20260827T091400Z-", info!.Id);
+        Assert.StartsWith("auto-20260827T091400000Z-", info!.Id);
         Assert.True(File.Exists(info.FilePath));
         Assert.Equal(
             Path.GetFullPath(Path.Combine(tree.Root, "backups")),
@@ -203,6 +203,36 @@ public sealed class SnapshotTests
         using var zip = System.IO.Compression.ZipFile.OpenRead(second!.FilePath);
         Assert.DoesNotContain(zip.Entries, e => e.FullName.Contains("backups", StringComparison.Ordinal));
         Assert.DoesNotContain(zip.Entries, e => e.FullName.EndsWith(".novabackup", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// M6: two forced snapshots (dedupe never applies to them) of identical content taken less
+    /// than a second apart used to compute the exact same id — the whole-second timestamp plus
+    /// an unchanged content hash — so the second <see cref="BackupService.Export"/> call's
+    /// <see cref="File.Move(string, string, bool)"/> with <c>overwrite: true</c> silently replaced
+    /// the first snapshot's bundle on disk. Millisecond precision in the id's timestamp segment
+    /// gives each its own file.
+    /// </summary>
+    [Fact]
+    public void Snapshot_TwoForcedSnapshotsOfIdenticalContent_WithinTheSameSecond_BothSurviveOnDisk()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var clock = Clock();
+        var service = new BackupService(tree.Root, clock);
+
+        // Same reason both times: the id's other two segments (timestamp, content hash) must be
+        // what disambiguates them - two DIFFERENT reasons would trivially get different ids
+        // regardless of timestamp granularity, proving nothing about M6.
+        var first = service.Snapshot(SnapshotReason.PreImport);
+        clock.Advance(TimeSpan.FromMilliseconds(1)); // still the same second
+        var second = service.Snapshot(SnapshotReason.PreImport);
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.NotEqual(first!.Id, second!.Id);
+        Assert.True(File.Exists(first.FilePath));
+        Assert.True(File.Exists(second!.FilePath));
+        Assert.Equal(2, service.ListSnapshots().Count);
     }
 
     private static FixedTimeProvider Clock() =>

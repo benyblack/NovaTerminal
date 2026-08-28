@@ -130,6 +130,12 @@ public sealed class BackupCommandTests
         string settingsAfterRestore = tree.ReadFile("settings.json");
         Assert.DoesNotContain("99", settingsAfterRestore);
         Assert.Contains("14", settingsAfterRestore); // original FontSize from CreatePopulated()
+
+        // M1: BackupService.ImportCore used to print "Imported N categories (Replace)." verbatim
+        // for a restore too, since Restore reused ImportCore's own message wholesale. It now takes
+        // an operation-noun parameter so `backup restore` reports "Restored", not "Imported".
+        Assert.Contains("Restored", stdout);
+        Assert.DoesNotContain("Imported", stdout);
     }
 
     [Fact]

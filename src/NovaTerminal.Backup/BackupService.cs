@@ -150,7 +150,7 @@ public sealed class BackupService
                     "Could not write a pre-restore snapshot; refusing to restore without a rollback point.");
             }
 
-            return ImportCore(tempBundle, ImportMode.Replace, selected!);
+            return ImportCore(tempBundle, ImportMode.Replace, selected!, operationNoun: "Restored");
         }
         finally
         {
@@ -209,11 +209,24 @@ public sealed class BackupService
     internal string ResolveImportStagingRoot() => Path.Combine(RootDirectory, $".import-{Guid.NewGuid():N}");
 
     /// <summary>
+    /// Test-only hook: when set, <see cref="ImportCore"/> throws this instead of running
+    /// <see cref="CommitWithUndo"/>. Exists to deterministically and portably exercise the
+    /// catch-all around that call (I3) — an exception type outside the set
+    /// <see cref="CommitWithUndo"/>'s own per-step catch filters on cannot be coaxed out of real
+    /// File/Directory APIs on demand (they only ever throw <see cref="IOException"/>,
+    /// <see cref="UnauthorizedAccessException"/>, <see cref="ArgumentException"/>, or
+    /// <see cref="NotSupportedException"/> and their subtypes), so this simulates the escape
+    /// directly rather than relying on an environment-specific fault.
+    /// </summary>
+    internal Func<Exception>? SimulateCommitPhaseFailureForTest;
+
+    /// <summary>
     /// Does the actual two-phase apply. Never snapshots — callers (<see cref="Import"/> and
     /// <see cref="Restore"/>) each take exactly one forced snapshot under their own reason before
     /// calling this, so a Restore does not also write a redundant pre-import snapshot.
     /// </summary>
-    private BackupOutcome ImportCore(string bundlePath, ImportMode mode, BackupCategory[] selected)
+    private BackupOutcome ImportCore(
+        string bundlePath, ImportMode mode, BackupCategory[] selected, string operationNoun = "Imported")
     {
         string staging = ResolveImportStagingRoot();
         string extracted = Path.Combine(staging, "extracted");
@@ -265,6 +278,7 @@ public sealed class BackupService
 
             try
             {
+                if (SimulateCommitPhaseFailureForTest is not null) throw SimulateCommitPhaseFailureForTest();
                 CommitWithUndo(plan, undo, _log);
             }
             catch (ImportCommitException ex)
@@ -289,6 +303,19 @@ public sealed class BackupService
                     $"Import failed while applying category '{ex.Category}' and was rolled back: " +
                     $"{ex.InnerException?.Message ?? ex.Message}.");
             }
+            catch (Exception)
+            {
+                // Anything that is not an ImportCommitException means CommitWithUndo's own
+                // per-step catch did not recognize the failure - RollBack never ran, and
+                // already-committed steps' originals (if any) sit only in undo/ under staging.
+                // The unconditional cleanup below would destroy that last recovery path right
+                // after this exception surfaces to the caller as "the operation failed" (I3).
+                // Preserve staging and let the exception keep propagating; callers already treat
+                // an escaped exception as failure, so nothing about their observable behavior
+                // changes - only whether recovery is still possible afterward does.
+                preserveStagingForManualRecovery = true;
+                throw;
+            }
 
             // Name the credential gap in the outcome itself. Bundles carry no secret material,
             // so imported SSH profiles look complete but cannot authenticate until the user
@@ -299,7 +326,7 @@ public sealed class BackupService
                 : string.Empty;
 
             string categoryWord = selected.Length == 1 ? "category" : "categories";
-            return BackupOutcome.Ok($"Imported {selected.Length} {categoryWord} ({mode}).{credentialNote}");
+            return BackupOutcome.Ok($"{operationNoun} {selected.Length} {categoryWord} ({mode}).{credentialNote}");
         }
         finally
         {
@@ -502,8 +529,15 @@ public sealed class BackupService
         }
     }
 
-    /// <summary>Undoes every journaled step, in reverse. Returns false if any step could not be fully restored.</summary>
-    private static bool RollBack(
+    /// <summary>
+    /// Undoes every journaled step, in reverse. Returns false if any step could not be fully
+    /// restored. Internal (rather than private) so a test can pin this return value directly: a
+    /// hand-built journal entry whose undo path does not exist makes the per-entry
+    /// <see cref="File.Move(string, string)"/> throw <see cref="FileNotFoundException"/>,
+    /// swallowed here into a false return - deterministic on every OS, unlike trying to provoke
+    /// the same failure through <see cref="CommitWithUndo"/>'s own real file operations.
+    /// </summary>
+    internal static bool RollBack(
         List<(string LivePath, string UndoPath, bool IsDirectory, bool HadOriginal)> journal, Action<string> log)
     {
         bool allSucceeded = true;
@@ -711,7 +745,14 @@ public sealed class BackupService
     /// <summary>Snapshots newer than this are kept regardless of count.</summary>
     public static readonly TimeSpan SnapshotRetentionWindow = TimeSpan.FromDays(7);
 
-    private const string SnapshotTimestampFormat = "yyyyMMdd'T'HHmmss'Z'";
+    /// <summary>
+    /// Millisecond precision (not just whole seconds), so two forced snapshots of identical
+    /// content taken close together (e.g. a PreImport immediately followed by a PreRestore) get
+    /// distinct ids rather than colliding on one file name (M6) — a collision that would
+    /// otherwise silently disappear the first snapshot, since <see cref="Export"/> writes via
+    /// <see cref="File.Move(string, string, bool)"/> with <c>overwrite: true</c>.
+    /// </summary>
+    private const string SnapshotTimestampFormat = "yyyyMMdd'T'HHmmssfff'Z'";
 
     /// <summary>
     /// Hex chars of the content hash kept in the snapshot id and compared for dedupe. 64 bits
