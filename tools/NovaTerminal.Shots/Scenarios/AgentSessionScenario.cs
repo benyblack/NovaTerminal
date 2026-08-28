@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
@@ -54,8 +53,6 @@ internal sealed class AgentSessionScenario : IScenario
     /// claim the Intent can make.
     /// </summary>
     private const string WroteSegmentLabel = "agent typed";
-
-    private static long _requestId;
 
     public ShotSpec Spec { get; } = new(
         Name: "agent-session",
@@ -183,23 +180,8 @@ internal sealed class AgentSessionScenario : IScenario
     /// downstream — the act gate, the pane's agent segment, and the journal entry — therefore runs
     /// for real.
     /// </summary>
-    /// <remarks>
-    /// The frame is serialized to a line and parsed back rather than calling a handler directly,
-    /// because that round trip is the part the wire contract actually pins: a params shape that
-    /// stopped matching SendInputParams' JsonPropertyName values would fail here the same way it
-    /// would fail over the pipe, instead of being silently papered over by a typed call.
-    /// </remarks>
-    private static async Task DeliverAsAgentAsync(TerminalPane pane, string command)
-    {
-        AgentHostResponse response = await SendInputAsAgentAsync(pane.PaneId, command);
-
-        if (response.Error is not null)
-        {
-            throw new InvalidOperationException(
-                $"agent sendInput was rejected: {response.Error.Code} {response.Error.Message}. " +
-                "Act is probably still disabled, or the pane is not registered.");
-        }
-    }
+    private static Task DeliverAsAgentAsync(TerminalPane pane, string command) =>
+        AgentWire.DeliverAsync(pane, command);
 
     /// <summary>
     /// Makes one acting attempt that the host must refuse, so the journal in the image carries a
@@ -230,7 +212,7 @@ internal sealed class AgentSessionScenario : IScenario
         // written, and the journal row records the method and the pane, never the input. A
         // dangerous-looking command here would imply the refusal was about what was being typed,
         // which it is not.
-        AgentHostResponse response = await SendInputAsAgentAsync(closedPane, "ls");
+        AgentHostResponse response = await AgentWire.SendInputAsync(closedPane, "ls");
 
         if (response.Error is null)
         {
@@ -247,27 +229,6 @@ internal sealed class AgentSessionScenario : IScenario
                 "would read denied for a different reason than the one this scenario is " +
                 "illustrating, so the image would not match its Intent.");
         }
-    }
-
-    /// <summary>
-    /// The one wire call both deliveries share: a serialized <c>sendInput</c> frame handed to
-    /// AgentHostService's line-level entry point.
-    /// </summary>
-    private static async Task<AgentHostResponse> SendInputAsAgentAsync(Guid paneId, string command)
-    {
-        var request = new AgentHostRequest
-        {
-            Version = AgentHostProtocol.Version,
-            Id = Interlocked.Increment(ref _requestId),
-            Method = AgentHostProtocol.Methods.SendInput,
-            Params = JsonSerializer.SerializeToElement(
-                new SendInputParams { PaneId = paneId, Text = command, Submit = true },
-                AgentHostJsonContext.Default.SendInputParams)
-        };
-
-        string line = JsonSerializer.Serialize(request, AgentHostJsonContext.Default.AgentHostRequest);
-
-        return await AgentHostService.Instance.HandleRequestLineAsync(line, CancellationToken.None);
     }
 
     /// <summary>

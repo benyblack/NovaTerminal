@@ -7,6 +7,9 @@ public static class ScenarioCatalog
     private static readonly IScenario[] Scenarios =
     [
         new HeroSingleScenario(),
+        new HeroSplitScenario(),
+        new TabsVerticalScenario(),
+        new CommandPaletteScenario(),
         new SettingsAgentAccessScenario(),
         new AgentSessionScenario(),
         new ClipAgentScenario()
