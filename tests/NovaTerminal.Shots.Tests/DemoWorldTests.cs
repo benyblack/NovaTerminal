@@ -71,4 +71,19 @@ public sealed class DemoWorldTests
             Assert.True(Directory.Exists(path), $"Expected {path} to exist under the second DemoWorld's ProfileRoot.");
         }
     }
+
+    [Fact]
+    public void SeedWorkspace_CreatesAGitRepoOnTheDemoBranch()
+    {
+        using var world = DemoWorld.Create(NewBaseDir());
+
+        world.SeedWorkspace();
+
+        Assert.True(Directory.Exists(Path.Combine(world.WorkspaceRoot, ".git")));
+        Assert.True(File.Exists(Path.Combine(world.WorkspaceRoot, "scripts", "nova-banner.sh")));
+        Assert.True(File.Exists(Path.Combine(world.WorkspaceRoot, "src", "sixel-decoder.rs")));
+
+        string head = File.ReadAllText(Path.Combine(world.WorkspaceRoot, ".git", "HEAD"));
+        Assert.Contains("feat/sixel-decoder", head, StringComparison.Ordinal);
+    }
 }

@@ -15,4 +15,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\NovaTerminal.App\NovaTerminal.App.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\**\*.*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

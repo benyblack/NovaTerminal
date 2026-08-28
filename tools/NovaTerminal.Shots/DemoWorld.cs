@@ -115,6 +115,69 @@ public sealed class DemoWorld : IDisposable
         settings.Save();
     }
 
+    private const string CommitDate = "2026-08-20T10:15:00+00:00";
+
+    /// <summary>
+    /// Lays down the demo project and a scripted git history. Author and committer identity
+    /// and dates are fixed so `git log --graph` renders the same story on every run and on
+    /// every machine.
+    /// </summary>
+    public void SeedWorkspace()
+    {
+        string assets = Path.Combine(AppContext.BaseDirectory, "Assets");
+        Directory.CreateDirectory(Path.Combine(WorkspaceRoot, "scripts"));
+        Directory.CreateDirectory(Path.Combine(WorkspaceRoot, "src"));
+
+        CopyAsset(assets, "nova-banner.sh", Path.Combine(WorkspaceRoot, "scripts", "nova-banner.sh"));
+        CopyAsset(assets, "demo-test.sh", Path.Combine(WorkspaceRoot, "scripts", "demo-test.sh"));
+        CopyAsset(assets, "sixel-decoder.rs", Path.Combine(WorkspaceRoot, "src", "sixel-decoder.rs"));
+
+        Git("init --initial-branch=feat/sixel-decoder");
+        Git("config user.name nova");
+        Git("config user.email nova@demo");
+        Git("add .");
+        Commit("feat(vt): add sixel decoder skeleton");
+
+        File.AppendAllText(Path.Combine(WorkspaceRoot, "src", "sixel-decoder.rs"),
+            "\n// TODO: raster attributes\n");
+        Git("add .");
+        Commit("feat(vt): parse sixel raster attributes");
+
+        File.WriteAllText(Path.Combine(WorkspaceRoot, "README.md"), "# nova-demo\n");
+        Git("add .");
+        Commit("docs: describe the decoder pipeline");
+    }
+
+    private static void CopyAsset(string assetsDirectory, string name, string destination)
+    {
+        File.Copy(Path.Combine(assetsDirectory, name), destination, overwrite: true);
+    }
+
+    private void Commit(string message) => Git($"commit -m \"{message}\"");
+
+    private void Git(string arguments)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("git", arguments)
+        {
+            WorkingDirectory = WorkspaceRoot,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        psi.Environment["GIT_AUTHOR_DATE"] = CommitDate;
+        psi.Environment["GIT_COMMITTER_DATE"] = CommitDate;
+
+        using var process = System.Diagnostics.Process.Start(psi)
+            ?? throw new InvalidOperationException("Could not start git.");
+        process.WaitForExit();
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"git {arguments} failed with {process.ExitCode}: {process.StandardError.ReadToEnd()}");
+        }
+    }
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable(RootOverrideEnvVar, _previousRootOverride);
@@ -123,15 +186,34 @@ public sealed class DemoWorld : IDisposable
         {
             if (Directory.Exists(_baseDirectory))
             {
+                ClearReadOnlyAttributes(_baseDirectory);
                 Directory.Delete(_baseDirectory, recursive: true);
             }
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // A shell that has not fully exited can hold a handle in the workspace. Leaving a
-            // temp directory behind is a worse outcome than a failed run only in theory; make
-            // it visible rather than throwing out of Dispose.
+            // A shell that has not fully exited can hold a handle in the workspace, or git's
+            // read-only object files can still resist deletion. Leaving a temp directory behind
+            // is a worse outcome than a failed run only in theory; make it visible rather than
+            // throwing out of Dispose.
             Console.Error.WriteLine($"[shots] could not remove demo world at {_baseDirectory}");
+        }
+    }
+
+    /// <summary>
+    /// Git marks files under .git/objects/ (and packed refs) read-only on Windows. A plain
+    /// recursive delete throws UnauthorizedAccessException the moment it hits one of those, so
+    /// this clears the attribute on every file first.
+    /// </summary>
+    private static void ClearReadOnlyAttributes(string root)
+    {
+        foreach (string path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            FileAttributes attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReadOnly) != 0)
+            {
+                File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+            }
         }
     }
 }
