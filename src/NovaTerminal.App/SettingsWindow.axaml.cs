@@ -1211,15 +1211,20 @@ namespace NovaTerminal
 
             // Fix (Codex review round 2, PR #362): the exact same I1-residual-#1 gap as
             // PopulateThemes below, for fonts. PopulateFonts seeds its choices from
-            // BuildFontFamilyChoices(..., _selectedProfile?.FontFamily ?? _settings.FontFamily),
-            // explicitly adding whatever font is currently configured even when it is not
-            // installed locally - so a bundle imported from another machine naming a font absent
-            // here needs this rerun to make that font selectable at all. Without it,
+            // BuildFontFamilyChoices(_settings.FontFamily, _selectedProfile?.FontFamily) (round 3:
+            // both are seeded unconditionally now, not ??-ed down to one - see PopulateFonts' own
+            // remarks), explicitly adding whatever font is currently configured even when it is
+            // not installed locally - so a bundle imported from another machine naming a font
+            // absent here needs this rerun to make that font selectable at all. Without it,
             // LoadCurrentSettings' font-selection loop below has no matching ComboBoxItem, leaves
             // FontList.SelectedItem on the stale pre-reload font, and a subsequent Save writes that
             // stale font back over the just-imported one. Must run before LoadCurrentSettings,
             // exactly like the constructor's own sequence (PopulateFonts, then PopulateThemes,
-            // then LoadCurrentSettings).
+            // then LoadCurrentSettings). Note that at this point in Reload, _selectedProfile is
+            // still the PRE-reload object (RepointSelectedProfileAfterReload runs later) - that's
+            // fine for ordering (matches the constructor, where _selectedProfile is always null
+            // here) but not for its VALUE, which is why _settings.FontFamily is seeded
+            // unconditionally rather than only as a ??-fallback.
             PopulateFonts();
 
             // Fix (I1 residual #1): the theme combo boxes were filled from disk once, at
@@ -1548,9 +1553,22 @@ namespace NovaTerminal
             if (fontList != null) fontList.Items.Clear();
             if (overrideFontList != null) overrideFontList.Items.Clear();
 
+            // Codex review round 3: seed BOTH the global font and the selected profile's own
+            // override (if any), rather than ??-ing them down to one. In the reload path
+            // (ReloadSettingsAfterExternalChange), _selectedProfile is still the PRE-reload
+            // object — RepointSelectedProfileAfterReload does not run until after this — so a
+            // profile with a font override used to make _selectedProfile?.FontFamily win the ??
+            // and silently hide _settings.FontFamily from this seeding entirely. That left a
+            // freshly-imported global font unselectable (not data loss - LoadCurrentSettings'
+            // selection loop then finds nothing, SelectedItem stays null, and SaveAndClose's
+            // `is ComboBoxItem` guard skips the write - but the user could not pick the imported
+            // font until the window was reopened). Adding both to the SortedSet costs nothing:
+            // BuildFontFamilyChoices dedupes case-insensitively, and this is only ever a "make
+            // sure it's visible even if not installed" seed - not a selection decision.
             var fonts = BuildFontFamilyChoices(
                     SkiaSharp.SKFontManager.Default.FontFamilies,
-                    _selectedProfile?.FontFamily ?? _settings.FontFamily)
+                    _settings.FontFamily,
+                    _selectedProfile?.FontFamily)
                 .Select(f => new ComboBoxItem { Content = f })
                 .ToList();
 
@@ -1562,9 +1580,18 @@ namespace NovaTerminal
             }
         }
 
+        /// <param name="additionalConfiguredFontFamily">
+        /// A second font name to guarantee is present, independent of
+        /// <paramref name="configuredFontFamily"/> (Codex review round 3) — e.g. a selected
+        /// profile's own font override, seeded alongside the global font rather than instead of
+        /// it. Both are seeded unconditionally (each ignored only when null/blank); which one
+        /// ultimately gets selected is <c>LoadCurrentSettings</c>'/the caller's decision, not
+        /// this method's — it only guarantees visibility in the choice list.
+        /// </param>
         internal static System.Collections.Generic.List<string> BuildFontFamilyChoices(
             System.Collections.Generic.IEnumerable<string> systemFonts,
-            string? configuredFontFamily)
+            string? configuredFontFamily,
+            string? additionalConfiguredFontFamily = null)
         {
             var names = new System.Collections.Generic.SortedSet<string>(
                 systemFonts?.Where(f => !string.IsNullOrWhiteSpace(f)) ?? System.Array.Empty<string>(),
@@ -1575,6 +1602,11 @@ namespace NovaTerminal
             if (!string.IsNullOrWhiteSpace(configuredFontFamily))
             {
                 names.Add(configuredFontFamily);
+            }
+
+            if (!string.IsNullOrWhiteSpace(additionalConfiguredFontFamily))
+            {
+                names.Add(additionalConfiguredFontFamily);
             }
 
             return names.ToList();

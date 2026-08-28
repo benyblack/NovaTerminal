@@ -1,3 +1,5 @@
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text.Json;
 using NovaTerminal.Backup;
 
@@ -855,6 +857,119 @@ public sealed class BackupImportTests
         // An unknown id must fail before touching anything, including before taking the
         // pre-restore snapshot that a real restore would take.
         Assert.DoesNotContain(service.ListSnapshots(), s => s.Reason == SnapshotReason.PreRestore);
+    }
+
+    /// <summary>
+    /// Codex review round 3 finding 1: <c>Restore</c> opens with a bare
+    /// <c>ListSnapshots().FirstOrDefault(...)</c>. <c>ListSnapshots</c> carries no "never throws"
+    /// contract - <c>Directory.GetFiles(BackupsDirectory)</c> can throw
+    /// <see cref="IOException"/>/<see cref="UnauthorizedAccessException"/> - and that escape was
+    /// live in both real callers: <c>BackupCommand.Restore</c> has no try around this call at all
+    /// (unlike its sibling <c>BackupCommand.List</c>, which guards the identical call), and the
+    /// Settings restore button invokes <c>Restore</c> from an <c>async void</c> click handler,
+    /// where an escaping exception becomes an unhandled dispatcher exception. Denies
+    /// list/read access to <c>BackupsDirectory</c> itself and asserts <c>Restore</c> returns
+    /// (doesn't throw) a typed failure instead.
+    /// </summary>
+    /// <remarks>
+    /// Denies access and verifies - rather than assumes - that this actually blocks
+    /// <c>Directory.GetFiles</c> before asserting on <c>Restore</c>, the same "decide the skip by
+    /// trying it" pattern used throughout this branch's ACL-dependent tests (e.g.
+    /// <c>SettingsWindowBackupSectionTests.TryBlockDirectoryListing</c>,
+    /// <c>BackupExportTests.TryBlockDirectoryListing</c>).
+    /// </remarks>
+    [Fact]
+    public void Restore_WhenSnapshotsDirectoryCannotBeListed_ReturnsATypedFailure_InsteadOfThrowing()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+        Directory.CreateDirectory(service.BackupsDirectory);
+
+        bool blocked = TryBlockDirectoryListing(service.BackupsDirectory, out Action restore);
+        try
+        {
+            if (!blocked)
+            {
+                Assert.Skip("this process can enumerate a directory it just denied itself access to (root, or an unrestricted account)");
+            }
+
+            BackupOutcome? outcome = null;
+            var thrown = Record.Exception(() => outcome = service.Restore("auto-19700101T000000Z-deadbeef"));
+
+            Assert.Null(thrown);
+            Assert.NotNull(outcome);
+            Assert.False(outcome!.Success);
+            Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
+        }
+        finally
+        {
+            restore();
+        }
+    }
+
+    /// <summary>
+    /// Denies directory-listing access to <paramref name="directory"/> for the current process,
+    /// verifying - rather than assuming - that this actually blocks <c>Directory.GetFiles</c>
+    /// before reporting success. The returned <paramref name="restore"/> action always undoes the
+    /// change, whether or not the block took, so temp-directory cleanup can proceed either way.
+    /// Duplicated locally rather than shared, matching this codebase's existing convention of
+    /// small per-file test helpers.
+    /// </summary>
+    private static bool TryBlockDirectoryListing(string directory, out Action restore)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var dirInfo = new DirectoryInfo(directory);
+            var security = dirInfo.GetAccessControl();
+            var currentUser = WindowsIdentity.GetCurrent().User!;
+            var rule = new FileSystemAccessRule(
+                currentUser,
+                FileSystemRights.ListDirectory | FileSystemRights.Read,
+                AccessControlType.Deny);
+
+            security.AddAccessRule(rule);
+            dirInfo.SetAccessControl(security);
+
+            restore = () =>
+            {
+                try
+                {
+                    var current = dirInfo.GetAccessControl();
+                    current.RemoveAccessRule(rule);
+                    dirInfo.SetAccessControl(current);
+                }
+                catch
+                {
+                    // Best-effort restore; the temp tree's Dispose is best-effort too.
+                }
+            };
+        }
+        else
+        {
+            File.SetUnixFileMode(directory, UnixFileMode.None);
+
+            restore = () =>
+            {
+                try
+                {
+                    File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                }
+                catch
+                {
+                    // Best-effort restore; the temp tree's Dispose is best-effort too.
+                }
+            };
+        }
+
+        try
+        {
+            Directory.GetFiles(directory, "*" + BackupService.BundleExtension);
+            return false; // enumeration still succeeded - the restriction did not take (root, etc.)
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
     }
 
     private static string ExportFrom(BackupTestTree tree)

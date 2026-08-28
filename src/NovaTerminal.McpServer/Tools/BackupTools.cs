@@ -45,7 +45,21 @@ public static class BackupTools
     public static string BackupList(
         [Description("App data root. Omit to use the current user's NovaTerminal directory.")] string? rootDirectory = null)
     {
-        var snapshots = new BackupService(ResolveRoot(rootDirectory)).ListSnapshots();
+        IReadOnlyList<SnapshotInfo> snapshots;
+        try
+        {
+            snapshots = new BackupService(ResolveRoot(rootDirectory)).ListSnapshots();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // ListSnapshots() carries no "never throws" contract (see its own remarks) - a
+            // permissions problem or a backups directory that vanishes mid-enumeration surfaces as
+            // a real exception. Guarded here the same way BackupCommand.List guards it for the CLI,
+            // so this reports back as text like every other failure mode in this file instead of
+            // faulting the tool call.
+            return $"Could not list snapshots: {ex.Message}";
+        }
+
         if (snapshots.Count == 0) return "No snapshots yet.";
 
         var builder = new StringBuilder();

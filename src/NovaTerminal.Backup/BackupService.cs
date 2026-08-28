@@ -162,13 +162,26 @@ public sealed class BackupService
     /// and <see cref="BundleReader.Open"/>. <c>ImportCore</c>'s own catch-all
     /// (<c>catch (Exception) { preserveStagingForManualRecovery = true; throw; }</c>) deliberately
     /// lets an exception type its per-step catch does not recognize escape all the way out of this
-    /// method, so staging survives for manual recovery instead of being destroyed by the
-    /// unconditional cleanup — pinned by
+    /// method — pinned by
     /// <c>BackupCommitRollbackTests.Import_WhenCommitPhaseThrowsAnUnrecognizedException_PreservesStagingForManualRecovery</c>,
-    /// which asserts the exact exception TYPE propagates uncaught. Wrapping this method in a
-    /// backstop would catch that escape too and silently convert it into a typed failure, deleting
-    /// the "staging preserved for manual recovery" guarantee the moment it would matter most — a
-    /// parked, intentional residual, not an oversight this backstop should paper over.
+    /// which asserts BOTH that the exact exception TYPE propagates uncaught AND, independently,
+    /// that the staging directory survives.
+    ///
+    /// Correction (round 3): an earlier version of this remark claimed a backstop here would
+    /// "delete the staging preserved for manual recovery guarantee." That was wrong — it would
+    /// not. <c>preserveStagingForManualRecovery</c> is set and the cleanup in <c>ImportCore</c>'s
+    /// <c>finally</c> is skipped DURING UNWINDING, before any outer handler's body ever runs, so
+    /// staging is already on disk by the time a hypothetical backstop here would execute. The
+    /// pinned test's two assertions are separable, and a backstop would break only the first one
+    /// (the escaped exception TYPE), not the second (staging survives).
+    ///
+    /// The actual reason this stays unguarded: the escape itself — an exception type
+    /// <c>CommitWithUndo</c>'s per-step catch does not recognize, reaching the caller as a raw
+    /// throw instead of a typed <see cref="BackupOutcome"/> — is a deliberately parked, known
+    /// residual, not an oversight. Silently converting it into a typed failure here would be an
+    /// undiscussed behaviour change riding along on this fix wave. If that residual is ever
+    /// closed, it should happen as its own reviewed decision, not as a side effect of a
+    /// "close every backstop" pass.
     /// </remarks>
     public BackupOutcome Import(
         string bundlePath,
@@ -193,14 +206,34 @@ public sealed class BackupService
     /// contains — a rollback, not a merge. Categories absent from the snapshot are untouched.
     /// </summary>
     /// <remarks>
-    /// Section A (Codex review round 2, PR #362): same reasoning as <see cref="Import"/> — this
-    /// also ends in an unguarded call to <see cref="ImportCore"/>, so wrapping this method in a
-    /// blanket backstop would defeat the same "staging preserved for manual recovery" escape
-    /// hatch <see cref="Import"/>'s remarks describe. No backstop added here for that call path.
+    /// Section A (Codex review round 3, PR #362): the exclusion from a blanket backstop is scoped
+    /// to the call into <see cref="ImportCore"/> specifically, not to this whole method — that is
+    /// the one call path where the parked commit-phase-escape residual lives (see
+    /// <see cref="Import"/>'s own remarks), and guarding everything BEFORE it is fair game.
+    /// The initial <see cref="ListSnapshots"/> call below was an unguarded escape: it can throw
+    /// <see cref="IOException"/>/<see cref="UnauthorizedAccessException"/> reading
+    /// <see cref="BackupsDirectory"/>, and that was live in both real callers —
+    /// <c>BackupCommand.Restore</c> has no try around this method at all (unlike its sibling
+    /// <c>BackupCommand.List</c>, which guards the same call), and the Settings restore button
+    /// invokes this from an <c>async void</c> click handler, where an escaping exception becomes
+    /// an unhandled dispatcher exception. Guarded here now. The later call to
+    /// <see cref="ImportCore"/> remains deliberately unguarded.
     /// </remarks>
     public BackupOutcome Restore(string snapshotId)
     {
-        var snapshot = ListSnapshots().FirstOrDefault(s =>
+        IReadOnlyList<SnapshotInfo> snapshots;
+        try
+        {
+            snapshots = ListSnapshots();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return BackupOutcome.Fail(
+                BackupFailureKind.WriteFailed,
+                $"Could not list snapshots to restore from: {ex.Message}");
+        }
+
+        var snapshot = snapshots.FirstOrDefault(s =>
             string.Equals(s.Id, snapshotId, StringComparison.OrdinalIgnoreCase));
 
         if (snapshot is null)
@@ -991,18 +1024,29 @@ public sealed class BackupService
     /// <summary>Snapshots on disk, newest first. Unparseable file names are ignored.</summary>
     /// <remarks>
     /// Section A (Codex review round 2, PR #362): unlike <see cref="Export"/>/<see cref="Import"/>/
-    /// <see cref="Restore"/>/<see cref="Snapshot"/>, this method has never returned a typed
-    /// Outcome, and — unlike those — every known caller already treats that as the contract and
-    /// handles a real escaping <see cref="IOException"/>/<see cref="UnauthorizedAccessException"/>
-    /// itself: <c>BackupCommand.List</c> (CLI) catches it to keep the CLI's 0/1/2 exit-code
-    /// contract, and <c>SettingsWindow.WireBackupSection</c>'s <c>RefreshSnapshots</c> catches it to
-    /// show a specific "Could not read snapshots: …" status message — pinned by
+    /// <see cref="Restore"/>/<see cref="Snapshot"/>, this method itself has never returned a typed
+    /// Outcome and still does not — it stays a plain list, throwing a real
+    /// <see cref="IOException"/>/<see cref="UnauthorizedAccessException"/> on a genuine filesystem
+    /// failure rather than swallowing one into a silent empty result.
+    ///
+    /// Correction (round 3): an earlier version of this remark claimed "every known caller already
+    /// treats that as the contract and handles a real escaping [exception] itself." That was false
+    /// at the time — two of the four real callers did not: <see cref="Restore"/>'s own initial call
+    /// into this method (see its remarks) was unguarded, and so was
+    /// <c>NovaTerminal.McpServer.Tools.BackupTools.BackupList</c>. Both are now fixed at their own
+    /// call sites (round 3) rather than by this method growing a backstop of its own. The two that
+    /// were already correct remain: <c>BackupCommand.List</c> (CLI) catches it to keep the CLI's
+    /// 0/1/2 exit-code contract, and <c>SettingsWindow.WireBackupSection</c>'s
+    /// <c>RefreshSnapshots</c> catches it to show a specific "Could not read snapshots: …" status
+    /// message — pinned by
     /// <c>SettingsWindowBackupSectionTests.Constructing_WhenSnapshotEnumerationFails_StillOpens_WithAnEmptyListAndAStatusMessage</c>.
-    /// Adding a blanket backstop here that swallows those same exception types into a silent empty
-    /// list would defeat both callers' own handling rather than close a gap — so, deliberately, none
-    /// is added. (<c>NovaTerminal.McpServer.Tools.BackupTools.BackupList</c> has no such guard today
-    /// and would let an escaping exception fault the MCP call; that is a real, pre-existing gap, but
-    /// it lives in a caller outside this leaf project's scope, not in this method's own contract.)
+    ///
+    /// Adding a blanket backstop HERE that swallowed the same exception types into a silent empty
+    /// list would defeat every one of those callers' own handling — the CLI's exit code and stderr
+    /// message, the Settings UI's specific status text, <see cref="Restore"/>'s now-typed failure,
+    /// and <c>BackupList</c>'s now-friendly text response — so, deliberately, none is added. This
+    /// method keeps throwing; every real caller is now responsible for catching it, and every real
+    /// caller now does.
     /// </remarks>
     public IReadOnlyList<SnapshotInfo> ListSnapshots()
     {
