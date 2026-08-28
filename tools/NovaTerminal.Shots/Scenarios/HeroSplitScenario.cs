@@ -1,6 +1,7 @@
 using System.Reflection;
 using Avalonia.Layout;
 using NovaTerminal.Controls;
+using NovaTerminal.Shell;
 
 namespace NovaTerminal.Shots.Scenarios;
 
@@ -14,10 +15,22 @@ internal sealed class HeroSplitScenario : IScenario
     public ShotSpec Spec { get; } = new(
         Name: "hero-split",
         Tier: 1,
-        LogicalWidth: 1440,
+        LogicalWidth: 1920,
         LogicalHeight: 900,
         Intent: "Three panes at once: a colourful test run on the left, a git graph top-right, and " +
                 "a process monitor bottom-right. Every pane full of text, splitters clearly visible.");
+
+    /// <summary>
+    /// This scenario inherits DemoWorld's default FontSize (18) unless overridden. At the
+    /// original LogicalWidth 1440 split two ways, each pane was only ~63 columns wide - well
+    /// under the ~56-character prompt plus any command over ten characters, so both split panes
+    /// wrapped mid-token (`bash scrip` / `ts/demo-test.sh`). FontSize 14 alone (~81 columns at
+    /// 1440) still wasn't enough for this scenario's longest command - the prompt (~56 chars)
+    /// plus `git log --graph --oneline --all -12` (36 chars) is ~92 characters - so
+    /// LogicalWidth is widened to 1920 as well: combined with FontSize 14 that's comfortably
+    /// over 100 columns per split pane, with margin for a longer command later.
+    /// </summary>
+    public Action<TerminalSettings>? Settings => settings => settings.FontSize = 14;
 
     public async Task RunAsync(ShotContext context)
     {
@@ -25,15 +38,54 @@ internal sealed class HeroSplitScenario : IScenario
         await context.RunCommandAsync(left, "clear");
         await context.RunCommandAsync(left, "bash scripts/demo-test.sh");
 
-        context.Driver.InvokePrivate(context.Window, "SplitPane", Orientation.Horizontal);
-        TerminalPane topRight = CurrentPane(context);
+        // A second command, so the left pane's content isn't just one test run's worth of
+        // output - Intent requires "every pane full of text", and one 6-line suite plus its
+        // summary left roughly the top third of the pane full and the rest empty.
+        await context.RunCommandAsync(left, "bash scripts/nova-banner.sh");
+
+        TerminalPane topRight = SplitAndGetNewPane(context, Orientation.Horizontal);
         await context.RunCommandAsync(topRight, "git log --graph --oneline --all -12");
 
-        context.Driver.InvokePrivate(context.Window, "SplitPane", Orientation.Vertical);
-        TerminalPane bottomRight = CurrentPane(context);
-        await context.RunCommandAsync(bottomRight, "ps aux | head -20");
+        TerminalPane bottomRight = SplitAndGetNewPane(context, Orientation.Vertical);
+
+        // Not `ps aux | head -20`: real `ps` output is the real capture machine, in full - the
+        // real uid/gid, the real TTY names, real PIDs, and this harness's own bash/grep/head -
+        // none of which DemoWorld's PS1 or environment overrides can touch, because none of
+        // that text passes through them. demo-top.sh is plain printf, so there is nothing real
+        // in it to leak, and its row count is small and fixed so the table is never mid-scroll.
+        await context.RunCommandAsync(bottomRight, "bash scripts/demo-top.sh");
 
         context.Capture();
+    }
+
+    /// <summary>
+    /// Splits the current pane and returns the new one, asserting the split actually moved
+    /// MainWindow's notion of the current pane.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="MainWindow.SplitPane"/> silently returns without doing anything when
+    /// <c>_currentPane</c> is null (MainWindow.axaml.cs:5225) - a no-op split would leave the
+    /// next command typed into whatever pane was already current, and on the lead image that
+    /// would mean capturing a single-pane "hero split" with no failure anywhere. Every other
+    /// scenario in this catalogue asserts the state it depends on; this one asserted nothing
+    /// about the split itself.
+    /// </remarks>
+    private static TerminalPane SplitAndGetNewPane(ShotContext context, Orientation orientation)
+    {
+        TerminalPane before = CurrentPane(context);
+
+        context.Driver.InvokePrivate(context.Window, "SplitPane", orientation);
+        TerminalPane after = CurrentPane(context);
+
+        if (ReferenceEquals(before, after))
+        {
+            throw new InvalidOperationException(
+                $"SplitPane({orientation}) did not change MainWindow's current pane - it silently " +
+                "no-ops when _currentPane is null, so this would otherwise capture a single-pane " +
+                "window as a 'hero split' with no failure anywhere.");
+        }
+
+        return after;
     }
 
     /// <summary>

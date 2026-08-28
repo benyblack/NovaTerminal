@@ -37,7 +37,25 @@ internal sealed class ClipAgentScenario : IScenario
     /// clip scene for further motion before moving on, where being slow costs frame budget on
     /// every single scene.
     /// </summary>
-    private static readonly TimeSpan ChangeQuietFor = TimeSpan.FromMilliseconds(120);
+    /// <remarks>
+    /// Must stay above <c>demo-test.sh</c>'s paced per-line gap (180ms, only emitted when
+    /// <see cref="PacedEnvironmentVariable"/> is set, which this scenario does). At the previous
+    /// value of 120ms, the ~180ms gap between two suite lines read as "settled" well before the
+    /// script actually finished: <see cref="CaptureUntilSettled"/> broke out after the first
+    /// quiet 120ms window, burned its hold frames on that partial transcript, and the remaining
+    /// suites only appeared after the journal cut away and back - a jump, not motion. 300ms
+    /// clears the 180ms gap with margin while staying well under the 600ms a still needs.
+    /// </remarks>
+    private static readonly TimeSpan ChangeQuietFor = TimeSpan.FromMilliseconds(300);
+
+    /// <summary>
+    /// Set for the lifetime of this scenario's single pane, so <c>demo-test.sh</c> paces its
+    /// suite lines instead of printing all six in one instant burst - this clip is the one place
+    /// a real shell progressing on camera is worth the frame budget. Must be set before the pane
+    /// opens: the shell inherits the harness process's environment at spawn time, so a change
+    /// made after the shell is already running never reaches it.
+    /// </summary>
+    private const string PacedEnvironmentVariable = "NOVA_SHOTS_PACE";
 
     /// <summary>How long any one scene may take to finish changing before this clip gives up on it.</summary>
     private static readonly TimeSpan MaxSceneWait = TimeSpan.FromSeconds(5);
@@ -84,53 +102,87 @@ internal sealed class ClipAgentScenario : IScenario
         settings.AgentAccessActEnabled = true;
     };
 
+    /// <summary>
+    /// Not just "before OpenTab" but before MainWindow is constructed at all: MainWindow spawns
+    /// (or restores) its startup tab's shell during construction/Show(), and
+    /// <see cref="ShotContext.OpenTab"/>'s very first call in <see cref="RunAsync"/> below
+    /// *adopts* that already-running shell rather than spawning a new one (see its own remarks).
+    /// A variable set from inside RunAsync - after MainWindow already exists - is set too late
+    /// for that shell: the process environment it inherited at its own spawn is fixed for its
+    /// lifetime. Confirmed the hard way: with the set moved here, before it was in RunAsync
+    /// (still ahead of the OpenTab call, but after MainWindow's own construction had already
+    /// spawned and this scenario's pane had silently adopted that unpaced shell), a diagnostic
+    /// dump of every <see cref="ITerminalSession.OnOutputReceived"/> chunk showed demo-test.sh's
+    /// entire six-suite output landing in one ~40ms burst - the pacing was never seen at all.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="_previousPace"/> remembers the value this displaced, so RunAsync's finally can
+    /// put it back - later scenarios in the same run (Program.cs runs the whole catalogue in one
+    /// process) must not inherit paced output for their own stills. See demo-test.sh's own
+    /// remarks for why that matters.
+    /// </remarks>
+    public Action? PrepareEnvironment => () =>
+    {
+        _previousPace = Environment.GetEnvironmentVariable(PacedEnvironmentVariable);
+        Environment.SetEnvironmentVariable(PacedEnvironmentVariable, "1");
+    };
+
+    private string? _previousPace;
+
     public async Task RunAsync(ShotContext context)
     {
-        TerminalPane pane = context.OpenTab(context.World.DemoProfile);
-
-        await context.RunCommandAsync(pane, "clear");
-        await context.RunCommandAsync(pane, "bash scripts/nova-banner.sh");
-
-        context.Driver.WaitFor(
-            () => AgentSessionRegistry.Instance.TryGet(pane.PaneId, out _),
-            TimeSpan.FromSeconds(10),
-            "the pane to register with the agent-session registry");
-
-        int journalBefore = AgentActivityJournal.Instance.Count;
-
-        await context.RecordAsync(async () =>
+        try
         {
-            // A beat on the settled "before" pane, deliberately: with no pre-roll the clip would
-            // open mid-transcript, and a viewer scrubbing back to frame zero would see the same
-            // fully-typed picture the still already shows.
-            context.CaptureUntilSettled(context.Window, ChangeQuietFor, MaxSceneWait, PreRollHoldFrames);
+            TerminalPane pane = context.OpenTab(context.World.DemoProfile);
 
-            for (int i = 0; i < AgentCommands.Length; i++)
+            await context.RunCommandAsync(pane, "clear");
+            await context.RunCommandAsync(pane, "bash scripts/nova-banner.sh");
+
+            context.Driver.WaitFor(
+                () => AgentSessionRegistry.Instance.TryGet(pane.PaneId, out _),
+                TimeSpan.FromSeconds(10),
+                "the pane to register with the agent-session registry");
+
+            int journalBefore = AgentActivityJournal.Instance.Count;
+
+            await context.RecordAsync(async () =>
             {
-                await RunAnimatedCommandAsync(context, pane, AgentCommands[i]);
+                // A beat on the settled "before" pane, deliberately: with no pre-roll the clip
+                // would open mid-transcript, and a viewer scrubbing back to frame zero would see
+                // the same fully-typed picture the still already shows.
+                context.CaptureUntilSettled(context.Window, ChangeQuietFor, MaxSceneWait, PreRollHoldFrames);
 
-                // The journal is what makes this an honest clip of an agent acting, not just a
-                // clip of a terminal - so it is shown ticking on camera, once per command, rather
-                // than opened only after recording stops to be checked and thrown away.
-                ShowJournalTick(context, journalBefore + i + 1);
+                for (int i = 0; i < AgentCommands.Length; i++)
+                {
+                    await RunAnimatedCommandAsync(context, pane, AgentCommands[i]);
+
+                    // The journal is what makes this an honest clip of an agent acting, not just
+                    // a clip of a terminal - so it is shown ticking on camera, once per command,
+                    // rather than opened only after recording stops to be checked and thrown away.
+                    ShowJournalTick(context, journalBefore + i + 1);
+                }
+
+                context.CaptureUntilSettled(context.Window, ChangeQuietFor, MaxSceneWait, FinalHoldFrames);
+            }, Fps);
+
+            if (AgentActivityJournal.Instance.Count < journalBefore + AgentCommands.Length)
+            {
+                throw new InvalidOperationException(
+                    $"The agent journal recorded fewer than the {AgentCommands.Length} calls this " +
+                    "clip just made, so the clip would be showing a staged agent rather than the " +
+                    "real one. Check that act is enabled and the host is running.");
             }
 
-            context.CaptureUntilSettled(context.Window, ChangeQuietFor, MaxSceneWait, FinalHoldFrames);
-        }, Fps);
+            RequireLitAgentSegment(pane);
 
-        if (AgentActivityJournal.Instance.Count < journalBefore + AgentCommands.Length)
-        {
-            throw new InvalidOperationException(
-                $"The agent journal recorded fewer than the {AgentCommands.Length} calls this " +
-                "clip just made, so the clip would be showing a staged agent rather than the real " +
-                "one. Check that act is enabled and the host is running.");
+            // The clip's final frame is already a settled transcript - this is the still that
+            // ships alongside it, at the run's configured scale rather than the recorder's 1x.
+            context.Capture();
         }
-
-        RequireLitAgentSegment(pane);
-
-        // The clip's final frame is already a settled transcript - this is the still that ships
-        // alongside it, at the run's configured scale rather than the recorder's 1x.
-        context.Capture();
+        finally
+        {
+            Environment.SetEnvironmentVariable(PacedEnvironmentVariable, _previousPace);
+        }
     }
 
     /// <summary>
@@ -138,13 +190,23 @@ internal sealed class ClipAgentScenario : IScenario
     /// output lands and draws.
     /// </summary>
     /// <remarks>
-    /// <see cref="AgentHostService.HandleRequestLineAsync"/> submits the whole command in one
-    /// call - the real <c>send_input</c> path genuinely does not stream keystrokes - so there is
-    /// no gradual "typing" to capture within a single command; the shell renders its answer in
-    /// one paint well inside one <see cref="Driver.Pump"/>. <see cref="ShotContext.CaptureUntilSettled"/>
-    /// still earns its keep here: it captures that one real paint transition and nothing more,
-    /// rather than the fixed-size loop of duplicate frames a blind Pump-N-times approach would
-    /// have spent regardless of whether anything was still moving.
+    /// <see cref="AgentHostService.HandleRequestLineAsync"/> submits the whole command in one call
+    /// - the real <c>send_input</c> path genuinely does not stream keystrokes - but that only means
+    /// there is no gradual *typing* to show. The demo-test.sh command's own OUTPUT still streams:
+    /// with <see cref="PacedEnvironmentVariable"/> set, it prints its six suites roughly 180ms
+    /// apart in real time, and this clip exists specifically to show that progression on camera.
+    /// <para>
+    /// This does not use <see cref="ShotContext.CaptureUntilSettled"/>, which decides "did the
+    /// picture change" by re-encoding the whole frame to PNG and hashing it every poll - expensive
+    /// enough per iteration that, empirically, it missed every one of the six lines and only ever
+    /// captured "nothing yet" and "all six done", the same jump-cut shape as the original 120ms
+    /// bug just landing on the correct frame instead of the wrong one. Real progress is instead
+    /// read off <paramref name="pane"/>'s own session: <c>chunks</c> below counts
+    /// <see cref="ITerminalSession.OnOutputReceived"/> events (the actual PTY bytes each print
+    /// produces), and a frame is captured whenever that count moves - a cheap, direct signal of
+    /// "the shell just said something", rather than an indirect and costlier "does the screen look
+    /// different now" guess.
+    /// </para>
     /// </remarks>
     private static async Task RunAnimatedCommandAsync(ShotContext context, TerminalPane pane, string command)
     {
@@ -159,7 +221,7 @@ internal sealed class ClipAgentScenario : IScenario
         {
             await DeliverAsAgentAsync(pane, command);
 
-            context.CaptureUntilSettled(context.Window, ChangeQuietFor, MaxSceneWait, CommandHoldFrames);
+            CaptureUntilOutputSettled(context, () => Volatile.Read(ref chunks));
 
             if (Volatile.Read(ref chunks) == 0)
             {
@@ -172,6 +234,51 @@ internal sealed class ClipAgentScenario : IScenario
         finally
         {
             session.OnOutputReceived -= OnOutput;
+        }
+    }
+
+    /// <summary>
+    /// Captures a frame each time <paramref name="readChunkCount"/> reports new output has
+    /// arrived, until it stops changing for <see cref="ChangeQuietFor"/> or
+    /// <see cref="MaxSceneWait"/> elapses, then holds <see cref="CommandHoldFrames"/> more.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors <see cref="ShotContext.CaptureUntilSettled"/>'s shape (poll, capture on change,
+    /// break once quiet, then hold) but keyed on the session's own output-chunk counter instead
+    /// of a rendered-frame hash - see <see cref="RunAnimatedCommandAsync"/>'s remarks for why.
+    /// </remarks>
+    private static void CaptureUntilOutputSettled(ShotContext context, Func<int> readChunkCount)
+    {
+        FrameRecorder recorder = context.Recorder
+            ?? throw new InvalidOperationException("CaptureUntilOutputSettled was called outside RecordAsync.");
+
+        int previous = readChunkCount();
+        DateTime deadline = DateTime.UtcNow + MaxSceneWait;
+        DateTime quietSince = DateTime.UtcNow;
+        bool everChanged = false;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            context.Driver.Pump(1);
+
+            int current = readChunkCount();
+            if (current != previous)
+            {
+                previous = current;
+                quietSince = DateTime.UtcNow;
+                everChanged = true;
+                recorder.CaptureFrame(context.Window);
+            }
+            else if (everChanged && DateTime.UtcNow - quietSince >= ChangeQuietFor)
+            {
+                break;
+            }
+        }
+
+        for (int i = 0; i < CommandHoldFrames; i++)
+        {
+            context.Driver.Pump(1);
+            recorder.CaptureFrame(context.Window);
         }
     }
 

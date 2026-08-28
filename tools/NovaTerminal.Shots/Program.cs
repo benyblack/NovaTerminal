@@ -48,6 +48,13 @@ public static class Program
                 // and MainWindow restores them on the next start.
                 world.ForgetPreviousSession();
 
+                // Also before construction, and for the same reason Settings is: MainWindow
+                // spawns (or restores) its startup tab's shell during construction/Show(), so an
+                // environment variable that shell must inherit has to be set before `new
+                // MainWindow(...)` runs, not from inside RunAsync - see PrepareEnvironment's
+                // remarks for why "inside RunAsync" is too late for every scenario's first pane.
+                scenario.PrepareEnvironment?.Invoke();
+
                 await host.RunAsync(async () =>
                 {
                     var window = new MainWindow(AppServices.BuildForDesigner())

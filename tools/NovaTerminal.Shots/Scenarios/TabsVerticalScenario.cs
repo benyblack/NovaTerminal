@@ -31,13 +31,27 @@ internal sealed class TabsVerticalScenario : IScenario
     /// </summary>
     private const string AgentTabName = "claude-code";
 
+    /// <summary>
+    /// This Intent used to also claim "each showing its status indicator and output preview
+    /// line". Both turned out to be structurally unavailable for four of the five tabs, not
+    /// just unimplemented: DemoWorld's PS1 is one literal, unchanging string, so every settled
+    /// pane's bottom line is byte-identical regardless of which tab it is or what ran in it -
+    /// TabPreviewTracker has nothing distinguishing to show once the shell returns to its
+    /// prompt. And TabStatusTracker's "Working" window is 2 seconds; five tabs opened and run in
+    /// sequence take well over that to get through, so by the final capture only the
+    /// most-recently-run tab can still be inside that window - never four of the five at once.
+    /// Neither is a bug in this scenario to fix; both are what the real mechanism does when fed
+    /// five sequential, near-instant, identically-prompted shells. What the image can actually
+    /// show for every tab, reliably, is its distinct name and - for the one selected - a visible
+    /// highlight; the agent-activity marker is the one dynamic claim that IS real for one tab.
+    /// </summary>
     public ShotSpec Spec { get; } = new(
         Name: "tabs-vertical",
         Tier: 1,
         LogicalWidth: 1440,
         LogicalHeight: 900,
-        Intent: "The vertical tab sidebar with five distinctly named tabs, each showing its status " +
-                "indicator and output preview line, and one tab visibly carrying agent activity.");
+        Intent: "The vertical tab sidebar with five distinctly named tabs, the selected tab " +
+                "highlighted, and one tab visibly carrying agent activity.");
 
     /// <summary>
     /// Applied before MainWindow is constructed, which is the only time TabStripOrientation takes
@@ -55,6 +69,19 @@ internal sealed class TabsVerticalScenario : IScenario
     {
         var tabs = context.Window.FindControl<TabControl>("Tabs")
             ?? throw new InvalidOperationException("MainWindow has no 'Tabs' control.");
+
+        // The strip being vertical is this scenario's one defining claim, and the brief names
+        // silent-horizontal (Settings applied too late, or never) as the expected failure mode -
+        // every tab could still open, get named and run its command, and the capture would look
+        // identical to a passing run except for the layout itself. ApplyTabLayout's only visible
+        // trace of the mode is this class (MainWindow.axaml.cs:887).
+        if (!tabs.Classes.Contains("vertical-tabs"))
+        {
+            throw new InvalidOperationException(
+                "The tab strip is not wearing the 'vertical-tabs' class, so it rendered horizontal. " +
+                "TabStripOrientation either did not reach MainWindow before construction, or " +
+                "ApplyTabLayout no longer sets this class for vertical mode.");
+        }
 
         for (int i = 0; i < TabNames.Length; i++)
         {
