@@ -33,7 +33,7 @@ namespace NovaTerminal
 
         /// <summary>
         /// F1: set once a successful Import or Restore has replaced configuration on disk out from
-        /// under this window (see <see cref="ReloadSettingsAfterExternalChange"/>). The owning
+        /// under this window (see <see cref="ReloadSettingsAfterExternalChangeAsync"/>). The owning
         /// <c>MainWindow.OpenSettings</c> must adopt the reloaded <see cref="Settings"/> regardless
         /// of how this dialog eventually closes - Save, Cancel, or the window's X - because closing
         /// any other way than Save previously left <c>MainWindow._settings</c> pointing at the
@@ -1116,7 +1116,7 @@ namespace NovaTerminal
                         // PRE-import state - if this window's Save is clicked afterward, it would
                         // silently overwrite the very change Import just made with that stale
                         // snapshot. Reload before anything else can touch _settings again.
-                        ReloadSettingsAfterExternalChange();
+                        await ReloadSettingsAfterExternalChangeAsync();
                     }
 
                     // M2: surface the service's own outcome message rather than a generic one -
@@ -1158,7 +1158,7 @@ namespace NovaTerminal
                         // I1: same reasoning as the Import handler above - Restore just changed
                         // settings.json (and possibly more) on disk, and this window's in-memory
                         // state must not be allowed to stomp it on a later Save.
-                        ReloadSettingsAfterExternalChange();
+                        await ReloadSettingsAfterExternalChangeAsync();
                     }
 
                     SetStatus(
@@ -1188,8 +1188,15 @@ namespace NovaTerminal
         /// (profiles/shortcuts/title-bar derivation, then the UI-control population methods), so
         /// the already-open window's controls reflect the new on-disk state too rather than
         /// merely fixing what gets written back on the next Save.
+        /// <para>
+        /// Asynchronous solely because of the trailing snippet reload (see the comment at the end
+        /// of the body); everything else here is synchronous and completes before the first
+        /// suspension point. Callers must await it - both the Import and Restore click handlers
+        /// already do - so the whole window, snippet rows included, is consistent with disk before
+        /// the success status is shown.
+        /// </para>
         /// </summary>
-        private void ReloadSettingsAfterExternalChange()
+        private async System.Threading.Tasks.Task ReloadSettingsAfterExternalChangeAsync()
         {
             // F1: record that configuration was replaced externally so MainWindow.OpenSettings can
             // adopt the reload below no matter how this dialog eventually closes. Set unconditionally
@@ -1246,11 +1253,27 @@ namespace NovaTerminal
 
             LoadTitleBarDraft();
             RebuildTitleBarRows();
+
+            // The one populate path that is NOT reachable by repeating the constructor's sequence,
+            // and the reason this method is async at all. PopulateCommandAssistSnippetsPanel is
+            // driven by WireCommandAssistSnippetsRow's one-shot `Opened` handler rather than by the
+            // constructor, because the snippet store arrives by property assignment after the
+            // constructor has run. This method runs on an ALREADY-OPEN window and never reopens it,
+            // so `Opened` does not fire again: without this call, an import/restore whose bundle
+            // carries a different command-assist/snippets.json (which BackupService replaces
+            // wholesale in BOTH modes) leaves the visible rows describing the pre-import file until
+            // the window is closed and reopened - and the user can edit or delete against them.
+            //
+            // Awaited last, after every synchronous repopulation above, so the parts of this method
+            // that cannot fail on I/O are already done before the first suspension point. Null-safe
+            // for a window opened outside MainWindow.OpenSettings: TryGetSnippetEditor returns null
+            // when CommandAssistSnippetStore is unset and the panel simply says so.
+            await ReloadCommandAssistSnippetsAsync();
         }
 
         /// <summary>
         /// Fix (I1 residual #2): <c>_selectedProfile</c> points at an entry of the PRE-reload
-        /// <c>_profilesList</c>. <see cref="ReloadSettingsAfterExternalChange"/> rebuilds
+        /// <c>_profilesList</c>. <see cref="ReloadSettingsAfterExternalChangeAsync"/> rebuilds
         /// <c>_profilesList</c> with fresh <see cref="TerminalProfile"/> instances (freshly
         /// deserialized from the reloaded settings.json) but, without this, never re-points
         /// <c>_selectedProfile</c> at the corresponding new instance - it is left dangling,
@@ -1555,7 +1578,7 @@ namespace NovaTerminal
 
             // Codex review round 3: seed BOTH the global font and the selected profile's own
             // override (if any), rather than ??-ing them down to one. In the reload path
-            // (ReloadSettingsAfterExternalChange), _selectedProfile is still the PRE-reload
+            // (ReloadSettingsAfterExternalChangeAsync), _selectedProfile is still the PRE-reload
             // object — RepointSelectedProfileAfterReload does not run until after this — so a
             // profile with a font override used to make _selectedProfile?.FontFamily win the ??
             // and silently hide _settings.FontFamily from this seeding entirely. That left a

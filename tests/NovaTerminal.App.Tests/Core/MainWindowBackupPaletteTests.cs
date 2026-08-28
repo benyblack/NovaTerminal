@@ -148,7 +148,7 @@ public sealed class MainWindowBackupPaletteTests
     /// just-imported settings.json with the stale pre-import configuration.
     ///
     /// Drives the real seams: a real <see cref="BackupService.Import"/> (Replace mode), the private
-    /// <c>SettingsWindow.ReloadSettingsAfterExternalChange</c> the Import click handler calls on
+    /// <c>SettingsWindow.ReloadSettingsAfterExternalChangeAsync</c> the Import click handler calls on
     /// success (same reflection seam <c>SettingsWindowBackupSectionTests</c> uses -
     /// <c>Window.ShowDialog</c> hangs this headless host, so the dialog itself is never opened), then
     /// <c>MainWindow.ApplySettingsWindowResult</c> with <c>saved: false</c> - simulating Cancel/X -
@@ -156,7 +156,7 @@ public sealed class MainWindowBackupPaletteTests
     /// invocation of "Font: Increase" stands in for "any ordinary action afterwards".
     /// </summary>
     [AvaloniaFact]
-    public void ImportReplace_ThenCancelSettings_ThenOrdinarySave_KeepsTheImportedConfiguration()
+    public async Task ImportReplace_ThenCancelSettings_ThenOrdinarySave_KeepsTheImportedConfiguration()
     {
         using var source = BackupTestTree.CreatePopulated();
         source.WriteFile("settings.json", """{"FontSize":77,"ThemeName":"FromImport"}""");
@@ -182,9 +182,9 @@ public sealed class MainWindowBackupPaletteTests
             Assert.True(importOutcome.Success, importOutcome.Message);
 
             var reloadMethod = typeof(NovaTerminal.SettingsWindow).GetMethod(
-                "ReloadSettingsAfterExternalChange", BindingFlags.Instance | BindingFlags.NonPublic);
+                "ReloadSettingsAfterExternalChangeAsync", BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(reloadMethod);
-            reloadMethod!.Invoke(settingsWindow, null);
+            await (Task)reloadMethod!.Invoke(settingsWindow, null)!;
             Assert.True(settingsWindow.ConfigurationReplacedExternally);
 
             var previewSnapshot = new NovaTerminal.MainWindow.PreviewSnapshot(

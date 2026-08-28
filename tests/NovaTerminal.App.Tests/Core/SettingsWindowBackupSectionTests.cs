@@ -6,6 +6,8 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
 using NovaTerminal.Backup;
+using NovaTerminal.CommandAssist.Models;
+using NovaTerminal.CommandAssist.Storage;
 using NovaTerminal.Tests.Backup;
 using Xunit;
 
@@ -419,12 +421,12 @@ public sealed class SettingsWindowBackupSectionTests
     /// <c>Window.ShowDialog</c> hangs this host) - and unlike Restore's confirmation, no test seam
     /// exists for either. Per the plan's own guidance, this drives the underlying method chain
     /// directly instead: a real <see cref="BackupService.Import"/> call, then the private
-    /// <c>ReloadSettingsAfterExternalChange</c> the click handler calls on success (reached via
+    /// <c>ReloadSettingsAfterExternalChangeAsync</c> the click handler calls on success (reached via
     /// reflection, the same established pattern <c>BuildRestoreConfirmationText</c> uses
     /// elsewhere in this file), then a real BtnSave click.
     /// </summary>
     [AvaloniaFact]
-    public void Import_ThenSave_DoesNotRevertTheImportedSettings()
+    public async Task Import_ThenSave_DoesNotRevertTheImportedSettings()
     {
         using var source = BackupTestTree.CreatePopulated();
         source.WriteFile("settings.json", """{"FontSize":77,"ThemeName":"FromImport"}""");
@@ -441,10 +443,7 @@ public sealed class SettingsWindowBackupSectionTests
         var outcome = targetService.Import(bundle, ImportMode.Replace);
         Assert.True(outcome.Success, outcome.Message);
 
-        var reloadMethod = typeof(NovaTerminal.SettingsWindow).GetMethod(
-            "ReloadSettingsAfterExternalChange", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(reloadMethod);
-        reloadMethod!.Invoke(window, null);
+        await InvokeReloadAfterExternalChangeAsync(window);
 
         var btnSave = window.FindControl<Button>("BtnSave")!;
         btnSave.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
@@ -456,7 +455,7 @@ public sealed class SettingsWindowBackupSectionTests
 
     /// <summary>
     /// I1 residual, Fix 1 (scoped re-review): <c>PopulateThemes</c> fills the theme combo boxes
-    /// from disk once, at construction. <c>ReloadSettingsAfterExternalChange</c> did not re-run it,
+    /// from disk once, at construction. <c>ReloadSettingsAfterExternalChangeAsync</c> did not re-run it,
     /// so an import bringing a NEW theme file plus a settings.json naming it left the combo holding
     /// the pre-import theme list — no entry for the imported theme. <c>LoadCurrentSettings</c>'s
     /// theme-selection loop then had nothing to select, left <c>SelectedItem</c> on the stale
@@ -471,7 +470,7 @@ public sealed class SettingsWindowBackupSectionTests
     /// makes the stale selection observable at Save.
     /// </summary>
     [AvaloniaFact]
-    public void Import_BringingNewTheme_ThenSave_PersistsTheImportedThemeName()
+    public async Task Import_BringingNewTheme_ThenSave_PersistsTheImportedThemeName()
     {
         using var source = BackupTestTree.CreateEmpty();
         source.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Imported"}""");
@@ -490,10 +489,7 @@ public sealed class SettingsWindowBackupSectionTests
         var outcome = targetService.Import(bundle, ImportMode.Replace);
         Assert.True(outcome.Success, outcome.Message);
 
-        var reloadMethod = typeof(NovaTerminal.SettingsWindow).GetMethod(
-            "ReloadSettingsAfterExternalChange", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(reloadMethod);
-        reloadMethod!.Invoke(window, null);
+        await InvokeReloadAfterExternalChangeAsync(window);
 
         var btnSave = window.FindControl<Button>("BtnSave")!;
         btnSave.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
@@ -508,7 +504,7 @@ public sealed class SettingsWindowBackupSectionTests
     /// fonts. <c>PopulateFonts</c> builds its list via
     /// <c>BuildFontFamilyChoices(..., _selectedProfile?.FontFamily ?? _settings.FontFamily)</c> —
     /// it explicitly seeds the configured font even when it is not installed locally. Before the
-    /// fix, <c>ReloadSettingsAfterExternalChange</c> called <c>PopulateThemes</c> but not
+    /// fix, <c>ReloadSettingsAfterExternalChangeAsync</c> called <c>PopulateThemes</c> but not
     /// <c>PopulateFonts</c>, so a bundle imported from another machine naming a font absent here
     /// left <c>FontList</c> holding the pre-import choices; <c>LoadCurrentSettings</c> could not
     /// select the imported font, and a later Save wrote the stale font back over it.
@@ -522,7 +518,7 @@ public sealed class SettingsWindowBackupSectionTests
     /// this bug.
     /// </summary>
     [AvaloniaFact]
-    public void Import_BringingFontNotInstalledLocally_ThenSave_PersistsTheImportedFontFamily()
+    public async Task Import_BringingFontNotInstalledLocally_ThenSave_PersistsTheImportedFontFamily()
     {
         const string importedFont = "TotallyNotARealFont-XYZ123";
 
@@ -543,10 +539,7 @@ public sealed class SettingsWindowBackupSectionTests
         var outcome = targetService.Import(bundle, ImportMode.Replace);
         Assert.True(outcome.Success, outcome.Message);
 
-        var reloadMethod = typeof(NovaTerminal.SettingsWindow).GetMethod(
-            "ReloadSettingsAfterExternalChange", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(reloadMethod);
-        reloadMethod!.Invoke(window, null);
+        await InvokeReloadAfterExternalChangeAsync(window);
 
         var btnSave = window.FindControl<Button>("BtnSave")!;
         btnSave.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
@@ -554,6 +547,111 @@ public sealed class SettingsWindowBackupSectionTests
         using var afterSave = target.ReadJson("settings.json");
         Assert.Equal(importedFont, afterSave.RootElement.GetProperty("FontFamily").GetString());
     }
+
+    /// <summary>
+    /// Sibling of <see cref="Import_BringingFontNotInstalledLocally_ThenSave_PersistsTheImportedFontFamily"/>
+    /// and <see cref="Import_BringingNewTheme_ThenSave_PersistsTheImportedThemeName"/>, for the one
+    /// populate path the reload did not cover: the Command Assist snippet list.
+    ///
+    /// Every other <c>Populate*</c> is called straight from the constructor, so
+    /// <c>ReloadSettingsAfterExternalChangeAsync</c> could re-run it by simply repeating the constructor's
+    /// sequence. <c>PopulateCommandAssistSnippetsPanel</c> is different — it is reached through
+    /// <c>WireCommandAssistSnippetsRow</c>'s <c>Opened += async (_, _) =&gt; await
+    /// ReloadCommandAssistSnippetsAsync()</c> handler, because the store arrives by property
+    /// assignment after the constructor has run. <c>Opened</c> fires once, the first time the window
+    /// is shown; the reload runs on an ALREADY-OPEN window and does not reopen it, so before this fix
+    /// nothing refreshed the snippet rows. An import whose bundle carries a different
+    /// <c>command-assist/snippets.json</c> (which <c>BackupService</c> replaces wholesale in BOTH
+    /// modes) left the visible list showing the pre-import snippets until the window was closed and
+    /// reopened.
+    ///
+    /// Unlike the theme/font siblings, the observable damage is not at Save — snippets do not live in
+    /// settings.json and the Save button never writes them — it is the stale rows themselves, which
+    /// the user can then edit or delete, acting on a list that no longer describes the file. So this
+    /// asserts on the panel's contents directly.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Import_BringingNewSnippets_RefreshesTheAlreadyOpenSnippetsPanel()
+    {
+        using var source = BackupTestTree.CreateEmpty();
+        source.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Default"}""");
+        await new JsonSnippetStore(SnippetsPathIn(source))
+            .UpsertAsync(NewSnippet("imported-1", "Imported snippet", "echo imported"));
+        string bundle = Path.Combine(source.Root, "import.novabackup");
+        Assert.True(new BackupService(source.Root).Export(bundle).Success);
+
+        using var target = BackupTestTree.CreatePopulated();
+        // The live store MainWindow.OpenSettings injects — a real JsonSnippetStore over the target
+        // tree's own file, so the import below genuinely changes what it reads.
+        var targetStore = new JsonSnippetStore(SnippetsPathIn(target));
+        await targetStore.UpsertAsync(NewSnippet("local-1", "Local snippet", "echo local"));
+
+        using var _ = OverrideAppDataRoot(target.Root);
+        var window = new NovaTerminal.SettingsWindow { CommandAssistSnippetStore = targetStore };
+
+        // Stands in for the one-shot Opened handler: the window is open and its snippet list has
+        // already been populated from the pre-import file.
+        await InvokeReloadCommandAssistSnippetsAsync(window);
+        Assert.Equal(new[] { "Local snippet" }, SnippetRowNames(window));
+
+        var outcome = new BackupService(target.Root).Import(bundle, ImportMode.Replace);
+        Assert.True(outcome.Success, outcome.Message);
+
+        await InvokeReloadAfterExternalChangeAsync(window);
+
+        Assert.Equal(new[] { "Imported snippet" }, SnippetRowNames(window));
+    }
+
+    private static string SnippetsPathIn(BackupTestTree tree)
+        => Path.Combine(tree.Root, "command-assist", "snippets.json");
+
+    private static CommandSnippet NewSnippet(string id, string name, string command) => new(
+        Id: id,
+        Name: name,
+        CommandText: command,
+        Description: null,
+        ShellKind: null,
+        WorkingDirectory: null,
+        IsPinned: true,
+        CreatedAt: DateTimeOffset.UnixEpoch,
+        LastUsedAt: null);
+
+    /// <summary>
+    /// The names shown by the rows currently in <c>CommandAssistSnippetsPanel</c> — the first
+    /// <see cref="TextBox"/> of each row, which <c>CreateCommandAssistSnippetRow</c> seeds with the
+    /// snippet's name. Reading the built controls rather than the editor's list is the point: the bug
+    /// is precisely that the two can disagree.
+    /// </summary>
+    private static string[] SnippetRowNames(NovaTerminal.SettingsWindow window)
+    {
+        var panel = window.FindControl<StackPanel>("CommandAssistSnippetsPanel")!;
+        return panel.Children
+            .Select(row => row.GetLogicalDescendants().OfType<TextBox>().First().Text ?? "")
+            .ToArray();
+    }
+
+    private static async Task InvokeReloadCommandAssistSnippetsAsync(NovaTerminal.SettingsWindow window)
+    {
+        var method = typeof(NovaTerminal.SettingsWindow).GetMethod(
+            "ReloadCommandAssistSnippetsAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        await (Task)method!.Invoke(window, null)!;
+    }
+
+    /// <summary>
+    /// Drives the private <c>ReloadSettingsAfterExternalChangeAsync</c> the Import and Restore click
+    /// handlers call on success. Reflection, and awaited: the method became a <see cref="Task"/> when
+    /// the Command Assist snippet reload (genuinely async - it re-reads the store's file) joined the
+    /// synchronous repopulation, so invoking without awaiting would race the assertions that follow.
+    /// </summary>
+    private static async Task InvokeReloadAfterExternalChangeAsync(NovaTerminal.SettingsWindow window)
+    {
+        var method = typeof(NovaTerminal.SettingsWindow).GetMethod(
+            "ReloadSettingsAfterExternalChangeAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        await (Task)method!.Invoke(window, null)!;
+    }
+
 
     /// <summary>
     /// Finding 2 (Codex review round 2, PR #362): the Merge/Replace import prompt says Merge
@@ -613,7 +711,7 @@ public sealed class SettingsWindowBackupSectionTests
 
     /// <summary>
     /// I1 residual, Fix 2 (scoped re-review): <c>_selectedProfile</c> points at an entry of the
-    /// PRE-reload <c>_profilesList</c>. <c>ReloadSettingsAfterExternalChange</c> rebuilds
+    /// PRE-reload <c>_profilesList</c>. <c>ReloadSettingsAfterExternalChangeAsync</c> rebuilds
     /// <c>_profilesList</c> with fresh <c>TerminalProfile</c> instances (freshly deserialized from
     /// the reloaded settings.json) but, before this fix, never re-pointed <c>_selectedProfile</c> —
     /// it was left dangling, referencing an object no longer reachable from <c>_profilesList</c>.
@@ -628,7 +726,7 @@ public sealed class SettingsWindowBackupSectionTests
     /// edit landed on the live post-reload profile object, not a detached pre-reload one.
     /// </summary>
     [AvaloniaFact]
-    public void ReloadAfterExternalChange_ThenEditSelectedProfile_ThenSave_PersistsTheEdit()
+    public async Task ReloadAfterExternalChange_ThenEditSelectedProfile_ThenSave_PersistsTheEdit()
     {
         using var tree = BackupTestTree.CreateEmpty();
         const string profileId = "11111111-1111-1111-1111-111111111111";
@@ -656,10 +754,7 @@ public sealed class SettingsWindowBackupSectionTests
              "Profiles":[{"Id":"{{profileId}}","Name":"Original","Command":"{{ProfileCommandForThisOs}}"}]}
             """);
 
-        var reloadMethod = typeof(NovaTerminal.SettingsWindow).GetMethod(
-            "ReloadSettingsAfterExternalChange", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(reloadMethod);
-        reloadMethod!.Invoke(window, null);
+        await InvokeReloadAfterExternalChangeAsync(window);
 
         // Edit the profile's name exactly as a user typing after the reload would: set the
         // TextBox's Text, then raise the real KeyUp event ProfileNameInput's handler listens for.
