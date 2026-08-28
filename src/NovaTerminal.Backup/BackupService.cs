@@ -387,33 +387,33 @@ public sealed class BackupService
         switch (category)
         {
             case BackupCategory.Settings when mode == ImportMode.Merge:
-            {
-                string livePath = Path.Combine(RootDirectory, "settings.json");
-                string? computed = MergeJsonObjectFile(
-                    Path.Combine(extracted, "settings.json"),
-                    livePath,
-                    Path.Combine(final, "settings.json"));
-                if (computed is not null) steps.Add(new SwapStep(category, livePath, computed, IsDirectory: false));
-                break;
-            }
+                {
+                    string livePath = Path.Combine(RootDirectory, "settings.json");
+                    string? computed = MergeJsonObjectFile(
+                        Path.Combine(extracted, "settings.json"),
+                        livePath,
+                        Path.Combine(final, "settings.json"));
+                    if (computed is not null) steps.Add(new SwapStep(category, livePath, computed, IsDirectory: false));
+                    break;
+                }
 
             case BackupCategory.Connections when mode == ImportMode.Merge:
-            {
-                string profilesLive = Path.Combine(RootDirectory, "ssh", "profiles.json");
-                string? profilesFinal = MergeProfilesFile(
-                    Path.Combine(extracted, "ssh", "profiles.json"),
-                    profilesLive,
-                    Path.Combine(final, "ssh", "profiles.json"));
-                if (profilesFinal is not null) steps.Add(new SwapStep(category, profilesLive, profilesFinal, false));
+                {
+                    string profilesLive = Path.Combine(RootDirectory, "ssh", "profiles.json");
+                    string? profilesFinal = MergeProfilesFile(
+                        Path.Combine(extracted, "ssh", "profiles.json"),
+                        profilesLive,
+                        Path.Combine(final, "ssh", "profiles.json"));
+                    if (profilesFinal is not null) steps.Add(new SwapStep(category, profilesLive, profilesFinal, false));
 
-                string hostsLive = Path.Combine(RootDirectory, "ssh", "native_known_hosts.json");
-                string? hostsFinal = MergeJsonArrayFile(
-                    Path.Combine(extracted, "ssh", "native_known_hosts.json"),
-                    hostsLive,
-                    Path.Combine(final, "ssh", "native_known_hosts.json"));
-                if (hostsFinal is not null) steps.Add(new SwapStep(category, hostsLive, hostsFinal, false));
-                break;
-            }
+                    string hostsLive = Path.Combine(RootDirectory, "ssh", "native_known_hosts.json");
+                    string? hostsFinal = MergeJsonArrayFile(
+                        Path.Combine(extracted, "ssh", "native_known_hosts.json"),
+                        hostsLive,
+                        Path.Combine(final, "ssh", "native_known_hosts.json"));
+                    if (hostsFinal is not null) steps.Add(new SwapStep(category, hostsLive, hostsFinal, false));
+                    break;
+                }
 
             default:
                 foreach (var entry in BackupCatalog.EntriesFor(category))
@@ -631,21 +631,13 @@ public sealed class BackupService
         var byId = new Dictionary<string, JsonNode>(StringComparer.OrdinalIgnoreCase);
         var order = new List<string>();
 
-        void Absorb(JsonObject document)
-        {
-            var array = GetPropertyArray(document, "profiles");
-            if (array is null) return;
-            foreach (var element in array)
-            {
-                string? id = element?["Id"]?.GetValue<string>();
-                if (string.IsNullOrWhiteSpace(id) || element is null) continue;
-                if (!byId.ContainsKey(id)) order.Add(id);
-                byId[id] = element.DeepClone();
-            }
-        }
-
-        Absorb(existing);
-        Absorb(incoming); // bundle wins: absorbed second
+        // AbsorbProfiles takes byId/order as parameters rather than capturing them in a local
+        // function. Both forms are behaviourally identical, but static analysis does not track
+        // mutation of captured locals across a local-function call, so the closure version made
+        // the loop below look like it iterated a provably empty list (SonarCloud S4158, a false
+        // positive). Passing them explicitly keeps the analyser honest without a suppression.
+        AbsorbProfiles(existing, byId, order);
+        AbsorbProfiles(incoming, byId, order); // bundle wins: absorbed second
 
         var merged = new JsonArray();
         foreach (string id in order) merged.Add(byId[id]);
@@ -657,6 +649,29 @@ public sealed class BackupService
 
         WriteJson(finalPath, existing);
         return finalPath;
+    }
+
+    /// <summary>
+    /// Folds one document's profile array into <paramref name="byId"/>, recording first-seen
+    /// order in <paramref name="order"/>. Called for the live document first and the bundle's
+    /// second, so a bundle profile overwrites a local one sharing its <c>Id</c> while local-only
+    /// profiles survive and the original ordering is preserved.
+    /// </summary>
+    private static void AbsorbProfiles(
+        JsonObject document,
+        Dictionary<string, JsonNode> byId,
+        List<string> order)
+    {
+        var array = GetPropertyArray(document, "profiles");
+        if (array is null) return;
+
+        foreach (var element in array)
+        {
+            string? id = element?["Id"]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(id) || element is null) continue;
+            if (!byId.ContainsKey(id)) order.Add(id);
+            byId[id] = element.DeepClone();
+        }
     }
 
     /// <summary>
