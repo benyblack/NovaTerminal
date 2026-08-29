@@ -16,7 +16,9 @@ public static class ScenarioCatalog
         new ThemesGridScenario(),
         new SearchOverlayScenario(),
         new TuiVimScenario(),
-        new TuiMonitorScenario()
+        new TuiMonitorScenario(),
+        new SixelGraphicsScenario(),
+        new Iterm2InlineImageScenario()
     ];
 
     public static IReadOnlyList<IScenario> All() => Scenarios;

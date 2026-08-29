@@ -361,12 +361,21 @@ public sealed class DemoWorld : IDisposable
         string assets = Path.Combine(AppContext.BaseDirectory, "Assets");
         Directory.CreateDirectory(Path.Combine(WorkspaceRoot, "scripts"));
         Directory.CreateDirectory(Path.Combine(WorkspaceRoot, "src"));
+        Directory.CreateDirectory(Path.Combine(WorkspaceRoot, "assets"));
 
         CopyAsset(assets, "nova-banner.sh", Path.Combine(WorkspaceRoot, "scripts", "nova-banner.sh"));
         CopyAsset(assets, "demo-test.sh", Path.Combine(WorkspaceRoot, "scripts", "demo-test.sh"));
         CopyAsset(assets, "demo-top.sh", Path.Combine(WorkspaceRoot, "scripts", "demo-top.sh"));
         CopyAsset(assets, "demo-monitor.sh", Path.Combine(WorkspaceRoot, "scripts", "demo-monitor.sh"));
+        CopyAsset(assets, "imgcat.sh", Path.Combine(WorkspaceRoot, "scripts", "imgcat.sh"));
         CopyAsset(assets, "sixel-decoder.rs", Path.Combine(WorkspaceRoot, "src", "sixel-decoder.rs"));
+
+        // plot.sixel and nova-logo.png back the sixel-graphics and iterm2-inline-image
+        // scenarios (Task 13). Both live under the workspace's own assets/ - not scripts/ or
+        // src/ - so the commands those scenarios type (`cat assets/plot.sixel`,
+        // `bash scripts/imgcat.sh assets/nova-logo.png`) read the way a real user's would.
+        CopyAsset(assets, "plot.sixel", Path.Combine(WorkspaceRoot, "assets", "plot.sixel"));
+        CopyAsset(assets, "nova-logo.png", Path.Combine(WorkspaceRoot, "assets", "nova-logo.png"));
 
         Git("init --initial-branch=feat/sixel-decoder");
         Git("config user.name nova");
