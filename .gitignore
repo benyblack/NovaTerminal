@@ -513,8 +513,10 @@ src/NovaTerminal.App/native/target/
 src/NovaTerminal.App/native/target_linux/
 src/NovaTerminal.App/native/rusty_ssh/target/
 
-# claude
-.claude/
+# claude - session/local state stays untracked, but slash commands are project tooling and
+# need to be shared (see .claude/commands/shots.md).
+.claude/*
+!.claude/commands/
 
 # local research scratch
 .research/
