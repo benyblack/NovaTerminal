@@ -90,6 +90,32 @@ public class SkiaImageDecoderTests
         Assert.Equal(0, height);
     }
 
+    /// <summary>
+    /// The dimension bound must fire from the container header BEFORE pixels are
+    /// materialized: a compressed payload declaring huge dimensions would otherwise force
+    /// the full decode allocation before any post-decode guard could reject it.
+    /// </summary>
+    [Fact]
+    public void DecodeImageBytes_DimensionsOverBound_RejectedBeforeMaterialization()
+    {
+        Assert.SkipUnless(SkiaAvailable, "SkiaSharp native library not available on this platform.");
+
+        byte[] png;
+        var source = new SKBitmap(3, 5);
+        using (var image = SKImage.FromBitmap(source))
+        using (var data = image.Encode(SKEncodedImageFormat.Png, 100))
+        {
+            png = data.ToArray();
+        }
+
+        var decoder = new SkiaImageDecoder { MaxPixelDimension = 1 };
+        var handle = decoder.DecodeImageBytes(png, out int width, out int height);
+
+        Assert.Null(handle);
+        Assert.Equal(0, width);
+        Assert.Equal(0, height);
+    }
+
     [Fact]
     public void DecodeImageBytes_EmptyBytes_ReturnsNull()
     {

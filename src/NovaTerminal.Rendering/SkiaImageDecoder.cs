@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using NovaTerminal.VT;
 using SkiaSharp;
 
@@ -12,6 +13,15 @@ namespace NovaTerminal.Rendering
     /// </summary>
     public sealed class SkiaImageDecoder : IImageDecoder
     {
+        /// <summary>
+        /// Largest declared width/height (in pixels) this decoder will materialize, applied
+        /// from the container header BEFORE any pixels are decoded. Mirrors AnsiParser's
+        /// post-decode guard: without a pre-decode bound, a small compressed payload can
+        /// declare enormous dimensions and force the full allocation during decode, before
+        /// the parser ever gets the chance to reject it.
+        /// </summary>
+        public int MaxPixelDimension { get; set; } = 2000;
+
         public object? DecodeImageBytes(byte[] imageData, out int pixelWidth, out int pixelHeight)
         {
             pixelWidth = 0;
@@ -28,7 +38,21 @@ namespace NovaTerminal.Rendering
             SKBitmap? bitmap;
             try
             {
-                bitmap = SKBitmap.Decode(imageData);
+                using var stream = new MemoryStream(imageData);
+                using SKCodec? codec = SKCodec.Create(stream);
+                if (codec == null)
+                {
+                    return null;
+                }
+
+                // Header check before materialization: rejecting here costs bytes, not the
+                // width x height x 4 allocation the full decode would make.
+                if (codec.Info.Width > MaxPixelDimension || codec.Info.Height > MaxPixelDimension)
+                {
+                    return null;
+                }
+
+                bitmap = SKBitmap.Decode(codec);
             }
             catch (Exception)
             {
