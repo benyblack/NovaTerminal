@@ -43,8 +43,9 @@ internal sealed class SettingsAppearanceScenario : IScenario
         Tier: 2,
         LogicalWidth: 1000,
         LogicalHeight: 760,
-        Intent: "The settings window on Appearance, showing theme selection, font family and size, " +
-                "with a live preview of the chosen theme.");
+        Intent: "A two-part composite of the Appearance tab, its two captures separated by a visible " +
+                "gap: the top capture shows theme selection with a live preview of the chosen theme, " +
+                "the bottom capture shows font family and size.");
 
     public Task RunAsync(ShotContext context) =>
         SettingsWindowScenario.RunAsync(
@@ -127,6 +128,15 @@ internal sealed class SettingsAppearanceScenario : IScenario
         // one frame. Both halves are genuine renders of the real, already-asserted-populated
         // control tree; nothing is drawn that the product didn't actually show on screen.
         //
+        // This is a splice, not a crop: the Title Bar and Window sections that sit between the two
+        // regions in the real scroll are removed, so the composite must not read as one continuous
+        // capture. It is joined the same way themes-grid joins its five separate MainWindow
+        // captures - PostProcess's shared gap+background convention (a solid-colour band of
+        // PostProcess.Grid's own 24px, deliberately unlike the tiles' own chrome; see the
+        // composition call below for why the fill colour itself differs from themes-grid's literal
+        // #0E1014) - rather than the zero-gap, window-background seam this scenario used to use,
+        // which was tuned to be invisible and made the splice look like an unbroken scroll.
+        //
         // Both crops start at the tab content's own left edge, past the tab-switcher sidebar: the
         // sidebar is a fixed column outside the Appearance tab's ScrollViewer, so it renders
         // identically in both captures, and stacking two full-width crops would have shown two
@@ -148,10 +158,25 @@ internal sealed class SettingsAppearanceScenario : IScenario
             SKBitmap fontCrop = CaptureFontSection(context, settingsWindow, scrollViewer, fontSizeInput, contentLeftPhysical);
             try
             {
+                // Same 24px gap convention themes-grid uses to join its five separate captures
+                // (Program.cs's ComposeThemesGridAsync -> PostProcess.Grid(gap: 24, ...)), but a
+                // different fill: SettingsWindow.ApplyTheme (SettingsWindow.axaml.cs:2513) repaints
+                // the *window's own* Background to the currently-selected theme's background every
+                // time a theme is applied - including during LoadCurrentSettings's initial
+                // selection - so by the time either half is captured, both are painted GitHub
+                // Dark's real #0d1117, not the #16181d the XAML declares as a static default.
+                // themes-grid's own #0E1014 gap colour is nearly indistinguishable from that
+                // #0d1117 (verified: (14,16,20) vs (13,17,23), a 1-3-per-channel difference,
+                // invisible on screen) - fine there since only one of its five tiles is GitHub
+                // Dark, but fatal here where *both* halves are always GitHub Dark. Using
+                // NtHairlineStrong (SettingsWindow.axaml:18, #353b46) instead - the app's own
+                // divider colour, already visibly lighter than any of its dark theme backgrounds -
+                // keeps the same gap+solid-fill convention while actually contrasting against the
+                // colour this specific composite is guaranteed to show on both sides of the seam.
                 using SKBitmap composed = PostProcess.StackVertical(
                     [themeCrop, fontCrop],
-                    gap: 0,
-                    background: new SKColor(0x16, 0x18, 0x1d)); // SettingsWindow's own Background, #16181d.
+                    gap: 24,
+                    background: new SKColor(0x35, 0x3b, 0x46));
 
                 context.CaptureComposed(composed, "tab");
             }
