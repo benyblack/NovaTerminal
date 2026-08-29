@@ -22,11 +22,35 @@ public static class VariantBuilder
     /// <summary>The scenario whose master gets the social/OG card treatment, per the brief.</summary>
     private const string CardMasterName = "hero-single";
 
-    /// <summary>The brand gradient's top stop, #0E1014.</summary>
-    private static readonly SKColor BrandGradientTop = new(0x0E, 0x10, 0x14);
+    /// <summary>
+    /// How much of hero-single's own top the OG card and social square crop down to before
+    /// framing - the banner plus the first command block or two, not the whole transcript.
+    /// </summary>
+    /// <remarks>
+    /// hero-single's full master composited at OnBackdrop's ~86% fill puts its transcript text
+    /// at roughly a third of native size, which reads as texture rather than text once a link
+    /// preview or a social timeline renders the card at 300-500px wide - the banner survives
+    /// that, the six lines of git status and test output below it do not. Raising the fill
+    /// fraction cannot fix this: 86% to 94% buys about 9% more pixels, nowhere near the ~3x this
+    /// needs. Cropping to the hero region first means what actually reaches the card is already
+    /// large in the source, not shrunk twice.
+    /// </remarks>
+    private const float CardHeroCropFraction = 0.55f;
 
-    /// <summary>The brand gradient's bottom stop, #1B1330.</summary>
-    private static readonly SKColor BrandGradientBottom = new(0x1B, 0x13, 0x30);
+    /// <summary>
+    /// The card backdrop's top stop, #262B36 - about 3x #0E1014's luminance. Deliberately not
+    /// the transparent-background README/site path's own colour scheme: that path already reads
+    /// correctly (its shadow lands on whatever page hosts it), but #0E1014 is RGB(14,16,20), and
+    /// even a fully opaque shadow over it can only swing ~14 units before blur and quantization
+    /// eat the rest - the alpha-140 shadow PostProcess.RoundedWithShadow actually draws produces
+    /// an ~8-unit edge, invisible in practice. No shadow alpha fixes that; the defect is the
+    /// backdrop's own luminance. #262B36 (RGB 38,43,54) leaves enough headroom for the same
+    /// alpha-140 shadow to produce a real 15-20 unit edge while staying dark and on-brand.
+    /// </summary>
+    private static readonly SKColor CardGradientTop = new(0x26, 0x2B, 0x36);
+
+    /// <summary>The card backdrop's bottom stop, #332A4A - shifted up from #1B1330 by the same proportion as the top stop.</summary>
+    private static readonly SKColor CardGradientBottom = new(0x33, 0x2A, 0x4A);
 
     // Corner radius, shadow blur and margin at 1x, scaled by ShotRun.Scale below so the window
     // chrome this adds stays proportional across masters captured at different physical scales
@@ -52,24 +76,31 @@ public static class VariantBuilder
     {
         var produced = new List<ShotAsset>();
 
+        float cornerRadius = CornerRadiusAt1x * (float)run.Scale;
+        float shadowBlur = ShadowBlurAt1x * (float)run.Scale;
+        int margin = (int)Math.Round(MarginAt1x * run.Scale);
+
         using SKBitmap source = LoadBitmap(master.File);
-        using SKBitmap framed = PostProcess.RoundedWithShadow(
-            source,
-            cornerRadius: CornerRadiusAt1x * (float)run.Scale,
-            shadowBlur: ShadowBlurAt1x * (float)run.Scale,
-            margin: (int)Math.Round(MarginAt1x * run.Scale));
+        using SKBitmap framed = PostProcess.RoundedWithShadow(source, cornerRadius, shadowBlur, margin);
 
         produced.Add(BuildResizedVariant(run, master, framed, "readme", ReadmeWidth));
         produced.Add(BuildResizedVariant(run, master, framed, "site", SiteWidth));
 
         if (string.Equals(master.Name, CardMasterName, StringComparison.Ordinal))
         {
+            // The full master, framed - not cropped: og-card and social-square get their own,
+            // smaller frame below, built from a crop of the hero region rather than the whole
+            // transcript. See CardHeroCropFraction's remarks for why.
+            int cropHeight = (int)Math.Round(source.Height * CardHeroCropFraction);
+            using SKBitmap heroCrop = PostProcess.Crop(source, new SKRectI(0, 0, source.Width, cropHeight));
+            using SKBitmap cardFramed = PostProcess.RoundedWithShadow(heroCrop, cornerRadius, shadowBlur, margin);
+
             using SKBitmap ogCard = PostProcess.OnBackdrop(
-                framed, OgCardWidth, OgCardHeight, BrandGradientTop, BrandGradientBottom);
+                cardFramed, OgCardWidth, OgCardHeight, CardGradientTop, CardGradientBottom);
             produced.Add(WriteNamedVariant(run, master, ogCard, "og-card"));
 
             using SKBitmap socialSquare = PostProcess.OnBackdrop(
-                framed, SocialSquareSize, SocialSquareSize, BrandGradientTop, BrandGradientBottom);
+                cardFramed, SocialSquareSize, SocialSquareSize, CardGradientTop, CardGradientBottom);
             produced.Add(WriteNamedVariant(run, master, socialSquare, "social-square"));
         }
 
@@ -86,12 +117,21 @@ public static class VariantBuilder
     /// aspect ratio (unlike <see cref="PostProcess.OnBackdrop"/>'s fixed-canvas variants), and
     /// writes it as <c>&lt;master.Name&gt;-&lt;suffix&gt;.png</c>.
     /// </summary>
+    /// <remarks>
+    /// Never upscales. <paramref name="framed"/>'s own width is the scenario's logical width
+    /// times <see cref="ShotRun.Scale"/> plus the margin this task's own framing adds, which for
+    /// several real masters (agent-session-journal, settings-appearance-tab,
+    /// settings-agent-access-tab) is well under 2400 - blowing those up to the nominal site
+    /// width would visibly soften their thin monospace text. Capping to whichever is smaller
+    /// means these three simply publish narrower than the nominal width instead of upscaled.
+    /// </remarks>
     private static ShotAsset BuildResizedVariant(
         ShotRun run, ShotAsset master, SKBitmap framed, string suffix, int targetWidth)
     {
-        int targetHeight = (int)Math.Round((double)targetWidth * framed.Height / framed.Width);
+        int effectiveWidth = Math.Min(targetWidth, framed.Width);
+        int targetHeight = (int)Math.Round((double)effectiveWidth * framed.Height / framed.Width);
 
-        var resized = new SKBitmap(new SKImageInfo(targetWidth, targetHeight, framed.ColorType, framed.AlphaType));
+        var resized = new SKBitmap(new SKImageInfo(effectiveWidth, targetHeight, framed.ColorType, framed.AlphaType));
         using (resized)
         {
             if (!framed.ScalePixels(resized, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear)))
