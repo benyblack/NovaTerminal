@@ -39,7 +39,10 @@ public static class ScenarioCatalog
         new SearchOverlayScenario(),
         new TuiVimScenario(),
         new TuiMonitorScenario(),
-        new CommandAssistScenario()
+        new CommandAssistScenario(),
+        new ClipPaletteScenario(),
+        new ClipSplitScenario(),
+        new ClipTuiScenario()
     ];
 
     public static IReadOnlyList<IScenario> All() => Scenarios;

@@ -59,7 +59,12 @@ internal sealed class ClipAgentScenario : IScenario
     /// opens: the shell inherits the harness process's environment at spawn time, so a change
     /// made after the shell is already running never reaches it.
     /// </summary>
-    private const string PacedEnvironmentVariable = "NOVA_SHOTS_PACE";
+    /// <remarks>
+    /// Internal, not private: <c>demo-monitor.sh</c> (Task 16's <c>ClipTuiScenario</c>) gates its
+    /// own per-frame <c>pace()</c> helper behind this exact same variable name, by design - see
+    /// its header comment - so both clips share one name instead of inventing a second.
+    /// </remarks>
+    internal const string PacedEnvironmentVariable = "NOVA_SHOTS_PACE";
 
     /// <summary>How long any one scene may take to finish changing before this clip gives up on it.</summary>
     private static readonly TimeSpan MaxSceneWait = TimeSpan.FromSeconds(5);
@@ -125,13 +130,25 @@ internal sealed class ClipAgentScenario : IScenario
     /// process) must not inherit paced output for their own stills. See demo-test.sh's own
     /// remarks for why that matters.
     /// </remarks>
-    public Action? PrepareEnvironment => () =>
-    {
-        _previousPace = Environment.GetEnvironmentVariable(PacedEnvironmentVariable);
-        Environment.SetEnvironmentVariable(PacedEnvironmentVariable, "1");
-    };
+    public Action? PrepareEnvironment => () => _previousPace = EnablePacing();
 
     private string? _previousPace;
+
+    /// <summary>
+    /// Sets <see cref="PacedEnvironmentVariable"/> and returns whatever value it displaced, so a
+    /// caller's own <c>finally</c> can put that back - shared by this scenario and
+    /// <c>ClipTuiScenario</c> (Task 16) rather than each inlining the same get/set pair.
+    /// </summary>
+    internal static string? EnablePacing()
+    {
+        string? previous = Environment.GetEnvironmentVariable(PacedEnvironmentVariable);
+        Environment.SetEnvironmentVariable(PacedEnvironmentVariable, "1");
+        return previous;
+    }
+
+    /// <summary>Undoes <see cref="EnablePacing"/>, restoring exactly the value it displaced.</summary>
+    internal static void RestorePacing(string? previous) =>
+        Environment.SetEnvironmentVariable(PacedEnvironmentVariable, previous);
 
     public async Task RunAsync(ShotContext context)
     {
@@ -185,7 +202,7 @@ internal sealed class ClipAgentScenario : IScenario
         }
         finally
         {
-            Environment.SetEnvironmentVariable(PacedEnvironmentVariable, _previousPace);
+            RestorePacing(_previousPace);
         }
     }
 
@@ -225,7 +242,7 @@ internal sealed class ClipAgentScenario : IScenario
         {
             await DeliverAsAgentAsync(pane, command);
 
-            CaptureUntilOutputSettled(context, () => Volatile.Read(ref chunks));
+            CaptureUntilOutputSettled(context, () => Volatile.Read(ref chunks), ChangeQuietFor, MaxSceneWait, CommandHoldFrames);
 
             if (Volatile.Read(ref chunks) == 0)
             {
@@ -243,21 +260,41 @@ internal sealed class ClipAgentScenario : IScenario
 
     /// <summary>
     /// Captures a frame each time <paramref name="readChunkCount"/> reports new output has
-    /// arrived, until it stops changing for <see cref="ChangeQuietFor"/> or
-    /// <see cref="MaxSceneWait"/> elapses, then holds <see cref="CommandHoldFrames"/> more.
+    /// arrived, until it stops changing for <paramref name="changeQuietFor"/> or
+    /// <paramref name="maxSceneWait"/> elapses, then holds <paramref name="holdFrames"/> more.
     /// </summary>
     /// <remarks>
     /// Mirrors <see cref="ShotContext.CaptureUntilSettled"/>'s shape (poll, capture on change,
     /// break once quiet, then hold) but keyed on the session's own output-chunk counter instead
     /// of a rendered-frame hash - see <see cref="RunAnimatedCommandAsync"/>'s remarks for why.
+    /// <para>
+    /// Internal, not private: <c>ClipSplitScenario</c> and <c>ClipTuiScenario</c> (Task 16) both
+    /// drive fixtures whose real motion is likewise only visible on the PTY byte stream, not in a
+    /// frame-hash diff - demo-monitor.sh's three redraws are byte-identical, and a broadcast
+    /// pane's sibling never receives a keystroke event to hash against - so both reuse this exact
+    /// method rather than re-deriving the same poll/capture/settle loop.
+    /// </para>
+    /// <para>
+    /// <paramref name="changeQuietFor"/> is a parameter, not a shared constant, deliberately: this
+    /// scenario's own <see cref="ChangeQuietFor"/> (450ms) is tuned specifically against
+    /// demo-test.sh's 180ms line gap (see that field's own remarks), and demo-monitor.sh's real
+    /// pace gap is 300ms - a caller that reused 450ms unexamined would be trusting a margin never
+    /// verified for its own fixture. Each caller passes the value it has actually checked against
+    /// its own script's pacing.
+    /// </para>
     /// </remarks>
-    private static void CaptureUntilOutputSettled(ShotContext context, Func<int> readChunkCount)
+    internal static void CaptureUntilOutputSettled(
+        ShotContext context,
+        Func<int> readChunkCount,
+        TimeSpan changeQuietFor,
+        TimeSpan maxSceneWait,
+        int holdFrames)
     {
         FrameRecorder recorder = context.Recorder
             ?? throw new InvalidOperationException("CaptureUntilOutputSettled was called outside RecordAsync.");
 
         int previous = readChunkCount();
-        DateTime deadline = DateTime.UtcNow + MaxSceneWait;
+        DateTime deadline = DateTime.UtcNow + maxSceneWait;
         DateTime quietSince = DateTime.UtcNow;
         bool everChanged = false;
 
@@ -273,13 +310,13 @@ internal sealed class ClipAgentScenario : IScenario
                 everChanged = true;
                 recorder.CaptureFrame(context.Window);
             }
-            else if (everChanged && DateTime.UtcNow - quietSince >= ChangeQuietFor)
+            else if (everChanged && DateTime.UtcNow - quietSince >= changeQuietFor)
             {
                 break;
             }
         }
 
-        for (int i = 0; i < CommandHoldFrames; i++)
+        for (int i = 0; i < holdFrames; i++)
         {
             context.Driver.Pump(1);
             recorder.CaptureFrame(context.Window);

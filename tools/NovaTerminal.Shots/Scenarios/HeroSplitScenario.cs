@@ -92,8 +92,13 @@ internal sealed class HeroSplitScenario : IScenario
     /// would mean capturing a single-pane "hero split" with no failure anywhere. Every other
     /// scenario in this catalogue asserts the state it depends on; this one asserted nothing
     /// about the split itself.
+    /// <para>
+    /// Internal, not private: <c>ClipSplitScenario</c> (Task 16) reuses this exact split-and-verify
+    /// step for its own two <c>SplitPane</c> calls, the same way <c>ThemesGridScenario</c> reuses
+    /// <c>HeroSingleScenario.PlayAsync</c> rather than re-deriving the same body.
+    /// </para>
     /// </remarks>
-    private static TerminalPane SplitAndGetNewPane(ShotContext context, Orientation orientation)
+    internal static TerminalPane SplitAndGetNewPane(ShotContext context, Orientation orientation)
     {
         TerminalPane before = CurrentPane(context);
 
