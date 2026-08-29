@@ -508,6 +508,7 @@ namespace NovaTerminal.VT
                         img.CellY += n;
                         if (img.CellY > absBottom)
                         {
+                            RetireImage(img);
                             _images.RemoveAt(i);
                         }
                     }
@@ -568,6 +569,7 @@ namespace NovaTerminal.VT
                         if (img.CellY < absDeletedEnd)
                         {
                             // Image starts in the deleted range
+                            RetireImage(img);
                             _images.RemoveAt(i);
                         }
                         else

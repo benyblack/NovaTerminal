@@ -497,6 +497,7 @@ namespace NovaTerminal.VT
                         // If the image's entire area is now before the new index 0, prune it.
                         if (img.CellY + img.CellHeight <= 0)
                         {
+                            RetireImage(img);
                             _images.RemoveAt(i);
                         }
                     }
@@ -588,6 +589,7 @@ namespace NovaTerminal.VT
                     // If the image moves below the region, remove it
                     if (img.CellY > absBottom)
                     {
+                        RetireImage(img);
                         _images.RemoveAt(i);
                     }
                 }

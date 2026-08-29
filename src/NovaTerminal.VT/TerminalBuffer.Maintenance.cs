@@ -1,9 +1,25 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using NovaTerminal.VT.Storage;
-
 namespace NovaTerminal.VT
 {
     public partial class TerminalBuffer
     {
+        // Handles of images removed from _images, awaiting disposal, stamped with the retire
+        // time. Removal is synchronous; disposal waits until no snapshot session that could
+        // still hold the handle remains: both render pipelines (live view frames and
+        // agent-host captures) enter a session for the duration of DrawTerminalInternal, so
+        // disposal is exact rather than a duration guess (a capture drawing thousands of
+        // images under load can exceed any fixed grace).
+        private readonly ConcurrentQueue<(object Handle, long Tick)> _retiredImageHandles = new();
+
+        // Sessions keyed by id, valued by start tick. A retire entry may only be disposed
+        // once every session that started at or before its retire tick has ended: those are
+        // exactly the sessions whose snapshot may have copied the handle before the prune.
+        private readonly ConcurrentDictionary<int, long> _activeSnapshotSessions = new();
+        private int _nextSnapshotSessionId;
+
         public void AddImage(TerminalImage image)
         {
             bool lockTaken = EnterWriteLockIfNeeded();
@@ -22,14 +38,88 @@ namespace NovaTerminal.VT
             Invalidate();
         }
 
+        /// <summary>
+        /// Queues a removed image's handle for deferred disposal. The queue holds opaque
+        /// objects — VT cannot reference SkiaSharp; the render layer's frame-boundary drain
+        /// (<see cref="DrainRetiredImageHandles"/>) owns the actual Dispose.
+        /// </summary>
+        private void RetireImage(TerminalImage image)
+        {
+            _retiredImageHandles.Enqueue((image.ImageHandle, Environment.TickCount64));
+        }
+
+        /// <summary>
+        /// Marks the start of a render pass that will snapshot this buffer and draw the
+        /// image handles it copies out. Every pipeline drawing images (live view frames,
+        /// agent-host captures) must bracket its pass with this and
+        /// <see cref="EndSnapshotSession"/>: a retire entry is only disposed once no session
+        /// that started at or before its retire tick is still active, which is what makes
+        /// disposal exact instead of a duration guess.
+        /// </summary>
+        public int BeginSnapshotSession()
+        {
+            int id = System.Threading.Interlocked.Increment(ref _nextSnapshotSessionId);
+            _activeSnapshotSessions[id] = Environment.TickCount64;
+            return id;
+        }
+
+        public void EndSnapshotSession(int sessionId)
+        {
+            _activeSnapshotSessions.TryRemove(sessionId, out _);
+        }
+
+        private long MinActiveSessionStartTick()
+        {
+            long min = long.MaxValue;
+            foreach (var pair in _activeSnapshotSessions)
+            {
+                if (pair.Value < min) min = pair.Value;
+            }
+            return min;
+        }
+
+        /// <summary>
+        /// Drains retired handles into <paramref name="into"/>. An entry is released only
+        /// when BOTH hold: it is older than <paramref name="retiredBeforeTick"/> (the owning
+        /// view's frame boundary + grace) AND no snapshot session started at or before its
+        /// retire tick is still active (an in-flight capture of any duration blocks
+        /// disposal). The queue is FIFO by retire tick, so the drain stops at the first
+        /// entry that cannot yet be released.
+        /// </summary>
+        public bool DrainRetiredImageHandles(List<object> into, long retiredBeforeTick)
+        {
+            if (_retiredImageHandles.IsEmpty)
+            {
+                return false;
+            }
+
+            long minActiveSessionStart = MinActiveSessionStartTick();
+
+            bool drained = false;
+            while (_retiredImageHandles.TryPeek(out var entry)
+                && entry.Tick <= retiredBeforeTick
+                && entry.Tick < minActiveSessionStart)
+            {
+                if (!_retiredImageHandles.TryDequeue(out entry))
+                {
+                    break;
+                }
+                into.Add(entry.Handle);
+                drained = true;
+            }
+
+            return drained;
+        }
+
         public void ClearImages()
         {
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
-                // NOTE (#166): ImageHandle bitmaps are owned by the producing layer and are
-                // currently never disposed when images are dropped — see the issue for the
-                // planned ownership design (VT cannot reference SkiaSharp).
+                foreach (var img in _images)
+                {
+                    RetireImage(img);
+                }
                 _images.Clear();
             }
             finally
@@ -52,6 +142,10 @@ namespace NovaTerminal.VT
             try
             {
                 _scrollback.Clear();
+                foreach (var img in _images)
+                {
+                    RetireImage(img);
+                }
                 _images.Clear(); // full clear: scrollback-anchored images lose their anchor too
                 ClearScreenInternal(resetCursor);
 
@@ -115,6 +209,7 @@ namespace NovaTerminal.VT
                         img.CellY -= clearedRows;
                         if (img.CellY + img.CellHeight <= 0)
                         {
+                            RetireImage(img);
                             _images.RemoveAt(i);
                         }
                     }
@@ -144,6 +239,7 @@ namespace NovaTerminal.VT
 
                 if (img.CellY + img.CellHeight > viewportTopAbs)
                 {
+                    RetireImage(img);
                     _images.RemoveAt(i);
                 }
             }

@@ -127,7 +127,7 @@ namespace NovaTerminal.VT
 
                                     int delta = newlyEvicted > int.MaxValue ? int.MaxValue : (int)newlyEvicted;
                                     img.CellY -= delta;
-                                    if (img.CellY + img.CellHeight <= 0) _images.RemoveAt(i);
+                                    if (img.CellY + img.CellHeight <= 0) { RetireImage(img); _images.RemoveAt(i); }
                                 }
                             }
                         }
@@ -332,7 +332,7 @@ namespace NovaTerminal.VT
                     if (img.IsAltScreenImage) continue;
 
                     img.CellY -= (linesToPush + newlyDiscarded);
-                    if (img.CellY + img.CellHeight <= 0) _images.RemoveAt(i);
+                    if (img.CellY + img.CellHeight <= 0) { RetireImage(img); _images.RemoveAt(i); }
                 }
             }
 
