@@ -345,6 +345,17 @@ public sealed class DemoWorld : IDisposable
 
         customize?.Invoke(settings);
         settings.Save();
+
+        // Exported after customize runs, so this reflects what the scenario actually asked for
+        // (e.g. AgentSessionScenario and ClipAgentScenario both flip AgentAccessActEnabled to
+        // true), not the pre-customize baseline. nova-banner.sh reads these back instead of
+        // hardcoding "observe on, act off" - the fix for a real defect where the banner's agent
+        // dots contradicted the very scenario capturing it (a clip that shows the banner claiming
+        // act is off, then immediately delivers three agent commands through it). SetEnvironment,
+        // not Environment.SetEnvironmentVariable directly, so Dispose restores whatever was set
+        // here the same way it restores every other variable this class owns.
+        SetEnvironment("NOVA_SHOTS_AGENT_OBSERVE_ON", settings.AgentAccessObserveEnabled ? "1" : "0");
+        SetEnvironment("NOVA_SHOTS_AGENT_ACT_ON", settings.AgentAccessActEnabled ? "1" : "0");
     }
 
     /// <summary>

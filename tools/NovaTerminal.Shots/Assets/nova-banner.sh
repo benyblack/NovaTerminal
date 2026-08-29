@@ -15,7 +15,24 @@ printf '  \033[1mterminal\033[0m   NovaTerminal 0.5.0 (win-x64)\n'
 printf '  \033[1mengine\033[0m     VT parser · partial ANSI/xterm conformance\n'
 printf '  \033[1mrenderer\033[0m   Skia · GPU glyph cache\n'
 printf '  \033[1mbackend\033[0m    Rust PTY\n'
-# Matches DemoWorld.SeedSettings's seeded baseline (observe on, act off) so this banner never
-# contradicts the settings screenshot published alongside it.
-printf '  \033[1magents\033[0m     MCP observe \033[32m●\033[0m  act \033[90m○\033[0m\n'
+# Derived from the actual seeded settings, not restated: DemoWorld.SeedSettings exports what it
+# just wrote (after a scenario's own `customize` override runs) as NOVA_SHOTS_AGENT_OBSERVE_ON /
+# NOVA_SHOTS_AGENT_ACT_ON, and this reads them back rather than hardcoding "observe on, act off".
+# A scenario like AgentSessionScenario or ClipAgentScenario that turns act on to demonstrate it
+# therefore gets a banner whose dots agree with what it does next in the same asset, and a future
+# scenario that changes either toggle cannot silently make this banner lie again. Defaults below
+# (observe on, act off) match SeedSettings's own baseline and only apply if the variable is unset
+# - e.g. this script run by hand outside the harness - never as a fallback for a scenario that
+# actually set it.
+observe_dot=$'\033[90m○\033[0m'
+if [ "${NOVA_SHOTS_AGENT_OBSERVE_ON:-1}" = "1" ]; then
+  observe_dot=$'\033[32m●\033[0m'
+fi
+
+act_dot=$'\033[90m○\033[0m'
+if [ "${NOVA_SHOTS_AGENT_ACT_ON:-0}" = "1" ]; then
+  act_dot=$'\033[32m●\033[0m'
+fi
+
+printf '  \033[1magents\033[0m     MCP observe %s  act %s\n' "$observe_dot" "$act_dot"
 printf '\n'
