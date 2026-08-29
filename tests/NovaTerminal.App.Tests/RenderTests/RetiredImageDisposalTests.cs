@@ -55,4 +55,30 @@ public class RetiredImageDisposalTests
         view.DisposeRetiredImageBitmaps(Environment.TickCount64);
         Assert.True(bitmap.Gone);
     }
+
+    [AvaloniaFact]
+    public void InFlightSnapshotSession_BlocksDisposalForAnyDuration()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var view = new TerminalView();
+        view.SetBuffer(buffer);
+
+        // A capture in flight before the prune — the scenario the grace alone could not
+        // cover: a pass that outlives the age grace must still block disposal until it ends.
+        int session = buffer.BeginSnapshotSession();
+
+        var bitmap = new TrackingBitmap();
+        buffer.AddImage(new TerminalImage(bitmap, 2, 2, 2, 1));
+        buffer.ClearScreen();
+        Assert.Empty(buffer.Images);
+
+        // Cutoff far in the future: without the session gate this would dispose mid-capture.
+        view.DisposeRetiredImageBitmaps(long.MaxValue);
+        Assert.False(bitmap.Gone, "an in-flight snapshot session must block disposal for any duration");
+
+        // The capture completes: the next drain disposes.
+        buffer.EndSnapshotSession(session);
+        view.DisposeRetiredImageBitmaps(long.MaxValue);
+        Assert.True(bitmap.Gone, "disposal must proceed once the blocking session ends");
+    }
 }

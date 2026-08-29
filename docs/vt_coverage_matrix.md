@@ -158,7 +158,7 @@ It is designed to be:
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
 | Kitty graphics protocol | APC / OSC forms | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/GraphicsTests.cs`, `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs`, `tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs` | Parser+Renderer | |
-| Placement, z-index, scrolling | Complex interactions | ⚠ Partial | Manual | Buffer+Renderer | Pruned images' bitmaps are retired by the buffer; the owning view disposes them at its frame boundary after an age grace (#166) |
+| Placement, z-index, scrolling | Complex interactions | ⚠ Partial | Manual | Buffer+Renderer | Pruned images' bitmaps are retired by the buffer; the owning view disposes them once no in-flight snapshot session predates the retire (#166) |
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "670e8dfe5bf71be28e4fad2bb619541a2ad153603b75bba95c2b7b5a0021524c",
+  "matrixSha256": "581c0b13995f886b7658b868bb218c26c3b77f2cf8fe7cbf9b07c6a230eea7f6",
   "summary": {
     "totalRows": 58,
     "supportedCount": 20,
@@ -1114,7 +1114,7 @@
       "hasAutomatedEvidenceSignal": false,
       "hasLinkedEvidence": false,
       "ownership": "Buffer\u002BRenderer",
-      "knownDeviations": "Pruned images\u0027 bitmaps are retired by the buffer; the owning view disposes them at its frame boundary after an age grace (#166)",
+      "knownDeviations": "Pruned images\u0027 bitmaps are retired by the buffer; the owning view disposes them once no in-flight snapshot session predates the retire (#166)",
       "sourceLine": 161
     },
     {

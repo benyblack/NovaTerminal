@@ -303,9 +303,12 @@ namespace NovaTerminal.Shell
         // Retired inline-image handles: this view OWNS their disposal. The drain lives here —
         // not in TerminalDrawOperation — because that op is also driven by
         // TerminalSnapshotRenderer (agent-host capture) on its own thread, so a draw-op drain
-        // could dispose a bitmap another concurrent snapshot is still drawing. The age grace
-        // (retire tick vs now) outlives any snapshot's draw window: frames and captures take
-        // tens of ms, so a pruned handle is only disposed once nothing can still hold it.
+        // could dispose a bitmap another concurrent snapshot is still drawing. Safety is
+        // exact, not a duration guess: every render pass brackets itself in a buffer
+        // snapshot session, and the buffer only releases a retire entry once no session
+        // started at or before its retire tick is still active — an in-flight capture of any
+        // duration blocks disposal. The grace below is merely the fast-path bound; the
+        // session gate is the correctness guarantee.
         private const long RetiredImageDisposalGraceMs = 2000;
         private readonly List<object> _retiredImageHandleScratch = new();
 

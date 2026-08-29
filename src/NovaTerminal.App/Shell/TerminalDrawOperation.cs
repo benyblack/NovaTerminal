@@ -300,6 +300,24 @@ namespace NovaTerminal.Shell
 
         internal TerminalRenderSnapshot? DrawTerminalInternal(SKCanvas canvas)
         {
+            // Snapshot session: brackets this pass's snapshot copy through its last
+            // DrawBitmap. Retired image handles are only disposed once every session that
+            // started at or before their retire tick has ended (TerminalBuffer enforces it),
+            // so disposal is exact for BOTH pipelines that drive this method — the live view
+            // frame and agent-host captures — regardless of how long a pass runs.
+            int snapshotSession = _buffer.BeginSnapshotSession();
+            try
+            {
+                return DrawTerminalInternalCore(canvas);
+            }
+            finally
+            {
+                _buffer.EndSnapshotSession(snapshotSession);
+            }
+        }
+
+        private TerminalRenderSnapshot? DrawTerminalInternalCore(SKCanvas canvas)
+        {
             try
             {
                 // Render-thread safe boundary: drain deferred disposals & apply clear requests.
@@ -311,7 +329,9 @@ namespace NovaTerminal.Shell
                 // capture) on its own thread, so a drain at this point is not tied to one
                 // pipeline's frame sequence and could dispose a bitmap another concurrent
                 // snapshot is still drawing (#166 review). The owning TerminalView drains
-                // with a retire-age grace at its own frame boundary instead.
+                // instead, and TerminalBuffer's snapshot-session gate (see the session
+                // bracket at the top of DrawTerminalInternal) is what makes that drain safe
+                // for captures of any duration.
 
                 RenderPerfWriter? perfWriter = BeginFramePerfMetrics();
                 var frame = new FrameSnapshot();

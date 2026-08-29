@@ -2,17 +2,23 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using NovaTerminal.VT.Storage;
-
 namespace NovaTerminal.VT
 {
     public partial class TerminalBuffer
     {
         // Handles of images removed from _images, awaiting disposal, stamped with the retire
-        // time. Removal is synchronous; disposal is deferred to the owning TerminalView's
-        // frame boundary AND gated by retire age: other pipelines (agent-host screen capture)
-        // snapshot the same buffer concurrently on their own threads, so a handle must not be
-        // disposed while any snapshot taken before the retire could still be drawing it.
+        // time. Removal is synchronous; disposal waits until no snapshot session that could
+        // still hold the handle remains: both render pipelines (live view frames and
+        // agent-host captures) enter a session for the duration of DrawTerminalInternal, so
+        // disposal is exact rather than a duration guess (a capture drawing thousands of
+        // images under load can exceed any fixed grace).
         private readonly ConcurrentQueue<(object Handle, long Tick)> _retiredImageHandles = new();
+
+        // Sessions keyed by id, valued by start tick. A retire entry may only be disposed
+        // once every session that started at or before its retire tick has ended: those are
+        // exactly the sessions whose snapshot may have copied the handle before the prune.
+        private readonly ConcurrentDictionary<int, long> _activeSnapshotSessions = new();
+        private int _nextSnapshotSessionId;
 
         public void AddImage(TerminalImage image)
         {
@@ -43,11 +49,42 @@ namespace NovaTerminal.VT
         }
 
         /// <summary>
-        /// Drains retired handles older than <paramref name="retiredBeforeTick"/> into
-        /// <paramref name="into"/>. Returns true when anything was drained. The owning view
-        /// calls this once per frame with (now − grace); a handle younger than the grace is
-        /// left queued because a concurrent snapshot (live frame mid-draw, agent-host
-        /// capture) taken before the retire may still be holding and drawing it.
+        /// Marks the start of a render pass that will snapshot this buffer and draw the
+        /// image handles it copies out. Every pipeline drawing images (live view frames,
+        /// agent-host captures) must bracket its pass with this and
+        /// <see cref="EndSnapshotSession"/>: a retire entry is only disposed once no session
+        /// that started at or before its retire tick is still active, which is what makes
+        /// disposal exact instead of a duration guess.
+        /// </summary>
+        public int BeginSnapshotSession()
+        {
+            int id = System.Threading.Interlocked.Increment(ref _nextSnapshotSessionId);
+            _activeSnapshotSessions[id] = Environment.TickCount64;
+            return id;
+        }
+
+        public void EndSnapshotSession(int sessionId)
+        {
+            _activeSnapshotSessions.TryRemove(sessionId, out _);
+        }
+
+        private long MinActiveSessionStartTick()
+        {
+            long min = long.MaxValue;
+            foreach (var pair in _activeSnapshotSessions)
+            {
+                if (pair.Value < min) min = pair.Value;
+            }
+            return min;
+        }
+
+        /// <summary>
+        /// Drains retired handles into <paramref name="into"/>. An entry is released only
+        /// when BOTH hold: it is older than <paramref name="retiredBeforeTick"/> (the owning
+        /// view's frame boundary + grace) AND no snapshot session started at or before its
+        /// retire tick is still active (an in-flight capture of any duration blocks
+        /// disposal). The queue is FIFO by retire tick, so the drain stops at the first
+        /// entry that cannot yet be released.
         /// </summary>
         public bool DrainRetiredImageHandles(List<object> into, long retiredBeforeTick)
         {
@@ -56,9 +93,12 @@ namespace NovaTerminal.VT
                 return false;
             }
 
+            long minActiveSessionStart = MinActiveSessionStartTick();
+
             bool drained = false;
-            // Age-ordered by construction (FIFO): stop at the first entry too young.
-            while (_retiredImageHandles.TryPeek(out var entry) && entry.Tick <= retiredBeforeTick)
+            while (_retiredImageHandles.TryPeek(out var entry)
+                && entry.Tick <= retiredBeforeTick
+                && entry.Tick < minActiveSessionStart)
             {
                 if (!_retiredImageHandles.TryDequeue(out entry))
                 {

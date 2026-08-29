@@ -198,4 +198,66 @@ public class RetiredImageHandleTests
         Assert.Same(image.ImageHandle, drained[0]);
         Assert.False(buffer.DrainRetiredImageHandles(new List<object>(), long.MaxValue));
     }
+
+    /// <summary>
+    /// The session gate is the exact rule: a retire entry is only released once no snapshot
+    /// session started at or before its retire tick is still active — so a capture that
+    /// runs for ANY duration (longer than any grace) still blocks disposal until it ends,
+    /// while a session opened after the retire never saw the handle and does not block.
+    /// </summary>
+    [Fact]
+    public void Drain_InFlightSnapshotSession_BlocksDisposalForAnyDuration()
+    {
+        var (buffer, parser) = CreateFilledTerminal();
+        int scrollbackCount = buffer.Scrollback.Count;
+
+        // A capture in flight BEFORE the prune — the exact Greptile P1 scenario.
+        int session = buffer.BeginSnapshotSession();
+
+        var image = new TerminalImage(new object(), 0, scrollbackCount + 1, 2, 1);
+        buffer.AddImage(image);
+        parser.Process("\x1b[2J");
+        Assert.Empty(buffer.Images);
+
+        // Age gate fully satisfied (cutoff far in the future) — the session must still block.
+        var blocked = new List<object>();
+        Assert.False(buffer.DrainRetiredImageHandles(blocked, long.MaxValue));
+        Assert.Empty(blocked);
+
+        // Capture ends: the handle is released on the very next drain.
+        buffer.EndSnapshotSession(session);
+        var released = new List<object>();
+        Assert.True(buffer.DrainRetiredImageHandles(released, long.MaxValue));
+        Assert.Single(released);
+        Assert.Same(image.ImageHandle, released[0]);
+    }
+
+    [Fact]
+    public void Drain_SessionStartedAfterRetire_DoesNotBlock()
+    {
+        var (buffer, parser) = CreateFilledTerminal();
+        int scrollbackCount = buffer.Scrollback.Count;
+
+        var image = new TerminalImage(new object(), 0, scrollbackCount + 1, 2, 1);
+        buffer.AddImage(image);
+        parser.Process("\x1b[2J");
+
+        // A session opened after the retire never copied the pruned handle. The sleep steps
+        // past the TickCount64 granularity boundary: a session on the SAME tick as the retire
+        // conservatively blocks (within one tick we cannot prove the snapshot postdates the
+        // prune), so the "does not block" case needs a strictly later tick.
+        System.Threading.Thread.Sleep(20);
+        int session = buffer.BeginSnapshotSession();
+        try
+        {
+            var drained = new List<object>();
+            Assert.True(buffer.DrainRetiredImageHandles(drained, long.MaxValue));
+            Assert.Single(drained);
+            Assert.Same(image.ImageHandle, drained[0]);
+        }
+        finally
+        {
+            buffer.EndSnapshotSession(session);
+        }
+    }
 }
