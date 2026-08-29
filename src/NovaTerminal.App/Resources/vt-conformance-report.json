@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "bcde51bbb2b60aa2055a21b8a66bc7044dcc65fd5c5e791eb5580193212bbc00",
+  "matrixSha256": "2459dbd6100c91f121e856e0c0c54247eeca002a0a1ce4399c1d27dbf56d17f3",
   "summary": {
     "totalRows": 58,
-    "supportedCount": 18,
-    "partialCount": 34,
+    "supportedCount": 19,
+    "partialCount": 33,
     "experimentalCount": 1,
     "notSupportedCount": 4,
     "wontSupportCount": 1,
-    "rowsWithLinkedEvidence": 34,
-    "supportedRowsWithLinkedEvidence": 18,
+    "rowsWithLinkedEvidence": 35,
+    "supportedRowsWithLinkedEvidence": 19,
     "errorCount": 0,
     "warningCount": 0
   },
@@ -1111,15 +1111,24 @@
     {
       "section": "10) SIXEL",
       "feature": "SIXEL decode/render",
-      "status": "\u26A0 Partial",
-      "specOrNotes": "",
-      "evidenceText": "Manual",
+      "status": "\u2705 Supported",
+      "specOrNotes": "Wired via \u0060NovaTerminal.Rendering.SkiaImageDecoder\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Rendering.Tests/SixelDecoderTests.cs\u0060, \u0060tests/NovaTerminal.Rendering.Tests/SkiaImageDecoderTests.cs\u0060",
       "evidenceKinds": [
-        "manual"
+        "unit"
       ],
-      "evidenceLinks": [],
-      "hasAutomatedEvidenceSignal": false,
-      "hasLinkedEvidence": false,
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Rendering.Tests/SixelDecoderTests.cs",
+          "exists": true
+        },
+        {
+          "path": "tests/NovaTerminal.Rendering.Tests/SkiaImageDecoderTests.cs",
+          "exists": true
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
       "ownership": "Decoder\u002BRenderer",
       "knownDeviations": "",
       "sourceLine": 169
