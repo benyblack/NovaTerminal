@@ -107,4 +107,79 @@ public static class PostProcess
 
         return result;
     }
+
+    /// <summary>
+    /// Rounds the corners and drops a shadow. The headless renderer cannot produce the OS
+    /// window shadow or rounded corners, so they are added here; without them a capture reads
+    /// as a flat rectangle pasted onto a page rather than a window.
+    /// </summary>
+    public static SKBitmap RoundedWithShadow(SKBitmap source, float cornerRadius, float shadowBlur, int margin)
+    {
+        var result = new SKBitmap(source.Width + margin * 2, source.Height + margin * 2);
+
+        using var canvas = new SKCanvas(result);
+        canvas.Clear(SKColors.Transparent);
+
+        var bounds = new SKRect(margin, margin, margin + source.Width, margin + source.Height);
+        var rounded = new SKRoundRect(bounds, cornerRadius, cornerRadius);
+
+        using (var shadowPaint = new SKPaint
+        {
+            Color = new SKColor(0, 0, 0, 140),
+            IsAntialias = true,
+            ImageFilter = SKImageFilter.CreateBlur(shadowBlur, shadowBlur)
+        })
+        {
+            canvas.DrawRoundRect(rounded, shadowPaint);
+        }
+
+        canvas.Save();
+        canvas.ClipRoundRect(rounded, antialias: true);
+        canvas.DrawBitmap(source, bounds.Left, bounds.Top);
+        canvas.Restore();
+
+        return result;
+    }
+
+    /// <summary>
+    /// Composites <paramref name="source"/> onto a fixed <paramref name="width"/> x
+    /// <paramref name="height"/> canvas filled with a top-to-bottom gradient from
+    /// <paramref name="top"/> to <paramref name="bottom"/>, scaled to fill 86% of the canvas
+    /// on whichever axis is tighter and centred on the other. Built for card-shaped exports
+    /// (an OG card, a social square) whose dimensions are fixed by the platform they target,
+    /// unlike <see cref="RoundedWithShadow"/>'s output, which keeps the source's own aspect
+    /// ratio.
+    /// </summary>
+    public static SKBitmap OnBackdrop(SKBitmap source, int width, int height, SKColor top, SKColor bottom)
+    {
+        var result = new SKBitmap(width, height);
+
+        using var canvas = new SKCanvas(result);
+        using (var background = new SKPaint
+        {
+            Shader = SKShader.CreateLinearGradient(
+                new SKPoint(0, 0),
+                new SKPoint(0, height),
+                [top, bottom],
+                null,
+                SKShaderTileMode.Clamp)
+        })
+        {
+            canvas.DrawRect(new SKRect(0, 0, width, height), background);
+        }
+
+        float scale = Math.Min((width * 0.86f) / source.Width, (height * 0.86f) / source.Height);
+        float drawWidth = source.Width * scale;
+        float drawHeight = source.Height * scale;
+
+        canvas.DrawBitmap(
+            source,
+            new SKRect(
+                (width - drawWidth) / 2,
+                (height - drawHeight) / 2,
+                (width + drawWidth) / 2,
+                (height + drawHeight) / 2));
+
+        return result;
+    }
 }
