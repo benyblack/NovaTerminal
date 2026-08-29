@@ -69,7 +69,9 @@ internal sealed class ClipSplitScenario : IScenario
         LogicalHeight: 900,
         Intent: "A short clip: one pane split twice into three, broadcast input turned on with the " +
                 "real Ctrl+Shift+B binding, then a command typed into the focused pane that lands " +
-                "keystroke by keystroke in the other two panes as well and runs in all three at once.");
+                "keystroke by keystroke in the other two panes as well and runs in all three at once " +
+                "(the broadcast command is typed with a harmless leading space to absorb a known " +
+                "intermittent first-keystroke race - see BroadcastLeadIn).");
 
     /// <summary>Same reasoning as HeroSplitScenario's: three panes need the extra columns a wider,
     /// smaller-font window gives them, or the banner wraps mid-line in the narrower two.</summary>
