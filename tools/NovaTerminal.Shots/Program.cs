@@ -98,6 +98,18 @@ public static class Program
         run.WriteManifest();
         Console.WriteLine($"[shots] {run.Assets.Count} asset(s) in {outputDirectory}");
 
+        if (args.Contains("--publish"))
+        {
+            // No --repo-root override: shots.ps1 (like every other wrapper in this repo) always
+            // invokes the tool from the repository root, which is also --out's own default base
+            // a few lines up.
+            IReadOnlyList<string> published = Publisher.Publish(run, Directory.GetCurrentDirectory());
+            foreach (string path in published)
+            {
+                Console.WriteLine($"[shots] published {path}");
+            }
+        }
+
         return failures == 0 ? 0 : 1;
     }
 
