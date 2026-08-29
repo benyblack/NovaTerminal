@@ -96,12 +96,20 @@ async function syncSelected(label, sourceDir, destDir, fileNames) {
 // pages (see Screenshots.astro and Base.astro's default ogImage). Keep this
 // list in sync with those references — it deliberately does not mirror the
 // whole docs/assets/shots/ directory (masters, README variants, clips, and
-// WebP siblings would otherwise ship to the static site unused).
+// unreferenced WebP siblings would otherwise ship to the static site unused).
+//
+// Only 3 of the 5 -site.png variants below have a WebP sibling in
+// docs/assets/shots/ (command-palette-site and themes-grid-site do not —
+// see that directory's own conditional-emission policy), and og-card has
+// none either, so those four are deliberately PNG-only here too.
 const SHOTS_FILES = [
   'hero-split-site.png',
+  'hero-split-site.webp',
   'command-palette-site.png',
   'tui-monitor-site.png',
+  'tui-monitor-site.webp',
   'search-overlay-site.png',
+  'search-overlay-site.webp',
   'themes-grid-site.png',
   'og-card.png',
 ];

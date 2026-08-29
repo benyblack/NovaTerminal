@@ -1,9 +1,7 @@
-using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
 using NovaTerminal.AgentHost;
-using NovaTerminal.AgentHost.Contracts;
 using NovaTerminal.Controls;
 using NovaTerminal.Pty;
 using NovaTerminal.Shell;
@@ -88,8 +86,6 @@ internal sealed class ClipAgentScenario : IScenario
         "git log --graph --oneline -5",
         "bash scripts/demo-test.sh"
     ];
-
-    private static long _requestId;
 
     public ShotSpec Spec { get; } = new(
         Name: "clip-agent",
@@ -240,7 +236,7 @@ internal sealed class ClipAgentScenario : IScenario
 
         try
         {
-            await DeliverAsAgentAsync(pane, command);
+            await AgentWire.DeliverAsync(pane, command);
 
             CaptureUntilOutputSettled(context, () => Volatile.Read(ref chunks), ChangeQuietFor, MaxSceneWait, CommandHoldFrames);
 
@@ -387,39 +383,6 @@ internal sealed class ClipAgentScenario : IScenario
 
     private static ItemsControl? FindEntriesList(Window journal) =>
         journal.GetLogicalDescendants().OfType<ItemsControl>().FirstOrDefault();
-
-    /// <summary>
-    /// Issues <paramref name="command"/> exactly as NovaTerminal.McpServer's <c>send_input</c>
-    /// tool does, through <see cref="AgentHostService.HandleRequestLineAsync"/>.
-    /// </summary>
-    private static async Task DeliverAsAgentAsync(TerminalPane pane, string command)
-    {
-        AgentHostResponse response = await SendInputAsAgentAsync(pane.PaneId, command);
-
-        if (response.Error is not null)
-        {
-            throw new InvalidOperationException(
-                $"agent sendInput was rejected: {response.Error.Code} {response.Error.Message}. " +
-                "Act is probably still disabled, or the pane is not registered.");
-        }
-    }
-
-    private static async Task<AgentHostResponse> SendInputAsAgentAsync(Guid paneId, string command)
-    {
-        var request = new AgentHostRequest
-        {
-            Version = AgentHostProtocol.Version,
-            Id = Interlocked.Increment(ref _requestId),
-            Method = AgentHostProtocol.Methods.SendInput,
-            Params = JsonSerializer.SerializeToElement(
-                new SendInputParams { PaneId = paneId, Text = command, Submit = true },
-                AgentHostJsonContext.Default.SendInputParams)
-        };
-
-        string line = JsonSerializer.Serialize(request, AgentHostJsonContext.Default.AgentHostRequest);
-
-        return await AgentHostService.Instance.HandleRequestLineAsync(line, CancellationToken.None);
-    }
 
     /// <summary>
     /// Asserts the pane is wearing the amber "agent typed" segment the clip's Intent claims it

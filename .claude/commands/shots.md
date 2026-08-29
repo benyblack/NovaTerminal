@@ -46,7 +46,13 @@ Scenarios requested: $ARGUMENTS (empty means `all`).
 
 5. When every image passes, publish and report:
 
-   `scripts/shots.ps1 all --scale 2 --publish`
+   `scripts/shots.ps1 all --scale 2 --publish --prune`
+
+   `--prune` deletes committed files under `docs/assets/shots/` that this run did not
+   (re)publish — the cleanup for a renamed scenario, a dropped variant, or a WebP sibling that
+   stopped qualifying. It refuses (a no-op with a warning, not an error) on anything but a full,
+   all-scenarios-succeeded run, so it is safe to always include here: a `$ARGUMENTS`-scoped
+   `/shots` invocation, or one where a scenario failed, simply skips pruning that time.
 
    Then give a table of what changed under `docs/assets/shots/`.
 
