@@ -7,11 +7,11 @@ const basePrefix = (import.meta.env.BASE_URL ?? '/').endsWith('/')
   ? import.meta.env.BASE_URL
   : `${import.meta.env.BASE_URL}/`;
 const images = [
-  { src: `${basePrefix}screenshots/screen-1.png`, alt: 'NovaTerminal showing a multi-pane session with a code editor and a build pane' },
-  { src: `${basePrefix}screenshots/screen-2.png`, alt: 'NovaTerminal with the command palette open and a profile switcher' },
-  { src: `${basePrefix}screenshots/screen-3.png`, alt: 'A fullscreen TUI application running inside NovaTerminal' },
-  { src: `${basePrefix}screenshots/screen-4.png`, alt: 'NovaTerminal with the search overlay and tabs panel visible' },
-  { src: `${basePrefix}screenshots/screen-5.png`, alt: 'NovaTerminal showing inline graphics rendered in the terminal grid' },
+  { src: `${basePrefix}shots/hero-split-site.png`, alt: 'Three terminal panes at once: a colourful test run on the left, a git graph top-right, and a process monitor bottom-right' },
+  { src: `${basePrefix}shots/command-palette-site.png`, alt: 'The command palette open over a populated terminal, a query typed, and matching commands listed with their keyboard shortcuts' },
+  { src: `${basePrefix}shots/tui-monitor-site.png`, alt: 'A fullscreen process monitor running inside NovaTerminal, with per-core and memory gauges above a process table' },
+  { src: `${basePrefix}shots/search-overlay-site.png`, alt: 'The search overlay open over scrollback, with a match counter and highlighted matches in the buffer' },
+  { src: `${basePrefix}shots/themes-grid-site.png`, alt: 'A grid of five built-in NovaTerminal themes rendering the same terminal transcript' },
 ];
 ---
 

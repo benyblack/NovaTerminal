@@ -8,7 +8,7 @@ export interface Props {
   description: string;
   /** Optional canonical URL override; defaults to Astro.site + current path. */
   canonical?: string;
-  /** OG image path relative to /public (e.g. "/og.png"). */
+  /** OG image path relative to /public (e.g. "/shots/og-card.png"). */
   ogImage?: string;
 }
 
@@ -16,7 +16,7 @@ const {
   title,
   description,
   canonical,
-  ogImage = '/og.svg',
+  ogImage = '/shots/og-card.png',
 } = Astro.props;
 
 const siteName = 'NovaTerminal';
@@ -26,7 +26,7 @@ const canonicalUrl =
 // `Astro.site` is origin-only; the path prefix is exposed by Astro as the
 // `import.meta.env.BASE_URL` Vite env. Combine the two so OG / favicon /
 // sitemap references resolve on the project Pages site
-// (e.g. `/NovaTerminal/og.svg`).
+// (e.g. `/NovaTerminal/shots/og-card.png`).
 const basePrefix = (import.meta.env.BASE_URL ?? '/').endsWith('/')
   ? import.meta.env.BASE_URL
   : `${import.meta.env.BASE_URL}/`;
