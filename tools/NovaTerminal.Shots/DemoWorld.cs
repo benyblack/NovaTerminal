@@ -61,9 +61,41 @@ public sealed class DemoWorld : IDisposable
         Directory.CreateDirectory(world.HomeRoot);
         world.SetEnvironment(RootOverrideEnvVar, world.ProfileRoot);
         world.ApplyDemoEnvironment();
+        world.WriteHomeBashrc();
         CreateAppPathsScaffolding();
 
         return world;
+    }
+
+    /// <summary>
+    /// Writes a <c>~/.bashrc</c> into the isolated home that re-asserts <see cref="DemoPrompt"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every scenario except command-assist opens <see cref="DemoProfile"/>, whose <c>--norc</c>
+    /// argument means bash's own <c>no_rc</c> flag is set — which suppresses <em>all</em> rc-file
+    /// reading, including this file, so it is simply never opened and costs those scenarios
+    /// nothing.
+    /// </para>
+    /// <para>
+    /// The command-assist scenario needs the opposite trade (see its own remarks): it drops
+    /// <c>--norc</c> so bash's shell-integration bootstrap script actually sources via
+    /// <c>--rcfile</c>. Confirmed empirically (a captured image showing the real
+    /// <c>behna@LegoinB</c> prompt) that dropping only <c>--norc</c> is not enough on this
+    /// machine's Git for Windows build: <c>/etc/bash.bashrc</c> still runs first and overwrites the
+    /// <c>PS1</c> this world set as a process environment variable — exactly the leak
+    /// <see cref="ApplyDemoEnvironment"/>'s own remarks already documented and a plain
+    /// <c>--norc</c> profile already avoided. The bootstrap script (<c>BashBootstrapBuilder</c>,
+    /// under <c>src/</c> and out of reach for this task) sources <c>~/.bashrc</c> before doing
+    /// anything else and only <em>appends</em> its own OSC 133 mark to whatever <c>PS1</c> it finds
+    /// — it does not overwrite it — so a <c>~/.bashrc</c> here that reassigns <c>PS1</c> restores
+    /// the demo prompt one step later than <c>/etc/bash.bashrc</c> clobbered it, and the mark still
+    /// lands on the corrected value.
+    /// </para>
+    /// </remarks>
+    private void WriteHomeBashrc()
+    {
+        File.WriteAllText(Path.Combine(HomeRoot, ".bashrc"), $"PS1='{DemoPrompt}'\n");
     }
 
     /// <summary>
