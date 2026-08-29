@@ -429,6 +429,20 @@ public sealed class ShotContext
         _ => []
     };
 
+    /// <summary>
+    /// Waits for <paramref name="pane"/>'s alternate-screen state to reach <paramref name="active"/>.
+    /// Shared by every scenario that drives a full-screen TUI through the enter-capture-exit life
+    /// cycle (tui-vim, tui-monitor, and Task 16's clip-tui, per demo-monitor.sh's own header) so
+    /// that life cycle is defined once instead of duplicated per scenario.
+    /// </summary>
+    /// <param name="what">
+    /// Describes what is being waited for, e.g. "vim to switch to the alternate screen" — reported
+    /// verbatim in the timeout message, which is what makes a stuck TUI diagnosable from the log
+    /// alone.
+    /// </param>
+    public void WaitForAltScreen(TerminalPane pane, bool active, TimeSpan timeout, string what) =>
+        Driver.WaitFor(() => pane.Buffer!.IsAltScreenActive == active, timeout, what);
+
     /// <summary>Captures the window and records it in the run manifest.</summary>
     public void Capture(string? suffix = null)
     {
