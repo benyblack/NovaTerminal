@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "2459dbd6100c91f121e856e0c0c54247eeca002a0a1ce4399c1d27dbf56d17f3",
+  "matrixSha256": "47d97ce2b29974163b73ada32f5935db95d318f874f5233b9ec5e46d595cdd2e",
   "summary": {
     "totalRows": 58,
-    "supportedCount": 19,
-    "partialCount": 33,
+    "supportedCount": 20,
+    "partialCount": 32,
     "experimentalCount": 1,
     "notSupportedCount": 4,
     "wontSupportCount": 1,
     "rowsWithLinkedEvidence": 35,
-    "supportedRowsWithLinkedEvidence": 19,
+    "supportedRowsWithLinkedEvidence": 20,
     "errorCount": 0,
     "warningCount": 0
   },
@@ -1033,22 +1033,27 @@
     {
       "section": "8) OSC sequences",
       "feature": "OSC 1337",
-      "status": "\u26A0 Partial",
+      "status": "\u2705 Supported",
       "specOrNotes": "",
-      "evidenceText": "Manual: \u0060docs/qa/QA_GRAPHICS.md\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs\u0060, Manual: \u0060docs/qa/QA_GRAPHICS.md\u0060",
       "evidenceKinds": [
-        "manual"
+        "manual",
+        "unit"
       ],
       "evidenceLinks": [
         {
           "path": "docs/qa/QA_GRAPHICS.md",
           "exists": true
+        },
+        {
+          "path": "tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs",
+          "exists": true
         }
       ],
-      "hasAutomatedEvidenceSignal": false,
+      "hasAutomatedEvidenceSignal": true,
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BRenderer",
-      "knownDeviations": "Parser support exists, but targeted automated replay/unit coverage for OSC 1337 is still missing",
+      "knownDeviations": "Requires \u0060inline=1\u0060 and the \u0060File=\u0060 arg shape; no \u0060name=\u0060/\u0060size=\u0060 enforcement",
       "sourceLine": 151
     },
     {
@@ -1072,7 +1077,7 @@
       "feature": "Kitty graphics protocol",
       "status": "\u2705 Supported",
       "specOrNotes": "APC / OSC forms",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/GraphicsTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/GraphicsTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
@@ -1083,6 +1088,10 @@
         },
         {
           "path": "tests/NovaTerminal.App.Tests/GraphicsTests.cs",
+          "exists": true
+        },
+        {
+          "path": "tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs",
           "exists": true
         }
       ],

@@ -148,7 +148,7 @@ It is designed to be:
 | OSC 52 | Clipboard | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs`, `tests/NovaTerminal.App.Tests/Controls/PaneParserWiringTests.cs` | Parser+App | Write-only (issue #268): valid base64 decodes and raises `AnsiParser.OnClipboardWrite`, capped at 1 MiB decoded (rejected on encoded length before decoding, re-checked after); invalid base64 dropped silently; a sequence with no payload separator at all is ignored rather than clearing the clipboard. Targets `c`/`p` both map to the system clipboard, other selection chars ignored. Query (`?`) always gets an empty-payload denial reply, never real clipboard contents — clipboard READ is unsupported by design (security). The echoed selection parameter is whitelisted to `c p q s 0-7` and length-capped first: responses go to the child process's stdin, so an unsanitized echo was a command-injection primitive (PR #280 review). Gated by `TerminalSettings.AllowOsc52ClipboardWrite` (default true, single global setting; per-profile/SSH-scoped opt-in is future work) |
 | OSC 8 | Hyperlinks | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+Renderer+UI | Ctrl-click open path is app-level |
 | OSC 133 | Shell integration lifecycle | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/OscShellIntegrationTests.cs` | Parser+Command Assist | Supports A/B/C/D markers; broader semantic prompt extensions not audited |
-| OSC 1337 | iTerm2 inline images | ⚠ Partial | Manual: `docs/qa/QA_GRAPHICS.md` | Parser+Renderer | Parser support exists, but targeted automated replay/unit coverage for OSC 1337 is still missing |
+| OSC 1337 | iTerm2 inline images | ✅ Supported | Unit: `tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs`, Manual: `docs/qa/QA_GRAPHICS.md` | Parser+Renderer | Requires `inline=1` and the `File=` arg shape; no `name=`/`size=` enforcement |
 | OSC 1339 | Windows conpty tunnel | 🧪 Experimental | Manual | Parser+Win | |
 
 ---
@@ -157,7 +157,7 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| Kitty graphics protocol | APC / OSC forms | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/GraphicsTests.cs`, `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs` | Parser+Renderer | |
+| Kitty graphics protocol | APC / OSC forms | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/GraphicsTests.cs`, `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs`, `tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs` | Parser+Renderer | |
 | Placement, z-index, scrolling | Complex interactions | ⚠ Partial | Manual | Buffer+Renderer | |
 
 ---
