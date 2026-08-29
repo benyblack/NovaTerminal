@@ -300,6 +300,15 @@ namespace NovaTerminal.Shell
         private TerminalBuffer? _buffer;
         public TerminalBuffer? Buffer => _buffer;
 
+        // Retired inline-image handles: this view OWNS their disposal. The drain lives here —
+        // not in TerminalDrawOperation — because that op is also driven by
+        // TerminalSnapshotRenderer (agent-host capture) on its own thread, so a draw-op drain
+        // could dispose a bitmap another concurrent snapshot is still drawing. The age grace
+        // (retire tick vs now) outlives any snapshot's draw window: frames and captures take
+        // tens of ms, so a pruned handle is only disposed once nothing can still hold it.
+        private const long RetiredImageDisposalGraceMs = 2000;
+        private readonly List<object> _retiredImageHandleScratch = new();
+
         // Coalescing
         private bool _isDirty;
         private DispatcherTimer _renderTimer;
@@ -1075,6 +1084,38 @@ namespace NovaTerminal.Shell
         // Session for sending mouse events
         private ITerminalSession? _session;
 
+        /// <summary>
+        /// Drains retired image handles older than <paramref name="drainTick"/> and disposes
+        /// the Skia bitmaps. Called from <see cref="Render"/> (this view's frame boundary) and
+        /// internal so tests can drive it deterministically.
+        /// </summary>
+        internal void DisposeRetiredImageBitmaps(long drainTick)
+        {
+            var buffer = _buffer;
+            if (buffer == null) return;
+
+            if (!buffer.DrainRetiredImageHandles(_retiredImageHandleScratch, drainTick))
+            {
+                return;
+            }
+
+            foreach (var handle in _retiredImageHandleScratch)
+            {
+                if (handle is SKBitmap bitmap)
+                {
+                    try
+                    {
+                        bitmap.Dispose();
+                    }
+                    catch
+                    {
+                        // Best effort: never break rendering over a dispose failure.
+                    }
+                }
+            }
+            _retiredImageHandleScratch.Clear();
+        }
+
         public void SetBuffer(TerminalBuffer buffer)
         {
             if (_buffer != null)
@@ -1769,6 +1810,8 @@ namespace NovaTerminal.Shell
                 context.FillRectangle(new SolidColorBrush(Color.FromRgb(20, 20, 20), _windowOpacity), new Rect(0, 0, Bounds.Width, Bounds.Height));
                 return;
             }
+
+            DisposeRetiredImageBitmaps(Environment.TickCount64 - RetiredImageDisposalGraceMs);
 
             // Failsafe: Ensure we have fonts, but even if we don't, we should draw a background
             // to avoid "white panes"

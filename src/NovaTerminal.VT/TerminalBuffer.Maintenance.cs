@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using NovaTerminal.VT.Storage;
@@ -6,10 +7,12 @@ namespace NovaTerminal.VT
 {
     public partial class TerminalBuffer
     {
-        // Handles of images removed from _images, awaiting disposal. Removal is synchronous;
-        // disposal is deferred to the render thread's frame boundary because a snapshot can
-        // still hold the handle reference after the write lock releases (see DrainRetiredImageHandles).
-        private readonly ConcurrentQueue<object> _retiredImageHandles = new();
+        // Handles of images removed from _images, awaiting disposal, stamped with the retire
+        // time. Removal is synchronous; disposal is deferred to the owning TerminalView's
+        // frame boundary AND gated by retire age: other pipelines (agent-host screen capture)
+        // snapshot the same buffer concurrently on their own threads, so a handle must not be
+        // disposed while any snapshot taken before the retire could still be drawing it.
+        private readonly ConcurrentQueue<(object Handle, long Tick)> _retiredImageHandles = new();
 
         public void AddImage(TerminalImage image)
         {
@@ -36,17 +39,17 @@ namespace NovaTerminal.VT
         /// </summary>
         private void RetireImage(TerminalImage image)
         {
-            _retiredImageHandles.Enqueue(image.ImageHandle);
+            _retiredImageHandles.Enqueue((image.ImageHandle, Environment.TickCount64));
         }
 
         /// <summary>
-        /// Drains handles retired by image removals into <paramref name="into"/>. Returns
-        /// true when anything was drained. Called once per rendered frame by the draw
-        /// operation, on the render thread, after the previous frame's DrawBitmap calls
-        /// completed — the only safe point to dispose, which is why this is a queue rather
-        /// than disposing at removal time.
+        /// Drains retired handles older than <paramref name="retiredBeforeTick"/> into
+        /// <paramref name="into"/>. Returns true when anything was drained. The owning view
+        /// calls this once per frame with (now − grace); a handle younger than the grace is
+        /// left queued because a concurrent snapshot (live frame mid-draw, agent-host
+        /// capture) taken before the retire may still be holding and drawing it.
         /// </summary>
-        public bool DrainRetiredImageHandles(List<object> into)
+        public bool DrainRetiredImageHandles(List<object> into, long retiredBeforeTick)
         {
             if (_retiredImageHandles.IsEmpty)
             {
@@ -54,9 +57,14 @@ namespace NovaTerminal.VT
             }
 
             bool drained = false;
-            while (_retiredImageHandles.TryDequeue(out object? handle))
+            // Age-ordered by construction (FIFO): stop at the first entry too young.
+            while (_retiredImageHandles.TryPeek(out var entry) && entry.Tick <= retiredBeforeTick)
             {
-                into.Add(handle);
+                if (!_retiredImageHandles.TryDequeue(out entry))
+                {
+                    break;
+                }
+                into.Add(entry.Handle);
                 drained = true;
             }
 

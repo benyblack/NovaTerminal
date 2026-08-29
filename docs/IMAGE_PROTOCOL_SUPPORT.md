@@ -22,6 +22,6 @@ This document defines NovaTerminal image protocol behavior across platforms.
 ## Notes
 
 - Decoding is implemented by `NovaTerminal.Rendering.SkiaImageDecoder` (`SixelDecoder` for DCS/OSC 1339 sixel payloads, `SKBitmap.Decode` for Kitty/iTerm2 image bytes); decoded bitmaps render in the grid via `TerminalDrawOperation`'s image pass.
-- Lifecycle: images pruned by the buffer (scroll eviction, erase, reflow) retire their bitmap handles, which the draw operation disposes at the next frame boundary — never while a frame may still reference them (#166).
+- Lifecycle: images pruned by the buffer (scroll eviction, erase, reflow) retire their bitmap handles; the owning view disposes them at its frame boundary once a short age grace has passed — never while a concurrent snapshot (a frame or an agent-host capture) may still be drawing them (#166).
 - The fallback policy is intentionally conservative to avoid false advertising Kitty support through ConPTY.
 - If a future backend bypasses ConPTY filtering, this policy can be relaxed.

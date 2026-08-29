@@ -1,32 +1,19 @@
-using Avalonia;
 using Avalonia.Headless.XUnit;
-using Avalonia.Media;
-using NovaTerminal.Platform;
-using NovaTerminal.Rendering;
 using NovaTerminal.Shell;
 using NovaTerminal.VT;
 using SkiaSharp;
 using System;
-using System.Collections.Concurrent;
 
 namespace NovaTerminal.Tests.RenderTests;
 
 /// <summary>
-/// #166 end to end: a pruned image's SKBitmap must survive untouched until a render frame
-/// runs (the frame-boundary drain), then be disposed by that drain — and a frame rendered
-/// before any prune must not disturb the bitmap it drew.
+/// #166 end to end: a pruned image's SKBitmap is disposed by the owning view's
+/// retired-handle drain — but only once the retire-age grace has passed, because a
+/// concurrent snapshot (live frame, agent-host capture) taken before the prune may
+/// still be drawing it.
 /// </summary>
 public class RetiredImageDisposalTests
 {
-    private static readonly CellMetrics Metrics = new()
-    {
-        CellWidth = 8.4f,
-        CellHeight = 18.0f,
-        Baseline = 14.0f,
-        Ascent = 14.0f,
-        Descent = 4.0f
-    };
-
     // IsDisposed is protected in SkiaSharp 3.x, and probing a disposed SKBitmap through
     // its public API (GetPixel) dies with a native access violation instead of throwing —
     // so disposal is observed via a subclass flag, never by touching the bitmap.
@@ -37,84 +24,35 @@ public class RetiredImageDisposalTests
     }
 
     [AvaloniaFact]
-    public void PrunedImageBitmap_IsDisposedByTheNextFrameDrain_NotBefore()
+    public void PrunedImageBitmap_IsDisposedOnlyAfterTheAgeGrace()
     {
         var buffer = new TerminalBuffer(80, 24);
+        var view = new TerminalView();
+        view.SetBuffer(buffer);
+
         var bitmap = new TrackingBitmap();
-        var image = new TerminalImage(bitmap, 2, 2, 2, 1);
-        buffer.AddImage(image);
+        buffer.AddImage(new TerminalImage(bitmap, 2, 2, 2, 1));
 
-        // Frame 1 draws the image while it is still live in the buffer.
-        RenderOneFrame(buffer);
-        Assert.False(bitmap.Gone, "drawing a live image must not dispose its bitmap");
+        // Draining with a cutoff older than the retire must not touch the fresh handle:
+        // a snapshot in flight at prune time may still be drawing it.
+        view.DisposeRetiredImageBitmaps(Environment.TickCount64 - 60_000);
+        Assert.False(bitmap.Gone, "an age-gated drain must leave a freshly-retired bitmap alone");
 
-        // ED 2 prunes it: removed from the buffer, handle retired but NOT disposed —
-        // the just-finished frame may still hold a reference to it.
+        // The image is still live in the buffer here — an unpruned image is never disposed.
+        Assert.Single(buffer.Images);
+
+        // Prune it (ED 2 semantics): retired with the current tick.
         buffer.ClearScreen();
         Assert.Empty(buffer.Images);
-        Assert.False(bitmap.Gone, "pruning alone must not dispose (previous frame may reference the handle)");
+        Assert.False(bitmap.Gone, "pruning alone must not dispose");
 
-        // Frame 2's drain runs after frame 1's DrawBitmap provably completed: now it disposes.
-        RenderOneFrame(buffer);
-        Assert.True(bitmap.Gone, "the frame-boundary drain must dispose the retired bitmap");
+        // A drain whose cutoff covers the retire tick disposes it — this is what the
+        // view's frame boundary does once the grace has passed.
+        view.DisposeRetiredImageBitmaps(Environment.TickCount64);
+        Assert.True(bitmap.Gone, "the owning view's drain must dispose the retired bitmap");
 
-        // And once disposed, later frames stay clean (nothing re-drains the same handle).
-        RenderOneFrame(buffer);
-    }
-
-    private static void RenderOneFrame(TerminalBuffer buffer)
-    {
-        const int cols = 80;
-        const int rows = 24;
-        int width = (int)Math.Ceiling(cols * Metrics.CellWidth) + 8;
-        int height = (int)Math.Ceiling(rows * Metrics.CellHeight);
-
-        var bitmap = new SKBitmap(width, height);
-        using var canvas = new SKCanvas(bitmap);
-
-        var typeface = new Typeface("Cascadia Code, Consolas, Monospace");
-        var glyphTypeface = typeface.GlyphTypeface;
-        var skTypeface = new SharedSKTypeface(SKTypeface.FromFamilyName(typeface.FontFamily.Name));
-        var skFont = new SharedSKFont(new SKFont(skTypeface.Typeface, 14));
-
-        var op = new TerminalDrawOperation(
-            new Rect(0, 0, width, height),
-            buffer,
-            scrollOffset: 0,
-            selection: new SelectionState(),
-            searchMatches: null,
-            activeSearchIndex: -1,
-            metrics: Metrics,
-            typeface: typeface,
-            fontSize: 14,
-            glyphTypeface: glyphTypeface,
-            skTypeface: skTypeface,
-            skFont: skFont,
-            enableLigatures: false,
-            fallbackCache: new ConcurrentDictionary<string, SKTypeface?>(),
-            fallbackChain: Array.Empty<SKTypeface>(),
-            opacity: 1.0,
-            hideCursor: true,
-            renderScaling: 1.0,
-            snapshotRows: buffer.Rows,
-            snapshotCols: buffer.Cols,
-            totalLines: buffer.TotalLines,
-            cursorRow: buffer.CursorRow,
-            cursorCol: buffer.CursorCol,
-            rowCache: null,
-            enableComplexShaping: true,
-            glyphCache: null);
-
-        try
-        {
-            var snapshot = op.DrawTerminalInternal(canvas);
-            Assert.NotNull(snapshot);
-        }
-        finally
-        {
-            op.Dispose();
-            skFont.Dispose();
-            skTypeface.Dispose();
-        }
+        // And nothing re-drains the same handle afterwards.
+        view.DisposeRetiredImageBitmaps(Environment.TickCount64);
+        Assert.True(bitmap.Gone);
     }
 }

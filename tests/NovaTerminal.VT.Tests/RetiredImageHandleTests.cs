@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace NovaTerminal.VT.Tests;
@@ -29,7 +30,7 @@ public class RetiredImageHandleTests
     private static List<object> Drain(TerminalBuffer buffer)
     {
         var drained = new List<object>();
-        buffer.DrainRetiredImageHandles(drained);
+        buffer.DrainRetiredImageHandles(drained, long.MaxValue);
         return drained;
     }
 
@@ -50,7 +51,7 @@ public class RetiredImageHandleTests
         var drained = Drain(buffer);
         Assert.Single(drained);
         Assert.Same(viewportImage.ImageHandle, drained[0]);
-        Assert.False(buffer.DrainRetiredImageHandles(new List<object>()), "second drain must be empty (no double-retire)");
+        Assert.False(buffer.DrainRetiredImageHandles(new List<object>(), long.MaxValue), "second drain must be empty (no double-retire)");
     }
 
     [Fact]
@@ -164,6 +165,37 @@ public class RetiredImageHandleTests
     {
         var (buffer, _) = CreateFilledTerminal();
 
-        Assert.False(buffer.DrainRetiredImageHandles(new List<object>()));
+        Assert.False(buffer.DrainRetiredImageHandles(new List<object>(), long.MaxValue));
+    }
+
+    /// <summary>
+    /// The drain is age-gated: the owning view passes (now − grace) so a handle a
+    /// concurrent snapshot (live frame, agent-host capture) may still be drawing is left
+    /// queued until the grace has passed. Retires are FIFO, so the drain stops at the
+    /// first too-young entry.
+    /// </summary>
+    [Fact]
+    public void Drain_OnlyRetiresHandlesOlderThanTheCutoff()
+    {
+        var (buffer, parser) = CreateFilledTerminal();
+        int scrollbackCount = buffer.Scrollback.Count;
+
+        // Viewport image: ED 2 actually prunes it (scrollback images survive ED 2).
+        var image = new TerminalImage(new object(), 0, scrollbackCount + 1, 2, 1);
+        buffer.AddImage(image);
+
+        parser.Process("\x1b[2J");
+        Assert.Empty(buffer.Images);
+
+        // Cutoff one minute in the past: the just-retired handle is too young.
+        var freshCutoffDrain = new List<object>();
+        Assert.False(buffer.DrainRetiredImageHandles(freshCutoffDrain, Environment.TickCount64 - 60_000));
+        Assert.Empty(freshCutoffDrain);
+
+        // Long.MaxValue cutoff: everything drains, exactly once.
+        var drained = Drain(buffer);
+        Assert.Single(drained);
+        Assert.Same(image.ImageHandle, drained[0]);
+        Assert.False(buffer.DrainRetiredImageHandles(new List<object>(), long.MaxValue));
     }
 }
