@@ -85,6 +85,16 @@ public static class Program
             }
         }
 
+        // Snapshotted before iterating: VariantBuilder.BuildAll records each variant it produces
+        // onto this same run, and iterating run.Assets live while it grows out from under the
+        // enumerator throws. Tier 3+ masters (ClipAgentScenario's clip-agent) are excluded - the
+        // brief scopes derived variants to Tier 1/2 masters only.
+        ShotAsset[] masters = run.Assets.Where(a => a.Tier <= 2).ToArray();
+        foreach (ShotAsset master in masters)
+        {
+            VariantBuilder.BuildAll(master, run);
+        }
+
         run.WriteManifest();
         Console.WriteLine($"[shots] {run.Assets.Count} asset(s) in {outputDirectory}");
 
