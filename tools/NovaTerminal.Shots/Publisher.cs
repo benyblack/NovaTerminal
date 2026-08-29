@@ -106,7 +106,7 @@ public static class Publisher
     /// forever with nothing to notice or remove it.
     /// </summary>
     /// <remarks>
-    /// Three deliberate safety properties, in order of how much damage getting them wrong would
+    /// Four deliberate safety properties, in order of how much damage getting them wrong would
     /// cause:
     /// <list type="number">
     /// <item>
@@ -121,13 +121,34 @@ public static class Publisher
     /// than guess.
     /// </item>
     /// <item>
+    /// <b>The incomplete-run guard.</b> <paramref name="isFullCatalogueRun"/> reflects what this
+    /// invocation was <i>asked</i> to run (the requested scenario set), not what it actually
+    /// <i>produced</i>. <c>Program.Main</c> catches a per-scenario exception, counts it as a
+    /// failure, and continues the loop - the request still covers the whole catalogue, so
+    /// <paramref name="isFullCatalogueRun"/> alone stays true, but the failed scenario never
+    /// called <c>run.Record</c>, so its assets are silently absent from <paramref
+    /// name="published"/>. Whitelist-diffed against the disk, that absence is indistinguishable
+    /// from a deliberate rename or removal - there is no in-band signal that tells them apart.
+    /// The only safe signal is the caller's own out-of-band knowledge that the run was
+    /// incomplete, passed as <paramref name="failedScenarios"/>: any non-empty list refuses the
+    /// whole prune (not just the failed scenarios' own files), with its own warning naming them,
+    /// for the same "no-op, not an exception" reason as the subset-run guard above - the publish
+    /// itself already succeeded for every scenario that did run, and a --prune that merely
+    /// declines must not take that down with it.
+    /// </item>
+    /// <item>
     /// <b>Non-recursive, top-level scan only.</b> <see cref="Directory.GetFiles(string)"/>'s
     /// default <see cref="SearchOption.TopDirectoryOnly"/> structurally excludes
     /// <c>docs/assets/shots/hero/</c> - no hardcoded "skip the folder named hero" exception is
     /// needed, and none could be trusted as much as the directory tree itself. That folder holds
     /// manually captured hero shots (<see cref="Program"/> never writes into it) which never
     /// appear in any manifest; a recursive scan would read them as universally "not published
-    /// this run" and delete them.
+    /// this run" and delete them. The converse follows by construction and is <i>not</i>
+    /// protected: a hero shot committed directly at the top level of
+    /// <c>docs/assets/shots/</c> (rather than under <c>hero/</c>) is scanned like any other file
+    /// and will be deleted by a full-catalogue prune if its basename never appears in <paramref
+    /// name="published"/>. This is intended, not an oversight - keep manually curated hero shots
+    /// under <c>hero/</c> if they must never be pruned.
     /// </item>
     /// <item>
     /// <b>Extension allowlist.</b> Only <see cref="ManagedExtensions"/> are even considered, so a
@@ -143,12 +164,21 @@ public static class Publisher
     /// When true, computes and returns exactly what would be deleted without touching disk - the
     /// auditability an unreviewable delete list would otherwise lack.
     /// </param>
+    /// <param name="failedScenarios">
+    /// The names of scenarios that threw during this run (see <c>Program.Main</c>'s per-scenario
+    /// catch), regardless of how many scenarios were requested. Any non-empty list refuses the
+    /// prune outright - see the incomplete-run guard above.
+    /// </param>
     /// <returns>
     /// The paths deleted (or, under <paramref name="dryRun"/>, that would be deleted), relative
     /// to <paramref name="repositoryRoot"/>.
     /// </returns>
     public static IReadOnlyList<string> Prune(
-        IReadOnlyList<string> published, string repositoryRoot, bool isFullCatalogueRun, bool dryRun)
+        IReadOnlyList<string> published,
+        string repositoryRoot,
+        bool isFullCatalogueRun,
+        bool dryRun,
+        IReadOnlyList<string> failedScenarios)
     {
         if (!isFullCatalogueRun)
         {
@@ -156,6 +186,17 @@ public static class Publisher
                 "[shots] --prune requires a full-catalogue run (no scenario name filter on the " +
                 "command line) - skipping prune, since a subset run's published list would make " +
                 "every other scenario's committed assets look stale and delete them.");
+            return [];
+        }
+
+        if (failedScenarios.Count > 0)
+        {
+            Console.Error.WriteLine(
+                "[shots] --prune skipped: this run was incomplete - " +
+                $"{failedScenarios.Count} scenario(s) failed and published nothing " +
+                $"({string.Join(", ", failedScenarios)}). Their previously-committed assets " +
+                "would look indistinguishable from stale files and be deleted. Re-run without " +
+                "failures, then retry --prune.");
             return [];
         }
 

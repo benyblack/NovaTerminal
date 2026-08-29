@@ -125,7 +125,7 @@ public sealed class PublisherTests
             IReadOnlyList<string> published = [RelativeAsset("current-readme.png")];
 
             IReadOnlyList<string> pruned = Publisher.Prune(
-                published, repositoryRoot, isFullCatalogueRun: true, dryRun: false);
+                published, repositoryRoot, isFullCatalogueRun: true, dryRun: false, failedScenarios: []);
 
             Assert.True(File.Exists(Path.Combine(assetsDirectory, "current-readme.png")));
             Assert.False(File.Exists(Path.Combine(assetsDirectory, "stale-readme.png")));
@@ -154,7 +154,7 @@ public sealed class PublisherTests
             WriteFile(Path.Combine(heroDirectory, "hero-real-single.png"));
 
             IReadOnlyList<string> pruned = Publisher.Prune(
-                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: false);
+                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: false, failedScenarios: []);
 
             Assert.True(File.Exists(Path.Combine(heroDirectory, "hero-real-single.png")));
             Assert.DoesNotContain(pruned, p => p.Contains("hero-real-single", StringComparison.Ordinal));
@@ -177,7 +177,7 @@ public sealed class PublisherTests
             WriteFile(Path.Combine(assetsDirectory, "README.md"));
 
             IReadOnlyList<string> pruned = Publisher.Prune(
-                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: false);
+                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: false, failedScenarios: []);
 
             Assert.True(File.Exists(Path.Combine(assetsDirectory, "README.md")));
             Assert.DoesNotContain(pruned, p => p.EndsWith("README.md", StringComparison.Ordinal));
@@ -209,9 +209,52 @@ public sealed class PublisherTests
             IReadOnlyList<string> published = [RelativeAsset("hero-single-readme.png")];
 
             IReadOnlyList<string> pruned = Publisher.Prune(
-                published, repositoryRoot, isFullCatalogueRun: false, dryRun: false);
+                published, repositoryRoot, isFullCatalogueRun: false, dryRun: false, failedScenarios: []);
 
             Assert.True(File.Exists(Path.Combine(assetsDirectory, "some-other-scenario-readme.png")));
+            Assert.Empty(pruned);
+        }
+        finally
+        {
+            Directory.Delete(repositoryRoot, recursive: true);
+            Directory.Delete(outputDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Prune_RefusesWhenTheRunHadFailuresAndDeletesNothing()
+    {
+        // The Critical finding this test guards against: isFullCatalogueRun reflects requested
+        // scope, not achieved output. Program catches a per-scenario exception and continues the
+        // loop, so a full-catalogue *request* can still finish with one scenario's assets
+        // silently absent from `published` because it never reached run.Record. Whitelist-diffed
+        // against the disk, that absence is indistinguishable from a deliberate rename/removal -
+        // isFullCatalogueRun: true alone must NOT be enough to prune here; only the caller's own
+        // out-of-band knowledge (failedScenarios) can catch it.
+        (string repositoryRoot, string outputDirectory) = NewTempRoots();
+        string assetsDirectory = Path.Combine(repositoryRoot, "docs", "assets", "shots");
+        Directory.CreateDirectory(assetsDirectory);
+        try
+        {
+            // Plants the file the failed scenario would have published had it succeeded - its
+            // continued presence on disk is exactly what a real, previously-committed asset looks
+            // like after an unrelated scenario blows up mid-run.
+            WriteFile(Path.Combine(assetsDirectory, "broken-scenario-readme.png"));
+
+            // Simulates a full-catalogue run where every OTHER scenario succeeded and published,
+            // but "broken-scenario" threw and never called run.Record - its asset is absent from
+            // `published` even though isFullCatalogueRun is true (the request still covered the
+            // whole catalogue).
+            IReadOnlyList<string> published = [RelativeAsset("some-other-scenario-readme.png")];
+
+            IReadOnlyList<string> pruned = Publisher.Prune(
+                published,
+                repositoryRoot,
+                isFullCatalogueRun: true,
+                dryRun: false,
+                failedScenarios: ["broken-scenario"]);
+
+            Assert.True(File.Exists(Path.Combine(assetsDirectory, "broken-scenario-readme.png")));
             Assert.Empty(pruned);
         }
         finally
@@ -232,7 +275,7 @@ public sealed class PublisherTests
             WriteFile(Path.Combine(assetsDirectory, "stale-readme.png"));
 
             IReadOnlyList<string> pruned = Publisher.Prune(
-                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: true);
+                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: true, failedScenarios: []);
 
             Assert.True(File.Exists(Path.Combine(assetsDirectory, "stale-readme.png")));
             Assert.Equal([RelativeAsset("stale-readme.png")], pruned);

@@ -34,7 +34,13 @@ public static class Program
         world.SeedWorkspace();
 
         var run = new ShotRun(outputDirectory, scale);
-        int failures = 0;
+
+        // Names, not just a count: Publisher.Prune's incomplete-run guard needs to name the
+        // failed scenario(s) in its refusal so the warning is actionable rather than a bare
+        // number buried in ~two minutes of capture output. The single list is also the sole
+        // source of truth for "did this run fail anything" - see its use in the final return
+        // below - so it can never drift out of sync with a separately-incremented counter.
+        var failedScenarioNames = new List<string>();
 
         using ShotHost host = ShotHost.Start();
 
@@ -75,7 +81,7 @@ public static class Program
                 }
                 catch (Exception ex)
                 {
-                    failures++;
+                    failedScenarioNames.Add(scenario.Spec.Name);
                     Console.Error.WriteLine($"[shots] {scenario.Spec.Name} FAILED: {ex.Message}");
                 }
             }
@@ -119,6 +125,14 @@ public static class Program
                 // isFullCatalogueRun must reflect what THIS invocation actually resolved, not
                 // just the absence of scenario-name arguments - see Publisher.Prune's remarks on
                 // why a subset run must never reach the delete path.
+                //
+                // isFullCatalogueRun on its own is NOT enough: it reflects requested scope, not
+                // achieved output. A per-scenario failure above leaves `requested` (and therefore
+                // this bool) unchanged, but that scenario never called run.Record, so its assets
+                // are silently absent from `published` - and Prune's whitelist diff cannot tell
+                // that apart from a deliberate removal. failedScenarioNames is the only signal
+                // that catches this; it is passed through unconditionally so Prune's own guard is
+                // what refuses, not a check duplicated here.
                 bool isFullCatalogueRun = requested
                     .Select(s => s.Spec.Name)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase)
@@ -126,7 +140,8 @@ public static class Program
 
                 bool dryRun = args.Contains("--dry-run");
 
-                IReadOnlyList<string> stale = Publisher.Prune(published, repositoryRoot, isFullCatalogueRun, dryRun);
+                IReadOnlyList<string> stale = Publisher.Prune(
+                    published, repositoryRoot, isFullCatalogueRun, dryRun, failedScenarioNames);
                 foreach (string path in stale)
                 {
                     Console.WriteLine(dryRun ? $"[shots] would delete {path}" : $"[shots] pruned {path}");
@@ -138,7 +153,7 @@ public static class Program
             Console.Error.WriteLine("[shots] --prune has no effect without --publish; ignoring.");
         }
 
-        return failures == 0 ? 0 : 1;
+        return failedScenarioNames.Count == 0 ? 0 : 1;
     }
 
     /// <summary>
