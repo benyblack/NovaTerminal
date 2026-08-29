@@ -25,12 +25,12 @@ public static class Dwm {
 }
 "@
 
-$matches = @(Get-Process -Name 'NovaTerminal' -ErrorAction SilentlyContinue)
-if ($matches.Count -eq 0) { throw 'NovaTerminal is not running. Start it, arrange the window, then re-run.' }
-if ($matches.Count -gt 1) {
-    Write-Warning "Multiple NovaTerminal processes are running; capturing PID $($matches[0].Id). Close the others first if that is not the one you arranged."
+$novaTerminalProcesses = @(Get-Process -Name 'NovaTerminal' -ErrorAction SilentlyContinue)
+if ($novaTerminalProcesses.Count -eq 0) { throw 'NovaTerminal is not running. Start it, arrange the window, then re-run.' }
+if ($novaTerminalProcesses.Count -gt 1) {
+    Write-Warning "Multiple NovaTerminal processes are running; capturing PID $($novaTerminalProcesses[0].Id). Close the others first if that is not the one you arranged."
 }
-$process = $matches[0]
+$process = $novaTerminalProcesses[0]
 
 if ($process.MainWindowHandle -eq [IntPtr]::Zero) {
     throw 'NovaTerminal has no main window handle yet (minimized, still starting, or hidden). Restore the window and re-run.'
