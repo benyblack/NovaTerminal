@@ -44,6 +44,71 @@ public static class Rasterizer
     }
 
     /// <summary>
+    /// Writes a PNG tuned for the committed <c>docs/assets/shots/</c> tree: every filter Skia's
+    /// PNG encoder offers plus zlib level 9, instead of <see cref="WritePng"/>'s zero-tuning
+    /// <c>bitmap.Encode(Png, 100)</c> (Skia's own default filter/zlib settings). Deliberately not
+    /// the default: this trades encode time for smaller output, which is only worth paying where
+    /// the result is committed. Masters (Tier 1/2, gitignored <c>artifacts/</c>) and clip frame
+    /// sequences (numbered in the hundreds, also gitignored) call <see cref="WritePng"/> instead —
+    /// their size never matters, and re-encoding hundreds of frames at level 9 would slow every
+    /// capture run for no benefit. Only <see cref="VariantBuilder"/>'s Tier 3 published variants
+    /// call this.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="bitmap"/> exposes no readable pixel buffer (<c>PeekPixels</c> returned
+    /// null) or the encoder itself failed.
+    /// </exception>
+    public static void WriteOptimizedPng(SKBitmap bitmap, string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        using SKPixmap pixmap = bitmap.PeekPixels()
+            ?? throw new InvalidOperationException(
+                $"Could not read pixels from the bitmap being written to '{path}' as an optimized PNG.");
+
+        var options = new SKPngEncoderOptions(SKPngEncoderFilterFlags.AllFilters, 9);
+        using SKData data = pixmap.Encode(options)
+            ?? throw new InvalidOperationException($"SKPixmap.Encode(PNG) failed writing '{path}'.");
+        using FileStream file = File.Create(path);
+        data.SaveTo(file);
+    }
+
+    /// <summary>
+    /// Writes <paramref name="bitmap"/> as a WebP under <see cref="SKWebpEncoderCompression.Lossless"/>
+    /// — the spec requires PNG plus WebP siblings for every published variant, and lossy WebP's
+    /// block artifacts land directly on monospace glyph edges in these text-heavy terminal
+    /// screenshots. Quality 100 selects libwebp's slowest/most thorough lossless compression
+    /// effort, not a visual-quality knob.
+    /// </summary>
+    /// <remarks>
+    /// Verified empirically (see <c>RasterizerTests</c> and the task report) to be bit-exact for
+    /// every fully opaque pixel — the case that matters for glyphs, chrome, and every screenshot
+    /// pixel that is not the drop shadow's own soft edge. A small residual (observed: ~0.2% of
+    /// pixels, single-digit-of-255 per channel) shows up only on the blurred, semi-transparent
+    /// shadow gradient <see cref="PostProcess.RoundedWithShadow"/> paints outside the window
+    /// frame. <see cref="SKWebpEncoderOptions"/> in the installed SkiaSharp (3.119.4) exposes only
+    /// <see cref="SKWebpEncoderCompression"/> and <c>Quality</c> — no control over libwebp's
+    /// internal alpha handling — so this residual is not something a caller can configure away.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="bitmap"/> exposes no readable pixel buffer or the encoder itself failed.
+    /// </exception>
+    public static void WriteLosslessWebp(SKBitmap bitmap, string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        using SKPixmap pixmap = bitmap.PeekPixels()
+            ?? throw new InvalidOperationException(
+                $"Could not read pixels from the bitmap being written to '{path}' as a WebP.");
+
+        var options = new SKWebpEncoderOptions(SKWebpEncoderCompression.Lossless, 100);
+        using SKData data = pixmap.Encode(options)
+            ?? throw new InvalidOperationException($"SKPixmap.Encode(WebP) failed writing '{path}'.");
+        using FileStream file = File.Create(path);
+        data.SaveTo(file);
+    }
+
+    /// <summary>
     /// Share of pixels differing from the image's most common colour. A capture that comes back
     /// near zero is a blank raster, which is the failure mode that looks like success.
     /// </summary>

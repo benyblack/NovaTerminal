@@ -83,8 +83,8 @@ public static class VariantBuilder
         using SKBitmap source = LoadBitmap(master.File);
         using SKBitmap framed = PostProcess.RoundedWithShadow(source, cornerRadius, shadowBlur, margin);
 
-        produced.Add(BuildResizedVariant(run, master, framed, "readme", ReadmeWidth));
-        produced.Add(BuildResizedVariant(run, master, framed, "site", SiteWidth));
+        produced.AddRange(BuildResizedVariant(run, master, framed, "readme", ReadmeWidth));
+        produced.AddRange(BuildResizedVariant(run, master, framed, "site", SiteWidth));
 
         if (string.Equals(master.Name, CardMasterName, StringComparison.Ordinal))
         {
@@ -97,11 +97,11 @@ public static class VariantBuilder
 
             using SKBitmap ogCard = PostProcess.OnBackdrop(
                 cardFramed, OgCardWidth, OgCardHeight, CardGradientTop, CardGradientBottom);
-            produced.Add(WriteNamedVariant(run, master, ogCard, "og-card"));
+            produced.AddRange(WriteNamedVariant(run, master, ogCard, "og-card"));
 
             using SKBitmap socialSquare = PostProcess.OnBackdrop(
                 cardFramed, SocialSquareSize, SocialSquareSize, CardGradientTop, CardGradientBottom);
-            produced.Add(WriteNamedVariant(run, master, socialSquare, "social-square"));
+            produced.AddRange(WriteNamedVariant(run, master, socialSquare, "social-square"));
         }
 
         foreach (ShotAsset asset in produced)
@@ -125,7 +125,7 @@ public static class VariantBuilder
     /// width would visibly soften their thin monospace text. Capping to whichever is smaller
     /// means these three simply publish narrower than the nominal width instead of upscaled.
     /// </remarks>
-    private static ShotAsset BuildResizedVariant(
+    private static ShotAsset[] BuildResizedVariant(
         ShotRun run, ShotAsset master, SKBitmap framed, string suffix, int targetWidth)
     {
         int effectiveWidth = Math.Min(targetWidth, framed.Width);
@@ -144,33 +144,46 @@ public static class VariantBuilder
         }
     }
 
-    /// <summary>Writes <paramref name="bitmap"/> as <c>&lt;master.Name&gt;-&lt;suffix&gt;.png</c> and records it.</summary>
-    private static ShotAsset WriteVariant(ShotRun run, ShotAsset master, SKBitmap bitmap, string suffix)
+    /// <summary>Writes <paramref name="bitmap"/> as <c>&lt;master.Name&gt;-&lt;suffix&gt;.png</c> (plus its WebP sibling) and records both.</summary>
+    private static ShotAsset[] WriteVariant(ShotRun run, ShotAsset master, SKBitmap bitmap, string suffix)
     {
         string name = $"{master.Name}-{suffix}";
         return WriteNamedVariant(run, master, bitmap, name);
     }
 
     /// <summary>
-    /// Writes <paramref name="bitmap"/> under <paramref name="name"/> verbatim - used for
-    /// og-card and social-square, whose filenames are fixed by the brief rather than derived
-    /// from the master's own name.
+    /// Writes <paramref name="bitmap"/> under <paramref name="name"/> verbatim as both an
+    /// optimized PNG and a lossless WebP sibling - used for og-card and social-square, whose
+    /// filenames are fixed by the brief rather than derived from the master's own name.
     /// </summary>
-    private static ShotAsset WriteNamedVariant(ShotRun run, ShotAsset master, SKBitmap bitmap, string name)
+    /// <returns>
+    /// The PNG asset followed by its WebP sibling - same <see cref="ShotAsset.Name"/>, same Tier
+    /// 3, differing only in <see cref="ShotAsset.File"/>'s extension. <see cref="Publisher"/>
+    /// already publishes every Tier 3 asset it finds, so recording both here is what gets the
+    /// WebP sibling published alongside its PNG with no change to Publisher itself.
+    /// </returns>
+    private static ShotAsset[] WriteNamedVariant(ShotRun run, ShotAsset master, SKBitmap bitmap, string name)
     {
-        string path = Path.Combine(run.OutputDirectory, $"{name}.png");
-        Rasterizer.WritePng(bitmap, path);
+        string pngPath = Path.Combine(run.OutputDirectory, $"{name}.png");
+        Rasterizer.WriteOptimizedPng(bitmap, pngPath);
 
-        return new ShotAsset(
+        string webpPath = Path.Combine(run.OutputDirectory, $"{name}.webp");
+        Rasterizer.WriteLosslessWebp(bitmap, webpPath);
+
+        var png = new ShotAsset(
             Name: name,
             Tier: 3,
-            File: path,
+            File: pngPath,
             Width: bitmap.Width,
             Height: bitmap.Height,
             Scenario: master.Scenario,
             Commit: run.Commit,
             Os: run.Os,
             TimestampUtc: DateTime.UtcNow.ToString("O"));
+
+        ShotAsset webp = png with { File = webpPath };
+
+        return [png, webp];
     }
 
     private static SKBitmap LoadBitmap(string path)
