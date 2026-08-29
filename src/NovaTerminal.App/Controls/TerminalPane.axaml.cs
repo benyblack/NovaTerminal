@@ -2811,6 +2811,10 @@ namespace NovaTerminal.Controls
 
             Parser = new AnsiParser(Buffer);
 
+            // Inline images (sixel / iTerm2 / Kitty) decode to the SKBitmap handles the draw
+            // operation renders; without a decoder those parser paths silently no-op.
+            Parser.ImageDecoder = new NovaTerminal.Rendering.SkiaImageDecoder();
+
             // A device reply is text on the PTY that the keyboard path never produced: DA1, a DSR
             // cursor report, an answerback. Nothing here can promise the shell's line editor was not
             // reading when the query arrived, so history capture stands down for the rest of the

@@ -63,6 +63,26 @@ public class PaneParserWiringTests
             + "per reconnect (#102). Either restore the fresh parser, or add a matching -= for each.");
     }
 
+    /// <summary>
+    /// The inline image decoder must ride along with every fresh parser: without it the
+    /// sixel/iTerm2/Kitty paths in <see cref="AnsiParser"/> silently no-op, so a reconnect
+    /// that forgot this line would drop image support with no error anywhere.
+    /// </summary>
+    [AvaloniaFact]
+    public void CreateAndWireParser_WiresTheInlineImageDecoder()
+    {
+        using var pane = new TerminalPane();
+
+        pane.CreateAndWireParser();
+
+        Assert.NotNull(pane.Parser);
+        Assert.IsType<NovaTerminal.Rendering.SkiaImageDecoder>(pane.Parser!.ImageDecoder);
+
+        // And after a reconnect, which replaces the parser wholesale.
+        pane.CreateAndWireParser();
+        Assert.IsType<NovaTerminal.Rendering.SkiaImageDecoder>(pane.Parser!.ImageDecoder);
+    }
+
     [AvaloniaFact]
     public void RewiringTheParser_LeavesExactlyOneHandlerPerHook()
     {

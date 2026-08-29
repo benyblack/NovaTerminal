@@ -63,6 +63,8 @@ namespace NovaTerminal.UI.Replay
 
             _buffer = new TerminalBuffer(80, 24); // Init with default
             _parser = new AnsiParser(_buffer);
+            // Replays of sessions that drew inline images must render the same way live panes do.
+            _parser.ImageDecoder = new NovaTerminal.Rendering.SkiaImageDecoder();
             var termView = this.FindControl<TerminalView>("TermView");
             if (termView != null)
             {

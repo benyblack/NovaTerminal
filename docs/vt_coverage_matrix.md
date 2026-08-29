@@ -166,7 +166,7 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| SIXEL decode/render | | ⚠ Partial | Manual | Decoder+Renderer | |
+| SIXEL decode/render | Wired via `NovaTerminal.Rendering.SkiaImageDecoder` | ✅ Supported | Unit: `tests/NovaTerminal.Rendering.Tests/SixelDecoderTests.cs`, `tests/NovaTerminal.Rendering.Tests/SkiaImageDecoderTests.cs` | Decoder+Renderer | |
 | SIXEL scrolling behavior | | ❌ Not supported | — | Buffer+Renderer | |
 
 ---
