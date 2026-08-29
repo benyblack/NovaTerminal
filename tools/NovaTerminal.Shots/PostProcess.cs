@@ -46,4 +46,61 @@ public static class PostProcess
 
         return result;
     }
+
+    /// <summary>
+    /// Pixel-exact crop of <paramref name="source"/> to <paramref name="region"/>, clamped to the
+    /// bitmap's own bounds. Uses <see cref="SKBitmap.ExtractSubset"/> rather than drawing onto a
+    /// fresh canvas so the result is a direct pixel copy - no resampling, no blending - which
+    /// matters for a marketing screenshot's text and hairlines.
+    /// </summary>
+    public static SKBitmap Crop(SKBitmap source, SKRectI region)
+    {
+        SKRectI clamped = SKRectI.Intersect(new SKRectI(0, 0, source.Width, source.Height), region);
+        if (clamped.IsEmpty)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(region),
+                region,
+                $"Crop region does not intersect the {source.Width}x{source.Height} source bitmap.");
+        }
+
+        var result = new SKBitmap();
+        if (!source.ExtractSubset(result, clamped))
+        {
+            throw new InvalidOperationException("SKBitmap.ExtractSubset failed to crop the source bitmap.");
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Stacks <paramref name="tiles"/> top-to-bottom, each horizontally centred against the widest
+    /// tile, with <paramref name="gap"/> pixels of <paramref name="background"/> between
+    /// neighbours (none added above the first or below the last, unlike <see cref="Grid"/> - a
+    /// composed single-window frame reads as one continuous surface, not a gallery of separate
+    /// tiles). Built for scenarios that capture the same window at two scroll positions and need
+    /// the on-topic crop of each stitched into one image, e.g. settings-appearance's theme/preview
+    /// section and its font section, ~1450 logical pixels apart in the real scroll.
+    /// </summary>
+    public static SKBitmap StackVertical(IReadOnlyList<SKBitmap> tiles, int gap, SKColor background)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(tiles.Count);
+
+        int width = tiles.Max(t => t.Width);
+        int height = tiles.Sum(t => t.Height) + gap * (tiles.Count - 1);
+
+        var result = new SKBitmap(width, height);
+
+        using var canvas = new SKCanvas(result);
+        canvas.Clear(background);
+
+        int y = 0;
+        foreach (SKBitmap tile in tiles)
+        {
+            canvas.DrawBitmap(tile, (width - tile.Width) / 2f, y);
+            y += tile.Height + gap;
+        }
+
+        return result;
+    }
 }

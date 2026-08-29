@@ -1,5 +1,3 @@
-using Avalonia.Controls;
-
 namespace NovaTerminal.Shots.Scenarios;
 
 /// <summary>
@@ -17,9 +15,10 @@ internal sealed class SettingsAgentAccessScenario : IScenario
     /// where Agent Access is the fifth &lt;TabItem&gt;). Selected through the constructor rather
     /// than a post-construction TabItem lookup so the sidebar nav gets synced for free
     /// (SyncSidebarFromTabs runs once at construction against whatever tabs.SelectedIndex already
-    /// is). The index is trusted but verified: RunAsync asserts the tab this actually selects
-    /// carries the "Agent Access" header, and throws if the two have drifted apart, rather than
-    /// silently capturing whatever tab index 4 now happens to be.
+    /// is). The index is trusted but verified: <see cref="SettingsWindowScenario.RunAsync"/>
+    /// asserts the tab this actually selects carries the "Agent Access" header, and throws if the
+    /// two have drifted apart, rather than silently capturing whatever tab index 4 now happens to
+    /// be.
     /// </summary>
     private const int AgentAccessTabIndex = 4;
 
@@ -31,43 +30,12 @@ internal sealed class SettingsAgentAccessScenario : IScenario
         Intent: "The settings window on the Agent Access tab, with the observe toggle on, the act " +
                 "toggle visibly off beneath it, and the explanatory text readable.");
 
-    public Task RunAsync(ShotContext context)
-    {
-        var settingsWindow = new SettingsWindow(initialTab: AgentAccessTabIndex)
-        {
-            Width = Spec.LogicalWidth,
-            Height = Spec.LogicalHeight
-        };
-
-        // Show/Pump run inside the try, not before it: Pump runs Dispatcher.UIThread.RunJobs(),
-        // which executes work tied to the window just shown, so a throw there would otherwise
-        // leak a second live Window past this method with nothing left to close it.
-        try
-        {
-            settingsWindow.Show();
-            context.Driver.Pump(5);
-
-            TabControl tabs = settingsWindow.FindControl<TabControl>("MainTabs")
-                ?? throw new InvalidOperationException("SettingsWindow has no 'MainTabs' control.");
-
-            string? selectedHeader = (tabs.SelectedItem as TabItem)?.Header as string;
-            if (!string.Equals(selectedHeader, AgentAccessHeader, StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    $"Expected initialTab {AgentAccessTabIndex} to select the '{AgentAccessHeader}' tab, but " +
-                    $"SettingsWindow selected '{selectedHeader ?? "(none)"}' instead. SettingsWindow.axaml's " +
-                    "tab order has drifted from what AgentAccessTabIndex assumes - update the constant rather " +
-                    "than silently capturing the wrong tab.");
-            }
-
-            context.CaptureOther(settingsWindow, "tab");
-        }
-        finally
-        {
-            settingsWindow.Close();
-            context.Driver.Pump(3);
-        }
-
-        return Task.CompletedTask;
-    }
+    public Task RunAsync(ShotContext context) =>
+        SettingsWindowScenario.RunAsync(
+            context,
+            AgentAccessTabIndex,
+            AgentAccessHeader,
+            Spec.LogicalWidth,
+            Spec.LogicalHeight,
+            (ctx, window) => ctx.CaptureOther(window, "tab"));
 }

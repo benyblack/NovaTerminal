@@ -410,6 +410,18 @@ public sealed class DemoWorld : IDisposable
         CopyAsset(assets, "nova-logo.png", Path.Combine(WorkspaceRoot, "assets", "nova-logo.png"));
 
         Git("init --initial-branch=feat/sixel-decoder");
+
+        // Every file this method writes uses literal "\n" line endings. On Windows, git's default
+        // core.autocrlf=true silently rewrites them to CRLF the moment anything "touches" them
+        // (add, diff, checkout) and prints a "LF will be replaced by CRLF" warning to stderr for
+        // each one - which lands wherever that command's output is displayed. command-assist
+        // (Task 14) was the first scenario to trigger this in-pane (its popup opens over the tail
+        // of a `git diff --stat`), but any scenario that runs a git command against this workspace
+        // on a Windows machine with the default autocrlf was always one command away from the same
+        // leak. Disabling autocrlf here, immediately after init and before anything is added or
+        // committed, is the one place that closes it for every scenario at once rather than
+        // scenario-locally.
+        Git("config core.autocrlf false");
         Git("config user.name nova");
         Git("config user.email nova@demo");
         Git("add .");

@@ -460,12 +460,29 @@ public sealed class ShotContext
         CaptureAndRecord(window, name);
     }
 
+    /// <summary>
+    /// Records a bitmap the scenario already assembled itself - e.g. by capturing the same window
+    /// at two scroll positions and cropping/stacking the on-topic region of each with
+    /// <see cref="PostProcess"/> - rather than one rasterized fresh from a live window. Shares the
+    /// blank-raster guard and manifest bookkeeping with <see cref="Capture"/>/
+    /// <see cref="CaptureOther"/> so a composed frame is held to the same bar as a plain one.
+    /// </summary>
+    public void CaptureComposed(SKBitmap bitmap, string suffix)
+    {
+        string name = $"{_scenario.Spec.Name}-{suffix}";
+        RecordBitmap(bitmap, name);
+    }
+
     /// <summary>Shared body of <see cref="Capture"/> and <see cref="CaptureOther"/>.</summary>
     private void CaptureAndRecord(Window window, string name)
     {
-        string path = Path.Combine(Run.OutputDirectory, $"{name}@{Run.Scale:0}x.png");
-
         using SKBitmap bitmap = Rasterizer.CaptureWindow(window, Run.Scale);
+        RecordBitmap(bitmap, name);
+    }
+
+    private void RecordBitmap(SKBitmap bitmap, string name)
+    {
+        string path = Path.Combine(Run.OutputDirectory, $"{name}@{Run.Scale:0}x.png");
 
         double ink = Rasterizer.InkFraction(bitmap);
         if (ink < 0.01)
