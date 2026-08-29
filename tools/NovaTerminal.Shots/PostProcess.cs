@@ -76,11 +76,15 @@ public static class PostProcess
     /// <summary>
     /// Stacks <paramref name="tiles"/> top-to-bottom, each horizontally centred against the widest
     /// tile, with <paramref name="gap"/> pixels of <paramref name="background"/> between
-    /// neighbours (none added above the first or below the last, unlike <see cref="Grid"/> - a
-    /// composed single-window frame reads as one continuous surface, not a gallery of separate
-    /// tiles). Built for scenarios that capture the same window at two scroll positions and need
-    /// the on-topic crop of each stitched into one image, e.g. settings-appearance's theme/preview
-    /// section and its font section, ~1450 logical pixels apart in the real scroll.
+    /// neighbours (none added above the first or below the last, unlike <see cref="Grid"/>, which
+    /// also borders the outside). Built for scenarios that capture the same window at two scroll
+    /// positions and need the on-topic crop of each stitched into one image, e.g.
+    /// settings-appearance's theme/preview section and its font section, ~1450 logical pixels apart
+    /// in the real scroll, with the Title Bar and Window sections elided from between them. Passing
+    /// a nonzero <paramref name="gap"/> with a <paramref name="background"/> that contrasts with the
+    /// tiles' own chrome (the convention <see cref="Grid"/> already established for themes-grid) is
+    /// deliberate here: a splice that elides real content between its two captures must read as a
+    /// join, not as an unbroken continuation of one scroll position.
     /// </summary>
     public static SKBitmap StackVertical(IReadOnlyList<SKBitmap> tiles, int gap, SKColor background)
     {
