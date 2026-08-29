@@ -32,7 +32,7 @@ public sealed class VariantBuilderTests
     }
 
     [Fact]
-    public void BuildAll_WritesALosslessWebpSiblingForEveryPngVariant()
+    public void BuildAll_WritesALosslessWebpSiblingWhenItQualifiesAsSmaller()
     {
         string outputDirectory = Path.Combine(Path.GetTempPath(), $"shots-variant-{Guid.NewGuid():N}");
         Directory.CreateDirectory(outputDirectory);
@@ -71,12 +71,15 @@ public sealed class VariantBuilderTests
             // A small residual shows up only where alpha itself is not 255: RoundedWithShadow's
             // blurred drop shadow is a continuous alpha gradient outside the window frame, and
             // there SkiaSharp's PNG and WebP encoders round the underlying premultiplied-to-straight
-            // conversion by a few units differently (observed max delta: 11/255 per channel, on
-            // well under 1% of pixels). Never observed on a fully opaque pixel - i.e. never on
-            // glyph or chrome content, only on the decorative shadow's own soft edge - so it is
-            // asserted here rather than silently tolerated everywhere.
+            // conversion by a few units differently (measured max delta on this exact test's
+            // deterministic bitmap: 11/255 per channel, on well under 1% of pixels). Never observed
+            // on a fully opaque pixel - i.e. never on glyph or chrome content, only on the
+            // decorative shadow's own soft edge. The bound below is 12 - the measured 11 plus a
+            // single unit of rounding slack, not fresh headroom - so a future SkiaSharp bump that
+            // materially changes this residual fails the test rather than sailing through a bound
+            // wide enough to hide a regression.
             const int opaqueAlpha = 255;
-            const int maxChannelDeltaOnTranslucentPixels = 24;
+            const int maxChannelDeltaOnTranslucentPixels = 12;
 
             for (int y = 0; y < fromPng.Height; y++)
             {
@@ -100,6 +103,53 @@ public sealed class VariantBuilderTests
                         $"exceeding the {maxChannelDeltaOnTranslucentPixels}-unit bound observed for translucent shadow pixels.");
                 }
             }
+        }
+        finally
+        {
+            Directory.Delete(outputDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void BuildAll_SkipsTheWebpSiblingWhenItIsNotSmallerThanThePng()
+    {
+        // og-card and social-square composite onto OnBackdrop's fixed brand-gradient backdrop,
+        // and on the real published assets that WebP sibling comes out LARGER than the optimized
+        // PNG (measured: og-card +34%, social-square +118%) - the gate in
+        // VariantBuilder.WriteNamedVariant exists specifically for this shape of content. This
+        // reproduces it with a synthetic "hero-single" master so the skip path has direct
+        // coverage rather than relying only on a live harness run to exercise it.
+        string outputDirectory = Path.Combine(Path.GetTempPath(), $"shots-variant-card-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDirectory);
+
+        try
+        {
+            string masterPath = Path.Combine(outputDirectory, "hero-single@2x.png");
+            using (SKBitmap master = GradientMaster(1200, 700))
+            {
+                Rasterizer.WritePng(master, masterPath);
+            }
+
+            var run = new ShotRun(outputDirectory, scale: 2.0);
+            var masterAsset = new ShotAsset(
+                "hero-single", 1, masterPath, 1200, 700, "hero-single", "abc1234", "win-x64", "2026-08-28T00:00:00Z");
+
+            IReadOnlyList<ShotAsset> produced = VariantBuilder.BuildAll(masterAsset, run);
+
+            ShotAsset ogCardPng = Assert.Single(produced, a => a.Name == "og-card");
+            ShotAsset socialSquarePng = Assert.Single(produced, a => a.Name == "social-square");
+
+            Assert.EndsWith(".png", ogCardPng.File, StringComparison.Ordinal);
+            Assert.EndsWith(".png", socialSquarePng.File, StringComparison.Ordinal);
+            Assert.DoesNotContain(produced, a => a.Name == "og-card" && a.File.EndsWith(".webp", StringComparison.Ordinal));
+            Assert.DoesNotContain(produced, a => a.Name == "social-square" && a.File.EndsWith(".webp", StringComparison.Ordinal));
+            Assert.False(File.Exists(Path.Combine(outputDirectory, "og-card.webp")));
+            Assert.False(File.Exists(Path.Combine(outputDirectory, "social-square.webp")));
+
+            // README/site, by contrast, are the source's own shape (no fixed-canvas backdrop
+            // composite) and DO qualify for this master - confirming the gate is genuinely
+            // per-asset rather than accidentally suppressing every WebP for this master.
+            Assert.Contains(produced, a => a.Name == "hero-single-readme" && a.File.EndsWith(".webp", StringComparison.Ordinal));
         }
         finally
         {
