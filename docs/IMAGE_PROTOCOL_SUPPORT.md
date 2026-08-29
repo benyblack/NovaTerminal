@@ -21,5 +21,6 @@ This document defines NovaTerminal image protocol behavior across platforms.
 
 ## Notes
 
+- Decoding is implemented by `NovaTerminal.Rendering.SkiaImageDecoder` (`SixelDecoder` for DCS/OSC 1339 sixel payloads, `SKBitmap.Decode` for Kitty/iTerm2 image bytes); decoded bitmaps render in the grid via `TerminalDrawOperation`'s image pass.
 - The fallback policy is intentionally conservative to avoid false advertising Kitty support through ConPTY.
 - If a future backend bypasses ConPTY filtering, this policy can be relaxed.
