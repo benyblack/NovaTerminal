@@ -9,47 +9,45 @@ namespace NovaTerminal.Shots.Scenarios;
 
 /// <summary>
 /// Shared machinery for <see cref="SixelGraphicsScenario"/> and
-/// <see cref="Iterm2InlineImageScenario"/>: wiring a real decoder onto the pane's parser, and
-/// verifying afterward that the decoded picture actually reached the screen.
+/// <see cref="Iterm2InlineImageScenario"/>: the region-scoped verification that a decoded picture
+/// actually reached the screen. Both scenarios are unregistered in <see cref="ScenarioCatalog"/>
+/// pending a product fix — see the class remarks below and each scenario's own header comment.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <see cref="AnsiParser.ImageDecoder"/> is a public, settable dependency the parser was built
 /// to take (<c>HandleSixel</c> and <c>HandleITerm2Image</c> both early-return when it is null),
 /// but nothing under <c>src/NovaTerminal.App</c> ever assigns it —
-/// <c>TerminalPane.CreateAndWireParser</c> constructs a bare <c>new AnsiParser(Buffer)</c> and
-/// stops there. The only other assignments in the repository are test doubles (see
-/// <c>AnsiParserHardeningTests.RecordingImageDecoder</c>). So a plain build parses both escape
-/// sequences correctly — DCS sixel framing, OSC 1337's <c>File=</c> parameters, the base64
-/// payload — but never turns the bytes into pixels: no shipped build renders either protocol
-/// today. See the Task 13 report for the full trail (grep results, line numbers) and why fixing
-/// this for real belongs in <c>src/</c>, which this task may not touch.
+/// <c>TerminalPane.CreateAndWireParser</c> (<c>TerminalPane.axaml.cs:2806</c>) constructs a bare
+/// <c>new AnsiParser(Buffer)</c> and stops there. The only other assignments in the repository
+/// are test doubles (see <c>AnsiParserHardeningTests.RecordingImageDecoder</c>). So a plain build
+/// parses both escape sequences correctly — DCS sixel framing, OSC 1337's <c>File=</c>
+/// parameters, the base64 payload — but never turns the bytes into pixels:
+/// <c>HandleSixel</c> (<c>AnsiParser.cs:1685</c>) and <c>HandleITerm2Image</c>
+/// (<c>AnsiParser.cs:2720</c>) both early-return on the null decoder before ever calling
+/// <c>TerminalBuffer.AddImage</c>. No shipped build renders either protocol today.
 /// </para>
 /// <para>
-/// <see cref="EnableRealDecoding"/> supplies that missing piece from the harness instead, through
-/// the same public seam the tests use, so both scenarios still exercise genuine production code
-/// for everything downstream of "bytes in hand": <c>TerminalBuffer.AddImage</c>, scrollback
-/// anchoring, and <c>TerminalDrawOperation</c>'s <c>SKBitmap</c> compositing are all untouched.
-/// The decoder itself is real too — <see cref="NovaTerminal.Rendering.SixelDecoder"/> (already
-/// shipped, just never instantiated) for sixel, and Skia's own image decoder for iTerm2's
-/// arbitrary bytes — not a canned bitmap standing in for either file.
+/// An earlier version of this harness worked around that gap by assigning
+/// <c>parser.ImageDecoder ??= new ShotsImageDecoder()</c> before either scenario's image-emitting
+/// command ran, supplying its own <c>IImageDecoder</c> implementation (Skia's decoder for iTerm2
+/// bytes, <see cref="NovaTerminal.Rendering.SixelDecoder"/> for sixel — both genuine decodes, not
+/// canned bitmaps). That made the resulting screenshots misleading: they showed capability no
+/// plain build has, which is worse than staging content, because it stages a feature. The
+/// injection (<c>ShotsImageDecoder.cs</c> and the <c>EnableRealDecoding</c> method that assigned
+/// it) has been removed. See the Task 13 report for the full trail (grep results, line numbers)
+/// and why fixing this for real belongs in <c>src/</c>, which this task may not touch.
+/// </para>
+/// <para>
+/// Both scenarios, their assets, <c>scripts/imgcat.sh</c>, and this region-scoped verification
+/// are kept in the tree, deliberately unregistered from <see cref="ScenarioCatalog"/>. Re-enabling
+/// them once <c>src/</c> wires a real decoder is two catalogue lines — no decoder-injection code
+/// needs to come back, because at that point <c>pane.Parser.ImageDecoder</c> will already be set
+/// by production before either scenario ever runs.
 /// </para>
 /// </remarks>
 internal static class InlineImageDecoding
 {
-    /// <summary>
-    /// Gives <paramref name="pane"/>'s parser a real decoder, if it does not have one already.
-    /// Must run before the command that emits the image, since the parser reads
-    /// <see cref="AnsiParser.ImageDecoder"/> at decode time, not lazily.
-    /// </summary>
-    public static void EnableRealDecoding(TerminalPane pane)
-    {
-        AnsiParser parser = pane.Parser
-            ?? throw new InvalidOperationException("The pane has no parser yet.");
-
-        parser.ImageDecoder ??= new ShotsImageDecoder();
-    }
-
     /// <summary>
     /// Fails loudly unless a real, decoded picture is on screen where the terminal buffer says
     /// the most recently placed image lives — not just "some frame was captured". A terminal

@@ -3,11 +3,34 @@ using NovaTerminal.Controls;
 namespace NovaTerminal.Shots.Scenarios;
 
 /// <summary>
-/// A pre-generated sixel image (see Assets/plot.sixel) decoded and drawn inline by NovaTerminal's
-/// own sixel handling. See <see cref="InlineImageDecoding"/>'s remarks for why this scenario
-/// wires its own <c>IImageDecoder</c> before running the command that emits the image.
+/// DEFERRED — unregistered from <see cref="ScenarioCatalog"/>, not deleted. Do not re-register
+/// without first re-reading this comment and confirming its premise no longer holds.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <b>What is missing:</b> no production code anywhere under <c>src/</c> implements or wires
+/// <see cref="NovaTerminal.VT.IImageDecoder"/>. <c>TerminalPane.CreateAndWireParser</c>
+/// (<c>src/NovaTerminal.App/TerminalPane.axaml.cs:2806</c>) constructs a bare
+/// <c>new AnsiParser(Buffer)</c> and never assigns <c>Parser.ImageDecoder</c>. As a result,
+/// <c>AnsiParser.HandleSixel</c> (<c>src/NovaTerminal.VT/AnsiParser.cs:1685</c>) always hits its
+/// <c>if (ImageDecoder == null) return;</c> guard and never calls
+/// <c>TerminalBuffer.AddImage</c>. A plain NovaTerminal build parses the DCS sixel framing
+/// correctly and then silently drops the picture — nothing renders.
+/// </para>
+/// <para>
+/// This scenario previously passed only because the harness assigned its own
+/// <c>IImageDecoder</c> onto the pane's parser before running — see
+/// <see cref="InlineImageDecoding"/>'s remarks for why that was removed: it made the screenshot
+/// demonstrate a capability no shipped build has.
+/// </para>
+/// <para>
+/// <b>To re-enable:</b> once <c>src/</c> gets a real <c>IImageDecoder</c> implementation wired
+/// into <c>TerminalPane.CreateAndWireParser</c> (a <c>src/</c> change, out of scope for the shots
+/// harness), this scenario needs no code change at all — just add
+/// <c>new SixelGraphicsScenario()</c> back to <c>ScenarioCatalog</c>'s list. The asset
+/// (<c>Assets/plot.sixel</c>) and the OSC 1339 tunnel workaround documented below remain relevant
+/// regardless of the decoder fix, since that is a separate PTY-transport issue.
+/// </para>
 /// <para>
 /// Assets/plot.sixel's provenance (img2sixel and gnuplot are both absent from this machine, so
 /// this uses the ImageMagick 7.1.2 that is present): a 480x320 dark-themed "throughput" line
@@ -43,7 +66,6 @@ internal sealed class SixelGraphicsScenario : IScenario
     public async Task RunAsync(ShotContext context)
     {
         TerminalPane pane = context.OpenTab(context.World.DemoProfile);
-        InlineImageDecoding.EnableRealDecoding(pane);
 
         await context.RunCommandAsync(pane, "clear");
         await context.RunCommandAsync(pane, "echo 'sixel decode · 480x320'");
