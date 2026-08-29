@@ -16,11 +16,11 @@ Built with:
 
 Supported platforms: **Windows · Linux · macOS**
 
-<img height="180" alt="Three terminal panes at once: a colourful test run on the left, a git graph top-right, and a process monitor bottom-right" src="docs/assets/shots/hero-split-readme.png" />
+<picture><source srcset="docs/assets/shots/hero-split-readme.webp" type="image/webp" /><img height="180" alt="Three terminal panes at once: a colourful test run on the left, a git graph top-right, and a process monitor bottom-right" src="docs/assets/shots/hero-split-readme.png" /></picture>
 <img height="180" alt="NovaTerminal's command palette open over a populated terminal, a query typed, and matching commands listed with their keyboard shortcuts" src="docs/assets/shots/command-palette-readme.png" />
-<img height="180" alt="NovaTerminal's vertical tab sidebar with five tabs, one visibly carrying agent activity" src="docs/assets/shots/tabs-vertical-readme.png" />
-<img height="180" alt="An agent-driven session: the status bar shows 'agent typed' and the agent access light is on, ending in a git commit graph and a passing test run" src="docs/assets/shots/agent-session-readme.png" />
-<img height="180" alt="A grid of five built-in NovaTerminal themes rendering the same terminal transcript" src="docs/assets/shots/themes-grid-readme.png" />
+<picture><source srcset="docs/assets/shots/tabs-vertical-readme.webp" type="image/webp" /><img height="180" alt="NovaTerminal's vertical tab sidebar with five tabs, one visibly carrying agent activity" src="docs/assets/shots/tabs-vertical-readme.png" /></picture>
+<picture><source srcset="docs/assets/shots/agent-session-readme.webp" type="image/webp" /><img height="180" alt="An agent-driven session: the status bar shows 'agent typed' and the agent access light is on, ending in a git commit graph and a passing test run" src="docs/assets/shots/agent-session-readme.png" /></picture>
+<picture><source srcset="docs/assets/shots/themes-grid-readme.webp" type="image/webp" /><img height="180" alt="A grid of five built-in NovaTerminal themes rendering the same terminal transcript" src="docs/assets/shots/themes-grid-readme.png" /></picture>
 
 ---
 

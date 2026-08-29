@@ -1,3 +1,4 @@
+using System.Globalization;
 using NovaTerminal.Shell;
 using NovaTerminal.Shots.Scenarios;
 using SkiaSharp;
@@ -20,12 +21,34 @@ public static class Program
 
         string outputDirectory = ArgumentValue(args, "--out")
             ?? Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "shots");
-        double scale = double.TryParse(ArgumentValue(args, "--scale"), out double parsed) ? parsed : 2.0;
+        double scale = ResolveScale(args);
 
-        IReadOnlyList<IScenario> requested = ResolveScenarios(args);
+        // Names, not just a count: Publisher.Prune's incomplete-run guard needs to name the
+        // failed scenario(s) in its refusal so the warning is actionable rather than a bare
+        // number buried in ~two minutes of capture output. The single list is also the sole
+        // source of truth for "did this run fail anything" - see its use in the final return
+        // below - so it can never drift out of sync with a separately-incremented counter.
+        //
+        // Seeded with any unknown scenario name up front: ResolveScenarios reports these (rather
+        // than silently dropping them the way OfType used to), and an unresolvable name is a
+        // failure of this invocation exactly like a scenario that threw, so it belongs in the
+        // same list rather than a separate, easily-forgotten channel.
+        ScenarioResolution resolution = ResolveScenarios(args);
+        var failedScenarioNames = new List<string>();
+        foreach (string unknownName in resolution.UnknownNames)
+        {
+            Console.Error.WriteLine($"[shots] unknown scenario '{unknownName}'. Use --list to see them.");
+            failedScenarioNames.Add(unknownName);
+        }
+
+        IReadOnlyList<IScenario> requested = resolution.Scenarios;
         if (requested.Count == 0)
         {
-            Console.Error.WriteLine("No matching scenarios. Use --list to see them.");
+            if (failedScenarioNames.Count == 0)
+            {
+                Console.Error.WriteLine("No matching scenarios. Use --list to see them.");
+            }
+
             return 1;
         }
 
@@ -34,13 +57,6 @@ public static class Program
         world.SeedWorkspace();
 
         var run = new ShotRun(outputDirectory, scale);
-
-        // Names, not just a count: Publisher.Prune's incomplete-run guard needs to name the
-        // failed scenario(s) in its refusal so the warning is actionable rather than a bare
-        // number buried in ~two minutes of capture output. The single list is also the sole
-        // source of truth for "did this run fail anything" - see its use in the final return
-        // below - so it can never drift out of sync with a separately-incremented counter.
-        var failedScenarioNames = new List<string>();
 
         using ShotHost host = ShotHost.Start();
 
@@ -327,22 +343,43 @@ public static class Program
     }
 
     /// <summary>
-    /// The scenario names on the command line: every token that is neither a <c>--flag</c> nor
-    /// the value belonging to one.
+    /// Flags that consume the token immediately after them as a value. Everything else that
+    /// starts with <c>--</c> (<c>--publish</c>, <c>--prune</c>, <c>--dry-run</c>, <c>--list</c>)
+    /// is a bare boolean switch: it takes no value of its own, so the token following it is not
+    /// "spoken for" and must still be considered as a possible scenario name.
     /// </summary>
     /// <remarks>
-    /// The flag-value skip is why this is not a one-line Where. Filtering only on the <c>--</c>
-    /// prefix leaves <c>2</c> from <c>--scale 2</c> looking exactly like a scenario name, so
-    /// <c>shots hero-single --scale 2</c> would resolve to hero-single plus an unknown name -
-    /// silently dropped by OfType, but a run of <c>--scale 2</c> alone would then resolve to
-    /// nothing at all rather than to every scenario.
+    /// Previously this skipped the token after *every* <c>--</c>-prefixed argument, boolean
+    /// switches included. That meant <c>shots.ps1 --publish hero-single</c> skipped
+    /// <c>hero-single</c> as if it were <c>--publish</c>'s value, resolved to an empty name list,
+    /// and fell through to "no names given" - which runs (and, with <c>--prune</c> added, deletes
+    /// down to) the entire catalogue instead of the one scenario asked for. Enumerating the
+    /// value-taking flags explicitly, instead of inferring "takes a value" from the presence of
+    /// <c>--</c>, is what keeps a new boolean switch from silently regressing back into this bug.
     /// </remarks>
-    private static IReadOnlyList<IScenario> ResolveScenarios(string[] args)
+    private static readonly string[] ValueTakingFlags = ["--out", "--scale"];
+
+    /// <summary>
+    /// The result of resolving the command line's scenario-name tokens: the scenarios that
+    /// matched, and the tokens that did not match anything in <see cref="ScenarioCatalog"/> - kept
+    /// separate (rather than silently discarded, as the previous <c>OfType&lt;IScenario&gt;()</c>
+    /// filter did) so a typo'd scenario name is reported and fails the run instead of quietly
+    /// shrinking the requested set.
+    /// </summary>
+    internal readonly record struct ScenarioResolution(
+        IReadOnlyList<IScenario> Scenarios,
+        IReadOnlyList<string> UnknownNames);
+
+    /// <summary>
+    /// The scenario names on the command line: every token that is neither a <c>--flag</c> nor
+    /// the value belonging to a value-taking one, resolved against <see cref="ScenarioCatalog"/>.
+    /// </summary>
+    internal static ScenarioResolution ResolveScenarios(string[] args)
     {
         var skip = new HashSet<int>();
         for (int i = 0; i < args.Length; i++)
         {
-            if (args[i].StartsWith("--", StringComparison.Ordinal) && i + 1 < args.Length)
+            if (Array.IndexOf(ValueTakingFlags, args[i]) >= 0 && i + 1 < args.Length)
             {
                 skip.Add(i + 1);
             }
@@ -354,10 +391,25 @@ public static class Program
 
         if (names.Length == 0 || names.Contains("all", StringComparer.OrdinalIgnoreCase))
         {
-            return ScenarioCatalog.All();
+            return new ScenarioResolution(ScenarioCatalog.All(), Array.Empty<string>());
         }
 
-        return names.Select(ScenarioCatalog.Find).OfType<IScenario>().ToArray();
+        var resolved = new List<IScenario>();
+        var unknown = new List<string>();
+        foreach (string name in names)
+        {
+            IScenario? scenario = ScenarioCatalog.Find(name);
+            if (scenario is null)
+            {
+                unknown.Add(name);
+            }
+            else
+            {
+                resolved.Add(scenario);
+            }
+        }
+
+        return new ScenarioResolution(resolved, unknown);
     }
 
     private static string? ArgumentValue(string[] args, string name)
@@ -365,6 +417,22 @@ public static class Program
         int index = Array.IndexOf(args, name);
         return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
     }
+
+    /// <summary>
+    /// Parses <c>--scale</c> with <see cref="CultureInfo.InvariantCulture"/> rather than the
+    /// ambient culture, so <c>--scale 1.5</c> resolves the same way on a machine whose culture
+    /// treats <c>,</c> as the decimal separator as it does everywhere else - a culture-sensitive
+    /// <c>double.TryParse</c> would silently fail to parse <c>1.5</c> there and fall back to the
+    /// default scale instead of the one actually requested.
+    /// </summary>
+    internal static double ResolveScale(string[] args) =>
+        double.TryParse(
+            ArgumentValue(args, "--scale"),
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out double parsed)
+            ? parsed
+            : 2.0;
 
     /// <summary>
     /// Captures every process environment variable's current value, so a later call to

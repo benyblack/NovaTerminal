@@ -6,11 +6,15 @@
 const basePrefix = (import.meta.env.BASE_URL ?? '/').endsWith('/')
   ? import.meta.env.BASE_URL
   : `${import.meta.env.BASE_URL}/`;
+// `webp` is set only for the variants that actually have a WebP sibling published in
+// docs/assets/shots/ (see that directory's conditional-emission policy — a sibling is only
+// emitted where it beats its PNG) and mirrored into site/public/shots/ by sync-screenshots.mjs.
+// command-palette-site and themes-grid-site have none, so they render as plain <img>.
 const images = [
-  { src: `${basePrefix}shots/hero-split-site.png`, alt: 'Three terminal panes at once: a colourful test run on the left, a git graph top-right, and a process monitor bottom-right' },
+  { src: `${basePrefix}shots/hero-split-site.png`, webp: `${basePrefix}shots/hero-split-site.webp`, alt: 'Three terminal panes at once: a colourful test run on the left, a git graph top-right, and a process monitor bottom-right' },
   { src: `${basePrefix}shots/command-palette-site.png`, alt: 'The command palette open over a populated terminal, a query typed, and matching commands listed with their keyboard shortcuts' },
-  { src: `${basePrefix}shots/tui-monitor-site.png`, alt: 'A fullscreen process monitor running inside NovaTerminal, with per-core and memory gauges above a process table' },
-  { src: `${basePrefix}shots/search-overlay-site.png`, alt: 'The search overlay open over scrollback, with a match counter and highlighted matches in the buffer' },
+  { src: `${basePrefix}shots/tui-monitor-site.png`, webp: `${basePrefix}shots/tui-monitor-site.webp`, alt: 'A fullscreen process monitor running inside NovaTerminal, with per-core and memory gauges above a process table' },
+  { src: `${basePrefix}shots/search-overlay-site.png`, webp: `${basePrefix}shots/search-overlay-site.webp`, alt: 'The search overlay open over scrollback, with a match counter and highlighted matches in the buffer' },
   { src: `${basePrefix}shots/themes-grid-site.png`, alt: 'A grid of five built-in NovaTerminal themes rendering the same terminal transcript' },
 ];
 ---
@@ -50,13 +54,16 @@ const images = [
             }
             role="listitem"
           >
-            <img
-              src={img.src}
-              alt={img.alt}
-              loading="lazy"
-              decoding="async"
-              class="aspect-video w-full object-cover object-top transition duration-500 group-hover:scale-[1.02]"
-            />
+            <picture>
+              {img.webp && <source srcset={img.webp} type="image/webp" />}
+              <img
+                src={img.src}
+                alt={img.alt}
+                loading="lazy"
+                decoding="async"
+                class="aspect-video w-full object-cover object-top transition duration-500 group-hover:scale-[1.02]"
+              />
+            </picture>
             <figcaption
               class="pointer-events-none absolute inset-x-0 bottom-0
                 bg-gradient-to-t from-ink-950/95 via-ink-950/40 to-transparent

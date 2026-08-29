@@ -6,8 +6,14 @@ isolated fake workspace (`DemoWorld`), drives each scenario, and rasterizes the 
 here should be edited by hand — regenerate it instead:
 
 ```bash
-scripts/shots.ps1 all --scale 2 --publish
+scripts/shots.ps1 all --scale 2 --publish --prune
 ```
+
+`--prune` deletes committed files under this directory that the run did not (re)publish — the
+cleanup for a renamed scenario, a dropped variant, or a WebP sibling that stopped qualifying
+under the smaller-than-its-PNG gate. It only ever acts on a full catalogue run where every
+scenario succeeded; anything else (a scenario-scoped run, or a run with a failure) makes it a
+no-op with a console warning instead of deleting anything, so it is safe to pass by habit.
 
 or, inside Claude Code, run the `/shots` command, which builds, reviews every image against its
 scenario's stated `Intent` before publishing, and reports what changed.
