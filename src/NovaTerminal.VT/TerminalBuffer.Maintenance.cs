@@ -1,9 +1,16 @@
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using NovaTerminal.VT.Storage;
 
 namespace NovaTerminal.VT
 {
     public partial class TerminalBuffer
     {
+        // Handles of images removed from _images, awaiting disposal. Removal is synchronous;
+        // disposal is deferred to the render thread's frame boundary because a snapshot can
+        // still hold the handle reference after the write lock releases (see DrainRetiredImageHandles).
+        private readonly ConcurrentQueue<object> _retiredImageHandles = new();
+
         public void AddImage(TerminalImage image)
         {
             bool lockTaken = EnterWriteLockIfNeeded();
@@ -22,14 +29,49 @@ namespace NovaTerminal.VT
             Invalidate();
         }
 
+        /// <summary>
+        /// Queues a removed image's handle for deferred disposal. The queue holds opaque
+        /// objects — VT cannot reference SkiaSharp; the render layer's frame-boundary drain
+        /// (<see cref="DrainRetiredImageHandles"/>) owns the actual Dispose.
+        /// </summary>
+        private void RetireImage(TerminalImage image)
+        {
+            _retiredImageHandles.Enqueue(image.ImageHandle);
+        }
+
+        /// <summary>
+        /// Drains handles retired by image removals into <paramref name="into"/>. Returns
+        /// true when anything was drained. Called once per rendered frame by the draw
+        /// operation, on the render thread, after the previous frame's DrawBitmap calls
+        /// completed — the only safe point to dispose, which is why this is a queue rather
+        /// than disposing at removal time.
+        /// </summary>
+        public bool DrainRetiredImageHandles(List<object> into)
+        {
+            if (_retiredImageHandles.IsEmpty)
+            {
+                return false;
+            }
+
+            bool drained = false;
+            while (_retiredImageHandles.TryDequeue(out object? handle))
+            {
+                into.Add(handle);
+                drained = true;
+            }
+
+            return drained;
+        }
+
         public void ClearImages()
         {
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
-                // NOTE (#166): ImageHandle bitmaps are owned by the producing layer and are
-                // currently never disposed when images are dropped — see the issue for the
-                // planned ownership design (VT cannot reference SkiaSharp).
+                foreach (var img in _images)
+                {
+                    RetireImage(img);
+                }
                 _images.Clear();
             }
             finally
@@ -52,6 +94,10 @@ namespace NovaTerminal.VT
             try
             {
                 _scrollback.Clear();
+                foreach (var img in _images)
+                {
+                    RetireImage(img);
+                }
                 _images.Clear(); // full clear: scrollback-anchored images lose their anchor too
                 ClearScreenInternal(resetCursor);
 
@@ -115,6 +161,7 @@ namespace NovaTerminal.VT
                         img.CellY -= clearedRows;
                         if (img.CellY + img.CellHeight <= 0)
                         {
+                            RetireImage(img);
                             _images.RemoveAt(i);
                         }
                     }
@@ -144,6 +191,7 @@ namespace NovaTerminal.VT
 
                 if (img.CellY + img.CellHeight > viewportTopAbs)
                 {
+                    RetireImage(img);
                     _images.RemoveAt(i);
                 }
             }

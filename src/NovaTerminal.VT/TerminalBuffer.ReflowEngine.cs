@@ -15,6 +15,9 @@ namespace NovaTerminal.VT
             private ScrollbackPages _scrollback;
             private readonly List<TerminalRow> _history;
             private readonly List<TerminalImage> _images;
+            // Pruned images retire their handles through the owning buffer's queue; the
+            // reflow works on a copy of the list reference, so it needs the buffer back-reference.
+            private readonly TerminalBuffer _source;
             private readonly bool _isAltScreen;
             private readonly TerminalTheme Theme;
             private readonly long _maxScrollbackBytes;
@@ -47,6 +50,7 @@ namespace NovaTerminal.VT
                 _history = new List<TerminalRow>(_scrollback.Count + source.Rows);
                 _maxScrollbackBytes = source.MaxScrollbackBytes;
                 _images = source._images;
+                _source = source;
                 _isAltScreen = source._isAltScreen;
                 Theme = source.Theme;
                 _cursorRow = source._cursorRow;
@@ -855,6 +859,7 @@ namespace NovaTerminal.VT
                             // Prune if shifted out of history bounds
                             if (img.CellY + img.CellHeight < 0)
                             {
+                                _source.RetireImage(img);
                                 _images.RemoveAt(i);
                             }
                         }

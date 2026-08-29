@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "47d97ce2b29974163b73ada32f5935db95d318f874f5233b9ec5e46d595cdd2e",
+  "matrixSha256": "376c78806b2bf417712f84143420d988c6471fa90e97b968b65c44ea0df0d685",
   "summary": {
     "totalRows": 58,
     "supportedCount": 20,
@@ -1114,7 +1114,7 @@
       "hasAutomatedEvidenceSignal": false,
       "hasLinkedEvidence": false,
       "ownership": "Buffer\u002BRenderer",
-      "knownDeviations": "",
+      "knownDeviations": "Pruned images\u0027 bitmaps are retired by the buffer and disposed at the render frame boundary (#166)",
       "sourceLine": 161
     },
     {

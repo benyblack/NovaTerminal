@@ -306,6 +306,29 @@ namespace NovaTerminal.Shell
                 _rowCache?.DrainDisposalsAndApplyClearIfRequested();
                 _glyphCache?.DrainDisposals();
 
+                // Retired inline-image handles: a pruned image's bitmap may still be referenced
+                // by the previous frame's snapshot, so disposal waits for this frame boundary —
+                // draining here proves frame N's DrawBitmap calls finished (same contract as the
+                // row/glyph drains above). Handles are opaque objects; only SKBitmaps are ours.
+                var retiredImageHandles = new List<object>();
+                if (_buffer.DrainRetiredImageHandles(retiredImageHandles))
+                {
+                    foreach (var handle in retiredImageHandles)
+                    {
+                        if (handle is SKBitmap bitmap)
+                        {
+                            try
+                            {
+                                bitmap.Dispose();
+                            }
+                            catch
+                            {
+                                // Best effort: never break the frame over a dispose failure.
+                            }
+                        }
+                    }
+                }
+
                 RenderPerfWriter? perfWriter = BeginFramePerfMetrics();
                 var frame = new FrameSnapshot();
                 var snapshotRequest = new RenderSnapshotRequest
