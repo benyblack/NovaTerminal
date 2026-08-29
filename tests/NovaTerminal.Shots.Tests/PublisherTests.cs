@@ -125,7 +125,7 @@ public sealed class PublisherTests
             IReadOnlyList<string> published = [RelativeAsset("current-readme.png")];
 
             IReadOnlyList<string> pruned = Publisher.Prune(
-                published, repositoryRoot, isFullCatalogueRun: true, dryRun: false, failedScenarios: []);
+                published, repositoryRoot, isFullCatalogueRun: true, dryRun: false, failedScenarios: [], clipEncodingSkippedFor: []);
 
             Assert.True(File.Exists(Path.Combine(assetsDirectory, "current-readme.png")));
             Assert.False(File.Exists(Path.Combine(assetsDirectory, "stale-readme.png")));
@@ -154,7 +154,7 @@ public sealed class PublisherTests
             WriteFile(Path.Combine(heroDirectory, "hero-real-single.png"));
 
             IReadOnlyList<string> pruned = Publisher.Prune(
-                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: false, failedScenarios: []);
+                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: false, failedScenarios: [], clipEncodingSkippedFor: []);
 
             Assert.True(File.Exists(Path.Combine(heroDirectory, "hero-real-single.png")));
             Assert.DoesNotContain(pruned, p => p.Contains("hero-real-single", StringComparison.Ordinal));
@@ -177,7 +177,7 @@ public sealed class PublisherTests
             WriteFile(Path.Combine(assetsDirectory, "README.md"));
 
             IReadOnlyList<string> pruned = Publisher.Prune(
-                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: false, failedScenarios: []);
+                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: false, failedScenarios: [], clipEncodingSkippedFor: []);
 
             Assert.True(File.Exists(Path.Combine(assetsDirectory, "README.md")));
             Assert.DoesNotContain(pruned, p => p.EndsWith("README.md", StringComparison.Ordinal));
@@ -209,7 +209,7 @@ public sealed class PublisherTests
             IReadOnlyList<string> published = [RelativeAsset("hero-single-readme.png")];
 
             IReadOnlyList<string> pruned = Publisher.Prune(
-                published, repositoryRoot, isFullCatalogueRun: false, dryRun: false, failedScenarios: []);
+                published, repositoryRoot, isFullCatalogueRun: false, dryRun: false, failedScenarios: [], clipEncodingSkippedFor: []);
 
             Assert.True(File.Exists(Path.Combine(assetsDirectory, "some-other-scenario-readme.png")));
             Assert.Empty(pruned);
@@ -252,9 +252,56 @@ public sealed class PublisherTests
                 repositoryRoot,
                 isFullCatalogueRun: true,
                 dryRun: false,
-                failedScenarios: ["broken-scenario"]);
+                failedScenarios: ["broken-scenario"],
+                clipEncodingSkippedFor: []);
 
             Assert.True(File.Exists(Path.Combine(assetsDirectory, "broken-scenario-readme.png")));
+            Assert.Empty(pruned);
+        }
+        finally
+        {
+            Directory.Delete(repositoryRoot, recursive: true);
+            Directory.Delete(outputDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Prune_RefusesWhenFfmpegWasUnavailableForAScenarioAndDeletesNothing()
+    {
+        // The second under-production path the coordinator asked to be generalised against:
+        // ShotContext.RecordAsync does NOT throw when ffmpeg is unavailable - it is a sanctioned
+        // degradation (spec: "its absence degrades the run to stills-only ... rather than failing
+        // it"), so this scenario is absent from failedScenarios too. Yet its .webm/.gif were
+        // never (re)produced this run, so it is just as silently absent from `published` as an
+        // actually-thrown exception's assets would be - isFullCatalogueRun: true and
+        // failedScenarios: [] together must still NOT be enough to prune here; only
+        // clipEncodingSkippedFor (fed from ShotRun.ClipEncodingSkippedFor) catches it.
+        (string repositoryRoot, string outputDirectory) = NewTempRoots();
+        string assetsDirectory = Path.Combine(repositoryRoot, "docs", "assets", "shots");
+        Directory.CreateDirectory(assetsDirectory);
+        try
+        {
+            // Plants the clip files a previous, ffmpeg-available run committed - still valid,
+            // still exactly what this scenario looks like when it does produce a clip.
+            WriteFile(Path.Combine(assetsDirectory, "clip-agent.webm"));
+            WriteFile(Path.Combine(assetsDirectory, "clip-agent.gif"));
+
+            // Simulates a full-catalogue run where every OTHER asset published normally, but
+            // ffmpeg was missing for "clip-agent" this run - Publisher.Publish's own clip loop
+            // silently skips a clip whose .webm/.gif never got encoded, so neither extension
+            // ever reaches `published`.
+            IReadOnlyList<string> published = [RelativeAsset("some-other-scenario-readme.png")];
+
+            IReadOnlyList<string> pruned = Publisher.Prune(
+                published,
+                repositoryRoot,
+                isFullCatalogueRun: true,
+                dryRun: false,
+                failedScenarios: [],
+                clipEncodingSkippedFor: ["clip-agent"]);
+
+            Assert.True(File.Exists(Path.Combine(assetsDirectory, "clip-agent.webm")));
+            Assert.True(File.Exists(Path.Combine(assetsDirectory, "clip-agent.gif")));
             Assert.Empty(pruned);
         }
         finally
@@ -275,7 +322,7 @@ public sealed class PublisherTests
             WriteFile(Path.Combine(assetsDirectory, "stale-readme.png"));
 
             IReadOnlyList<string> pruned = Publisher.Prune(
-                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: true, failedScenarios: []);
+                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: true, failedScenarios: [], clipEncodingSkippedFor: []);
 
             Assert.True(File.Exists(Path.Combine(assetsDirectory, "stale-readme.png")));
             Assert.Equal([RelativeAsset("stale-readme.png")], pruned);

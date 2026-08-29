@@ -90,6 +90,13 @@ public sealed class ShotContext
         if (!Encoder.IsAvailable())
         {
             Console.Error.WriteLine("[shots] ffmpeg not found; frames kept, clips skipped.");
+
+            // Surfaced onto Run, not just logged: a console line here is easy to miss in ~two
+            // minutes of capture output, and Publisher.Prune has no other way to learn that this
+            // scenario's .webm/.gif were never (re)produced this run - see ShotRun.
+            // RecordClipEncodingSkipped's remarks for why this cannot share failedScenarios'
+            // list even though both end up refusing the same prune.
+            Run.RecordClipEncodingSkipped(_scenario.Spec.Name);
             return;
         }
 
