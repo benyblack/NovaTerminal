@@ -111,6 +111,142 @@ public sealed class PublisherTests
         }
     }
 
+    [Fact]
+    public void Prune_DeletesAManagedFileNotInThePublishedList()
+    {
+        (string repositoryRoot, string outputDirectory) = NewTempRoots();
+        string assetsDirectory = Path.Combine(repositoryRoot, "docs", "assets", "shots");
+        Directory.CreateDirectory(assetsDirectory);
+        try
+        {
+            WriteFile(Path.Combine(assetsDirectory, "current-readme.png"));
+            WriteFile(Path.Combine(assetsDirectory, "stale-readme.png"));
+
+            IReadOnlyList<string> published = [RelativeAsset("current-readme.png")];
+
+            IReadOnlyList<string> pruned = Publisher.Prune(
+                published, repositoryRoot, isFullCatalogueRun: true, dryRun: false);
+
+            Assert.True(File.Exists(Path.Combine(assetsDirectory, "current-readme.png")));
+            Assert.False(File.Exists(Path.Combine(assetsDirectory, "stale-readme.png")));
+            Assert.Equal([RelativeAsset("stale-readme.png")], pruned);
+        }
+        finally
+        {
+            Directory.Delete(repositoryRoot, recursive: true);
+            Directory.Delete(outputDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Prune_LeavesTheHeroSubdirectoryUntouched()
+    {
+        // docs/assets/shots/hero/ holds manually captured hero shots that never appear in any
+        // manifest - a recursive prune would read them as universally stale and delete them.
+        // Directory.GetFiles' default (non-recursive) search option is what protects this; there
+        // is no hardcoded "skip hero" exception to accidentally get wrong.
+        (string repositoryRoot, string outputDirectory) = NewTempRoots();
+        string assetsDirectory = Path.Combine(repositoryRoot, "docs", "assets", "shots");
+        string heroDirectory = Path.Combine(assetsDirectory, "hero");
+        Directory.CreateDirectory(heroDirectory);
+        try
+        {
+            WriteFile(Path.Combine(heroDirectory, "hero-real-single.png"));
+
+            IReadOnlyList<string> pruned = Publisher.Prune(
+                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: false);
+
+            Assert.True(File.Exists(Path.Combine(heroDirectory, "hero-real-single.png")));
+            Assert.DoesNotContain(pruned, p => p.Contains("hero-real-single", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(repositoryRoot, recursive: true);
+            Directory.Delete(outputDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Prune_LeavesANonManagedExtensionUntouched()
+    {
+        (string repositoryRoot, string outputDirectory) = NewTempRoots();
+        string assetsDirectory = Path.Combine(repositoryRoot, "docs", "assets", "shots");
+        Directory.CreateDirectory(assetsDirectory);
+        try
+        {
+            WriteFile(Path.Combine(assetsDirectory, "README.md"));
+
+            IReadOnlyList<string> pruned = Publisher.Prune(
+                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: false);
+
+            Assert.True(File.Exists(Path.Combine(assetsDirectory, "README.md")));
+            Assert.DoesNotContain(pruned, p => p.EndsWith("README.md", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(repositoryRoot, recursive: true);
+            Directory.Delete(outputDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Prune_RefusesOnASubsetRunAndDeletesNothing()
+    {
+        // The most important guard: shots.ps1 <single-scenario> --publish populates the run's
+        // published list with only that scenario's variants. Pruning against that list on a
+        // subset run would delete every OTHER scenario's committed assets. isFullCatalogueRun
+        // must gate this - a false value must leave the tree completely untouched, no matter
+        // what published does or does not contain.
+        (string repositoryRoot, string outputDirectory) = NewTempRoots();
+        string assetsDirectory = Path.Combine(repositoryRoot, "docs", "assets", "shots");
+        Directory.CreateDirectory(assetsDirectory);
+        try
+        {
+            WriteFile(Path.Combine(assetsDirectory, "some-other-scenario-readme.png"));
+
+            // Simulates a subset publish of one unrelated scenario: its own published list is
+            // non-empty, but does not (and cannot) mention every other scenario's committed file.
+            IReadOnlyList<string> published = [RelativeAsset("hero-single-readme.png")];
+
+            IReadOnlyList<string> pruned = Publisher.Prune(
+                published, repositoryRoot, isFullCatalogueRun: false, dryRun: false);
+
+            Assert.True(File.Exists(Path.Combine(assetsDirectory, "some-other-scenario-readme.png")));
+            Assert.Empty(pruned);
+        }
+        finally
+        {
+            Directory.Delete(repositoryRoot, recursive: true);
+            Directory.Delete(outputDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Prune_DryRunReportsWithoutDeleting()
+    {
+        (string repositoryRoot, string outputDirectory) = NewTempRoots();
+        string assetsDirectory = Path.Combine(repositoryRoot, "docs", "assets", "shots");
+        Directory.CreateDirectory(assetsDirectory);
+        try
+        {
+            WriteFile(Path.Combine(assetsDirectory, "stale-readme.png"));
+
+            IReadOnlyList<string> pruned = Publisher.Prune(
+                published: [], repositoryRoot, isFullCatalogueRun: true, dryRun: true);
+
+            Assert.True(File.Exists(Path.Combine(assetsDirectory, "stale-readme.png")));
+            Assert.Equal([RelativeAsset("stale-readme.png")], pruned);
+        }
+        finally
+        {
+            Directory.Delete(repositoryRoot, recursive: true);
+            Directory.Delete(outputDirectory, recursive: true);
+        }
+    }
+
+    private static string RelativeAsset(string fileName) =>
+        Path.Combine("docs", "assets", "shots", fileName);
+
     private static (string repositoryRoot, string outputDirectory) NewTempRoots()
     {
         string id = Guid.NewGuid().ToString("N");

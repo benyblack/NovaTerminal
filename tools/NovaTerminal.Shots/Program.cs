@@ -103,11 +103,39 @@ public static class Program
             // No --repo-root override: shots.ps1 (like every other wrapper in this repo) always
             // invokes the tool from the repository root, which is also --out's own default base
             // a few lines up.
-            IReadOnlyList<string> published = Publisher.Publish(run, Directory.GetCurrentDirectory());
+            string repositoryRoot = Directory.GetCurrentDirectory();
+            IReadOnlyList<string> published = Publisher.Publish(run, repositoryRoot);
             foreach (string path in published)
             {
                 Console.WriteLine($"[shots] published {path}");
             }
+
+            // --prune is opt-in and never implied by --publish alone: existing invocations must
+            // see zero behaviour change. Nested inside the --publish block (not a sibling check)
+            // so --prune with no --publish is structurally a no-op rather than something that
+            // could run against a stale `published` list from a previous invocation.
+            if (args.Contains("--prune"))
+            {
+                // isFullCatalogueRun must reflect what THIS invocation actually resolved, not
+                // just the absence of scenario-name arguments - see Publisher.Prune's remarks on
+                // why a subset run must never reach the delete path.
+                bool isFullCatalogueRun = requested
+                    .Select(s => s.Spec.Name)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                    .SetEquals(ScenarioCatalog.All().Select(s => s.Spec.Name));
+
+                bool dryRun = args.Contains("--dry-run");
+
+                IReadOnlyList<string> stale = Publisher.Prune(published, repositoryRoot, isFullCatalogueRun, dryRun);
+                foreach (string path in stale)
+                {
+                    Console.WriteLine(dryRun ? $"[shots] would delete {path}" : $"[shots] pruned {path}");
+                }
+            }
+        }
+        else if (args.Contains("--prune"))
+        {
+            Console.Error.WriteLine("[shots] --prune has no effect without --publish; ignoring.");
         }
 
         return failures == 0 ? 0 : 1;
