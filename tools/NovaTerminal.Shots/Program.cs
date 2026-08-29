@@ -130,9 +130,11 @@ public static class Program
                 // achieved output. A per-scenario failure above leaves `requested` (and therefore
                 // this bool) unchanged, but that scenario never called run.Record, so its assets
                 // are silently absent from `published` - and Prune's whitelist diff cannot tell
-                // that apart from a deliberate removal. failedScenarioNames is the only signal
-                // that catches this; it is passed through unconditionally so Prune's own guard is
-                // what refuses, not a check duplicated here.
+                // that apart from a deliberate removal. Nor is failedScenarioNames the only such
+                // signal: ffmpeg being unavailable is a second, sanctioned way a scenario's
+                // clip goes unproduced without throwing (see ShotRun.ClipEncodingSkippedFor's
+                // remarks) - both are passed through unconditionally so Prune's own guard is what
+                // refuses, not a check duplicated here.
                 bool isFullCatalogueRun = requested
                     .Select(s => s.Spec.Name)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase)
@@ -141,7 +143,8 @@ public static class Program
                 bool dryRun = args.Contains("--dry-run");
 
                 IReadOnlyList<string> stale = Publisher.Prune(
-                    published, repositoryRoot, isFullCatalogueRun, dryRun, failedScenarioNames);
+                    published, repositoryRoot, isFullCatalogueRun, dryRun,
+                    failedScenarioNames, run.ClipEncodingSkippedFor);
                 foreach (string path in stale)
                 {
                     Console.WriteLine(dryRun ? $"[shots] would delete {path}" : $"[shots] pruned {path}");

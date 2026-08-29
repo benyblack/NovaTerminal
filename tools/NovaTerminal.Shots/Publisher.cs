@@ -106,7 +106,7 @@ public static class Publisher
     /// forever with nothing to notice or remove it.
     /// </summary>
     /// <remarks>
-    /// Four deliberate safety properties, in order of how much damage getting them wrong would
+    /// Five deliberate safety properties, in order of how much damage getting them wrong would
     /// cause:
     /// <list type="number">
     /// <item>
@@ -118,23 +118,44 @@ public static class Publisher
     /// resolved scenario set is the whole catalogue (see <c>Program.Main</c>) - this method
     /// cannot infer that from <paramref name="published"/> alone, and refuses to run (a no-op
     /// with a console warning, not an exception - a subset publish must still succeed) rather
-    /// than guess.
+    /// than guess. This is a check about <i>requested scope</i> and is orthogonal to the next
+    /// item, which is about <i>achieved output</i>: a run can request the whole catalogue and
+    /// still under-produce it.
     /// </item>
     /// <item>
-    /// <b>The incomplete-run guard.</b> <paramref name="isFullCatalogueRun"/> reflects what this
-    /// invocation was <i>asked</i> to run (the requested scenario set), not what it actually
-    /// <i>produced</i>. <c>Program.Main</c> catches a per-scenario exception, counts it as a
-    /// failure, and continues the loop - the request still covers the whole catalogue, so
-    /// <paramref name="isFullCatalogueRun"/> alone stays true, but the failed scenario never
+    /// <b>The production-completeness guard.</b> <paramref name="isFullCatalogueRun"/> reflects
+    /// what this invocation was <i>asked</i> to run, not what it actually <i>produced</i> - and
+    /// there is more than one sanctioned or unsanctioned way for those to diverge without
+    /// touching <paramref name="isFullCatalogueRun"/> itself. Two are known and each has its own
+    /// signal and its own warning, deliberately not merged into one boolean or one message,
+    /// because each has a different remedy:
+    /// <list type="bullet">
+    /// <item>
+    /// A scenario throws. <c>Program.Main</c> catches it, counts it as a failure, and continues
+    /// the loop - the request still covers the whole catalogue, but the failed scenario never
     /// called <c>run.Record</c>, so its assets are silently absent from <paramref
-    /// name="published"/>. Whitelist-diffed against the disk, that absence is indistinguishable
-    /// from a deliberate rename or removal - there is no in-band signal that tells them apart.
-    /// The only safe signal is the caller's own out-of-band knowledge that the run was
-    /// incomplete, passed as <paramref name="failedScenarios"/>: any non-empty list refuses the
-    /// whole prune (not just the failed scenarios' own files), with its own warning naming them,
-    /// for the same "no-op, not an exception" reason as the subset-run guard above - the publish
-    /// itself already succeeded for every scenario that did run, and a --prune that merely
-    /// declines must not take that down with it.
+    /// name="published"/>. Signalled via <paramref name="failedScenarios"/>; the remedy is fix
+    /// the scenario and re-run.
+    /// </item>
+    /// <item>
+    /// ffmpeg is unavailable. This is a <i>sanctioned</i> degradation, not a failure - the spec
+    /// deliberately lets a run succeed without ffmpeg, stills-only, with a warning
+    /// (<see cref="ShotContext.RecordAsync"/> keeps the frames and returns normally rather than
+    /// throwing) - but it means that scenario's <c>.webm</c>/<c>.gif</c> were not (re)produced
+    /// this run either, and are just as silently absent from <paramref name="published"/> as a
+    /// thrown exception's assets would be. Signalled via <paramref
+    /// name="clipEncodingSkippedFor"/> (see <see cref="ShotRun.ClipEncodingSkippedFor"/>); the
+    /// remedy is install ffmpeg, not fix a scenario - reporting it as a phantom scenario failure
+    /// would send an operator chasing the wrong thing.
+    /// </item>
+    /// </list>
+    /// Both cases share the same underlying problem - the disk cannot tell "this run didn't
+    /// produce it" apart from "nobody produces this anymore" - and the same resolution: refuse
+    /// the whole prune (not just the affected scenarios' own files) with a no-op and a console
+    /// warning, never an exception, for the same reason as the subset-run guard above. This list
+    /// closes the two ways under-production is known to happen today, not the concept in
+    /// general - a hypothetical third way would need its own signal threaded through the same
+    /// way <paramref name="failedScenarios"/> and <paramref name="clipEncodingSkippedFor"/> are.
     /// </item>
     /// <item>
     /// <b>Non-recursive, top-level scan only.</b> <see cref="Directory.GetFiles(string)"/>'s
@@ -167,7 +188,14 @@ public static class Publisher
     /// <param name="failedScenarios">
     /// The names of scenarios that threw during this run (see <c>Program.Main</c>'s per-scenario
     /// catch), regardless of how many scenarios were requested. Any non-empty list refuses the
-    /// prune outright - see the incomplete-run guard above.
+    /// prune outright - see the production-completeness guard above.
+    /// </param>
+    /// <param name="clipEncodingSkippedFor">
+    /// The names of scenarios whose clip encoding was skipped this run because ffmpeg was
+    /// unavailable (<see cref="ShotRun.ClipEncodingSkippedFor"/>) - a sanctioned degradation, not
+    /// a failure, but one that refuses the prune outright the same way <paramref
+    /// name="failedScenarios"/> does, with its own warning naming the real cause. See the
+    /// production-completeness guard above.
     /// </param>
     /// <returns>
     /// The paths deleted (or, under <paramref name="dryRun"/>, that would be deleted), relative
@@ -178,7 +206,8 @@ public static class Publisher
         string repositoryRoot,
         bool isFullCatalogueRun,
         bool dryRun,
-        IReadOnlyList<string> failedScenarios)
+        IReadOnlyList<string> failedScenarios,
+        IReadOnlyList<string> clipEncodingSkippedFor)
     {
         if (!isFullCatalogueRun)
         {
@@ -189,6 +218,12 @@ public static class Publisher
             return [];
         }
 
+        // Both checked (not else-if'd on each other) and both allowed to print, so a run that
+        // hits both at once - a thrown scenario AND ffmpeg missing - reports both real causes
+        // instead of only the first one found, on the theory that whoever reads this needs the
+        // complete picture before deciding what to re-run or install.
+        bool productionIncomplete = false;
+
         if (failedScenarios.Count > 0)
         {
             Console.Error.WriteLine(
@@ -197,6 +232,22 @@ public static class Publisher
                 $"({string.Join(", ", failedScenarios)}). Their previously-committed assets " +
                 "would look indistinguishable from stale files and be deleted. Re-run without " +
                 "failures, then retry --prune.");
+            productionIncomplete = true;
+        }
+
+        if (clipEncodingSkippedFor.Count > 0)
+        {
+            Console.Error.WriteLine(
+                "[shots] --prune skipped: ffmpeg was unavailable for " +
+                $"{clipEncodingSkippedFor.Count} scenario(s) this run " +
+                $"({string.Join(", ", clipEncodingSkippedFor)}), so their .webm/.gif clips were " +
+                "not (re)produced and would look indistinguishable from stale files and be " +
+                "deleted. Install ffmpeg (or put it on PATH), then re-run and retry --prune.");
+            productionIncomplete = true;
+        }
+
+        if (productionIncomplete)
+        {
             return [];
         }
 
