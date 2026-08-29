@@ -16,6 +16,15 @@ public static class ScenarioCatalog
     // each scenario's own header comment for the full evidence trail. Re-enable by adding
     // `new SixelGraphicsScenario()` and `new Iterm2InlineImageScenario()` back to this list once
     // src/ wires a real decoder — no other code change is required.
+    //
+    // ConnectionManagerScenario and RemoteFilesScenario (Task 14) are likewise implemented but
+    // deliberately NOT registered here. connection-manager's data path
+    // (SshConnectionService/JsonSshProfileStore) bypasses AppPaths' NOVATERM_APPDATA_ROOT sandbox
+    // entirely and was empirically confirmed to read and write a real, unsandboxed per-machine SSH
+    // profile file — see ConnectionManagerScenario's header comment for the file:line evidence and
+    // what a src/ fix would look like. remote-files requires a genuinely connected native SSH
+    // session, which this offline harness has no way to provide — see RemoteFilesScenario's header
+    // comment.
     private static readonly IScenario[] Scenarios =
     [
         new HeroSingleScenario(),
@@ -23,12 +32,14 @@ public static class ScenarioCatalog
         new TabsVerticalScenario(),
         new CommandPaletteScenario(),
         new SettingsAgentAccessScenario(),
+        new SettingsAppearanceScenario(),
         new AgentSessionScenario(),
         new ClipAgentScenario(),
         new ThemesGridScenario(),
         new SearchOverlayScenario(),
         new TuiVimScenario(),
-        new TuiMonitorScenario()
+        new TuiMonitorScenario(),
+        new CommandAssistScenario()
     ];
 
     public static IReadOnlyList<IScenario> All() => Scenarios;
