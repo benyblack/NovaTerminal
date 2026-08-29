@@ -101,7 +101,7 @@ async function syncSelected(label, sourceDir, destDir, fileNames) {
 // Only 3 of the 5 -site.png variants below have a WebP sibling in
 // docs/assets/shots/ (command-palette-site and themes-grid-site do not —
 // see that directory's own conditional-emission policy), and og-card has
-// none either, so those four are deliberately PNG-only here too.
+// none either, so those three are deliberately PNG-only here too.
 const SHOTS_FILES = [
   'hero-split-site.png',
   'hero-split-site.webp',

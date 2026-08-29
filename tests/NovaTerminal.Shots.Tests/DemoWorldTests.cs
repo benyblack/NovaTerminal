@@ -52,6 +52,34 @@ public sealed class DemoWorldTests
         Assert.True(loaded.AgentAccessActEnabled, "Expected customize's act-on override to win over the baseline.");
     }
 
+    // nova-banner.sh's agent dots read NOVA_SHOTS_AGENT_OBSERVE_ON / NOVA_SHOTS_AGENT_ACT_ON
+    // instead of hardcoding "observe on, act off" - the fix for a real defect where the banner
+    // contradicted the very scenario capturing it (AgentSessionScenario and ClipAgentScenario
+    // both flip act on, then show the banner claiming it's off). This pins the derivation at the
+    // source: whatever SeedSettings actually wrote - baseline or customize's override - must be
+    // what these two variables report, exported after customize so an override always wins.
+    [Fact]
+    public void SeedSettings_ExportsTheBaselineAgentAccessAsEnvironmentVariables()
+    {
+        using var world = DemoWorld.Create(NewBaseDir());
+
+        world.SeedSettings();
+
+        Assert.Equal("1", Environment.GetEnvironmentVariable("NOVA_SHOTS_AGENT_OBSERVE_ON"));
+        Assert.Equal("0", Environment.GetEnvironmentVariable("NOVA_SHOTS_AGENT_ACT_ON"));
+    }
+
+    [Fact]
+    public void SeedSettings_ExportsCustomizesAgentAccessOverride_NotJustTheBaseline()
+    {
+        using var world = DemoWorld.Create(NewBaseDir());
+
+        world.SeedSettings(settings => settings.AgentAccessActEnabled = true);
+
+        Assert.Equal("1", Environment.GetEnvironmentVariable("NOVA_SHOTS_AGENT_OBSERVE_ON"));
+        Assert.Equal("1", Environment.GetEnvironmentVariable("NOVA_SHOTS_AGENT_ACT_ON"));
+    }
+
     [Fact]
     public void Dispose_RemovesEverythingItCreated()
     {
