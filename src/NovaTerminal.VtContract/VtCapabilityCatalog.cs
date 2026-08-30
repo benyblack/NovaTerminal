@@ -74,6 +74,7 @@ public static class VtCapabilityCatalog
 
         var capabilities = new List<VtCapability>(document.Capabilities.Count);
         var keys = new HashSet<string>(StringComparer.Ordinal);
+        var contractCases = new HashSet<string>(StringComparer.Ordinal);
         foreach (ManifestEntry entry in document.Capabilities)
         {
             string key = Require(entry.Key, "key", "<unknown>");
@@ -92,6 +93,11 @@ public static class VtCapabilityCatalog
 
             string? evidencePath = NullIfWhiteSpace(entry.EvidencePath);
             string? contractCase = NullIfWhiteSpace(entry.ContractCase);
+            if (contractCase is not null && !contractCases.Add(contractCase))
+            {
+                throw new VtCapabilityManifestException($"Capability '{key}' has duplicate contractCase '{contractCase}'.");
+            }
+
             if (support == VtSupport.Supported && evidencePath is null)
             {
                 throw new VtCapabilityManifestException($"Capability '{key}' is supported but has no evidencePath.");

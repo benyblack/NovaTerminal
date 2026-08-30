@@ -54,6 +54,21 @@ public class ExplainEscapeSequenceTests
         Assert.DoesNotContain("unsupported", result, System.StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("CSI ?2E", "CNL")]
+    [InlineData("CSI ?2F", "CPL")]
+    [InlineData("CSI ?2G", "CHA")]
+    [InlineData("CSI 2$E", "CNL")]
+    [InlineData("CSI 2$F", "CPL")]
+    [InlineData("CSI 2$G", "CHA")]
+    public void QualifiedContractForms_AreNotReportedAsTheSupportedBareCapability(string sequence, string mnemonic)
+    {
+        string result = VtTools.ExplainEscapeSequence(sequence);
+
+        Assert.DoesNotContain(mnemonic, result, System.StringComparison.Ordinal);
+        Assert.Contains("not in the curated table", result, System.StringComparison.Ordinal);
+    }
+
     [Fact]
     public void CatalogCapabilities_AgreeWithExplainerSupportClaims()
     {

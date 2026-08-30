@@ -52,6 +52,20 @@ public sealed class VtCapabilityCatalogTests
     }
 
     [Fact]
+    public void Parse_RejectsDuplicateContractCases()
+    {
+        string json = Manifest(
+            Entry("CSI:E", "CNL", "supported", "cursor-line"),
+            Entry("CSI:F", "CPL", "supported", "cursor-line"));
+
+        VtCapabilityManifestException error = Assert.Throws<VtCapabilityManifestException>(
+            () => VtCapabilityCatalog.Parse(json));
+
+        Assert.Contains("cursor-line", error.Message, StringComparison.Ordinal);
+        Assert.Contains("duplicate", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Parse_RejectsUnknownSupportValue()
     {
         string json = Manifest(Entry("CSI:E", "CNL", "complete", "cursor-next-line"));
