@@ -21,5 +21,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NovaTerminal.VT\NovaTerminal.VT.csproj" />
+    <ProjectReference Include="..\..\src\NovaTerminal.VtContract\NovaTerminal.VtContract.csproj" />
   </ItemGroup>
 </Project>
