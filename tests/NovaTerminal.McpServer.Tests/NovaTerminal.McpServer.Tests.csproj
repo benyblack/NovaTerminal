@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NovaTerminal.McpServer\NovaTerminal.McpServer.csproj" />
+    <ProjectReference Include="..\..\src\NovaTerminal.VtContract\NovaTerminal.VtContract.csproj" />
     <!-- Test-only: the drift guard reflects over the real profile types. The MCP server
          itself must never reference NovaTerminal.Platform. -->
     <ProjectReference Include="..\..\src\NovaTerminal.Platform\NovaTerminal.Platform.csproj" />

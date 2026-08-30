@@ -4,9 +4,9 @@
     NovaTerminal MCP server: a local stdio MCP server that exposes project knowledge to AI
     coding agents, plus — per the agent-host direction (docs/agent-host/DIRECTION.md, A1) —
     opt-in, observe-only access to live terminal sessions, proxied over the app's local IPC
-    endpoint. Solution dependencies are the zero-reference contracts leaf
-    (NovaTerminal.AgentHost.Contracts) and NovaTerminal.Backup, a second zero-reference leaf
-    (BackupService for the read-only backup MCP tools). This server must never reference
+    endpoint. Solution dependencies are three zero-reference leaves:
+    NovaTerminal.AgentHost.Contracts (wire protocol), NovaTerminal.Backup (read-only backup
+    tools), and NovaTerminal.VtContract (developer-facing VT capability metadata). This server must never reference
     App, VT, Pty, Rendering, or NovaTerminal.Platform (Platform pulls in Pty transitively,
     which would silently reopen the same hole a direct Pty reference would - see
     docs/MODULE_OWNERSHIP.md), and must never touch SSH or credentials. Session access is
@@ -29,6 +29,7 @@
   <ItemGroup>
     <ProjectReference Include="..\NovaTerminal.AgentHost.Contracts\NovaTerminal.AgentHost.Contracts.csproj" />
     <ProjectReference Include="..\NovaTerminal.Backup\NovaTerminal.Backup.csproj" />
+    <ProjectReference Include="..\NovaTerminal.VtContract\NovaTerminal.VtContract.csproj" />
   </ItemGroup>
 
   <ItemGroup>

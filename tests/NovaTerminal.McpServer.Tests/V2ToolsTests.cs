@@ -1,4 +1,5 @@
 using NovaTerminal.McpServer.Tools;
+using NovaTerminal.VtContract;
 
 namespace NovaTerminal.McpServer.Tests;
 
@@ -34,12 +35,39 @@ public class ExplainEscapeSequenceTests
     }
 
     [Theory]
-    [InlineData("CSI E")] // CNL — not in HandleCsi
-    [InlineData("CSI F")] // CPL — not in HandleCsi
     [InlineData("CSI b")] // REP — no handler
     public void UnhandledCsiSequences_AreMarkedUnsupported(string seq)
     {
         Assert.Contains("NOT currently handled", VtTools.ExplainEscapeSequence(seq), System.StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("CSI E", "CNL")]
+    [InlineData("CSI F", "CPL")]
+    [InlineData("CSI G", "CHA")]
+    public void SupportedCursorCapabilities_AreReportedFromContract(string sequence, string mnemonic)
+    {
+        string result = VtTools.ExplainEscapeSequence(sequence);
+
+        Assert.Contains(mnemonic, result, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("NOT currently handled", result, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("unsupported", result, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CatalogCapabilities_AgreeWithExplainerSupportClaims()
+    {
+        foreach (VtCapability capability in VtCapabilityCatalog.All)
+        {
+            string result = VtTools.ExplainEscapeSequence(capability.Key.Replace(':', ' '));
+
+            Assert.Contains(capability.Mnemonic, result, System.StringComparison.Ordinal);
+            if (capability.Support == VtSupport.Supported)
+            {
+                Assert.DoesNotContain("NOT currently handled", result, System.StringComparison.Ordinal);
+                Assert.DoesNotContain("unsupported", result, System.StringComparison.OrdinalIgnoreCase);
+            }
+        }
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Text;
 using ModelContextProtocol.Server;
+using NovaTerminal.VtContract;
 
 namespace NovaTerminal.McpServer.Tools;
 
@@ -42,15 +43,18 @@ public static class VtTools
 
     // Curated explanations for the most common control sequences, keyed by a normalized token.
     // CSI entries are keyed by final byte ("CSI:J"); OSC by numeric code ("OSC:0"); a few ESC/DCS.
+    private static readonly Dictionary<string, string> ContractSequenceTable =
+        VtCapabilityCatalog.All.ToDictionary(
+            capability => capability.Key,
+            FormatCapabilityDescription,
+            StringComparer.Ordinal);
+
     private static readonly Dictionary<string, string> SequenceTable = new()
     {
         ["CSI:A"] = "CUU — Cursor Up Ps times.",
         ["CSI:B"] = "CUD — Cursor Down Ps times.",
         ["CSI:C"] = "CUF — Cursor Forward Ps times.",
         ["CSI:D"] = "CUB — Cursor Back Ps times.",
-        ["CSI:E"] = "CNL — Cursor Next Line Ps times (column 1). NOT currently handled by NovaTerminal's parser.",
-        ["CSI:F"] = "CPL — Cursor Previous Line Ps times (column 1). NOT currently handled by NovaTerminal's parser.",
-        ["CSI:G"] = "CHA — Cursor Horizontal Absolute to column Ps.",
         ["CSI:H"] = "CUP — Cursor Position to row;col (1-based).",
         ["CSI:J"] = "ED — Erase in Display (0=below, 1=above, 2=all, 3=all+scrollback).",
         ["CSI:K"] = "EL — Erase in Line (0=right, 1=left, 2=whole line).",
@@ -125,7 +129,9 @@ public static class VtTools
                 ? $" [intermediate byte(s) '{intermediates}' present — may select a different function than the bare final byte]"
                 : string.Empty;
 
-            return SequenceTable.TryGetValue("CSI:" + finalByte, out var desc)
+            string key = "CSI:" + finalByte;
+            return (ContractSequenceTable.TryGetValue(key, out var desc)
+                    || SequenceTable.TryGetValue(key, out desc))
                 ? $"CSI sequence, final byte '{finalByte}'{note}: {desc}"
                 : $"CSI sequence with final byte '{finalByte}'{note}: not in the curated table. Params/intermediates: '{prefix}'.";
         }
@@ -174,6 +180,19 @@ public static class VtTools
         }
 
         return $"Unrecognized sequence '{sequence}'. Use forms like 'ESC[2J', 'CSI ?25h', 'OSC 7', 'ESC c', 'DCS', or 'APC'.";
+    }
+
+    private static string FormatCapabilityDescription(VtCapability capability)
+    {
+        string supportNote = capability.Support switch
+        {
+            VtSupport.Supported => string.Empty,
+            VtSupport.Partial => " PARTIALLY supported by NovaTerminal.",
+            VtSupport.Unsupported => " NOT currently handled by NovaTerminal's parser.",
+            _ => throw new InvalidOperationException($"Unknown VT support state '{capability.Support}'."),
+        };
+
+        return $"{capability.Mnemonic} — {capability.Description}{supportNote}";
     }
 
     [McpServerTool(Name = "novaterminal.generate_vt_test_plan"),
