@@ -807,6 +807,7 @@ namespace NovaTerminal.VT
                         }
                         break;
                     case 'F': // Cursor Preceding Line
+                        if (leader == '\0' && intermediates.Length == 0)
                         {
                             int dist = Math.Max(1, arg0);
                             if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
@@ -828,6 +829,7 @@ namespace NovaTerminal.VT
                         }
                         break;
                     case 'E': // Cursor Next Line
+                        if (leader == '\0' && intermediates.Length == 0)
                         {
                             int dist = Math.Max(1, arg0);
                             if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)

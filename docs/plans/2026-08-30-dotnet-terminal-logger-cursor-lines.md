@@ -28,7 +28,7 @@ Process an initial progress row followed by repeated `\x1b[1F\r\n\x1b[K...\r\n` 
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.VT.Tests/NovaTerminal.VT.Tests.csproj -nologo -nodeReuse:false --filter FullyQualifiedName~CursorLinePositioningTests
+rtk pwsh -NoProfile -File scripts/build.ps1 test tests/NovaTerminal.VT.Tests/NovaTerminal.VT.Tests.csproj -nologo --filter FullyQualifiedName~CursorLinePositioningTests
 ```
 
 Expected: failures showing that CSI `E` and `F` leave the cursor row/column unchanged and that the refresh stream consumes extra rows.
@@ -61,7 +61,7 @@ Expected: all `CursorLinePositioningTests` pass.
 **Step 1: Run the complete VT test project**
 
 ```powershell
-dotnet test tests/NovaTerminal.VT.Tests/NovaTerminal.VT.Tests.csproj -nologo --no-restore -nodeReuse:false
+rtk pwsh -NoProfile -File scripts/build.ps1 test tests/NovaTerminal.VT.Tests/NovaTerminal.VT.Tests.csproj -nologo --no-restore
 ```
 
 Expected: zero failed tests.
@@ -69,20 +69,20 @@ Expected: zero failed tests.
 **Step 2: Build the VT project**
 
 ```powershell
-dotnet build src/NovaTerminal.VT/NovaTerminal.VT.csproj -nologo --no-restore -nodeReuse:false
+rtk pwsh -NoProfile -File scripts/build.ps1 build src/NovaTerminal.VT/NovaTerminal.VT.csproj -nologo --no-restore
 ```
 
 Expected: exit code zero; any analyzer warnings match the clean baseline.
 
 **Step 3: Review the diff and commit**
 
-Review `git diff --check` and the complete branch diff, then commit the parser and regression tests with a focused fix message.
+Review `rtk git diff --check` and the complete branch diff, then commit the parser and regression tests with a focused fix message.
 
 ### Task 4: Publish and respond to review
 
 **Step 1: Push and open a pull request**
 
-Push `codex/dotnet-terminal-logger-cursor-lines` and create a PR describing the captured .NET 10 sequence, parser fix, and verification.
+Use `rtk git push` to publish `codex/dotnet-terminal-logger-cursor-lines`, then use `rtk gh pr create` to open a PR describing the captured .NET 10 sequence, parser fix, and verification.
 
 **Step 2: Monitor checks and Greptile review**
 

@@ -75,6 +75,23 @@ public class CursorLinePositioningTests
         Assert.Equal(0, buffer.CursorCol);
     }
 
+    [Theory]
+    [InlineData("\x1b[?2E")]
+    [InlineData("\x1b[2$E")]
+    [InlineData("\x1b[?2F")]
+    [InlineData("\x1b[2$F")]
+    public void CnlAndCpl_PrivateOrIntermediateVariantsAreIgnored(string sequence)
+    {
+        var buffer = new TerminalBuffer(cols: 12, rows: 8);
+        var parser = new AnsiParser(buffer);
+        parser.Process("\x1b[4;6H");
+
+        parser.Process(sequence);
+
+        Assert.Equal(3, buffer.CursorRow);
+        Assert.Equal(5, buffer.CursorCol);
+    }
+
     [Fact]
     public void DotnetTerminalLoggerRefresh_ReusesProgressRow()
     {
