@@ -47,6 +47,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.CommandAssist"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Backup", "src\NovaTerminal.Backup\NovaTerminal.Backup.csproj", "{77C2766D-8D87-43D3-BE92-42910ACFB648}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.VtContract", "src\NovaTerminal.VtContract\NovaTerminal.VtContract.csproj", "{371D13FE-6F65-4AEA-9426-E6C954A572BD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -297,6 +299,18 @@ Global
 		{77C2766D-8D87-43D3-BE92-42910ACFB648}.Release|x64.Build.0 = Release|Any CPU
 		{77C2766D-8D87-43D3-BE92-42910ACFB648}.Release|x86.ActiveCfg = Release|Any CPU
 		{77C2766D-8D87-43D3-BE92-42910ACFB648}.Release|x86.Build.0 = Release|Any CPU
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD}.Debug|x64.Build.0 = Debug|Any CPU
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD}.Debug|x86.Build.0 = Debug|Any CPU
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD}.Release|x64.ActiveCfg = Release|Any CPU
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD}.Release|x64.Build.0 = Release|Any CPU
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD}.Release|x86.ActiveCfg = Release|Any CPU
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -322,5 +336,6 @@ Global
 		{A7C4E9D1-6B2F-4E8A-9F31-5D8C7B0A2E64} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{5C0E7A31-9D24-4F17-8B6E-2A93C1F40D58} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{77C2766D-8D87-43D3-BE92-42910ACFB648} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{371D13FE-6F65-4AEA-9426-E6C954A572BD} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal
