@@ -152,10 +152,26 @@ public partial class AgentOutputPanel : UserControl
         }
     }
 
+    /// <summary>
+    /// The link schemes allowed to reach the OS shell handler. A security boundary rather than a
+    /// nicety: agent output is untrusted text, and UseShellExecute on an unvalidated string would
+    /// happily launch an executable when a crafted markdown link names one (a bare file path, a
+    /// file: URL, a custom protocol handler). Only web and mail links may leave the app.
+    /// </summary>
+    internal static bool IsSafeExternalUrl(string url)
+    {
+        return Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) &&
+               (uri.Scheme == "http" || uri.Scheme == "https" || uri.Scheme == "mailto");
+    }
+
     private void OpenLink(string url)
     {
-        // Same shell-open shape as MainWindow.OpenPathInShell: UseShellExecute resolves the
-        // platform handler (browser on https/mailto) without this app linking a launcher.
+        if (!IsSafeExternalUrl(url))
+        {
+            System.Diagnostics.Debug.WriteLine($"[AgentOutputPanel] Blocked non-web link: {url}");
+            return;
+        }
+
         try
         {
             _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo

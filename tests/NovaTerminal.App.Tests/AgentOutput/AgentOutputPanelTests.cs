@@ -87,4 +87,29 @@ public sealed class AgentOutputPanelTests
 
         Assert.Same(first, host.Children[0]);
     }
+
+    // ---------------------------------------------------------------- link scheme allowlist
+
+    [Theory]
+    [InlineData("https://example.com/page")]
+    [InlineData("http://example.com/")]
+    [InlineData("mailto:someone@example.com")]
+    public void WebAndMailLinks_AreAllowedThroughTheAllowlist(string url)
+    {
+        Assert.True(AgentOutputPanel.IsSafeExternalUrl(url));
+    }
+
+    [Theory]
+    [InlineData("C:\\Windows\\System32\\calc.exe")]
+    [InlineData("file:///C:/Windows/System32/calc.exe")]
+    [InlineData("ms-settings:windowsupdate")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("../../etc/passwd")]
+    [InlineData("")]
+    public void ExecutablePaths_FileUrls_AndCustomSchemes_AreBlocked(string url)
+    {
+        // Agent output is untrusted: a crafted [label](target) must never name something the
+        // shell handler would launch or hand to a protocol handler.
+        Assert.False(AgentOutputPanel.IsSafeExternalUrl(url));
+    }
 }
