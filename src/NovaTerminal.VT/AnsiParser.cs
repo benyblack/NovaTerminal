@@ -806,6 +806,17 @@ namespace NovaTerminal.VT
                             _buffer.Invalidate();
                         }
                         break;
+                    case 'F': // Cursor Preceding Line
+                        {
+                            int dist = Math.Max(1, arg0);
+                            if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
+                                _buffer.CursorRow = Math.Max(_buffer.ScrollTop, _buffer.CursorRow - dist);
+                            else
+                                _buffer.CursorRow = Math.Max(0, _buffer.CursorRow - dist);
+                            _buffer.CursorCol = 0;
+                            _buffer.Invalidate();
+                        }
+                        break;
                     case 'B': // Cursor Down
                         {
                             int dist = Math.Max(1, arg0);
@@ -813,6 +824,17 @@ namespace NovaTerminal.VT
                                 _buffer.CursorRow = Math.Min(_buffer.ScrollBottom, _buffer.CursorRow + dist);
                             else
                                 _buffer.CursorRow = Math.Min(_buffer.Rows - 1, _buffer.CursorRow + dist);
+                            _buffer.Invalidate();
+                        }
+                        break;
+                    case 'E': // Cursor Next Line
+                        {
+                            int dist = Math.Max(1, arg0);
+                            if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
+                                _buffer.CursorRow = Math.Min(_buffer.ScrollBottom, _buffer.CursorRow + dist);
+                            else
+                                _buffer.CursorRow = Math.Min(_buffer.Rows - 1, _buffer.CursorRow + dist);
+                            _buffer.CursorCol = 0;
                             _buffer.Invalidate();
                         }
                         break;
