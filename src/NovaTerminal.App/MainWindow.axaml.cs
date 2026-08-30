@@ -2465,6 +2465,7 @@ namespace NovaTerminal
                 // Broadcast bytes never went through the receiving pane's key handling, so its
                 // markless submission accumulator cannot model them.
                 pane.NotifyExternalInputSent();
+                pane.ScrollToInputLine();
                 pane.Session?.SendInput(sequence);
             }
         }
@@ -2481,6 +2482,7 @@ namespace NovaTerminal
             {
                 if (pane == _currentPane) continue;
                 pane.NotifyExternalInputSent();
+                pane.ScrollToInputLine();
                 pane.Session?.SendInput(text);
             }
         }
