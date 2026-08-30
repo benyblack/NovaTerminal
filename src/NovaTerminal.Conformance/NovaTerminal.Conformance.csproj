@@ -2,4 +2,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NovaTerminal.VtContract\NovaTerminal.VtContract.csproj" />
+  </ItemGroup>
 </Project>
