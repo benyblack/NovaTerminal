@@ -164,7 +164,7 @@ public partial class AgentOutputPanel : UserControl
                (uri.Scheme == "http" || uri.Scheme == "https" || uri.Scheme == "mailto");
     }
 
-    private void OpenLink(string url)
+    private async void OpenLink(string url)
     {
         if (!IsSafeExternalUrl(url))
         {
@@ -172,17 +172,12 @@ public partial class AgentOutputPanel : UserControl
             return;
         }
 
-        try
+        // Avalonia's launcher, not a raw Process.Start: it resolves the platform URL handler and
+        // fails soft when no TopLevel is attached (headless tests, early construction).
+        TopLevel? topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel is not null)
         {
-            _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = url,
-                UseShellExecute = true,
-            });
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[AgentOutputPanel] Opening link failed: {ex.Message}");
+            await topLevel.Launcher.LaunchUriAsync(new Uri(url, UriKind.Absolute));
         }
     }
 }
