@@ -57,16 +57,37 @@ public class ExplainEscapeSequenceTests
     [Theory]
     [InlineData("CSI ?2E", "CNL")]
     [InlineData("CSI ?2F", "CPL")]
-    [InlineData("CSI ?2G", "CHA")]
     [InlineData("CSI 2$E", "CNL")]
     [InlineData("CSI 2$F", "CPL")]
-    [InlineData("CSI 2$G", "CHA")]
     public void QualifiedContractForms_AreNotReportedAsTheSupportedBareCapability(string sequence, string mnemonic)
     {
         string result = VtTools.ExplainEscapeSequence(sequence);
 
         Assert.DoesNotContain(mnemonic, result, System.StringComparison.Ordinal);
         Assert.Contains("not in the curated table", result, System.StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("CSI 2;3E", "CNL")]
+    [InlineData("CSI 2;3F", "CPL")]
+    [InlineData("CSI 2;3G", "CHA")]
+    [InlineData("CSI 2:3E", "CNL")]
+    [InlineData("CSI 2:3F", "CPL")]
+    [InlineData("CSI 2:3G", "CHA")]
+    public void ParameterLists_ReportTheCapabilityAcceptedByTheParser(string sequence, string mnemonic)
+    {
+        Assert.Contains(mnemonic, VtTools.ExplainEscapeSequence(sequence), System.StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("CSI ?2G")]
+    [InlineData("CSI 2$G")]
+    public void QualifiedChaForms_ReportCurrentParserBehavior(string sequence)
+    {
+        string result = VtTools.ExplainEscapeSequence(sequence);
+
+        Assert.Contains("CHA", result, System.StringComparison.Ordinal);
+        Assert.Contains("qualified form", result, System.StringComparison.Ordinal);
     }
 
     [Fact]

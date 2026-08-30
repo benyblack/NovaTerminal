@@ -130,8 +130,14 @@ public static class VtTools
                 : string.Empty;
 
             string key = "CSI:" + finalByte;
-            bool hasBareSingleParameter = prefix.All(c => c >= '0' && c <= '9');
-            return ((hasBareSingleParameter && ContractSequenceTable.TryGetValue(key, out var desc))
+            bool hasStandardParameterList = prefix.All(c => (c >= '0' && c <= '9') || c is ';' or ':');
+            bool isQualifiedCha = finalByte == 'G' && !hasStandardParameterList;
+            if (isQualifiedCha)
+            {
+                note += " [qualified form — NovaTerminal currently processes it as CHA]";
+            }
+
+            return (((hasStandardParameterList || isQualifiedCha) && ContractSequenceTable.TryGetValue(key, out var desc))
                     || SequenceTable.TryGetValue(key, out desc))
                 ? $"CSI sequence, final byte '{finalByte}'{note}: {desc}"
                 : $"CSI sequence with final byte '{finalByte}'{note}: not in the curated table. Params/intermediates: '{prefix}'.";

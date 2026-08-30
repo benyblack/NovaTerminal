@@ -61,6 +61,8 @@ public sealed class VtCapabilityContractTests
         AssertPosition("\x1b[E", expectedRow: 4, expectedCol: 0);
         AssertPosition("\x1b[0E", expectedRow: 4, expectedCol: 0);
         AssertPosition("\x1b[2E", expectedRow: 5, expectedCol: 0);
+        AssertPosition("\x1b[2;3E", expectedRow: 5, expectedCol: 0);
+        AssertPosition("\x1b[2:3E", expectedRow: 5, expectedCol: 0);
         AssertPosition("\x1b[999E", expectedRow: 7, expectedCol: 0);
         AssertIgnored("\x1b[?2E");
         AssertIgnored("\x1b[2$E");
@@ -71,6 +73,8 @@ public sealed class VtCapabilityContractTests
         AssertPosition("\x1b[F", expectedRow: 2, expectedCol: 0);
         AssertPosition("\x1b[0F", expectedRow: 2, expectedCol: 0);
         AssertPosition("\x1b[2F", expectedRow: 1, expectedCol: 0);
+        AssertPosition("\x1b[2;3F", expectedRow: 1, expectedCol: 0);
+        AssertPosition("\x1b[2:3F", expectedRow: 1, expectedCol: 0);
         AssertPosition("\x1b[999F", expectedRow: 0, expectedCol: 0);
         AssertIgnored("\x1b[?2F");
         AssertIgnored("\x1b[2$F");
@@ -81,6 +85,10 @@ public sealed class VtCapabilityContractTests
         AssertPosition("\x1b[G", expectedRow: 3, expectedCol: 0);
         AssertPosition("\x1b[0G", expectedRow: 3, expectedCol: 0);
         AssertPosition("\x1b[4G", expectedRow: 3, expectedCol: 3);
+        AssertPosition("\x1b[2;3G", expectedRow: 3, expectedCol: 1);
+        AssertPosition("\x1b[2:3G", expectedRow: 3, expectedCol: 1);
+        AssertPosition("\x1b[?2G", expectedRow: 3, expectedCol: 1);
+        AssertPosition("\x1b[2$G", expectedRow: 3, expectedCol: 1);
         AssertPosition("\x1b[999G", expectedRow: 3, expectedCol: 11);
     }
 
