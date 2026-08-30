@@ -5370,6 +5370,7 @@ namespace NovaTerminal
                         text,
                         _currentPane.Buffer?.Modes.IsBracketedPasteMode == true);
 
+                    _currentPane.ScrollToInputLine();
                     _currentPane.Session.SendInput(text);
                     return;
                 }
@@ -5392,6 +5393,7 @@ namespace NovaTerminal
                             ? NovaTerminal.Platform.Input.ClipboardImage.ToWslMountPath(path)
                             : path;
                         _currentPane.NotifyExternalInputSent();
+                        _currentPane.ScrollToInputLine();
                         _currentPane.Session.SendInput(NovaTerminal.Platform.Input.ClipboardImage.QuotePathForInput(sendPath));
                     }
                     finally

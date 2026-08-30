@@ -119,7 +119,7 @@ namespace NovaTerminal.Shell
             if (!e.Handled && _session != null && !string.IsNullOrEmpty(e.Text))
             {
                 ResetCursorBlink();
-                _session.SendInput(e.Text);
+                SendUserInput(e.Text);
                 TextInputObserved?.Invoke(e.Text);
                 e.Handled = true;
             }
@@ -167,7 +167,7 @@ namespace NovaTerminal.Shell
             // even if a TUI already pushed flag 1 onto the buffer's ModeState.
             if (_enableKittyKeyboardProtocol && TryEncodeKittyKey(key, keyModifiers, out string? kittySequence))
             {
-                _session.SendInput(kittySequence!);
+                SendUserInput(kittySequence!);
                 return true;
             }
 
@@ -178,7 +178,7 @@ namespace NovaTerminal.Shell
                 string? altSequence = TerminalInputModeEncoder.EncodeAltKey(key, keyModifiers);
                 if (altSequence != null)
                 {
-                    _session.SendInput(altSequence);
+                    SendUserInput(altSequence);
                     return true;
                 }
             }
@@ -194,21 +194,21 @@ namespace NovaTerminal.Shell
                         // TerminalPane.OnKeyDown, which owns the reconnect-on-Enter logic.
                         return false;
                     }
-                    _session.SendInput("\r");
+                    SendUserInput("\r");
                     EnterObserved?.Invoke();
                     return true;
                 case Key.Back:
-                    _session.SendInput("\x7f");
+                    SendUserInput("\x7f");
                     BackspaceObserved?.Invoke();
                     return true;
                 case Key.Tab:
                     // Shift+Tab must emit the back-tab (CBT) sequence ESC [ Z, exactly as
                     // xterm does. TUIs like Claude Code rely on it for reverse navigation
                     // (e.g. cycling permission modes backward); a literal tab breaks that.
-                    _session.SendInput((keyModifiers & KeyModifiers.Shift) != 0 ? "\x1b[Z" : "\t");
+                    SendUserInput((keyModifiers & KeyModifiers.Shift) != 0 ? "\x1b[Z" : "\t");
                     return true;
                 case Key.Escape:
-                    _session.SendInput("\x1b");
+                    SendUserInput("\x1b");
                     return true;
 
                 default:
@@ -219,7 +219,7 @@ namespace NovaTerminal.Shell
                             // Ctrl+A = 1, Ctrl+Z = 26
                             // ASCII Control Characters
                             char ctrlChar = (char)(key - Key.A + 1);
-                            _session.SendInput(ctrlChar.ToString());
+                            SendUserInput(ctrlChar.ToString());
                             return true;
                         }
                     }
@@ -235,7 +235,7 @@ namespace NovaTerminal.Shell
                         }
                         else
                         {
-                            _session.SendInput("\x03");
+                            SendUserInput("\x03");
                         }
                         return true;
                     }
@@ -262,7 +262,7 @@ namespace NovaTerminal.Shell
             string? sequence = TerminalInputModeEncoder.EncodeSpecialKey(key, _buffer?.Modes);
             if (sequence != null)
             {
-                _session.SendInput(sequence);
+                SendUserInput(sequence);
                 return true;
             }
 
@@ -610,7 +610,7 @@ namespace NovaTerminal.Shell
 
                         if (!string.IsNullOrEmpty(result.TextToSend))
                         {
-                            _session.SendInput(result.TextToSend);
+                            SendUserInput(result.TextToSend);
                             PasteObserved?.Invoke(result.TextToSend);
                         }
 
@@ -631,7 +631,7 @@ namespace NovaTerminal.Shell
 
             if (e.DataTransfer.TryGetText() is string text && !string.IsNullOrWhiteSpace(text))
             {
-                _session.SendInput(text);
+                SendUserInput(text);
                 PasteObserved?.Invoke(text);
                 e.Handled = true;
             }
@@ -1397,6 +1397,31 @@ namespace NovaTerminal.Shell
         public void SetScrollOffset(int offset)
         {
             ScrollOffset = offset;
+        }
+
+        /// <summary>
+        /// Returns the viewport to the live input line (offset 0). Typing while scrolled up
+        /// into scrollback must show the line being written, so every user-originated input
+        /// path snaps here first. No-op when already at the bottom or when there is nothing
+        /// to scroll (e.g. the alternate screen, where maxScroll is 0).
+        /// </summary>
+        /// <remarks>
+        /// Only <em>input</em> does this. Output keeps the user's position via
+        /// <see cref="EnsureCursorVisible"/>'s near-bottom rule, and protocol-driven sends
+        /// that are not writing (focus reports, mouse reports, device replies) must not
+        /// scroll at all - those bypass <see cref="SendUserInput"/> by design.
+        /// </remarks>
+        public void ScrollToInputLine() => ScrollOffset = 0;
+
+        /// <summary>
+        /// Sends user-originated input (keystroke, typed text, pasted or dropped text) to
+        /// the PTY after returning the viewport to the live line, so what the user is
+        /// writing stays visible even when they had scrolled up into scrollback.
+        /// </summary>
+        private void SendUserInput(string text)
+        {
+            ScrollToInputLine();
+            _session?.SendInput(text);
         }
 
 

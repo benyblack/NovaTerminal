@@ -806,6 +806,7 @@ namespace NovaTerminal.Controls
                 if (!string.IsNullOrEmpty(_pendingEscapedPath) && Session != null)
                 {
                     NotifyExternalInputSent();
+                    TermView.ScrollToInputLine();
                     Session.SendInput(_pendingEscapedPath);
                     _pendingPasteFilePath = null;
                     _pendingEscapedPath = null;
@@ -821,6 +822,7 @@ namespace NovaTerminal.Controls
                     {
                         string content = await System.IO.File.ReadAllTextAsync(_pendingPasteFilePath);
                         NotifyExternalInputSent();
+                        TermView.ScrollToInputLine();
                         NovaTerminal.Platform.Input.TerminalInputSender.SendBracketedPaste(Session, content);
                     }
                     catch (Exception ex)
@@ -2236,6 +2238,14 @@ namespace NovaTerminal.Controls
         /// </remarks>
         internal void NotifyExternalInputSent() => _marklessSubmission.Poison();
 
+        /// <summary>
+        /// Brings the terminal viewport back to the live input line, for input that enters the
+        /// PTY from outside <see cref="TerminalView"/>'s own key/text handling (window clipboard
+        /// paste, toast path paste). Writing while scrolled up into scrollback must reveal the
+        /// line being written; see <see cref="TerminalView.ScrollToInputLine"/>.
+        /// </summary>
+        public void ScrollToInputLine() => TermView.ScrollToInputLine();
+
         private async Task HandleCommandAssistEnterObservedAsync(string? submittedText)
         {
             if (!EnsureCommandAssistInitialized())
@@ -2618,6 +2628,7 @@ namespace NovaTerminal.Controls
             // handling. No bracketed paste for either half: bracketed content is literal by
             // definition, so a DEL inside it would be inserted as a character rather than executed as
             // an erase.
+            TermView.ScrollToInputLine();
             Session.SendInput(new string('\x7f', plan.BackspaceCount) + plan.TextToSend);
 
             // The grid is now behind the shell by everything we just sent, and the next accept must
