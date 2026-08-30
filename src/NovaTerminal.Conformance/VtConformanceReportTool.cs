@@ -371,9 +371,10 @@ public static class VtConformanceReportTool
 
         foreach (VtCapability capability in capabilities)
         {
-            VtConformanceRow? row = rows.SingleOrDefault(
-                candidate => string.Equals(candidate.Feature, capability.MatrixFeature, StringComparison.Ordinal));
-            if (row is null)
+            List<VtConformanceRow> matchingRows = rows
+                .Where(candidate => string.Equals(candidate.Feature, capability.MatrixFeature, StringComparison.Ordinal))
+                .ToList();
+            if (matchingRows.Count == 0)
             {
                 errors.Add(new VtConformanceIssue(
                     Code: "capability-matrix-feature-missing",
@@ -384,6 +385,20 @@ public static class VtConformanceReportTool
                     Feature: capability.MatrixFeature));
                 continue;
             }
+
+            if (matchingRows.Count > 1)
+            {
+                errors.Add(new VtConformanceIssue(
+                    Code: "capability-matrix-row-duplicate",
+                    Severity: IssueSeverity.Error,
+                    Message: $"Capability '{capability.Key}' expects exactly one matrix row for feature '{capability.MatrixFeature}', but found {matchingRows.Count}.",
+                    MatrixPath: relativeMatrixPath,
+                    LineNumber: matchingRows[0].SourceLine,
+                    Feature: capability.MatrixFeature));
+                continue;
+            }
+
+            VtConformanceRow row = matchingRows[0];
 
             if (!CapabilityStatusMatches(capability.Support, row.Status))
             {
@@ -405,7 +420,17 @@ public static class VtConformanceReportTool
             string absoluteEvidencePath = Path.GetFullPath(Path.Combine(
                 repoRoot,
                 normalizedEvidencePath.Replace('/', Path.DirectorySeparatorChar)));
-            if (!File.Exists(absoluteEvidencePath) && !Directory.Exists(absoluteEvidencePath))
+            if (!IsPathWithinRoot(repoRoot, absoluteEvidencePath))
+            {
+                errors.Add(new VtConformanceIssue(
+                    Code: "capability-evidence-path-outside-repo",
+                    Severity: IssueSeverity.Error,
+                    Message: $"Capability '{capability.Key}' evidence path '{normalizedEvidencePath}' resolves outside the repository.",
+                    MatrixPath: relativeMatrixPath,
+                    LineNumber: row.SourceLine,
+                    Feature: row.Feature));
+            }
+            else if (!File.Exists(absoluteEvidencePath) && !Directory.Exists(absoluteEvidencePath))
             {
                 errors.Add(new VtConformanceIssue(
                     Code: "capability-evidence-path-not-found",
@@ -427,6 +452,18 @@ public static class VtConformanceReportTool
                     Feature: row.Feature));
             }
         }
+    }
+
+    private static bool IsPathWithinRoot(string rootPath, string candidatePath)
+    {
+        string normalizedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
+        string rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
+        StringComparison comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        return candidatePath.Equals(normalizedRoot, comparison)
+            || candidatePath.StartsWith(rootPrefix, comparison);
     }
 
     private static bool CapabilityStatusMatches(VtSupport support, string status)

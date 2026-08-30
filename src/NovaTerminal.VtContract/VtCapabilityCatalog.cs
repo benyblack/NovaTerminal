@@ -112,7 +112,7 @@ public static class VtCapabilityCatalog
                 contractCase));
         }
 
-        return capabilities;
+        return capabilities.AsReadOnly();
     }
 
     private static IReadOnlyList<VtCapability> LoadEmbeddedManifest()

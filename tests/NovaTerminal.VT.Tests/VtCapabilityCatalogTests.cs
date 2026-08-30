@@ -28,6 +28,16 @@ public sealed class VtCapabilityCatalogTests
     }
 
     [Fact]
+    public void Parse_ReturnsAReadOnlyCatalog()
+    {
+        IReadOnlyList<VtCapability> capabilities = VtCapabilityCatalog.Parse(Manifest(
+            Entry("CSI:E", "CNL", "supported", "cursor-next-line")));
+        ICollection<VtCapability> collection = Assert.IsAssignableFrom<ICollection<VtCapability>>(capabilities);
+
+        Assert.Throws<NotSupportedException>(() => collection.Add(capabilities[0]));
+    }
+
+    [Fact]
     public void Parse_RejectsDuplicateKeys()
     {
         string json = Manifest(

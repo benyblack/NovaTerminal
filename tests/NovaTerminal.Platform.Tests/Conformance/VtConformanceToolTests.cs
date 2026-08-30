@@ -255,6 +255,40 @@ public sealed class VtConformanceToolTests
         Assert.Contains(report.Errors, issue => issue.Code == "capability-evidence-path-not-found" && issue.Feature == "CNL (E)");
     }
 
+    [Fact]
+    public void Generate_ReportsErrorInsteadOfThrowingWhenCapabilityMatrixRowIsDuplicated()
+    {
+        using var repo = new TemporaryRepo();
+        const string featureRow = "| CNL (E) | Cursor contract | ✅ Supported | Unit: `tests/CursorContractTests.cs` | Parser+Buffer | |";
+        string matrix = MatrixRow("CNL (E)", "✅ Supported", "tests/CursorContractTests.cs")
+            .Replace(featureRow, $"{featureRow}\n{featureRow}", StringComparison.Ordinal);
+        repo.WriteFile("tests/CursorContractTests.cs", "// evidence");
+        repo.WriteFile("docs/vt_coverage_matrix.md", matrix);
+        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+            CapabilityEntry("CSI:E", "CNL", "supported", "CNL (E)", "tests/CursorContractTests.cs", "cursor-next-line")));
+
+        VtConformanceReport report = VtConformanceReportTool.Generate(
+            repo.RootPath,
+            Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
+
+        Assert.Contains(report.Errors, issue => issue.Code == "capability-matrix-row-duplicate" && issue.Feature == "CNL (E)");
+    }
+
+    [Fact]
+    public void Generate_RejectsCapabilityEvidenceOutsideRepository()
+    {
+        using var repo = new TemporaryRepo();
+        repo.WriteFile("docs/vt_coverage_matrix.md", MatrixRow("CNL (E)", "✅ Supported", "../outside.cs"));
+        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+            CapabilityEntry("CSI:E", "CNL", "supported", "CNL (E)", "../outside.cs", "cursor-next-line")));
+
+        VtConformanceReport report = VtConformanceReportTool.Generate(
+            repo.RootPath,
+            Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
+
+        Assert.Contains(report.Errors, issue => issue.Code == "capability-evidence-path-outside-repo" && issue.Feature == "CNL (E)");
+    }
+
     private static string MatrixRow(string feature, string status, string evidencePath)
         => $$"""
         # VT Conformance Matrix
