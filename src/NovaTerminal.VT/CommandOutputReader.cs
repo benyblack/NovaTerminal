@@ -5,6 +5,29 @@ using System.Text;
 namespace NovaTerminal.VT
 {
     /// <summary>
+    /// The caps a <see cref="CommandOutputReader"/> tail read walks under. Counted the same way
+    /// the reader counts them: logical lines after soft-wrapped physical rows are joined,
+    /// characters after that, physical rows as the independent backstop.
+    /// </summary>
+    /// <remarks>
+    /// The reader's own defaults (<see cref="CommandOutputReader.MaxOutputLines"/> etc.) are sized
+    /// for error recognition - the useful part of a huge output is at the end. Consumers that want
+    /// a whole response rather than its tail (the Agent Output panel) pass a larger budget; the
+    /// cap is still applied before the string leaves the reader, so a budget is a hard bound on
+    /// both the work and the result.
+    /// </remarks>
+    /// <param name="MaxLines">Logical lines kept.</param>
+    /// <param name="MaxChars">Character ceiling on the assembled tail.</param>
+    /// <param name="MaxRows">Upper bound on physical rows walked.</param>
+    public readonly record struct OutputTailBudget(int MaxLines, int MaxChars, int MaxRows)
+    {
+        public static readonly OutputTailBudget Default = new(
+            CommandOutputReader.MaxOutputLines,
+            CommandOutputReader.MaxOutputChars,
+            CommandOutputReader.MaxOutputRows);
+    }
+
+    /// <summary>
     /// Reads the tail of a finished command's <i>output region</i> out of the grid: the rows
     /// between the <c>OSC 133;C</c> edge (the shell accepted the line and is about to run it) and
     /// the <c>OSC 133;D</c> edge (it finished).
@@ -167,6 +190,20 @@ namespace NovaTerminal.VT
             ShellIntegrationMark outputStart,
             out string outputTail)
         {
+            return TryReadOutputTail(buffer, outputStart, OutputTailBudget.Default, out outputTail);
+        }
+
+        /// <summary>
+        /// The same read as
+        /// <see cref="TryReadOutputTail(TerminalBuffer, ShellIntegrationMark, out string)"/> under a
+        /// caller-chosen <see cref="OutputTailBudget"/>.
+        /// </summary>
+        public static bool TryReadOutputTail(
+            TerminalBuffer buffer,
+            ShellIntegrationMark outputStart,
+            in OutputTailBudget budget,
+            out string outputTail)
+        {
             outputTail = string.Empty;
             if (buffer is null)
             {
@@ -184,7 +221,64 @@ namespace NovaTerminal.VT
 
             try
             {
-                return TryReadOutputTailLocked(buffer, outputStart, out outputTail);
+                return TryReadOutputTailLocked(buffer, outputStart, budget, out outputTail);
+            }
+            finally
+            {
+                if (lockTaken)
+                {
+                    buffer.Lock.ExitReadLock();
+                }
+            }
+        }
+
+        /// <summary>
+        /// The most recent output on the main screen, walked back from the cursor until the budget
+        /// is spent - for a session with no <c>OSC 133;C</c> mark to bound the region.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>This is the markless fallback.</b> Without shell integration there is no
+        /// <see cref="ShellIntegrationMark"/> for <see cref="TryCaptureOutputStart"/> to anchor on,
+        /// and the honest answer to "what did the last command print" is then "whatever rows are
+        /// still on the grid above the cursor" - prompt lines included. That is a weaker contract
+        /// than the marked read, and callers must present it as one: the result is a display tail,
+        /// not a vouched-for output region.
+        /// </para>
+        /// <para>
+        /// Everything else is the same walk: soft-wrapped rows joined, trailing blanks dropped, the
+        /// budget applied before the string leaves this class.
+        /// </para>
+        /// </remarks>
+        public static bool TryReadRecentTail(TerminalBuffer buffer, out string outputTail)
+        {
+            return TryReadRecentTail(buffer, OutputTailBudget.Default, out outputTail);
+        }
+
+        /// <summary>See <see cref="TryReadRecentTail(TerminalBuffer, out string)"/>.</summary>
+        public static bool TryReadRecentTail(
+            TerminalBuffer buffer,
+            in OutputTailBudget budget,
+            out string outputTail)
+        {
+            outputTail = string.Empty;
+            if (buffer is null)
+            {
+                return false;
+            }
+
+            bool lockTaken = false;
+            if (!buffer.Lock.IsReadLockHeld &&
+                !buffer.Lock.IsWriteLockHeld &&
+                !buffer.Lock.IsUpgradeableReadLockHeld)
+            {
+                buffer.Lock.EnterReadLock();
+                lockTaken = true;
+            }
+
+            try
+            {
+                return TryReadRecentTailLocked(buffer, budget, out outputTail);
             }
             finally
             {
@@ -250,6 +344,7 @@ namespace NovaTerminal.VT
         private static bool TryReadOutputTailLocked(
             TerminalBuffer buffer,
             ShellIntegrationMark outputStart,
+            in OutputTailBudget budget,
             out string outputTail)
         {
             outputTail = string.Empty;
@@ -290,6 +385,53 @@ namespace NovaTerminal.VT
                 // anything, with the prompt not yet repainted). Empty output, truthfully.
                 return true;
             }
+
+            return TryReadTailFromRowLocked(buffer, startRow, budget, out outputTail);
+        }
+
+        private static bool TryReadRecentTailLocked(
+            TerminalBuffer buffer,
+            in OutputTailBudget budget,
+            out string outputTail)
+        {
+            outputTail = string.Empty;
+
+            if (buffer.IsAltScreenActive)
+            {
+                return false;
+            }
+
+            int cols = buffer.Cols;
+            if (cols <= 0)
+            {
+                return false;
+            }
+
+            int totalRows = buffer.InternalTotalLines;
+            int cursorRow = buffer.Scrollback.Count + buffer.InternalCursorRow;
+            if (cursorRow < 0 || cursorRow >= totalRows)
+            {
+                return false;
+            }
+
+            return TryReadTailFromRowLocked(buffer, 0, budget, out outputTail);
+        }
+
+        /// <summary>
+        /// The shared bounded walk: from <paramref name="startRow"/> down to the cursor, newest
+        /// first, stopping when any part of the budget is spent. Both readers above have already
+        /// validated the coordinate space; this method only walks and assembles.
+        /// </summary>
+        private static bool TryReadTailFromRowLocked(
+            TerminalBuffer buffer,
+            int startRow,
+            in OutputTailBudget budget,
+            out string outputTail)
+        {
+            outputTail = string.Empty;
+
+            int cols = buffer.Cols;
+            int cursorRow = buffer.Scrollback.Count + buffer.InternalCursorRow;
 
             // Deferred autowrap: after a character lands on the last column the cursor stays parked
             // there with the wrap pending, so its *text* position is one past it.
@@ -333,12 +475,12 @@ namespace NovaTerminal.VT
                     logicalLines++;
                 }
 
-                if (rows.Count >= MaxOutputRows)
+                if (rows.Count >= budget.MaxRows)
                 {
                     break;
                 }
 
-                if (startsLogicalLine && (logicalLines >= MaxOutputLines || collected >= MaxOutputChars))
+                if (startsLogicalLine && (logicalLines >= budget.MaxLines || collected >= budget.MaxChars))
                 {
                     break;
                 }
@@ -346,7 +488,7 @@ namespace NovaTerminal.VT
 
             rows.Reverse();
 
-            var builder = new StringBuilder(Math.Min(collected, MaxOutputChars) + rows.Count);
+            var builder = new StringBuilder(Math.Min(collected, budget.MaxChars) + rows.Count);
             for (int i = 0; i < rows.Count; i++)
             {
                 builder.Append(rows[i].Text);
@@ -357,9 +499,9 @@ namespace NovaTerminal.VT
             }
 
             string assembled = builder.ToString();
-            if (assembled.Length > MaxOutputChars)
+            if (assembled.Length > budget.MaxChars)
             {
-                assembled = assembled[^MaxOutputChars..];
+                assembled = assembled[^budget.MaxChars..];
             }
 
             outputTail = assembled;

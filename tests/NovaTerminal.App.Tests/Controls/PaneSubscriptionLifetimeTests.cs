@@ -145,7 +145,9 @@ public class PaneSubscriptionLifetimeTests
             "BackspaceObserved=1",
             "CommandAssistAnchorHintChanged=1",
             "DropNotice=1",
-            "EnterObserved=1",
+            // 2: the assist Enter accumulator plus the Agent Output markless region capture. Both
+            // construction-time pane-owned handlers; TermView dies with the pane.
+            "EnterObserved=2",
             "PasteObserved=1",
             "Ready=1",
             "ScrollStateChanged=1",
