@@ -136,6 +136,19 @@ public sealed class AgentOutputViewModel : INotifyPropertyChanged
         StatusText = isStreaming ? "streaming…" : string.Empty;
     }
 
+    /// <summary>
+    /// Clears the streaming status while keeping the text. Called when the panel reopens: a
+    /// command that finished while the panel was closed never delivered its final update (D
+    /// skips the read for a hidden panel), so without this the reopened panel would show the
+    /// previous output labeled "streaming…" indefinitely. If a live region does exist, the
+    /// tracker's flush immediately re-marks it as streaming.
+    /// </summary>
+    public void ClearStreaming()
+    {
+        IsStreaming = false;
+        StatusText = string.Empty;
+    }
+
     private void OnPropertyChanged(string propertyName)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }

@@ -110,6 +110,24 @@ public sealed class AgentOutputViewModelTests
     }
 
     [Fact]
+    public void ClearStreaming_KeepsTheText_ButEndsTheStaleStatus()
+    {
+        // The reopen path: a command that finished while the panel was closed never delivered
+        // its final update, so the view model can hold old text flagged streaming. Clearing
+        // keeps the text readable but drops the "streaming…" label; a live region re-marks it
+        // via the next SetUpdate.
+        var vm = new AgentOutputViewModel();
+        vm.SetUpdate("partial output", isStreaming: true);
+
+        vm.ClearStreaming();
+
+        Assert.Equal("partial output", vm.MarkdownText);
+        Assert.True(vm.HasContent);
+        Assert.False(vm.IsStreaming);
+        Assert.Equal(string.Empty, vm.StatusText);
+    }
+
+    [Fact]
     public void PropertyChanges_CarryThePropertyName()
     {
         var vm = new AgentOutputViewModel();

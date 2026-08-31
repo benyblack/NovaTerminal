@@ -2149,6 +2149,12 @@ namespace NovaTerminal.Controls
             {
                 EnsureAgentOutputPanelHost();
                 _agentOutputTracker?.SetEnabled(true);
+
+                // A command that finished while the panel was closed never delivered its final
+                // update (D skips the read for a hidden panel), so the reopened view model may
+                // still claim the old output is streaming. Clear that first; if a live region
+                // does exist, the flush below immediately re-marks it as streaming.
+                _agentOutput.ClearStreaming();
                 _agentOutputTracker?.FlushNow();
             }
             else
