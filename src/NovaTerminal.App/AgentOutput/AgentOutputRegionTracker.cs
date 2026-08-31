@@ -62,6 +62,7 @@ public sealed class AgentOutputRegionTracker : IDisposable
     private ShellIntegrationMark? _heuristicStart;
     private int _lastPostedHash;
     private int _lastPostedStreaming;
+    private int _recentTailFallback;
     private int _generation;
     private int _disposed;
 
@@ -196,11 +197,17 @@ public sealed class AgentOutputRegionTracker : IDisposable
         }
     }
 
-    /// <summary>Reads the region now (async, debounced away from the caller's thread).</summary>
-    public void FlushNow()
+    /// <summary>
+    /// Reads the region now (async, debounced away from the caller's thread). With
+    /// <paramref name="includeRecentTailFallback"/>, a read that finds no region being tracked
+    /// falls back to a one-shot snapshot of the recent on-screen output - what a panel opened
+    /// <i>after</i> the interesting command already finished should show instead of nothing.
+    /// </summary>
+    public void FlushNow(bool includeRecentTailFallback = false)
     {
         if (_enabled)
         {
+            Volatile.Write(ref _recentTailFallback, includeRecentTailFallback ? 1 : 0);
             _debounceTimer.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
         }
     }
@@ -225,9 +232,12 @@ public sealed class AgentOutputRegionTracker : IDisposable
         _debounceTimer.Dispose();
     }
 
-    private void ReadScheduled(object? state) => ReadAndPostCore(streaming: true, Volatile.Read(ref _generation));
+    private void ReadScheduled(object? state) => ReadAndPostCore(
+        streaming: true,
+        Volatile.Read(ref _generation),
+        fallbackToRecentTail: Interlocked.Exchange(ref _recentTailFallback, 0) == 1);
 
-    private void ReadAndPostCore(bool streaming, int generation)
+    private void ReadAndPostCore(bool streaming, int generation, bool fallbackToRecentTail = false)
     {
         if (!_enabled)
         {
@@ -248,6 +258,11 @@ public sealed class AgentOutputRegionTracker : IDisposable
         ShellIntegrationMark? start = _regionActive ? _commandOutputStartProvider() : _heuristicStart;
         if (start is not ShellIntegrationMark mark)
         {
+            if (fallbackToRecentTail)
+            {
+                TryPostRecentTailSnapshot(buffer, generation);
+            }
+
             return;
         }
 
@@ -270,6 +285,29 @@ public sealed class AgentOutputRegionTracker : IDisposable
         }
 
         DeliverUpdate(text, streaming, generation);
+    }
+
+    /// <summary>
+    /// One-shot snapshot of the recent on-screen output, for a panel opened when nothing is being
+    /// tracked - the command that produced what is on screen has already finished, and with no
+    /// edges left in the grid there is no region to resolve. This is the
+    /// <see cref="CommandOutputReader.TryReadRecentTail"/> display contract: what the user can
+    /// see above the cursor, prompt lines included, not a vouched-for output region. Posted as
+    /// finished; the next command started with the panel open takes over tracking normally.
+    /// </summary>
+    private void TryPostRecentTailSnapshot(TerminalBuffer buffer, int generation)
+    {
+        if (!CommandOutputReader.TryReadRecentTail(buffer, RegionBudget, out string text))
+        {
+            return;
+        }
+
+        if (Volatile.Read(ref _generation) != generation)
+        {
+            return;
+        }
+
+        DeliverUpdate(text, streaming: false, generation);
     }
 
     /// <summary>

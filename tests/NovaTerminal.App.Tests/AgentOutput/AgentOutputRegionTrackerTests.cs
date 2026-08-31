@@ -263,6 +263,60 @@ public sealed class AgentOutputRegionTrackerTests
     }
 
     [Fact]
+    public async Task EnableWithNothingTracked_ShowsTheRecentOnScreenOutput_AsAFinishedSnapshot()
+    {
+        // The panel opened onto output that already finished: no live C mark, no Enter-time
+        // heuristic. The flush falls back to a one-shot recent-tail snapshot so the user sees
+        // what is on screen instead of an empty state.
+        using var h = new Harness(enabled: false);
+        h.Write(PromptStart + "$ " + PromptEnd);
+        h.Output("## on screen");
+
+        h.Tracker.SetEnabled(true);
+        h.Tracker.FlushNow(includeRecentTailFallback: true);
+        await WaitForAsync(() => h.UpdateCount > 0);
+
+        Assert.Contains("## on screen", h.LastText, StringComparison.Ordinal);
+        Assert.False(h.LastStreaming);
+    }
+
+    [Fact]
+    public async Task FlushWithoutTheFallback_WithNothingTracked_PostsNothing()
+    {
+        using var h = new Harness(enabled: false);
+        h.Write(PromptStart + "$ " + PromptEnd);
+        h.Output("## on screen");
+
+        h.Tracker.SetEnabled(true);
+        h.Tracker.FlushNow();
+        await Task.Delay(PastDebounceMs);
+
+        Assert.Equal(0, h.UpdateCount);
+    }
+
+    [Fact]
+    public async Task RecentTailSnapshot_DoesNotTakeOverTracking()
+    {
+        // The snapshot is one-shot: the next command started with the panel open takes over
+        // tracking normally (heuristic capture), replacing the snapshot text.
+        using var h = new Harness(enabled: false);
+        h.Write(PromptStart + "$ " + PromptEnd);
+        h.Output("old screen content");
+
+        h.Tracker.SetEnabled(true);
+        h.Tracker.FlushNow(includeRecentTailFallback: true);
+        await WaitForAsync(() => h.UpdateCount > 0);
+
+        h.Tracker.CaptureHeuristicStart();
+        h.Output("## new command");
+        h.Tracker.NotifyInvalidate();
+        await WaitForAsync(() => h.UpdateCount > 1);
+
+        Assert.Contains("## new command", h.LastText, StringComparison.Ordinal);
+        Assert.True(h.LastStreaming);
+    }
+
+    [Fact]
     public async Task DroppedUpdate_DoesNotPoisonDedupe_ForTheSameTextInANewGeneration()
     {
         // Produced-but-undelivered updates must not commit dedupe state: an update dropped by a

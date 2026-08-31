@@ -53,7 +53,7 @@
                            Foreground="#96A0AE"
                            FontSize="13"
                            TextAlignment="Center"/>
-                <TextBlock Text="Run a command — its output renders here as markdown."
+                <TextBlock Text="Run a command with this panel open — its output renders here as markdown."
                            Foreground="#6B737F"
                            FontSize="11"
                            TextWrapping="Wrap"

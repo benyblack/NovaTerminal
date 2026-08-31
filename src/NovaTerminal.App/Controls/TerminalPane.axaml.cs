@@ -2155,7 +2155,11 @@ namespace NovaTerminal.Controls
                 // still claim the old output is streaming. Clear that first; if a live region
                 // does exist, the flush below immediately re-marks it as streaming.
                 _agentOutput.ClearStreaming();
-                _agentOutputTracker?.FlushNow();
+
+                // Fallback on: nothing is tracked when the panel opens onto output that already
+                // finished (no live C mark, no Enter-time heuristic yet), and the panel should
+                // show that output as a recent-tail snapshot rather than an empty state.
+                _agentOutputTracker?.FlushNow(includeRecentTailFallback: true);
             }
             else
             {
