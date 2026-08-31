@@ -131,7 +131,7 @@ public static class MarkdownRenderer
                     break;
 
 
-                // YamlFrontMatter and anything else unrecognized: skip.
+                    // YamlFrontMatter and anything else unrecognized: skip.
             }
         }
     }
@@ -466,8 +466,8 @@ public static class MarkdownRenderer
                     AppendInlines(target, nested, theme, onCopyText, onOpenLink);
                     break;
 
-                // HtmlInline / HtmlEntityInline: deliberately dropped (DisableHtml already kept
-                // raw HTML blocks out; these are stragglers).
+                    // HtmlInline / HtmlEntityInline: deliberately dropped (DisableHtml already kept
+                    // raw HTML blocks out; these are stragglers).
             }
         }
     }

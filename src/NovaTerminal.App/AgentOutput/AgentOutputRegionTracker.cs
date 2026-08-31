@@ -62,6 +62,7 @@ public sealed class AgentOutputRegionTracker : IDisposable
     private ShellIntegrationMark? _heuristicStart;
     private int _lastPostedHash;
     private int _lastPostedStreaming;
+    private int _generation;
     private int _disposed;
 
     /// <param name="bufferProvider">The pane's live buffer, resolved at read time.</param>
@@ -89,13 +90,17 @@ public sealed class AgentOutputRegionTracker : IDisposable
     /// The shell accepted a command (<c>OSC 133;C</c>). Called on the parse thread, right after
     /// the pane captured the region start.
     /// </summary>
+    /// <remarks>
+    /// Deliberately <b>not</b> gated on <see cref="_enabled"/>: a panel opened while a command is
+    /// already running must adopt that command's live region, and the C edge is the only moment
+    /// its start is answerable. State set while disabled costs nothing - a disabled tracker never
+    /// reads - and <see cref="SetEnabled"/> plus <see cref="FlushNow"/> pick the region up.
+    /// </remarks>
     public void NotifyCommandAccepted()
     {
-        if (_enabled)
-        {
-            _regionActive = true;
-            _heuristicStart = null;
-        }
+        _regionActive = true;
+        _heuristicStart = null;
+        AdvanceGeneration();
     }
 
     /// <summary>
@@ -106,9 +111,13 @@ public sealed class AgentOutputRegionTracker : IDisposable
     {
         if (_enabled)
         {
-            // Read before flipping the flag: the C mark the read resolves against is still live
-            // at this instant, and the posted update must say the stream just ended.
-            ReadAndPost(streaming: false);
+            // Bump BEFORE the final read, then read under the post-bump generation: in-flight
+            // background reads die at their own checks, while this read's dispatched closure
+            // validates against the new generation and survives the transition. The region flag
+            // is still up here, so the read still resolves the C mark; by the time any later
+            // observer looks, the flag is down and the state is consistent.
+            AdvanceGeneration();
+            ReadAndPostCore(streaming: false, Volatile.Read(ref _generation));
         }
 
         _regionActive = false;
@@ -159,6 +168,7 @@ public sealed class AgentOutputRegionTracker : IDisposable
         if (!enabled)
         {
             _debounceTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            AdvanceGeneration();
         }
     }
 
@@ -177,6 +187,7 @@ public sealed class AgentOutputRegionTracker : IDisposable
     {
         _regionActive = false;
         _heuristicStart = null;
+        AdvanceGeneration();
     }
 
     public void Dispose()
@@ -190,15 +201,19 @@ public sealed class AgentOutputRegionTracker : IDisposable
         _debounceTimer.Dispose();
     }
 
-    private void ReadScheduled(object? state) => ReadAndPost(streaming: true);
+    private void ReadScheduled(object? state) => ReadAndPostCore(streaming: true, Volatile.Read(ref _generation));
 
-    private void ReadAndPost(bool streaming)
+    private void ReadAndPostCore(bool streaming, int generation)
     {
         if (!_enabled)
         {
             return;
         }
 
+        // The read is stale the moment the state it was based on changes (C, D, reset, disable).
+        // Checked again inside the dispatched closure: the background read can straddle a
+        // transition, and without this a late streaming:true dispatch would park the panel on
+        // "streaming…" after D, or resurrect a reset command's output.
         TerminalBuffer? buffer = _bufferProvider();
         if (buffer is null || buffer.IsAltScreenActive)
         {
@@ -224,6 +239,11 @@ public sealed class AgentOutputRegionTracker : IDisposable
             return;
         }
 
+        if (Volatile.Read(ref _generation) != generation)
+        {
+            return;
+        }
+
         // string.GetHashCode is randomized per process but stable within one, which is all a
         // change detector needs. The streaming flag participates in the dedupe on purpose: the
         // text often does not change between the last debounce tick and D, and the panel's
@@ -237,6 +257,14 @@ public sealed class AgentOutputRegionTracker : IDisposable
         }
 
         Volatile.Write(ref _lastPostedStreaming, streamingFlag);
-        _dispatch(() => _onUpdate(text, streaming));
+        _dispatch(() =>
+        {
+            if (Volatile.Read(ref _generation) == generation)
+            {
+                _onUpdate(text, streaming);
+            }
+        });
     }
+
+    private void AdvanceGeneration() => Interlocked.Increment(ref _generation);
 }

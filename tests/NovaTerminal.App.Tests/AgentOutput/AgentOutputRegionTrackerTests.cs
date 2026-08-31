@@ -181,6 +181,43 @@ public sealed class AgentOutputRegionTrackerTests
     }
 
     [Fact]
+    public async Task PanelEnabledWhileACommandIsRunning_AdoptsTheLiveRegion()
+    {
+        // The C edge arrived while the panel was closed: the tracker must still adopt that
+        // command's region when it is enabled mid-flight, instead of showing nothing until the
+        // next command starts.
+        using var h = new Harness(enabled: false)
+            .Accept("agent --task")
+            .Output("already streaming");
+
+        h.Tracker.SetEnabled(true);
+        h.Tracker.FlushNow();
+        await WaitForAsync(() => h.UpdateCount > 0);
+
+        Assert.Contains("already streaming", h.LastText, StringComparison.Ordinal);
+        Assert.True(h.LastStreaming);
+    }
+
+    [Fact]
+    public void FinishedCommand_PostsFinalState_EvenWhenABackgroundReadWasScheduled()
+    {
+        // A debounced read armed during streaming overlaps the D edge: D's synchronous read
+        // bumps the generation, so whatever that background read dispatches later must be
+        // dropped rather than overwrite the finished state. The synchronous harness dispatch
+        // makes the ordering deterministic here: the background timer cannot interleave, and
+        // this pins that D's own post survives its own generation bump.
+        using var h = new Harness()
+            .Accept("agent --task")
+            .Output("final text");
+
+        h.Tracker.NotifyInvalidate();
+        h.Finish();
+
+        Assert.Equal(1, h.UpdateCount);
+        Assert.False(h.LastStreaming);
+    }
+
+    [Fact]
     public async Task RepeatedInvalidations_WithoutNewOutput_PostNoDuplicateUpdates()
     {
         using var h = new Harness()

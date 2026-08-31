@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -104,8 +105,8 @@ public partial class AgentOutputPanel : UserControl
         Control rendered = MarkdownRenderer.Build(
             markdown,
             this,
-            onCopyText: text => CopyToClipboard(text),
-            onOpenLink: OpenLink);
+            onCopyText: text => _ = CopyToClipboardAsync(text),
+            onOpenLink: url => _ = OpenLinkAsync(url));
         MarkdownHost.Children.Add(rendered);
 
         if (wasPinned && isStreaming)
@@ -134,14 +135,17 @@ public partial class AgentOutputPanel : UserControl
         string markdown = _viewModel?.MarkdownText;
         if (!string.IsNullOrEmpty(markdown))
         {
-            CopyToClipboard(markdown);
+            _ = CopyToClipboardAsync(markdown);
         }
     }
 
     private void OnCloseClick(object? sender, RoutedEventArgs e)
         => CloseRequested?.Invoke();
 
-    private async void CopyToClipboard(string text)
+    // Task-returning rather than async void (SonarCloud S3168): both are fire-and-forget UI
+    // side effects, so the discard at each call site is the containment — an exception surfaces
+    // as a task result nobody awaits instead of crashing the process.
+    private async Task CopyToClipboardAsync(string text)
     {
         // TopLevel is null in headless tests and before the pane attaches; a copy that silently
         // does nothing there is the correct degradation.
@@ -164,7 +168,7 @@ public partial class AgentOutputPanel : UserControl
                (uri.Scheme == "http" || uri.Scheme == "https" || uri.Scheme == "mailto");
     }
 
-    private async void OpenLink(string url)
+    private async Task OpenLinkAsync(string url)
     {
         if (!IsSafeExternalUrl(url))
         {
