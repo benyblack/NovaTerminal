@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Reflection;
 using System.Text.Json;
 
@@ -47,21 +48,27 @@ public static class VtCapabilityCatalog
     {
         ArgumentNullException.ThrowIfNull(json);
 
-        ManifestDocument? document;
+        ManifestDocument document = DeserializeManifest(json);
+        ValidateManifest(document);
+
+        return ParseCapabilities(document.Capabilities!);
+    }
+
+    private static ManifestDocument DeserializeManifest(string json)
+    {
         try
         {
-            document = JsonSerializer.Deserialize<ManifestDocument>(json, JsonOptions);
+            return JsonSerializer.Deserialize<ManifestDocument>(json, JsonOptions)
+                ?? throw new VtCapabilityManifestException("The VT capability manifest is empty.");
         }
         catch (JsonException exception)
         {
             throw new VtCapabilityManifestException("The VT capability manifest is not valid JSON.", exception);
         }
+    }
 
-        if (document is null)
-        {
-            throw new VtCapabilityManifestException("The VT capability manifest is empty.");
-        }
-
+    private static void ValidateManifest(ManifestDocument document)
+    {
         if (document.SchemaVersion != 1)
         {
             throw new VtCapabilityManifestException($"Unsupported VT capability manifest schemaVersion '{document.SchemaVersion}'.");
@@ -71,54 +78,98 @@ public static class VtCapabilityCatalog
         {
             throw new VtCapabilityManifestException("The VT capability manifest must contain a capabilities array.");
         }
+    }
 
-        var capabilities = new List<VtCapability>(document.Capabilities.Count);
+    private static ReadOnlyCollection<VtCapability> ParseCapabilities(IReadOnlyList<ManifestEntry> entries)
+    {
+        var capabilities = new List<VtCapability>(entries.Count);
         var keys = new HashSet<string>(StringComparer.Ordinal);
         var contractCases = new HashSet<string>(StringComparer.Ordinal);
-        foreach (ManifestEntry entry in document.Capabilities)
+        foreach (ManifestEntry entry in entries)
         {
-            string key = Require(entry.Key, "key", "<unknown>");
-            if (!keys.Add(key))
-            {
-                throw new VtCapabilityManifestException($"Capability '{key}' has a duplicate key.");
-            }
-
-            string mnemonic = Require(entry.Mnemonic, "mnemonic", key);
-            string description = Require(entry.Description, "description", key);
-            string matrixFeature = Require(entry.MatrixFeature, "matrixFeature", key);
-            if (!Enum.TryParse(entry.Support, ignoreCase: true, out VtSupport support))
-            {
-                throw new VtCapabilityManifestException($"Capability '{key}' has unknown support value '{entry.Support}'.");
-            }
-
-            string? evidencePath = NullIfWhiteSpace(entry.EvidencePath);
-            string? contractCase = NullIfWhiteSpace(entry.ContractCase);
-            if (contractCase is not null && !contractCases.Add(contractCase))
-            {
-                throw new VtCapabilityManifestException($"Capability '{key}' has duplicate contractCase '{contractCase}'.");
-            }
-
-            if (support == VtSupport.Supported && evidencePath is null)
-            {
-                throw new VtCapabilityManifestException($"Capability '{key}' is supported but has no evidencePath.");
-            }
-
-            if (support == VtSupport.Supported && contractCase is null)
-            {
-                throw new VtCapabilityManifestException($"Capability '{key}' is supported but has no contractCase.");
-            }
-
-            capabilities.Add(new VtCapability(
-                key,
-                mnemonic,
-                support,
-                description,
-                matrixFeature,
-                evidencePath,
-                contractCase));
+            capabilities.Add(ParseCapability(entry, keys, contractCases));
         }
 
         return capabilities.AsReadOnly();
+    }
+
+    private static VtCapability ParseCapability(
+        ManifestEntry entry,
+        HashSet<string> keys,
+        HashSet<string> contractCases)
+    {
+        string key = Require(entry.Key, "key", "<unknown>");
+        EnsureUniqueKey(key, keys);
+
+        string mnemonic = Require(entry.Mnemonic, "mnemonic", key);
+        string description = Require(entry.Description, "description", key);
+        string matrixFeature = Require(entry.MatrixFeature, "matrixFeature", key);
+        VtSupport support = ParseSupport(entry.Support, key);
+        string? evidencePath = NullIfWhiteSpace(entry.EvidencePath);
+        string? contractCase = NullIfWhiteSpace(entry.ContractCase);
+
+        EnsureUniqueContractCase(key, contractCase, contractCases);
+        EnsureSupportedEvidence(key, support, evidencePath, contractCase);
+
+        return new VtCapability(
+            key,
+            mnemonic,
+            support,
+            description,
+            matrixFeature,
+            evidencePath,
+            contractCase);
+    }
+
+    private static void EnsureUniqueKey(string key, HashSet<string> keys)
+    {
+        if (!keys.Add(key))
+        {
+            throw new VtCapabilityManifestException($"Capability '{key}' has a duplicate key.");
+        }
+    }
+
+    private static VtSupport ParseSupport(string? value, string key)
+    {
+        if (Enum.TryParse(value, ignoreCase: true, out VtSupport support))
+        {
+            return support;
+        }
+
+        throw new VtCapabilityManifestException($"Capability '{key}' has unknown support value '{value}'.");
+    }
+
+    private static void EnsureUniqueContractCase(
+        string key,
+        string? contractCase,
+        HashSet<string> contractCases)
+    {
+        if (contractCase is not null && !contractCases.Add(contractCase))
+        {
+            throw new VtCapabilityManifestException($"Capability '{key}' has duplicate contractCase '{contractCase}'.");
+        }
+    }
+
+    private static void EnsureSupportedEvidence(
+        string key,
+        VtSupport support,
+        string? evidencePath,
+        string? contractCase)
+    {
+        if (support != VtSupport.Supported)
+        {
+            return;
+        }
+
+        if (evidencePath is null)
+        {
+            throw new VtCapabilityManifestException($"Capability '{key}' is supported but has no evidencePath.");
+        }
+
+        if (contractCase is null)
+        {
+            throw new VtCapabilityManifestException($"Capability '{key}' is supported but has no contractCase.");
+        }
     }
 
     private static IReadOnlyList<VtCapability> LoadEmbeddedManifest()

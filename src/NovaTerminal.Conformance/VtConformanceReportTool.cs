@@ -339,10 +339,29 @@ public static class VtConformanceReportTool
             return;
         }
 
-        IReadOnlyList<VtCapability> capabilities;
+        if (!TryLoadCapabilities(manifestPath, relativeMatrixPath, errors, out IReadOnlyList<VtCapability> capabilities))
+        {
+            return;
+        }
+
+        AddDuplicateMatrixFeatureErrors(capabilities, relativeMatrixPath, errors);
+
+        foreach (VtCapability capability in capabilities)
+        {
+            ValidateCapability(repoRoot, relativeMatrixPath, rows, capability, errors);
+        }
+    }
+
+    private static bool TryLoadCapabilities(
+        string manifestPath,
+        string relativeMatrixPath,
+        List<VtConformanceIssue> errors,
+        out IReadOnlyList<VtCapability> capabilities)
+    {
         try
         {
             capabilities = VtCapabilityCatalog.Parse(File.ReadAllText(manifestPath));
+            return true;
         }
         catch (VtCapabilityManifestException exception)
         {
@@ -353,9 +372,16 @@ public static class VtConformanceReportTool
                 MatrixPath: relativeMatrixPath,
                 LineNumber: 0,
                 Feature: null));
-            return;
+            capabilities = Array.Empty<VtCapability>();
+            return false;
         }
+    }
 
+    private static void AddDuplicateMatrixFeatureErrors(
+        IReadOnlyList<VtCapability> capabilities,
+        string relativeMatrixPath,
+        List<VtConformanceIssue> errors)
+    {
         foreach (IGrouping<string, VtCapability> duplicate in capabilities
                      .GroupBy(capability => capability.MatrixFeature, StringComparer.Ordinal)
                      .Where(group => group.Count() > 1))
@@ -368,89 +394,103 @@ public static class VtConformanceReportTool
                 LineNumber: 0,
                 Feature: duplicate.Key));
         }
+    }
 
-        foreach (VtCapability capability in capabilities)
+    private static void ValidateCapability(
+        string repoRoot,
+        string relativeMatrixPath,
+        List<VtConformanceRow> rows,
+        VtCapability capability,
+        List<VtConformanceIssue> errors)
+    {
+        List<VtConformanceRow> matchingRows = rows
+            .Where(candidate => string.Equals(candidate.Feature, capability.MatrixFeature, StringComparison.Ordinal))
+            .ToList();
+        if (matchingRows.Count == 0)
         {
-            List<VtConformanceRow> matchingRows = rows
-                .Where(candidate => string.Equals(candidate.Feature, capability.MatrixFeature, StringComparison.Ordinal))
-                .ToList();
-            if (matchingRows.Count == 0)
-            {
-                errors.Add(new VtConformanceIssue(
-                    Code: "capability-matrix-feature-missing",
-                    Severity: IssueSeverity.Error,
-                    Message: $"Capability '{capability.Key}' expects matrix feature '{capability.MatrixFeature}'.",
-                    MatrixPath: relativeMatrixPath,
-                    LineNumber: 0,
-                    Feature: capability.MatrixFeature));
-                continue;
-            }
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-matrix-feature-missing",
+                Severity: IssueSeverity.Error,
+                Message: $"Capability '{capability.Key}' expects matrix feature '{capability.MatrixFeature}'.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: 0,
+                Feature: capability.MatrixFeature));
+            return;
+        }
 
-            if (matchingRows.Count > 1)
-            {
-                errors.Add(new VtConformanceIssue(
-                    Code: "capability-matrix-row-duplicate",
-                    Severity: IssueSeverity.Error,
-                    Message: $"Capability '{capability.Key}' expects exactly one matrix row for feature '{capability.MatrixFeature}', but found {matchingRows.Count}.",
-                    MatrixPath: relativeMatrixPath,
-                    LineNumber: matchingRows[0].SourceLine,
-                    Feature: capability.MatrixFeature));
-                continue;
-            }
+        if (matchingRows.Count > 1)
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-matrix-row-duplicate",
+                Severity: IssueSeverity.Error,
+                Message: $"Capability '{capability.Key}' expects exactly one matrix row for feature '{capability.MatrixFeature}', but found {matchingRows.Count}.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: matchingRows[0].SourceLine,
+                Feature: capability.MatrixFeature));
+            return;
+        }
 
-            VtConformanceRow row = matchingRows[0];
+        VtConformanceRow row = matchingRows[0];
 
-            if (!CapabilityStatusMatches(capability.Support, row.Status))
-            {
-                errors.Add(new VtConformanceIssue(
-                    Code: "capability-status-mismatch",
-                    Severity: IssueSeverity.Error,
-                    Message: $"Capability '{capability.Key}' is '{capability.Support}' but matrix feature '{row.Feature}' is '{row.Status}'.",
-                    MatrixPath: relativeMatrixPath,
-                    LineNumber: row.SourceLine,
-                    Feature: row.Feature));
-            }
+        if (!CapabilityStatusMatches(capability.Support, row.Status))
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-status-mismatch",
+                Severity: IssueSeverity.Error,
+                Message: $"Capability '{capability.Key}' is '{capability.Support}' but matrix feature '{row.Feature}' is '{row.Status}'.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: row.SourceLine,
+                Feature: row.Feature));
+        }
 
-            if (capability.EvidencePath is not string evidencePath)
-            {
-                continue;
-            }
+        if (capability.EvidencePath is string evidencePath)
+        {
+            ValidateCapabilityEvidence(repoRoot, relativeMatrixPath, capability, row, evidencePath, errors);
+        }
+    }
 
-            string normalizedEvidencePath = evidencePath.Replace('\\', '/');
-            string absoluteEvidencePath = Path.GetFullPath(Path.Combine(
-                repoRoot,
-                normalizedEvidencePath.Replace('/', Path.DirectorySeparatorChar)));
-            if (!IsPathWithinRoot(repoRoot, absoluteEvidencePath))
-            {
-                errors.Add(new VtConformanceIssue(
-                    Code: "capability-evidence-path-outside-repo",
-                    Severity: IssueSeverity.Error,
-                    Message: $"Capability '{capability.Key}' evidence path '{normalizedEvidencePath}' resolves outside the repository.",
-                    MatrixPath: relativeMatrixPath,
-                    LineNumber: row.SourceLine,
-                    Feature: row.Feature));
-            }
-            else if (!File.Exists(absoluteEvidencePath) && !Directory.Exists(absoluteEvidencePath))
-            {
-                errors.Add(new VtConformanceIssue(
-                    Code: "capability-evidence-path-not-found",
-                    Severity: IssueSeverity.Error,
-                    Message: $"Capability '{capability.Key}' evidence path '{normalizedEvidencePath}' does not exist.",
-                    MatrixPath: relativeMatrixPath,
-                    LineNumber: row.SourceLine,
-                    Feature: row.Feature));
-            }
+    private static void ValidateCapabilityEvidence(
+        string repoRoot,
+        string relativeMatrixPath,
+        VtCapability capability,
+        VtConformanceRow row,
+        string evidencePath,
+        List<VtConformanceIssue> errors)
+    {
+        string normalizedEvidencePath = evidencePath.Replace('\\', '/');
+        string absoluteEvidencePath = Path.GetFullPath(Path.Combine(
+            repoRoot,
+            normalizedEvidencePath.Replace('/', Path.DirectorySeparatorChar)));
+        if (!IsPathWithinRoot(repoRoot, absoluteEvidencePath))
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-evidence-path-outside-repo",
+                Severity: IssueSeverity.Error,
+                Message: $"Capability '{capability.Key}' evidence path '{normalizedEvidencePath}' resolves outside the repository.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: row.SourceLine,
+                Feature: row.Feature));
+        }
+        else if (!File.Exists(absoluteEvidencePath) && !Directory.Exists(absoluteEvidencePath))
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-evidence-path-not-found",
+                Severity: IssueSeverity.Error,
+                Message: $"Capability '{capability.Key}' evidence path '{normalizedEvidencePath}' does not exist.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: row.SourceLine,
+                Feature: row.Feature));
+        }
 
-            if (!row.EvidenceLinks.Any(link => string.Equals(link.Path, normalizedEvidencePath, StringComparison.Ordinal)))
-            {
-                errors.Add(new VtConformanceIssue(
-                    Code: "capability-evidence-not-linked",
-                    Severity: IssueSeverity.Error,
-                    Message: $"Matrix feature '{row.Feature}' must link capability evidence '{normalizedEvidencePath}'.",
-                    MatrixPath: relativeMatrixPath,
-                    LineNumber: row.SourceLine,
-                    Feature: row.Feature));
-            }
+        if (!row.EvidenceLinks.Any(link => string.Equals(link.Path, normalizedEvidencePath, StringComparison.Ordinal)))
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-evidence-not-linked",
+                Severity: IssueSeverity.Error,
+                Message: $"Matrix feature '{row.Feature}' must link capability evidence '{normalizedEvidencePath}'.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: row.SourceLine,
+                Feature: row.Feature));
         }
     }
 
