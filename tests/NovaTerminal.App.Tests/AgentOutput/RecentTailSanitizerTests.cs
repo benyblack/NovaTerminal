@@ -5,72 +5,49 @@ using Xunit;
 namespace NovaTerminal.Tests.AgentOutput;
 
 /// <summary>
-/// The snapshot sanitizer: prompt lines off both ends of a recent-tail snapshot, response text
-/// untouched. Every case maps to what the panel's user saw in practice - a PowerShell agent run
-/// whose tail was "PS D:\projects&gt;" and whose head was the echoed prompt+command.
+/// Snapshot extraction: a recent-output tail of a terminal is rounds of prompt → response all
+/// over the same grid, and the panel must render <b>the latest response</b> - prompt lines are
+/// segment boundaries, echoed commands are dropped with them, and the last segment with content
+/// wins.
 /// </summary>
 public sealed class RecentTailSanitizerTests
 {
+    /// <summary>A super-long agent chat, abridged: three rounds of prompt → response.</summary>
+    private const string LongChat = """
+        PS D:\projects> zcode -p "first question"
+        ### First answer
+        early content
+        PS D:\projects> zcode -p "second question"
+        ## Second answer
+        middle content with more detail
+        PS D:\projects> zcode -p "third question"
+        ### Third answer
+        latest content
+        PS D:\projects>
+        """;
+
     [Fact]
-    public void PowerShellPromptAndEcho_AreTrimmedFromBothEnds()
+    public void SuperLongChat_YieldsOnlyTheLatestResponse()
+    {
+        string response = RecentTailSanitizer.ExtractLastResponse(LongChat);
+
+        Assert.Equal("### Third answer\nlatest content", response);
+    }
+
+    [Fact]
+    public void SingleCommand_YieldsItsResponse()
     {
         const string snapshot = "PS D:\\projects> aichat \"cheat sheet\"\n### Text styles\nplain body\nWant this saved?\nPS D:\\projects>";
 
-        string trimmed = RecentTailSanitizer.Trim(snapshot);
-
-        Assert.Equal("### Text styles\nplain body\nWant this saved?", trimmed);
+        Assert.Equal("### Text styles\nplain body\nWant this saved?", RecentTailSanitizer.ExtractLastResponse(snapshot));
     }
 
     [Fact]
-    public void CmdPrompt_IsTrimmed()
+    public void ResponseWithBlankLines_KeepsThem()
     {
-        const string snapshot = "D:\\projects> agent.exe\n## Result\ndone\nD:\\projects>";
+        const string snapshot = "PS D:\\p> run\nfirst para\n\nsecond para\nPS D:\\p>";
 
-        Assert.Equal("## Result\ndone", RecentTailSanitizer.Trim(snapshot));
-    }
-
-    [Fact]
-    public void PosixPrompt_IsTrimmed()
-    {
-        const string snapshot = "user@host:~/demo$ llm \"hi\"\n**Hello!**\nuser@host:~/demo$";
-
-        Assert.Equal("**Hello!**", RecentTailSanitizer.Trim(snapshot));
-    }
-
-    [Fact]
-    public void BlankLinesAtTheEnds_GoWithThePrompts()
-    {
-        const string snapshot = "PS D:\\p> cmd\n\nbody line\n\n\nPS D:\\p>";
-
-        Assert.Equal("body line", RecentTailSanitizer.Trim(snapshot));
-    }
-
-    [Fact]
-    public void MidResponsePromptShapedLines_AreKept()
-    {
-        // Only the two ends are touched. A response that quotes a prompt mid-body keeps it -
-        // trimming content the agent actually printed would be lying about the response.
-        const string snapshot = "PS D:\\p> q\nanswer line\nimagine a prompt here > like this\nPS D:\\p>";
-
-        string trimmed = RecentTailSanitizer.Trim(snapshot);
-
-        Assert.Contains("imagine a prompt here > like this", trimmed, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void ResponseLinesEndingInDollar_AreKept()
-    {
-        const string snapshot = "PS D:\\p> price check\ncosts 5$\ntotal 10 euros\nPS D:\\p>";
-
-        string trimmed = RecentTailSanitizer.Trim(snapshot);
-
-        Assert.Contains("costs 5$", trimmed, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void AllPromptLines_TrimsToEmpty()
-    {
-        Assert.Equal(string.Empty, RecentTailSanitizer.Trim("PS D:\\p>\nPS D:\\p> dir\nPS D:\\p>"));
+        Assert.Equal("first para\n\nsecond para", RecentTailSanitizer.ExtractLastResponse(snapshot));
     }
 
     [Fact]
@@ -78,6 +55,43 @@ public sealed class RecentTailSanitizerTests
     {
         const string response = "## Answer\nwith detail";
 
-        Assert.Equal(response, RecentTailSanitizer.Trim(response));
+        Assert.Equal(response, RecentTailSanitizer.ExtractLastResponse(response));
+    }
+
+    [Fact]
+    public void PosixPrompt_SplitsToo()
+    {
+        const string snapshot = "user@host:~/demo$ llm \"hi\"\n**Hello!**\nuser@host:~/demo$ llm \"bye\"\n**Bye!**\nuser@host:~/demo$";
+
+        Assert.Equal("**Bye!**", RecentTailSanitizer.ExtractLastResponse(snapshot));
+    }
+
+    [Fact]
+    public void CmdPrompt_SplitsToo()
+    {
+        const string snapshot = "D:\\projects> agent.exe\n## Result\ndone\nD:\\projects> agent.exe --again\n## Result 2\nfine\nD:\\projects>";
+
+        Assert.Equal("## Result 2\nfine", RecentTailSanitizer.ExtractLastResponse(snapshot));
+    }
+
+    [Fact]
+    public void EmptySegments_AreSkipped()
+    {
+        // A trailing bare prompt is an empty segment; the response before it wins.
+        const string snapshot = "PS D:\\p> first\ncontent\nPS D:\\p>";
+
+        Assert.Equal("content", RecentTailSanitizer.ExtractLastResponse(snapshot));
+    }
+
+    [Fact]
+    public void AllPromptsAndBlanks_TrimsToEmpty()
+    {
+        Assert.Equal(string.Empty, RecentTailSanitizer.ExtractLastResponse("PS D:\\p>\nPS D:\\p> dir\nPS D:\\p>"));
+    }
+
+    [Fact]
+    public void Null_IsEmpty()
+    {
+        Assert.Equal(string.Empty, RecentTailSanitizer.ExtractLastResponse(null!));
     }
 }

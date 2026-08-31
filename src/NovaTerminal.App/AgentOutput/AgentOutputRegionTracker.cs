@@ -359,9 +359,11 @@ public sealed class AgentOutputRegionTracker : IDisposable
             return;
         }
 
-        // No edges bound a snapshot, so prompt and echoed-command lines ride the raw tail; trim
-        // them off both ends and deliver the response.
-        text = RecentTailSanitizer.Trim(text);
+        // No edges bound a snapshot, so the raw tail is a fragment of the whole conversation:
+        // prompts, echoed commands, and several rounds of responses interleaved. Split at the
+        // prompt lines and deliver the latest round's response - in a long agent chat that is
+        // "the response", not the whole pane.
+        text = RecentTailSanitizer.ExtractLastResponse(text);
         if (text.Length == 0)
         {
             return;

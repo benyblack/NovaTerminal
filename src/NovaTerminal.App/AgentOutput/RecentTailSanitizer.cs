@@ -26,26 +26,69 @@ public static class RecentTailSanitizer
 {
     private const int MaxPromptLength = 200;
 
-    public static string Trim(string text)
+    /// <summary>
+    /// Extracts the most recent command's response from a recent-tail snapshot.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A long agent conversation is rounds of <i>prompt → response</i> all over the same grid, so
+    /// trimming the snapshot's two ends (see <see cref="Trim"/>) cannot describe "the response":
+    /// prompts are interleaved throughout, and the raw tail is a fragment of several rounds at
+    /// once. Prompt-shaped lines are therefore treated as <b>segment boundaries</b>: the tail
+    /// splits into per-command segments, each beginning at a prompt (whose line - prompt and
+    /// echoed command alike - is dropped), and the last segment holding any content is the
+    /// response the user just read on screen.
+    /// </para>
+    /// <para>
+    /// Known limitation, accepted on purpose: an agent that prints a prompt-shaped line
+    /// mid-response splits that response. Mis-splits degrade to "a later fragment of the answer",
+    /// never to content from an earlier round.
+    /// </para>
+    /// </remarks>
+    public static string ExtractLastResponse(string text)
     {
         string[] lines = (text ?? string.Empty).Replace("\r\n", "\n").Split('\n');
 
-        int start = 0;
-        int end = lines.Length - 1;
-
-        while (start <= end && (lines[start].Length == 0 || IsPromptLike(lines[start])))
+        List<string> current = new(lines.Length);
+        List<string[]> segments = new();
+        foreach (string line in lines)
         {
-            start++;
+            if (IsPromptLike(line))
+            {
+                segments.Add(current.ToArray());
+                current.Clear();
+                continue;
+            }
+
+            current.Add(line);
         }
 
-        while (end >= start && (lines[end].Length == 0 || IsPromptLike(lines[end])))
+        segments.Add(current.ToArray());
+
+        // The last segment with content wins: earlier segments are earlier rounds of the
+        // conversation, and a trailing bare prompt produces an empty final segment.
+        for (int i = segments.Count - 1; i >= 0; i--)
         {
-            end--;
+            string[] segment = segments[i];
+            int start = 0;
+            int end = segment.Length - 1;
+            while (start <= end && segment[start].Trim().Length == 0)
+            {
+                start++;
+            }
+
+            while (end >= start && segment[end].Trim().Length == 0)
+            {
+                end--;
+            }
+
+            if (start <= end)
+            {
+                return string.Join('\n', segment, start, end - start + 1);
+            }
         }
 
-        return start > end
-            ? string.Empty
-            : string.Join('\n', lines, start, end - start + 1);
+        return string.Empty;
     }
 
     internal static bool IsPromptLike(string line)
