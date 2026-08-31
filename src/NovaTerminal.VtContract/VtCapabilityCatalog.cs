@@ -49,9 +49,9 @@ public static class VtCapabilityCatalog
         ArgumentNullException.ThrowIfNull(json);
 
         ManifestDocument document = DeserializeManifest(json);
-        ValidateManifest(document);
+        IReadOnlyList<ManifestEntry> entries = ValidateManifest(document);
 
-        return ParseCapabilities(document.Capabilities!);
+        return ParseCapabilities(entries);
     }
 
     private static ManifestDocument DeserializeManifest(string json)
@@ -67,7 +67,7 @@ public static class VtCapabilityCatalog
         }
     }
 
-    private static void ValidateManifest(ManifestDocument document)
+    private static IReadOnlyList<ManifestEntry> ValidateManifest(ManifestDocument document)
     {
         if (document.SchemaVersion != 1)
         {
@@ -78,6 +78,8 @@ public static class VtCapabilityCatalog
         {
             throw new VtCapabilityManifestException("The VT capability manifest must contain a capabilities array.");
         }
+
+        return document.Capabilities;
     }
 
     private static ReadOnlyCollection<VtCapability> ParseCapabilities(IReadOnlyList<ManifestEntry> entries)
