@@ -168,6 +168,31 @@ invariant changes.
 
 ---
 
+## NovaTerminal.VtContract (`src/NovaTerminal.VtContract/`)
+
+**Namespace:** `NovaTerminal.VtContract`
+**Depends on:** *(leaf — only BCL)*
+**Public surface:** `VtCapabilityCatalog`, `VtCapability`, `VtSupport`, `VtCapabilityManifestException`
+
+**Owns**
+- The machine-readable catalog of developer-facing VT capability claims
+- Strict validation of catalog schema, unique sequence keys, support states, evidence links, and parser contract case names
+
+**Non-responsibilities**
+- Parsing terminal input or dispatching escape sequences; `NovaTerminal.VT` remains the sole owner of runtime VT semantics
+- Rendering, application UI, PTY I/O, or MCP transport
+
+**Invariants** (enforced by `VtContract_csproj_has_no_project_references` and the VT capability contract tests)
+- Leaf assembly — no project references, so conformance tooling, parser tests, and MCP developer tools can consume the same claims without opening a path into terminal core
+- The embedded JSON is the canonical capability source; supported entries require concrete repository evidence and an executable parser contract case
+
+**Test authority**
+- Schema and parser contracts: `tests/NovaTerminal.VT.Tests/VtCapabilityCatalogTests.cs`, `tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs`
+- Matrix agreement: `tests/NovaTerminal.Platform.Tests/Conformance/VtConformanceToolTests.cs`
+- Developer-tool agreement: `tests/NovaTerminal.McpServer.Tests/V2ToolsTests.cs`
+
+---
+
 ## NovaTerminal.Backup (`src/NovaTerminal.Backup/`)
 
 **Namespace:** `NovaTerminal.Backup`
@@ -190,7 +215,7 @@ invariant changes.
   the existing `TimeProvider?` injection style.
 
 **Invariants** (enforced by `Backup_csproj_has_no_project_references` and
-`McpServer_csproj_only_references_AgentHostContractsAndBackup`)
+`McpServer_csproj_only_references_approved_leaf_dependencies`)
 - **Leaf assembly — no project references, ever.** This is what makes it safe for
   `NovaTerminal.McpServer` to reference: a leaf cannot smuggle in App, VT, Pty, or Rendering no
   matter what it depends on, because it depends on nothing. Task 10a's first attempt routed the

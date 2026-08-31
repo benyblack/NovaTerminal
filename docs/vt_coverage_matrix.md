@@ -68,7 +68,9 @@ It is designed to be:
 |---|---|---:|---|---|---|
 | CUU/CUD/CUF/CUB (A/B/C/D) | Cursor up/down/forward/back | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/PendingWrapTests.cs` | Parser+Buffer | Explicit CUF movement is covered via pending-wrap reset; dedicated CUU/CUD/CUB targeted coverage is still missing |
 | CUP / HVP (H/f) | Positioning, default params | ✅ Supported | Unit + Replay: `tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs`, `tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs` | Parser+Buffer | |
-| CHA/CPL/CNL (G/F/E) | Horizontal absolute / prev/next line | ⚠ Partial | Replay | Parser+Buffer | |
+| CHA (G) | Horizontal absolute | ✅ Supported | Unit: `tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs` | Parser+Buffer | |
+| CPL (F) | Previous line and column reset | ✅ Supported | Unit: `tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs` | Parser+Buffer | |
+| CNL (E) | Next line and column reset | ✅ Supported | Unit: `tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs` | Parser+Buffer | |
 | CHT (I) | Cursor forward tabulation | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/TabSystemTests.cs` | Parser+Buffer | |
 | CBT (Z) | Cursor backward tabulation | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/TabSystemTests.cs` | Parser+Buffer | |
 | VPA/HPA (d/G/`) | Absolute row/col | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |

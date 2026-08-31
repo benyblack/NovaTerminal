@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "capabilities": [
+    {
+      "key": "CSI:E",
+      "mnemonic": "CNL",
+      "support": "supported",
+      "description": "Cursor Next Line Ps times and reset to column 1.",
+      "matrixFeature": "CNL (E)",
+      "evidencePath": "tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs",
+      "contractCase": "cursor-next-line"
+    },
+    {
+      "key": "CSI:F",
+      "mnemonic": "CPL",
+      "support": "supported",
+      "description": "Cursor Previous Line Ps times and reset to column 1.",
+      "matrixFeature": "CPL (F)",
+      "evidencePath": "tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs",
+      "contractCase": "cursor-previous-line"
+    },
+    {
+      "key": "CSI:G",
+      "mnemonic": "CHA",
+      "support": "supported",
+      "description": "Cursor Horizontal Absolute to column Ps.",
+      "matrixFeature": "CHA (G)",
+      "evidencePath": "tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs",
+      "contractCase": "cursor-horizontal-absolute"
+    }
+  ]
+}

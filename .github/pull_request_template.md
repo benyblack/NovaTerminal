@@ -55,6 +55,9 @@ Fixes #
        without metrics will be sent back. -->
 
 - **Does this change VT coverage?**
-  <!-- If you added or changed a sequence: update docs/vt_coverage_matrix.md
-       AND regenerate src/NovaTerminal.App/Resources/vt-conformance-report.json,
-       or the VT Conformance check goes red. See CONTRIBUTING.md. -->
+  <!-- If you added or changed a catalog-owned sequence: update
+       src/NovaTerminal.VtContract/vt-capabilities.json and add or update its
+       executable case in tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs.
+       Also update docs/vt_coverage_matrix.md AND regenerate
+       src/NovaTerminal.App/Resources/vt-conformance-report.json, or the VT
+       Conformance check goes red. See CONTRIBUTING.md. -->
