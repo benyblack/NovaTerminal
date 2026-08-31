@@ -501,7 +501,7 @@ namespace NovaTerminal.VT
             for (int row = endRow; row >= startRow; row--)
             {
                 bool wrapsIntoNext = row < endRow && buffer.IsRowWrappedAbsolute(row);
-                int endCol = RowTextEndColumn(buffer, row, endRow, cursorRow, cursorTextCol, cols, wrapsIntoNext);
+                int endCol = RowTextEndColumn(buffer, row, cursorRow, cursorTextCol, cols, wrapsIntoNext);
 
                 // A row that soft-wrapped into the next one keeps its trailing cells: they are the
                 // middle of a logical line, and trimming them would glue the two halves of a
@@ -534,7 +534,6 @@ namespace NovaTerminal.VT
         private static int RowTextEndColumn(
             TerminalBuffer buffer,
             int row,
-            int endRow,
             int cursorRow,
             int cursorTextCol,
             int cols,
