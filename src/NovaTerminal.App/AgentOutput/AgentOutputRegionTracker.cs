@@ -109,18 +109,42 @@ public sealed class AgentOutputRegionTracker : IDisposable
     /// </summary>
     public void NotifyCommandFinished()
     {
-        if (_enabled)
+        // Order is load-bearing: resolve the final read's region start while the flag still says
+        // a region is live (the provider is a field read; the grid walk below still happens on
+        // the parse thread, before any repaint), then flip the flag, THEN bump the generation.
+        // Flip-before-bump closes the interleaving where a debounce callback starts between the
+        // two: from this instant every background reader either sees a cleared flag - and has
+        // nothing to read - or a bumped generation - and is dropped. A streaming:true update in
+        // the final generation is therefore impossible.
+        ShellIntegrationMark? start = _regionActive ? _commandOutputStartProvider() : null;
+        _regionActive = false;
+        AdvanceGeneration();
+
+        if (!_enabled || start is not ShellIntegrationMark mark)
         {
-            // Bump BEFORE the final read, then read under the post-bump generation: in-flight
-            // background reads die at their own checks, while this read's dispatched closure
-            // validates against the new generation and survives the transition. The region flag
-            // is still up here, so the read still resolves the C mark; by the time any later
-            // observer looks, the flag is down and the state is consistent.
-            AdvanceGeneration();
-            ReadAndPostCore(streaming: false, Volatile.Read(ref _generation));
+            return;
         }
 
-        _regionActive = false;
+        // The final read runs under the post-bump generation, explicitly bound to the resolved
+        // mark rather than to the (now cleared) flag, so it survives this very transition.
+        int generation = Volatile.Read(ref _generation);
+        TerminalBuffer? buffer = _bufferProvider();
+        if (buffer is null || buffer.IsAltScreenActive)
+        {
+            return;
+        }
+
+        if (!CommandOutputReader.TryReadOutputTail(buffer, mark, RegionBudget, out string text))
+        {
+            return;
+        }
+
+        if (Volatile.Read(ref _generation) != generation)
+        {
+            return;
+        }
+
+        DeliverUpdate(text, streaming: false, generation);
     }
 
     /// <summary>
@@ -211,9 +235,10 @@ public sealed class AgentOutputRegionTracker : IDisposable
         }
 
         // The read is stale the moment the state it was based on changes (C, D, reset, disable).
-        // Checked again inside the dispatched closure: the background read can straddle a
-        // transition, and without this a late streaming:true dispatch would park the panel on
-        // "streaming…" after D, or resurrect a reset command's output.
+        // Checked below after the walk, and once more inside DeliverUpdate's dispatched closure:
+        // the background read can straddle a transition, and without this a late streaming:true
+        // dispatch would park the panel on "streaming…" after D, or resurrect a reset command's
+        // output.
         TerminalBuffer? buffer = _bufferProvider();
         if (buffer is null || buffer.IsAltScreenActive)
         {
@@ -244,25 +269,43 @@ public sealed class AgentOutputRegionTracker : IDisposable
             return;
         }
 
-        // string.GetHashCode is randomized per process but stable within one, which is all a
-        // change detector needs. The streaming flag participates in the dedupe on purpose: the
-        // text often does not change between the last debounce tick and D, and the panel's
-        // status line must still get the "streaming ended" update.
-        int hash = text.GetHashCode();
-        int streamingFlag = streaming ? 1 : 0;
-        if (Interlocked.Exchange(ref _lastPostedHash, hash) == hash &&
-            Volatile.Read(ref _lastPostedStreaming) == streamingFlag)
-        {
-            return;
-        }
+        DeliverUpdate(text, streaming, generation);
+    }
 
-        Volatile.Write(ref _lastPostedStreaming, streamingFlag);
+    /// <summary>
+    /// Hands one read result to the UI thread, dropping it if its generation has been superseded
+    /// meanwhile, and committing the dedupe state only when delivery actually happens.
+    /// </summary>
+    /// <remarks>
+    /// The dedupe commit lives <i>inside</i> the closure on purpose. Committing before dispatch
+    /// (the previous shape) let a dropped update still mark its hash and streaming flag as
+    /// delivered - so a later, legitimate same-text update in the new generation was suppressed
+    /// and the panel stayed stale. Deduping here, on the serialized UI side and behind the
+    /// generation check, keeps the two decisions atomic.
+    /// </remarks>
+    private void DeliverUpdate(string text, bool streaming, int generation)
+    {
         _dispatch(() =>
         {
-            if (Volatile.Read(ref _generation) == generation)
+            if (Volatile.Read(ref _generation) != generation)
             {
-                _onUpdate(text, streaming);
+                return;
             }
+
+            // string.GetHashCode is randomized per process but stable within one, which is all a
+            // change detector needs. The streaming flag participates in the dedupe on purpose:
+            // the text often does not change between the last debounce tick and D, and the
+            // panel's status line must still get the "streaming ended" update.
+            int hash = text.GetHashCode();
+            int streamingFlag = streaming ? 1 : 0;
+            if (Interlocked.Exchange(ref _lastPostedHash, hash) == hash &&
+                Volatile.Read(ref _lastPostedStreaming) == streamingFlag)
+            {
+                return;
+            }
+
+            Volatile.Write(ref _lastPostedStreaming, streamingFlag);
+            _onUpdate(text, streaming);
         });
     }
 

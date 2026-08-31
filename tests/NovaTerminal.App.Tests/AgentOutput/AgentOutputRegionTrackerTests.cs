@@ -29,7 +29,7 @@ public sealed class AgentOutputRegionTrackerTests
         private ShellIntegrationMark? _commandLineMark;
         private ShellIntegrationMark? _outputStart;
 
-        public Harness(bool enabled = true)
+        public Harness(bool enabled = true, bool deferDispatch = false)
         {
             Buffer = new TerminalBuffer(40, 8);
             Parser = new AnsiParser(Buffer);
@@ -38,7 +38,24 @@ public sealed class AgentOutputRegionTrackerTests
             Tracker = new AgentOutputRegionTracker(
                 () => Buffer,
                 () => _outputStart,
-                dispatch: action => action(), // synchronous "UI thread"
+                dispatch: action =>
+                {
+                    // Deferred mode stands in for the UI-thread hop: the update is produced but
+                    // not delivered, so tests can transition the tracker in between and deliver
+                    // afterwards - the interleaving production hits when a background read
+                    // straddles an OSC 133 edge.
+                    if (deferDispatch)
+                    {
+                        lock (_gate)
+                        {
+                            PendingActions.Add(action);
+                        }
+                    }
+                    else
+                    {
+                        action();
+                    }
+                },
                 onUpdate: (text, streaming) =>
                 {
                     lock (_gate)
@@ -56,6 +73,53 @@ public sealed class AgentOutputRegionTrackerTests
         public AgentOutputRegionTracker Tracker { get; }
 
         public List<(string Text, bool Streaming)> Updates { get; } = new();
+
+        /// <summary>Undelivered updates, oldest first, when dispatch is deferred.</summary>
+        public List<Action> PendingActions { get; } = new();
+
+        public int PendingCount
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return PendingActions.Count;
+                }
+            }
+        }
+
+        /// <summary>Delivers the queued updates in queue order.</summary>
+        public void DeliverPending()
+        {
+            Action[] toDeliver;
+            lock (_gate)
+            {
+                toDeliver = PendingActions.ToArray();
+                PendingActions.Clear();
+            }
+
+            foreach (Action action in toDeliver)
+            {
+                action();
+            }
+        }
+
+        /// <summary>Delivers the queued updates newest first - the adversarial order a threadpool
+        /// read and the UI dispatcher can produce when a background read straddles an edge.</summary>
+        public void DeliverPendingNewestFirst()
+        {
+            Action[] toDeliver;
+            lock (_gate)
+            {
+                toDeliver = PendingActions.ToArray();
+                PendingActions.Clear();
+            }
+
+            for (int i = toDeliver.Length - 1; i >= 0; i--)
+            {
+                toDeliver[i]();
+            }
+        }
 
         public int UpdateCount
         {
@@ -196,6 +260,55 @@ public sealed class AgentOutputRegionTrackerTests
 
         Assert.Contains("already streaming", h.LastText, StringComparison.Ordinal);
         Assert.True(h.LastStreaming);
+    }
+
+    [Fact]
+    public async Task DroppedUpdate_DoesNotPoisonDedupe_ForTheSameTextInANewGeneration()
+    {
+        // Produced-but-undelivered updates must not commit dedupe state: an update dropped by a
+        // generation transition (here, Reset while the UI dispatch is pending) leaves no trace,
+        // so the same text delivered in the next generation still reaches the panel.
+        using var h = new Harness(enabled: false, deferDispatch: true);
+        h.Accept("agent --task").Output("chunk");
+        h.Tracker.SetEnabled(true);
+        h.Tracker.FlushNow();
+        await WaitForAsync(() => h.PendingCount > 0);
+
+        h.Tracker.Reset();
+        h.DeliverPending(); // dropped: its generation is gone; hash must NOT be committed
+        Assert.Equal(0, h.UpdateCount);
+
+        // A fresh command printing the identical text: the identical hash/streaming pair must
+        // not be mistaken for the undelivered update above.
+        h.Accept("agent --task").Output("chunk");
+        h.Tracker.FlushNow();
+        await WaitForAsync(() => h.PendingCount > 0);
+        h.DeliverPending();
+
+        Assert.Equal(1, h.UpdateCount);
+        Assert.True(h.LastStreaming);
+    }
+
+    [Fact]
+    public async Task StaleStreamingUpdateDeliveredAfterCompletion_IsDropped()
+    {
+        // A background read produced while streaming can reach the UI after the D edge; whether
+        // it delivers before or after the final update, it must not win - the panel ends on the
+        // finished, non-streaming state either way.
+        using var h = new Harness(deferDispatch: true);
+        h.Accept("agent --task").Output("final text");
+        h.Tracker.NotifyInvalidate();
+        h.Tracker.FlushNow();
+        await WaitForAsync(() => h.PendingCount > 0); // queued: gen G, streaming true
+
+        h.Finish(); // bumps to G+1, queues the final gen G+1 streaming:false update
+
+        // Adversarial order: the stale streaming update delivers last.
+        h.DeliverPendingNewestFirst();
+
+        Assert.True(h.UpdateCount >= 1);
+        Assert.False(h.LastStreaming);
+        Assert.Contains("final text", h.LastText, StringComparison.Ordinal);
     }
 
     [Fact]
