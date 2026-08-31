@@ -420,7 +420,8 @@ namespace NovaTerminal.VT
         /// <summary>
         /// The shared bounded walk: from <paramref name="startRow"/> down to the cursor, newest
         /// first, stopping when any part of the budget is spent. Both readers above have already
-        /// validated the coordinate space; this method only walks and assembles.
+        /// validated the coordinate space; this method only orchestrates - cursor column, trailing
+        /// blank trim, the row collection, the assembly - each in its own helper below.
         /// </summary>
         private static bool TryReadTailFromRowLocked(
             TerminalBuffer buffer,
@@ -432,23 +433,67 @@ namespace NovaTerminal.VT
 
             int cols = buffer.Cols;
             int cursorRow = buffer.Scrollback.Count + buffer.InternalCursorRow;
+            int cursorTextCol = CursorTextColumn(buffer, cols);
+            int endRow = TrimTrailingBlankRows(buffer, startRow, cursorRow, cursorTextCol, cols);
+            List<PhysicalRow> rows = CollectRowsWithinBudget(buffer, startRow, endRow, cursorRow, cursorTextCol, cols, budget);
 
-            // Deferred autowrap: after a character lands on the last column the cursor stays parked
-            // there with the wrap pending, so its *text* position is one past it.
+            outputTail = AssembleTail(rows, budget);
+            return true;
+        }
+
+        /// <summary>
+        /// The cursor's text column, honoring deferred autowrap: after a character lands on the
+        /// last column the cursor stays parked there with the wrap pending, so its <i>text</i>
+        /// position is one past it.
+        /// </summary>
+        private static int CursorTextColumn(TerminalBuffer buffer, int cols)
+        {
             int cursorTextCol = buffer.IsPendingWrap
                 ? Math.Min(buffer.InternalCursorCol + 1, cols)
                 : buffer.InternalCursorCol;
-            cursorTextCol = Math.Clamp(cursorTextCol, 0, cols);
+            return Math.Clamp(cursorTextCol, 0, cols);
+        }
 
+        /// <summary>
+        /// Trailing blank rows are slack, not output: at D the shell has emitted the final newline
+        /// and the cursor sits on a row the next prompt has not painted yet.
+        /// </summary>
+        private static int TrimTrailingBlankRows(
+            TerminalBuffer buffer,
+            int startRow,
+            int cursorRow,
+            int cursorTextCol,
+            int cols)
+        {
             int endRow = cursorRow;
-
-            // Trailing blank rows are slack, not output: at D the shell has emitted the final
-            // newline and the cursor sits on a row the next prompt has not painted yet.
-            while (endRow > startRow && IsRowBlank(buffer, endRow, endRow == cursorRow ? cursorTextCol : cols))
+            while (endRow > startRow && IsRowBlank(buffer, endRow, RowScanEndColumn(endRow, cursorRow, cursorTextCol, cols)))
             {
                 endRow--;
             }
 
+            return endRow;
+        }
+
+        /// <summary>
+        /// The exclusive end column for scanning a row: the cursor row stops at the cursor's text
+        /// position, every other row spans the full width.
+        /// </summary>
+        private static int RowScanEndColumn(int row, int cursorRow, int cursorTextCol, int cols)
+            => row == cursorRow ? cursorTextCol : cols;
+
+        /// <summary>
+        /// The walk itself, newest first, stopping when any part of the budget is spent. Returns
+        /// the physical rows in reading order.
+        /// </summary>
+        private static List<PhysicalRow> CollectRowsWithinBudget(
+            TerminalBuffer buffer,
+            int startRow,
+            int endRow,
+            int cursorRow,
+            int cursorTextCol,
+            int cols,
+            in OutputTailBudget budget)
+        {
             var rows = new List<PhysicalRow>();
             int logicalLines = 0;
             int collected = 0;
@@ -456,11 +501,7 @@ namespace NovaTerminal.VT
             for (int row = endRow; row >= startRow; row--)
             {
                 bool wrapsIntoNext = row < endRow && buffer.IsRowWrappedAbsolute(row);
-                int endCol = row == cursorRow
-                    ? cursorTextCol
-                    : wrapsIntoNext
-                        ? SoftWrappedRowEnd(buffer, row, cols)
-                        : LastNonBlankColumn(buffer, row, cols) + 1;
+                int endCol = RowTextEndColumn(buffer, row, endRow, cursorRow, cursorTextCol, cols, wrapsIntoNext);
 
                 // A row that soft-wrapped into the next one keeps its trailing cells: they are the
                 // middle of a logical line, and trimming them would glue the two halves of a
@@ -475,18 +516,66 @@ namespace NovaTerminal.VT
                     logicalLines++;
                 }
 
-                if (rows.Count >= budget.MaxRows)
-                {
-                    break;
-                }
-
-                if (startsLogicalLine && (logicalLines >= budget.MaxLines || collected >= budget.MaxChars))
+                if (BudgetSpent(rows.Count, startsLogicalLine, logicalLines, collected, budget))
                 {
                     break;
                 }
             }
 
             rows.Reverse();
+            return rows;
+        }
+
+        /// <summary>
+        /// The exclusive end column a row contributes as text: the cursor row stops at the
+        /// cursor's text position, a row that soft-wrapped into the next one keeps its trailing
+        /// cells through the soft-wrap hole, and any other row ends after its last non-blank cell.
+        /// </summary>
+        private static int RowTextEndColumn(
+            TerminalBuffer buffer,
+            int row,
+            int endRow,
+            int cursorRow,
+            int cursorTextCol,
+            int cols,
+            bool wrapsIntoNext)
+        {
+            if (row == cursorRow)
+            {
+                return cursorTextCol;
+            }
+
+            if (wrapsIntoNext)
+            {
+                return SoftWrappedRowEnd(buffer, row, cols);
+            }
+
+            return LastNonBlankColumn(buffer, row, cols) + 1;
+        }
+
+        private static bool BudgetSpent(
+            int rowCount,
+            bool startsLogicalLine,
+            int logicalLines,
+            int collected,
+            in OutputTailBudget budget)
+        {
+            if (rowCount >= budget.MaxRows)
+            {
+                return true;
+            }
+
+            return startsLogicalLine && (logicalLines >= budget.MaxLines || collected >= budget.MaxChars);
+        }
+
+        /// <summary>Joins the rows, newlines only at real line breaks, clamped to the budget.</summary>
+        private static string AssembleTail(List<PhysicalRow> rows, in OutputTailBudget budget)
+        {
+            int collected = 0;
+            foreach (PhysicalRow row in rows)
+            {
+                collected += row.Text.Length;
+            }
 
             var builder = new StringBuilder(Math.Min(collected, budget.MaxChars) + rows.Count);
             for (int i = 0; i < rows.Count; i++)
@@ -504,8 +593,7 @@ namespace NovaTerminal.VT
                 assembled = assembled[^budget.MaxChars..];
             }
 
-            outputTail = assembled;
-            return true;
+            return assembled;
         }
 
         private readonly record struct PhysicalRow(string Text, bool WrapsIntoNext);

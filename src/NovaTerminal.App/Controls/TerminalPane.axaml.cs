@@ -761,7 +761,7 @@ namespace NovaTerminal.Controls
             {
                 if (e.Property == ToggleButton.IsCheckedProperty)
                 {
-                    SetAgentOutputPanelOpen(AgentOutputToggle.IsChecked == true);
+                    SetAgentOutputPanelOpen(AgentOutputToggle.IsChecked ?? false);
                 }
             };
             TermView.EnterObserved += OnAgentOutputEnterObserved;

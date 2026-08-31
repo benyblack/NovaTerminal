@@ -155,7 +155,7 @@ public static class MarkdownRenderer
             Foreground = theme.Foreground,
             Margin = new Thickness(0, heading.Level <= 2 ? 10 : 8, 0, 4),
         };
-        AppendInlines(textBlock.Inlines!, heading.Inline, theme, onCopyText: null, onOpenLink: null);
+        AppendInlines(textBlock.Inlines, heading.Inline, theme, onCopyText: null, onOpenLink: null);
         return textBlock;
     }
 
@@ -172,7 +172,7 @@ public static class MarkdownRenderer
             Foreground = theme.Foreground,
             Margin = new Thickness(0, 3, 0, 3),
         };
-        AppendInlines(textBlock.Inlines!, paragraph.Inline, theme, onCopyText, onOpenLink);
+        AppendInlines(textBlock.Inlines, paragraph.Inline, theme, onCopyText, onOpenLink);
         return textBlock;
     }
 
@@ -189,7 +189,7 @@ public static class MarkdownRenderer
             FontFamily = new FontFamily(MonospaceFontFamily),
             Foreground = theme.Foreground,
         };
-        codeText.Inlines!.Add(new Run { Text = code });
+        codeText.Inlines?.Add(new Run { Text = code });
 
         var header = new Grid { ColumnDefinitions = ColumnDefinitions.Parse("*,Auto") };
         if (!string.IsNullOrWhiteSpace(language))
@@ -270,7 +270,7 @@ public static class MarkdownRenderer
 
             var markerText = new TextBlock
             {
-                Text = checkedState.HasValue ? (checkedState.Value ? "☑" : "☐") : bullet,
+                Text = ResolveItemMarker(bullet, checkedState),
                 FontSize = 13,
                 Foreground = checkedState.HasValue ? theme.Accent : theme.Secondary,
                 VerticalAlignment = VerticalAlignment.Top,
@@ -587,6 +587,17 @@ public static class MarkdownRenderer
         }
 
         return null;
+    }
+
+    /// <summary>The glyph a list item starts with: the checkbox for task items, else the bullet.</summary>
+    private static string ResolveItemMarker(string bullet, bool? checkedState)
+    {
+        if (!checkedState.HasValue)
+        {
+            return bullet;
+        }
+
+        return checkedState.Value ? "☑" : "☐";
     }
 
     private static void Boldify(StackPanel panel)
