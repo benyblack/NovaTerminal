@@ -51,10 +51,26 @@ public sealed class AgentOutputRegionTracker : IDisposable
     /// <summary>How long grid invalidations are coalesced before a background read runs.</summary>
     public static readonly TimeSpan DebounceDelay = TimeSpan.FromMilliseconds(300);
 
+    /// <summary>
+    /// Cadence for markdown-presence checks while the panel is closed - the MD button's
+    /// visibility rides on this, and it updates on a lazy beat rather than per chunk.
+    /// </summary>
+    public static readonly TimeSpan PresenceDebounceDelay = TimeSpan.FromMilliseconds(1500);
+
+    /// <summary>
+    /// Presence checks run quickly right after a command finishes (the moment the button becomes
+    /// relevant) instead of waiting out the lazy cadence.
+    /// </summary>
+    public static readonly TimeSpan PresenceSoonDelay = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>Budget for the presence check: detection needs the tail's shape, not its bulk.</summary>
+    public static readonly OutputTailBudget PresenceBudget = new(80, 16 * 1024, 256);
+
     private readonly Func<TerminalBuffer?> _bufferProvider;
     private readonly Func<ShellIntegrationMark?> _commandOutputStartProvider;
     private readonly Action<Action> _dispatch;
     private readonly Action<string, bool> _onUpdate;
+    private readonly Action<bool>? _markdownPresenceChanged;
     private readonly Timer _debounceTimer;
 
     private bool _enabled;
@@ -64,6 +80,7 @@ public sealed class AgentOutputRegionTracker : IDisposable
     private int _lastPostedStreaming;
     private int _recentTailFallback;
     private int _generation;
+    private int _lastPresence = -1;
     private int _disposed;
 
     /// <param name="bufferProvider">The pane's live buffer, resolved at read time.</param>
@@ -78,12 +95,14 @@ public sealed class AgentOutputRegionTracker : IDisposable
         Func<TerminalBuffer?> bufferProvider,
         Func<ShellIntegrationMark?> commandOutputStartProvider,
         Action<Action> dispatch,
-        Action<string, bool> onUpdate)
+        Action<string, bool> onUpdate,
+        Action<bool>? markdownPresenceChanged = null)
     {
         _bufferProvider = bufferProvider;
         _commandOutputStartProvider = commandOutputStartProvider;
         _dispatch = dispatch;
         _onUpdate = onUpdate;
+        _markdownPresenceChanged = markdownPresenceChanged;
         _debounceTimer = new Timer(ReadScheduled, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
@@ -121,7 +140,16 @@ public sealed class AgentOutputRegionTracker : IDisposable
         _regionActive = false;
         AdvanceGeneration();
 
-        if (!_enabled || start is not ShellIntegrationMark mark)
+        if (!_enabled)
+        {
+            // The panel is closed, so D delivered nothing - but this is exactly the moment the
+            // MD button's fate changes: the finished output is on screen and the presence check
+            // should see it promptly rather than wait out the lazy cadence.
+            _debounceTimer.Change(PresenceSoonDelay, Timeout.InfiniteTimeSpan);
+            return;
+        }
+
+        if (start is not ShellIntegrationMark mark)
         {
             return;
         }
@@ -149,14 +177,23 @@ public sealed class AgentOutputRegionTracker : IDisposable
     }
 
     /// <summary>
-    /// Grid invalidation. Called on the parse thread for every parser write; when a region is
-    /// being tracked, coalesces invalidations into one background read per debounce window.
+    /// Grid invalidation. Called on the parse thread for every parser write. While a region is
+    /// being tracked it coalesces invalidations into one background read per debounce window;
+    /// while the panel is closed it drives the lazy markdown-presence cadence instead, which is
+    /// what decides whether the pane's MD button is visible at all.
     /// </summary>
     public void NotifyInvalidate()
     {
-        if (_enabled && (_regionActive || _heuristicStart.HasValue))
+        if (_enabled)
         {
-            _debounceTimer.Change(DebounceDelay, Timeout.InfiniteTimeSpan);
+            if (_regionActive || _heuristicStart.HasValue)
+            {
+                _debounceTimer.Change(DebounceDelay, Timeout.InfiniteTimeSpan);
+            }
+        }
+        else
+        {
+            _debounceTimer.Change(PresenceDebounceDelay, Timeout.InfiniteTimeSpan);
         }
     }
 
@@ -192,8 +229,11 @@ public sealed class AgentOutputRegionTracker : IDisposable
         _enabled = enabled;
         if (!enabled)
         {
-            _debounceTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            // Stop any pending region read, then recompute the MD button's presence for the
+            // just-closed panel: the toggle must reflect what is on screen now, not whatever
+            // was true while the panel was open.
             AdvanceGeneration();
+            _debounceTimer.Change(PresenceSoonDelay, Timeout.InfiniteTimeSpan);
         }
     }
 
@@ -232,10 +272,22 @@ public sealed class AgentOutputRegionTracker : IDisposable
         _debounceTimer.Dispose();
     }
 
-    private void ReadScheduled(object? state) => ReadAndPostCore(
-        streaming: true,
-        Volatile.Read(ref _generation),
-        fallbackToRecentTail: Interlocked.Exchange(ref _recentTailFallback, 0) == 1);
+    private void ReadScheduled(object? state)
+    {
+        // While the panel is closed the timer drives markdown-presence detection instead of
+        // region reads - nothing is being tracked, and the MD button's visibility is the thing
+        // that needs updating.
+        if (!_enabled && !_regionActive && !_heuristicStart.HasValue)
+        {
+            CheckMarkdownPresence(Volatile.Read(ref _generation));
+            return;
+        }
+
+        ReadAndPostCore(
+            streaming: true,
+            Volatile.Read(ref _generation),
+            fallbackToRecentTail: Interlocked.Exchange(ref _recentTailFallback, 0) == 1);
+    }
 
     private void ReadAndPostCore(bool streaming, int generation, bool fallbackToRecentTail = false)
     {
@@ -308,6 +360,39 @@ public sealed class AgentOutputRegionTracker : IDisposable
         }
 
         DeliverUpdate(text, streaming: false, generation);
+    }
+
+    /// <summary>
+    /// The MD button's visibility check: does the recent on-screen output look like markdown?
+    /// Runs only while the panel is closed (open panels keep the toggle visible via their checked
+    /// state), and the result crosses to the UI only when it changes.
+    /// </summary>
+    private void CheckMarkdownPresence(int generation)
+    {
+        TerminalBuffer? buffer = _bufferProvider();
+        if (buffer is null || buffer.IsAltScreenActive)
+        {
+            return;
+        }
+
+        if (!CommandOutputReader.TryReadRecentTail(buffer, PresenceBudget, out string text))
+        {
+            return;
+        }
+
+        if (Volatile.Read(ref _generation) != generation)
+        {
+            return;
+        }
+
+        bool looksLikeMarkdown = MarkdownPresenceDetector.LooksLikeMarkdown(text);
+        int flag = looksLikeMarkdown ? 1 : 0;
+        if (Interlocked.Exchange(ref _lastPresence, flag) == flag)
+        {
+            return;
+        }
+
+        _dispatch(() => _markdownPresenceChanged?.Invoke(looksLikeMarkdown));
     }
 
     /// <summary>

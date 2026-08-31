@@ -62,6 +62,13 @@ public sealed class AgentOutputRegionTrackerTests
                     {
                         Updates.Add((text, streaming));
                     }
+                },
+                markdownPresenceChanged: present =>
+                {
+                    lock (_gate)
+                    {
+                        PresenceChanges.Add(present);
+                    }
                 });
             Tracker.SetEnabled(enabled);
         }
@@ -73,6 +80,9 @@ public sealed class AgentOutputRegionTrackerTests
         public AgentOutputRegionTracker Tracker { get; }
 
         public List<(string Text, bool Streaming)> Updates { get; } = new();
+
+        /// <summary>Markdown-presence verdicts, in the order the tracker raised them.</summary>
+        public List<bool> PresenceChanges { get; } = new();
 
         /// <summary>Undelivered updates, oldest first, when dispatch is deferred.</summary>
         public List<Action> PendingActions { get; } = new();
@@ -314,6 +324,40 @@ public sealed class AgentOutputRegionTrackerTests
 
         Assert.Contains("## new command", h.LastText, StringComparison.Ordinal);
         Assert.True(h.LastStreaming);
+    }
+
+    [Fact]
+    public async Task MarkdownOutputWhilePanelClosed_RaisesPresenceTrue()
+    {
+        // The MD button's visibility path: with the panel closed, invalidations drive the lazy
+        // presence cadence, and real markdown on screen must raise a true verdict.
+        using var h = new Harness(enabled: false);
+        h.Write(PromptStart + "$ " + PromptEnd);
+        h.Output("## Title", "", "```python", "x = 1", "```", "", "- [x] shipped");
+
+        h.Tracker.NotifyInvalidate();
+        await WaitForAsync(() => h.PresenceChanges.Count > 0, timeoutMs: 6000);
+
+        Assert.True(h.PresenceChanges[^1]);
+    }
+
+    [Fact]
+    public async Task PlainOutputAfterMarkdown_RaisesPresenceFalse()
+    {
+        // Once the markdown scrolls out of the detection window, the verdict must flip back -
+        // the button disappears again instead of latching on forever.
+        using var h = new Harness(enabled: false);
+        h.Write(PromptStart + "$ " + PromptEnd);
+        h.Output("## Title", "", "```python", "x = 1", "```");
+        h.Tracker.NotifyInvalidate();
+        await WaitForAsync(() => h.PresenceChanges.Count > 0, timeoutMs: 6000);
+
+        string[] noise = Enumerable.Range(1, 120).Select(i => $"log line {i} with plain text").ToArray();
+        h.Output(noise);
+        h.Tracker.NotifyInvalidate();
+        await WaitForAsync(() => h.PresenceChanges.Count > 1 && h.PresenceChanges[^1] == false, timeoutMs: 8000);
+
+        Assert.False(h.PresenceChanges[^1]);
     }
 
     [Fact]

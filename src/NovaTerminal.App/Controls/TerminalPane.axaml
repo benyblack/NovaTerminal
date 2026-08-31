@@ -18,18 +18,40 @@
         <Style Selector="ScrollBar:pointerover">
             <Setter Property="Opacity" Value="1.0"/>
         </Style>
-        <!-- Agent Output toggle: hover-revealed chrome. Resting at 0.4 opacity it reads as part
-            of the pane edge; any hover over the pane brings it to full, and an open panel keeps
-            it lit regardless (the :checked pseudo-class), so the affordance that closes it is
-            always findable. -->
+        <!-- Agent Output toggle. Hidden at rest (opacity 0, no hit testing - an invisible
+            button must not catch clicks meant for the terminal); hovering anywhere over the pane
+            reveals it, and an open panel keeps it lit and clickable regardless (the :checked
+            pseudo-class), so the affordance that closes it is always findable. The custom
+            template exists because the default Fluent ToggleButton chrome carries MinHeight=32
+            and padding that rendered the 18px button half-clipped. -->
         <Style Selector="ToggleButton#AgentOutputToggle">
-            <Setter Property="Opacity" Value="0.4"/>
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
         </Style>
         <Style Selector="Grid:pointerover ToggleButton#AgentOutputToggle">
             <Setter Property="Opacity" Value="1"/>
+            <Setter Property="IsHitTestVisible" Value="True"/>
         </Style>
         <Style Selector="ToggleButton#AgentOutputToggle:checked">
             <Setter Property="Opacity" Value="1"/>
+            <Setter Property="IsHitTestVisible" Value="True"/>
             <Setter Property="Background" Value="#2B4C6F"/>
             <Setter Property="Foreground" Value="#CFE3F7"/>
         </Style>
@@ -134,11 +156,13 @@
                     <!-- Agent Output toggle: the activation surface for the markdown side panel.
                         It lives here rather than in the context menu because local (non-SSH) panes
                         have their context menu detached entirely (InitializeSessionCore), and
-                        agent CLIs run overwhelmingly in local panes. Focusable=False so it can
-                        never take keyboard focus from the terminal. -->
+                        agent CLIs run overwhelmingly in local panes. Visibility is owned by the
+                        tracker's markdown-presence detection (hidden until the recent on-screen
+                        output looks like markdown); opacity/hit-testing ride the styles. -->
                     <ToggleButton x:Name="AgentOutputToggle"
                                   Grid.Row="0"
                                   ZIndex="60"
+                                  IsVisible="False"
                                   HorizontalAlignment="Right"
                                   VerticalAlignment="Top"
                                   Margin="0,8,18,0"
