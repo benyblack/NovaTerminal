@@ -359,6 +359,14 @@ public sealed class AgentOutputRegionTracker : IDisposable
             return;
         }
 
+        // No edges bound a snapshot, so prompt and echoed-command lines ride the raw tail; trim
+        // them off both ends and deliver the response.
+        text = RecentTailSanitizer.Trim(text);
+        if (text.Length == 0)
+        {
+            return;
+        }
+
         DeliverUpdate(text, streaming: false, generation);
     }
 
