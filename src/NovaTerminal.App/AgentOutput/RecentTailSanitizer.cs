@@ -91,6 +91,58 @@ public static class RecentTailSanitizer
         return string.Empty;
     }
 
+    /// <summary>
+    /// Strips deep leading indentation from lines outside fenced code blocks.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// In markdown, 4+ leading spaces mean "code block". For terminal-captured output that
+    /// interpretation is poison: agent responses indent their examples under list items, and
+    /// every one of those sections then renders as a raw code box - fence markers, heading
+    /// markers and all. The indentation in a grid-derived tail is formatting noise, not intent.
+    /// </para>
+    /// <para>
+    /// Lines inside fenced blocks are preserved verbatim - code indentation is meaningful. The
+    /// fence state toggles on lines starting with <c>```</c> (after trimming), which also lets an
+    /// indented fence itself be dedented into a parseable one. Shallow indentation (1-3 spaces -
+    /// nested list items) is left alone so list structure survives.
+    /// </para>
+    /// </remarks>
+    public static string NormalizeIndentation(string text)
+    {
+        string[] lines = (text ?? string.Empty).Replace("\r\n", "\n").Split('\n');
+        bool inFence = false;
+
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string trimmedStart = lines[i].TrimStart();
+            if (trimmedStart.StartsWith("```", StringComparison.Ordinal))
+            {
+                inFence = !inFence;
+                lines[i] = trimmedStart;
+                continue;
+            }
+
+            if (!inFence && CountLeadingWhitespace(lines[i]) >= 4)
+            {
+                lines[i] = trimmedStart;
+            }
+        }
+
+        return string.Join('\n', lines);
+    }
+
+    private static int CountLeadingWhitespace(string line)
+    {
+        int i = 0;
+        while (i < line.Length && (line[i] == ' ' || line[i] == '\t'))
+        {
+            i++;
+        }
+
+        return i;
+    }
+
     internal static bool IsPromptLike(string line)
     {
         if (line.Length == 0 || line.Length > MaxPromptLength)

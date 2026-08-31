@@ -63,7 +63,7 @@
 
             <ScrollViewer x:Name="ContentScroll"
                           Grid.Row="1"
-                          Padding="12,0,12,10"
+                          Padding="12,4,12,18"
                           IsVisible="False">
                 <StackPanel x:Name="MarkdownHost"/>
             </ScrollViewer>

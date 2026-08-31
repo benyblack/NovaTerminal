@@ -94,4 +94,53 @@ public sealed class RecentTailSanitizerTests
     {
         Assert.Equal(string.Empty, RecentTailSanitizer.ExtractLastResponse(null!));
     }
+
+    // ---------------------------------------------------------------- indentation normalization
+
+    [Fact]
+    public void IndentedExamples_AreDedentedOutsideFences()
+    {
+        // The exact shape from the field report: a markdown guide indents its examples under
+        // list items; 4-space indents would otherwise parse every example as a code block.
+        const string snapshot = "## Quote example\n\n    > Nested quote.\n    > — *Attribution*\n\n## Code example\n\n    ## Code\n    body text";
+
+        string normalized = RecentTailSanitizer.NormalizeIndentation(snapshot);
+
+        Assert.DoesNotContain("\n    >", normalized, StringComparison.Ordinal);
+        Assert.Contains("> Nested quote.", normalized, StringComparison.Ordinal);
+        Assert.Contains("## Code", normalized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FencedContent_KeepsItsIndentation()
+    {
+        const string snapshot = "```python\ndef greet(name):\n    return f\"Hi {name}\"\n```\n";
+
+        string normalized = RecentTailSanitizer.NormalizeIndentation(snapshot);
+
+        Assert.Contains("    return", normalized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnIndentedFence_Itself_IsDedentedAndToggles()
+    {
+        // A fence indented under a list item: the fence lines dedent (so it parses as a fence)
+        // while the code inside stays verbatim - code indentation is meaningful.
+        const string snapshot = "- item\n    ```js\n    const answer = 42;\n    ```\ndone";
+
+        string normalized = RecentTailSanitizer.NormalizeIndentation(snapshot);
+
+        Assert.Contains("```js\n    const answer = 42;\n```", normalized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeepListNesting_IsFlattened()
+    {
+        // The accepted trade: 4-space list nesting is indistinguishable from an indented code
+        // block in a grid-derived tail, and the code-block reading is the one that spams raw
+        // markdown boxes - so deep nesting flattens.
+        const string snapshot = "- top\n  - nested\n    - deeper";
+
+        Assert.Equal("- top\n  - nested\n- deeper", RecentTailSanitizer.NormalizeIndentation(snapshot));
+    }
 }

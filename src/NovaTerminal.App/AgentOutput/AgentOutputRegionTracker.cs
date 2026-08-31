@@ -362,8 +362,10 @@ public sealed class AgentOutputRegionTracker : IDisposable
         // No edges bound a snapshot, so the raw tail is a fragment of the whole conversation:
         // prompts, echoed commands, and several rounds of responses interleaved. Split at the
         // prompt lines and deliver the latest round's response - in a long agent chat that is
-        // "the response", not the whole pane.
-        text = RecentTailSanitizer.ExtractLastResponse(text);
+        // "the response", not the whole pane. Indentation is normalized before delivery: agent
+        // responses indent examples under list items, and 4-space indents would otherwise parse
+        // those sections as code blocks.
+        text = RecentTailSanitizer.NormalizeIndentation(RecentTailSanitizer.ExtractLastResponse(text));
         if (text.Length == 0)
         {
             return;
