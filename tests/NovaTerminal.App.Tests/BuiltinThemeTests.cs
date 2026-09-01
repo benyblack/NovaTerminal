@@ -1,5 +1,7 @@
 using NovaTerminal.Shell;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using NovaTerminal.VT;
 using Xunit;
@@ -14,19 +16,21 @@ namespace NovaTerminal.Tests
     /// </summary>
     public class BuiltinThemeTests
     {
-        public static TheoryData<string> ThemeFileNames => new()
-        {
-            "Dracula", "GitHubDark", "GitHubLight", "Monokai", "Nord", "OneHalfDark",
-            "OneHalfLight", "SolarizedDark", "SolarizedLight", "TokyoNight",
-            "CatppuccinMocha", "GruvboxDark", "Cobalt2"
-        };
+        /// <summary>
+        /// Enumerates whatever theme files ship rather than a hand-maintained list, so a newly
+        /// added theme is covered without remembering to update this test.
+        /// </summary>
+        public static IEnumerable<object[]> AllBuiltinThemeFiles =>
+            Directory.EnumerateFiles(FindThemesDirectory(), "*.json")
+                .Select(Path.GetFileNameWithoutExtension)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .Select(name => new object[] { name! });
 
         [Theory]
-        [MemberData(nameof(ThemeFileNames))]
+        [MemberData(nameof(AllBuiltinThemeFiles))]
         public void BuiltinTheme_DeserializesWithFullySpecifiedColors(string fileName)
         {
             string path = Path.Combine(FindThemesDirectory(), fileName + ".json");
-            Assert.True(File.Exists(path), $"Built-in theme file is missing: {path}");
 
             string json = File.ReadAllText(path);
             var theme = JsonSerializer.Deserialize(json, AppJsonContext.Default.TerminalTheme);
@@ -45,6 +49,27 @@ namespace NovaTerminal.Tests
             }
         }
 
+        /// <summary>
+        /// The per-file theory above covers whatever ships; this pins the canonical set so a
+        /// theme deleted by accident (or a broken content glob) still fails the build.
+        /// </summary>
+        [Fact]
+        public void BuiltinThemes_CanonicalSetIsShipped()
+        {
+            string[] expected =
+            [
+                "Cobalt2", "CatppuccinMocha", "Dracula", "GitHubDark", "GitHubLight",
+                "GruvboxDark", "Monokai", "Nord", "OneHalfDark", "OneHalfLight",
+                "SolarizedDark", "SolarizedLight", "TokyoNight"
+            ];
+            var shipped = Directory.EnumerateFiles(FindThemesDirectory(), "*.json")
+                .Select(Path.GetFileNameWithoutExtension)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var missing = expected.Where(name => !shipped.Contains(name)).ToList();
+            Assert.True(missing.Count == 0, $"Missing built-in themes: {string.Join(", ", missing)}");
+        }
+
         [Fact]
         public void Dracula_UsesOfficialForeground()
         {
@@ -58,11 +83,19 @@ namespace NovaTerminal.Tests
 
         private static string FindThemesDirectory()
         {
+            // The app project's content glob copies themes into referencing projects' output;
+            // prefer that so the test does not require running inside a source checkout.
+            string outputThemes = Path.Combine(AppContext.BaseDirectory, "themes");
+            if (Directory.Exists(outputThemes) && Directory.GetFiles(outputThemes, "*.json").Length > 0)
+            {
+                return outputThemes;
+            }
+
             DirectoryInfo? directory = new(AppContext.BaseDirectory);
             while (directory != null)
             {
                 string candidate = Path.Combine(directory.FullName, "src", "NovaTerminal.App", "themes");
-                if (Directory.Exists(candidate))
+                if (Directory.Exists(candidate) && Directory.GetFiles(candidate, "*.json").Length > 0)
                 {
                     return candidate;
                 }
@@ -70,7 +103,7 @@ namespace NovaTerminal.Tests
                 directory = directory.Parent;
             }
 
-            throw new DirectoryNotFoundException("Could not locate src/NovaTerminal.App/themes from test output path.");
+            throw new DirectoryNotFoundException("Could not locate built-in theme files from test output path.");
         }
     }
 }
