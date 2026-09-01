@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace NovaTerminal.Pty
 {
@@ -85,35 +86,52 @@ namespace NovaTerminal.Pty
         }
 
         /// <summary>
-        /// True when <paramref name="path"/> exists and, on Unix, carries an execute bit.
+        /// True when <paramref name="path"/> exists and this account can execute it.
         /// </summary>
         /// <remarks>
-        /// File.Exists alone accepts a file whose mode has no x bit, and the PTY's exec then
-        /// fails with EACCES — the exact dead pane this resolution chain exists to avoid
-        /// handing out. Unreadable mode metadata is trusted as before rather than rejected:
-        /// a stat that fails is not evidence that the shell is broken.
+        /// File.Exists alone accepts a file whose mode has no x bit at all, and even an
+        /// execute-bit check accepts a bit from a permission class that does not apply to
+        /// this process - owner-only exec on a file the account does not own fails with
+        /// EACCES all the same. So on Unix the verdict is <c>access(X_OK)</c>, which asks
+        /// exactly the kernel's question for this uid and gid. That call is the primary
+        /// probe, not the only tier: libc missing or unanswerable degrades to the mode
+        /// heuristic, and unreadable mode metadata degrades further to the existence
+        /// verdict. The PTY spawn remains the final arbiter either way.
         /// </remarks>
         internal static bool IsLaunchableShell(string path)
+            => IsLaunchableShell(path, ExecProbeAnswersExecutable);
+
+        internal static bool IsLaunchableShell(string path, Func<string, bool> execProbe)
         {
             if (!File.Exists(path)) return false;
             if (OperatingSystem.IsWindows()) return true;
 
             try
             {
-                return HasAnyExecuteBit(File.GetUnixFileMode(path));
+                return execProbe(path);
             }
             catch
             {
-                // Best effort: a platform without mode metadata, or a lost race with the
-                // file's removal, falls back to the existence verdict.
-                return true;
+                // The native probe cannot answer on this platform. Fall back to the mode
+                // heuristic; if even the mode is unreadable, trust the existence verdict.
+                try { return HasAnyExecuteBit(File.GetUnixFileMode(path)); }
+                catch { return true; }
             }
         }
 
+        /// <summary>A mode heuristic, used only when <c>access</c> cannot answer.</summary>
         internal static bool HasAnyExecuteBit(UnixFileMode mode)
             => mode.HasFlag(UnixFileMode.UserExecute)
                 || mode.HasFlag(UnixFileMode.GroupExecute)
                 || mode.HasFlag(UnixFileMode.OtherExecute);
+
+        private static bool ExecProbeAnswersExecutable(string path)
+            => access(path, X_OK) == 0;
+
+        private const int X_OK = 1;
+
+        [DllImport("libc")]
+        private static extern int access([MarshalAs(UnmanagedType.LPUTF8Str)] string pathname, int mode);
 
         private static string? ReadLoginShellFromPasswd()
         {

@@ -239,4 +239,55 @@ public sealed class DefaultShellResolutionTests
             try { File.Delete(path); } catch { /* best effort */ }
         }
     }
+
+    // access(X_OK) is the primary probe because a bit from a permission class that does not
+    // apply to this process (owner-only exec on a file we do not own) still ends in EACCES.
+    // The seam tests pin the tiers without needing a mis-permissioned file.
+    [Fact]
+    public void IsLaunchableShell_ProbeDenies_IsRejected()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("The probe is only consulted on Unix.");
+        }
+
+        string path = Path.Combine(Path.GetTempPath(), "nova probe denied " + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            File.WriteAllText(path, "");
+            // Owner-exec bits set, but the kernel-level probe says no anyway.
+            File.SetUnixFileMode(path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            Assert.False(ShellHelper.IsLaunchableShell(path, _ => false));
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public void IsLaunchableShell_ProbeUnavailable_FallsBackToTheModeHeuristic()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "nova probe blind " + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            File.WriteAllText(path, "");
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(path,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+
+            Assert.True(ShellHelper.IsLaunchableShell(
+                path, _ => throw new InvalidOperationException("no libc here")));
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* best effort */ }
+        }
+    }
 }
