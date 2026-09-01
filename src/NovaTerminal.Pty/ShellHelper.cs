@@ -6,6 +6,12 @@ namespace NovaTerminal.Pty
 {
     public static class ShellHelper
     {
+        /// <summary>
+        /// This platform's shell for every "the user did not name one" path: new profiles,
+        /// blank configured commands, session restore of a command written for another OS.
+        /// On Unix that is the user's actual login shell — environment first, then the passwd
+        /// database — not a preference order between whichever shells happen to be installed.
+        /// </summary>
         public static string GetDefaultShell()
         {
             if (OperatingSystem.IsWindows())
@@ -17,15 +23,98 @@ namespace NovaTerminal.Pty
                 }
                 return "cmd.exe";
             }
-            else
+
+            return GetUnixDefaultShell(
+                Environment.GetEnvironmentVariable,
+                File.Exists,
+                ReadLoginShellFromPasswd);
+        }
+
+        /// <summary>
+        /// The Unix half of <see cref="GetDefaultShell"/>, as a resolution chain: $SHELL,
+        /// then the passwd entry for the current user, then the old existence probe as the
+        /// floor. The delegates exist so the chain is testable from any platform; production
+        /// passes the real environment, filesystem and passwd reader.
+        /// </summary>
+        /// <remarks>
+        /// $SHELL leads because it is what launchd sets from the login shell for GUI
+        /// applications on macOS and what the desktop session sets on most Linux distros —
+        /// the one place the login shell is already answered without re-deriving it. The
+        /// passwd lookup covers the sessions that never got a $SHELL; macOS GUI users are
+        /// absent from /etc/passwd (Directory Services owns them), so in practice that step
+        /// mostly answers Linux. The old zsh/bash/sh probe stays as the floor so a machine
+        /// where neither source answers behaves exactly as before.
+        ///
+        /// Every answer is probed with <paramref name="fileExists"/> before being trusted: a
+        /// $SHELL left pointing at a since-uninstalled shell (brew remove, chsh followed by
+        /// deletion) must fall through, not be handed to CreateProcess as a guaranteed
+        /// launch. It is the same conservatism as <see cref="ResolveExecutableOrDefault"/>:
+        /// a shell we resolve is a shell we vouch for.
+        /// </remarks>
+        internal static string GetUnixDefaultShell(
+            Func<string, string?> getEnvironmentVariable,
+            Func<string, bool> fileExists,
+            Func<string?> readLoginShellFromPasswd)
+        {
+            string? fromEnvironment = getEnvironmentVariable("SHELL");
+            if (!string.IsNullOrWhiteSpace(fromEnvironment) && fileExists(fromEnvironment))
             {
-                string[] shells = { "/bin/zsh", "/bin/bash", "/bin/sh" };
-                foreach (var shell in shells)
-                {
-                    if (File.Exists(shell)) return shell;
-                }
-                return "/bin/sh";
+                return fromEnvironment;
             }
+
+            string? fromPasswd = readLoginShellFromPasswd();
+            if (!string.IsNullOrWhiteSpace(fromPasswd) && fileExists(fromPasswd))
+            {
+                return fromPasswd;
+            }
+
+            string[] shells = { "/bin/zsh", "/bin/bash", "/bin/sh" };
+            foreach (var shell in shells)
+            {
+                if (fileExists(shell)) return shell;
+            }
+            return "/bin/sh";
+        }
+
+        private static string? ReadLoginShellFromPasswd()
+        {
+            try
+            {
+                return ParseLoginShellFromPasswd(File.ReadAllLines("/etc/passwd"), Environment.UserName);
+            }
+            catch
+            {
+                // Unreadable is an expected shape, not a failure: macOS keeps its users in
+                // Directory Services, and there is nothing to answer with. The floor probe
+                // in GetUnixDefaultShell takes it from here.
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The login shell (the seventh passwd field) for <paramref name="username"/>, or
+        /// null when the file has no usable entry for that user.
+        /// </summary>
+        /// <remarks>
+        /// Matched on the user name rather than the uid: the uid would need a getpwuid
+        /// P/Invoke, and .NET already resolved <see cref="Environment.UserName"/> from the
+        /// same account database the passwd file was generated from.
+        /// </remarks>
+        internal static string? ParseLoginShellFromPasswd(string[] lines, string? username)
+        {
+            if (string.IsNullOrWhiteSpace(username)) return null;
+
+            foreach (string line in lines)
+            {
+                string[] fields = line.Split(':');
+                if (fields.Length >= 7 &&
+                    string.Equals(fields[0], username, StringComparison.Ordinal))
+                {
+                    return fields[6];
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
