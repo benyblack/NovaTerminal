@@ -234,6 +234,34 @@ jobs:
       MAC_SIGNING_ENABLED: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
 
     steps:
+      # ---- macOS signing setup precedes the checkout_ref checkout on purpose: that
+      # ---- ref (the dispatch input target_commitish) can name a revision older than
+      # ---- the workflow's own ref, and the local action below resolves from the
+      # ---- workspace tree — which such a revision would not contain (Greptile P1 on
+      # ---- #382). So: check the workflow's own ref out first (it provides the
+      # ---- action), import the keychain + notarytool profile (both live outside the
+      # ---- workspace, so the re-checkout's clean cannot disturb them), then check
+      # ---- out the release revision the build actually packages. Gated like the
+      # ---- keychain step, so the unsigned lane keeps a single checkout.
+      - name: Checkout workflow ref (provides the local signing action)
+        if: matrix.rid == 'osx-arm64' && env.MAC_SIGNING_ENABLED == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up macOS signing keychain
+        id: mac_signing
+        if: matrix.rid == 'osx-arm64' && env.MAC_SIGNING_ENABLED == 'true'
+        uses: ./.github/actions/setup-mac-signing
+        with:
+          cert-p12-base64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          installer-p12-base64: ${{ secrets.MAC_INSTALLER_CERT_P12_BASE64 }}
+          cert-password: ${{ secrets.MAC_CERT_PASSWORD }}
+          sign-app-identity: ${{ secrets.MAC_SIGN_APP_IDENTITY }}
+          sign-install-identity: ${{ secrets.MAC_SIGN_INSTALL_IDENTITY }}
+          notary-profile: ${{ secrets.MAC_NOTARY_PROFILE }}
+          apple-id: ${{ secrets.MAC_APPLE_ID }}
+          team-id: ${{ secrets.MAC_TEAM_ID }}
+          app-specific-password: ${{ secrets.MAC_APP_SPECIFIC_PASSWORD }}
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.release_metadata.outputs.checkout_ref }}
@@ -490,27 +518,6 @@ jobs:
         if: matrix.rid == 'osx-arm64'
         run: packaging/macos/make-icns.sh src/NovaTerminal.App/Assets/nova_icon.png artifacts/icon/nova_icon.icns
 
-      # ---- Apple signing + notarization, gated on the presence of MAC_CERT_P12_BASE64
-      # ---- so the lane keeps its unsigned behavior until all MAC_* secrets exist (the
-      # ---- gate, the secret list and the one-time setup are documented in
-      # ---- packaging/macos/README.md). The action fails fast on a half-configured
-      # ---- secret set, an identity the p12 does not contain, or Apple rejecting the
-      # ---- notarytool credentials.
-      - name: Set up macOS signing keychain
-        id: mac_signing
-        if: matrix.rid == 'osx-arm64' && env.MAC_SIGNING_ENABLED == 'true'
-        uses: ./.github/actions/setup-mac-signing
-        with:
-          cert-p12-base64: ${{ secrets.MAC_CERT_P12_BASE64 }}
-          installer-p12-base64: ${{ secrets.MAC_INSTALLER_CERT_P12_BASE64 }}
-          cert-password: ${{ secrets.MAC_CERT_PASSWORD }}
-          sign-app-identity: ${{ secrets.MAC_SIGN_APP_IDENTITY }}
-          sign-install-identity: ${{ secrets.MAC_SIGN_INSTALL_IDENTITY }}
-          notary-profile: ${{ secrets.MAC_NOTARY_PROFILE }}
-          apple-id: ${{ secrets.MAC_APPLE_ID }}
-          team-id: ${{ secrets.MAC_TEAM_ID }}
-          app-specific-password: ${{ secrets.MAC_APP_SPECIFIC_PASSWORD }}
-
       - name: Pack macOS installer (Velopack)
         if: matrix.rid == 'osx-arm64'
         shell: bash
@@ -581,7 +588,7 @@ jobs:
           # com.benyblack.NovaTerminalApp; this matches the public identity (winget:
           # benyblack.NovaTerminal) instead.
           #
-          # Signing is secret-gated (see the "Set up macOS signing keychain" step above):
+          # Signing is secret-gated (the keychain is set up at the top of this job):
           # when that step ran, vpk signs the app bundle and dylibs (deep signing), signs
           # the pkg, submits for notarization, staples the ticket, and runs spctl
           # assessments — failing the step if any of that breaks. Without the secret, vpk
