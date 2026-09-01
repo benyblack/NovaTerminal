@@ -217,33 +217,6 @@ namespace NovaTerminal.Shell
             Func<string, bool> commandExists)
             => GetDefaultProfiles(DefaultProfileCandidates(), commandExists);
 
-        /// <summary>The first-run candidates for this platform. On Unix the detected login
-        /// shell leads, so <c>DefaultProfileId</c> lands on the shell the user actually uses
-        /// rather than whichever fixed entry happens to exist.</summary>
-        private static (string Name, string Command)[] DefaultProfileCandidates() => OperatingSystem.IsWindows()
-            ? new[]
-            {
-                ("Command Prompt", "cmd.exe"),
-                ("PowerShell", "pwsh.exe"),
-                ("Windows PowerShell", "powershell.exe"),
-            }
-            : UnixProfileCandidates(ShellHelper.GetDefaultShell());
-
-        /// <summary>
-        /// The Unix first-run candidates: the login shell, then the fixed trio. A login shell
-        /// that collides with the trio (a zsh user's <c>/bin/zsh</c>) is dropped by the dedup
-        /// in the profile builder, not here — this stays a plain list so callers can see what
-        /// was offered.
-        /// </summary>
-        internal static (string Name, string Command)[] UnixProfileCandidates(string loginShell)
-            => new[]
-            {
-                ("Default Shell", loginShell),
-                ("Bash", "/bin/bash"),
-                ("Zsh", "/bin/zsh"),
-                ("Shell", "/bin/sh"),
-            };
-
         /// <summary>
         /// Filters <paramref name="candidates"/> down to the shells that are installed,
         /// dropping a command that an earlier candidate already added.
@@ -280,6 +253,33 @@ namespace NovaTerminal.Shell
 
             return profiles;
         }
+
+        /// <summary>The first-run candidates for this platform. On Unix the detected login
+        /// shell leads, so <c>DefaultProfileId</c> lands on the shell the user actually uses
+        /// rather than whichever fixed entry happens to exist.</summary>
+        private static (string Name, string Command)[] DefaultProfileCandidates() => OperatingSystem.IsWindows()
+            ? new[]
+            {
+                ("Command Prompt", "cmd.exe"),
+                ("PowerShell", "pwsh.exe"),
+                ("Windows PowerShell", "powershell.exe"),
+            }
+            : UnixProfileCandidates(ShellHelper.GetDefaultShell());
+
+        /// <summary>
+        /// The Unix first-run candidates: the login shell, then the fixed trio. A login shell
+        /// that collides with the trio (a zsh user's <c>/bin/zsh</c>) is dropped by the dedup
+        /// in the profile builder, not here — this stays a plain list so callers can see what
+        /// was offered.
+        /// </summary>
+        internal static (string Name, string Command)[] UnixProfileCandidates(string loginShell)
+            => new[]
+            {
+                ("Default Shell", loginShell),
+                ("Bash", "/bin/bash"),
+                ("Zsh", "/bin/zsh"),
+                ("Shell", "/bin/sh"),
+            };
 
         private static bool CommandIsInstalled(string command)
             => OperatingSystem.IsWindows()

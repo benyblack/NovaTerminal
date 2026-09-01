@@ -164,4 +164,79 @@ public sealed class DefaultShellResolutionTests
 
         Assert.Null(ShellHelper.ParseLoginShellFromPasswd(lines, "user"));
     }
+
+    // --- IsLaunchableShell: existence plus, on Unix, an execute bit. A mode-0644 $SHELL
+    // used to pass the probe and then fail the PTY's exec with EACCES. ---
+
+    [Theory]
+    [InlineData(UnixFileMode.UserExecute)]
+    [InlineData(UnixFileMode.GroupExecute)]
+    [InlineData(UnixFileMode.OtherExecute)]
+    [InlineData(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupExecute)]
+    public void HasAnyExecuteBit_AnyExecuteBitQualifies(UnixFileMode mode)
+    {
+        Assert.True(ShellHelper.HasAnyExecuteBit(mode));
+    }
+
+    [Theory]
+    [InlineData(UnixFileMode.None)]
+    [InlineData(UnixFileMode.UserRead | UnixFileMode.UserWrite)]
+    [InlineData(UnixFileMode.UserRead | UnixFileMode.GroupRead | UnixFileMode.OtherRead)]
+    public void HasAnyExecuteBit_ReadAndWriteAloneDoNotQualify(UnixFileMode mode)
+    {
+        Assert.False(ShellHelper.HasAnyExecuteBit(mode));
+    }
+
+    [Fact]
+    public void IsLaunchableShell_MissingFile_IsRejected()
+    {
+        Assert.False(ShellHelper.IsLaunchableShell(
+            Path.Combine(Path.GetTempPath(), "nova missing shell " + Guid.NewGuid().ToString("N"))));
+    }
+
+    [Fact]
+    public void IsLaunchableShell_ExecutableFile_IsAccepted()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "nova launchable " + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            File.WriteAllText(path, "");
+            if (!OperatingSystem.IsWindows())
+            {
+                // Temp files arrive 0644 on Unix; hand the owner the x bit being asserted on.
+                File.SetUnixFileMode(path,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+
+            Assert.True(ShellHelper.IsLaunchableShell(path));
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public void IsLaunchableShell_UnixFileWithoutExecuteBit_IsRejected()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Execute bits are a Unix fact; Windows accepts any existing file.");
+        }
+
+        // A fresh temp file is born 0644 on Unix, which is exactly the shape being rejected.
+        string path = Path.Combine(Path.GetTempPath(), "nova not executable " + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            File.WriteAllText(path, "");
+
+            Assert.False(ShellHelper.IsLaunchableShell(path));
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* best effort */ }
+        }
+    }
 }

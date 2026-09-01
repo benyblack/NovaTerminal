@@ -26,7 +26,7 @@ namespace NovaTerminal.Pty
 
             return GetUnixDefaultShell(
                 Environment.GetEnvironmentVariable,
-                File.Exists,
+                IsLaunchableShell,
                 ReadLoginShellFromPasswd);
         }
 
@@ -45,25 +45,33 @@ namespace NovaTerminal.Pty
         /// mostly answers Linux. The old zsh/bash/sh probe stays as the floor so a machine
         /// where neither source answers behaves exactly as before.
         ///
-        /// Every answer is probed with <paramref name="fileExists"/> before being trusted: a
+        /// Every answer is probed with <paramref name="isLaunchable"/> before being trusted: a
         /// $SHELL left pointing at a since-uninstalled shell (brew remove, chsh followed by
         /// deletion) must fall through, not be handed to CreateProcess as a guaranteed
-        /// launch. It is the same conservatism as <see cref="ResolveExecutableOrDefault"/>:
-        /// a shell we resolve is a shell we vouch for.
+        /// launch, and neither may a file this account cannot actually execute (see
+        /// <see cref="IsLaunchableShell"/>). It is the same conservatism as
+        /// <see cref="ResolveExecutableOrDefault"/>: a shell we resolve is a shell we vouch for.
+        ///
+        /// The passwd step is a plain /etc/passwd read, so accounts served only through NSS
+        /// (SSSD, LDAP, Active Directory) are invisible to it. Those sessions normally carry
+        /// $SHELL from the login environment; when they do not, the floor below degrades to
+        /// exactly the pre-login-shell behaviour rather than to something new. Deriving the
+        /// answer through getpwuid instead would need a libc P/Invoke, which this cold a
+        /// path is deliberately not paying for.
         /// </remarks>
         internal static string GetUnixDefaultShell(
             Func<string, string?> getEnvironmentVariable,
-            Func<string, bool> fileExists,
+            Func<string, bool> isLaunchable,
             Func<string?> readLoginShellFromPasswd)
         {
             string? fromEnvironment = getEnvironmentVariable("SHELL");
-            if (!string.IsNullOrWhiteSpace(fromEnvironment) && fileExists(fromEnvironment))
+            if (!string.IsNullOrWhiteSpace(fromEnvironment) && isLaunchable(fromEnvironment))
             {
                 return fromEnvironment;
             }
 
             string? fromPasswd = readLoginShellFromPasswd();
-            if (!string.IsNullOrWhiteSpace(fromPasswd) && fileExists(fromPasswd))
+            if (!string.IsNullOrWhiteSpace(fromPasswd) && isLaunchable(fromPasswd))
             {
                 return fromPasswd;
             }
@@ -71,10 +79,41 @@ namespace NovaTerminal.Pty
             string[] shells = { "/bin/zsh", "/bin/bash", "/bin/sh" };
             foreach (var shell in shells)
             {
-                if (fileExists(shell)) return shell;
+                if (isLaunchable(shell)) return shell;
             }
             return "/bin/sh";
         }
+
+        /// <summary>
+        /// True when <paramref name="path"/> exists and, on Unix, carries an execute bit.
+        /// </summary>
+        /// <remarks>
+        /// File.Exists alone accepts a file whose mode has no x bit, and the PTY's exec then
+        /// fails with EACCES — the exact dead pane this resolution chain exists to avoid
+        /// handing out. Unreadable mode metadata is trusted as before rather than rejected:
+        /// a stat that fails is not evidence that the shell is broken.
+        /// </remarks>
+        internal static bool IsLaunchableShell(string path)
+        {
+            if (!File.Exists(path)) return false;
+            if (OperatingSystem.IsWindows()) return true;
+
+            try
+            {
+                return HasAnyExecuteBit(File.GetUnixFileMode(path));
+            }
+            catch
+            {
+                // Best effort: a platform without mode metadata, or a lost race with the
+                // file's removal, falls back to the existence verdict.
+                return true;
+            }
+        }
+
+        internal static bool HasAnyExecuteBit(UnixFileMode mode)
+            => mode.HasFlag(UnixFileMode.UserExecute)
+                || mode.HasFlag(UnixFileMode.GroupExecute)
+                || mode.HasFlag(UnixFileMode.OtherExecute);
 
         private static string? ReadLoginShellFromPasswd()
         {
