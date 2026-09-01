@@ -1,0 +1,22 @@
+{
+  "Name": "Tokyo Night",
+  "Foreground": "#c0caf5",
+  "Background": "#1a1b26",
+  "CursorColor": "#c0caf5",
+  "Black": "#15161e",
+  "Red": "#f7768e",
+  "Green": "#9ece6a",
+  "Yellow": "#e0af68",
+  "Blue": "#7aa2f7",
+  "Magenta": "#bb9af7",
+  "Cyan": "#7dcfff",
+  "White": "#a9b1d6",
+  "BrightBlack": "#414868",
+  "BrightRed": "#f7768e",
+  "BrightGreen": "#9ece6a",
+  "BrightYellow": "#e0af68",
+  "BrightBlue": "#7aa2f7",
+  "BrightMagenta": "#bb9af7",
+  "BrightCyan": "#7dcfff",
+  "BrightWhite": "#c0caf5"
+}
