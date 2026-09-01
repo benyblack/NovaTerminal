@@ -307,11 +307,11 @@ namespace NovaTerminal
             };
             connManager.OnCopyLaunchCommandRequested += (profile, diagnosticsLevel) =>
             {
-                _ = CopySshLaunchCommandAsync(profile, diagnosticsLevel);
+                _ = CopySshLaunchCommandAsync(profile, diagnosticsLevel, window);
             };
             connManager.OnConnectionDetailsRequested += (profile, diagnosticsLevel) =>
             {
-                _ = ShowSshConnectionDetailsAsync(profile, diagnosticsLevel);
+                _ = ShowSshConnectionDetailsAsync(profile, diagnosticsLevel, window);
             };
             connManager.OnProfilesChanged += () =>
             {
@@ -320,15 +320,15 @@ namespace NovaTerminal
             connManager.OnSyncRequested += HandleSshSync;
             connManager.OnNewConnectionRequested += async () =>
             {
-                await ShowNewSshConnectionDialogAsync(null);
+                await ShowNewSshConnectionDialogAsync(null, window);
             };
             connManager.OnEditProfile += async (profile) =>
             {
-                await ShowNewSshConnectionDialogAsync(profile);
+                await ShowNewSshConnectionDialogAsync(profile, window);
             };
             connManager.OnDeleteProfileRequested += async (profile) =>
             {
-                await DeleteSshProfileAsync(profile);
+                await DeleteSshProfileAsync(profile, window);
             };
 
             // Same "focus search on open" the overlay toggle did. Focus set before the window
@@ -6475,7 +6475,10 @@ namespace NovaTerminal
             double FontSize,
             string ThemeName);
 
-        private async Task ShowNewSshConnectionDialogAsync(TerminalProfile? existingProfile)
+        // Dialogs raised from the Connection Manager window take that window as their owner
+        // (optional `owner`, falling back to MainWindow everywhere else) so they stack on the
+        // surface the user actually acted on rather than on the disabled root window.
+        private async Task ShowNewSshConnectionDialogAsync(TerminalProfile? existingProfile, Window? owner = null)
         {
             var vm = _sshConnectionService.CreateEditorViewModel(existingProfile);
             // The default backend for a NEW profile follows the global toggle: native where it is
@@ -6489,7 +6492,7 @@ namespace NovaTerminal
             vm.ExperimentalNativeSshEnabled = _settings.ExperimentalNativeSshEnabled;
             var dialog = new NewSshConnectionView(vm);
             ApplyThemeToDialogWindow(dialog);
-            bool saved = await dialog.ShowDialog<bool>(this);
+            bool saved = await dialog.ShowDialog<bool>(owner ?? this);
 
             if (!saved)
             {
@@ -6510,7 +6513,8 @@ namespace NovaTerminal
                     {
                         await ShowSimpleMessageDialogAsync(
                             "Native SSH disabled",
-                            "This profile was saved with the Native backend, but native SSH is disabled globally. Turn it on under Settings > SSH or switch the profile back to OpenSSH.");
+                            "This profile was saved with the Native backend, but native SSH is disabled globally. Turn it on under Settings > SSH or switch the profile back to OpenSSH.",
+                            owner);
                         return;
                     }
 
@@ -6523,7 +6527,7 @@ namespace NovaTerminal
             }
         }
 
-        private async Task DeleteSshProfileAsync(TerminalProfile profile)
+        private async Task DeleteSshProfileAsync(TerminalProfile profile, Window? owner = null)
         {
             if (profile == null)
             {
@@ -6539,7 +6543,7 @@ namespace NovaTerminal
                 ? "this connection"
                 : $"\"{displayName}\"";
 
-            if (!await ShowDeleteConnectionConfirmationAsync(label))
+            if (!await ShowDeleteConnectionConfirmationAsync(label, owner))
             {
                 return;
             }
@@ -6568,11 +6572,11 @@ namespace NovaTerminal
             }
             catch (Exception ex)
             {
-                await ShowSimpleMessageDialogAsync("Delete connection", ex.Message);
+                await ShowSimpleMessageDialogAsync("Delete connection", ex.Message, owner);
             }
         }
 
-        private async Task<bool> ShowDeleteConnectionConfirmationAsync(string label)
+        private async Task<bool> ShowDeleteConnectionConfirmationAsync(string label, Window? owner = null)
         {
             bool confirmed = false;
 
@@ -6638,16 +6642,16 @@ namespace NovaTerminal
                 }
             };
 
-            await dialog.ShowDialog(this);
+            await dialog.ShowDialog(owner ?? this);
             return confirmed;
         }
 
-        private async Task CopySshLaunchCommandAsync(TerminalProfile profile, SshDiagnosticsLevel diagnosticsLevel)
+        private async Task CopySshLaunchCommandAsync(TerminalProfile profile, SshDiagnosticsLevel diagnosticsLevel, Window? owner = null)
         {
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel?.Clipboard == null)
             {
-                await ShowSimpleMessageDialogAsync("Copy launch command", "Clipboard is not available.");
+                await ShowSimpleMessageDialogAsync("Copy launch command", "Clipboard is not available.", owner);
                 return;
             }
 
@@ -6659,21 +6663,21 @@ namespace NovaTerminal
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to copy SSH command: {ex.Message}");
-                await ShowSimpleMessageDialogAsync("Copy launch command", ex.Message);
+                await ShowSimpleMessageDialogAsync("Copy launch command", ex.Message, owner);
             }
         }
 
-        private async Task ShowSshConnectionDetailsAsync(TerminalProfile profile, SshDiagnosticsLevel diagnosticsLevel)
+        private async Task ShowSshConnectionDetailsAsync(TerminalProfile profile, SshDiagnosticsLevel diagnosticsLevel, Window? owner = null)
         {
             try
             {
                 var details = _sshConnectionService.BuildLaunchDetails(profile, diagnosticsLevel);
-                await ShowConnectionDetailsDialogAsync(details, diagnosticsLevel);
+                await ShowConnectionDetailsDialogAsync(details, diagnosticsLevel, owner);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to show SSH connection details: {ex.Message}");
-                await ShowSimpleMessageDialogAsync("Connection details", ex.Message);
+                await ShowSimpleMessageDialogAsync("Connection details", ex.Message, owner);
             }
         }
 
@@ -6770,7 +6774,7 @@ namespace NovaTerminal
             await dialog.ShowDialog(this);
         }
 
-        private async Task ShowSimpleMessageDialogAsync(string title, string message)
+        private async Task ShowSimpleMessageDialogAsync(string title, string message, Window? owner = null)
         {
             var dialog = CreateThemedDialogWindow(title, 520, 220, canResize: false);
 
@@ -6800,7 +6804,7 @@ namespace NovaTerminal
                 }
             };
 
-            await dialog.ShowDialog(this);
+            await dialog.ShowDialog(owner ?? this);
         }
 
         protected virtual Task ExecuteOpenRecordingCommandAsync()
@@ -6910,7 +6914,7 @@ namespace NovaTerminal
             return new ShellOpenRequest(recordingsDirectory, null);
         }
 
-        private async Task ShowConnectionDetailsDialogAsync(SshLaunchDetails details, SshDiagnosticsLevel diagnosticsLevel)
+        private async Task ShowConnectionDetailsDialogAsync(SshLaunchDetails details, SshDiagnosticsLevel diagnosticsLevel, Window? owner = null)
         {
             var dialog = CreateThemedDialogWindow("Connection details", 760, 340, canResize: false);
 
@@ -6965,7 +6969,7 @@ namespace NovaTerminal
                 }
             };
 
-            await dialog.ShowDialog(this);
+            await dialog.ShowDialog(owner ?? this);
         }
 
         private void RefreshProfileUIs()
