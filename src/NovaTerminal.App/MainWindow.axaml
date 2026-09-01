@@ -343,23 +343,6 @@
             </Grid>
         </Border>
 
-        <!-- Connection Manager Overlay -->
-        <Border Name="ConnectionOverlay" IsVisible="False"
-            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-            Margin="24,56,24,24"
-            MaxWidth="1080" MaxHeight="720"
-            Background="#16181d"
-            BorderBrush="#2a2f38" BorderThickness="1" CornerRadius="8"
-            ZIndex="500">
-            <Grid RowDefinitions="Auto, *">
-                <Grid Name="ConnectionTitleBar" Background="#2D2D2D" Height="40">
-                    <TextBlock Name="ConnectionTitleText" Text="Connection Manager" VerticalAlignment="Center" Margin="15,0" FontWeight="Bold"/>
-                    <Button Name="BtnCloseConnections" Content="✕" HorizontalAlignment="Right" Width="40" Background="Transparent" BorderThickness="0"/>
-                </Grid>
-                <ContentControl Name="ConnectionManagerHost" Grid.Row="1"/>
-            </Grid>
-        </Border>
-
         <!-- Transfer Center Overlay -->
         <Border Name="TransferOverlay" IsVisible="False" 
                 HorizontalAlignment="Right" VerticalAlignment="Bottom"

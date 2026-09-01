@@ -161,7 +161,7 @@ namespace NovaTerminal
         // manual invocation) into the same staging directory - UpdateCoordinator.RunCheckAsync
         // has no serialization of its own.
         private bool _updateCheckInFlight;
-        private ConnectionManager? _connectionManagerControl;
+        private ConnectionManagerWindow? _connectionManagerWindow;
         private TransferCenter? _transferCenterControl;
         private readonly CommandPaletteUsageStore _commandPaletteUsageStore;
         private Dictionary<string, CommandPaletteUsageEntry> _commandPaletteUsage = new(StringComparer.OrdinalIgnoreCase);
@@ -271,29 +271,78 @@ namespace NovaTerminal
 
         private void ToggleConnections()
         {
-            var overlay = this.FindControl<Border>("ConnectionOverlay");
-
-            if (overlay != null)
+            // The modal dialog disables MainWindow, so a second shortcut cannot normally arrive
+            // while it is open; the guard just makes a stale reference activate the existing
+            // window instead of stacking a second one.
+            if (_connectionManagerWindow != null)
             {
-                overlay.IsVisible = !overlay.IsVisible;
-                if (overlay.IsVisible)
-                {
-                    var connManager = EnsureConnectionManagerControl();
-                    if (connManager == null)
-                    {
-                        return;
-                    }
-
-                    connManager.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
-                    // Focus search
-                    var search = connManager.FindControl<TextBox>("SearchInput");
-                    search?.Focus();
-                }
-                else
-                {
-                    _currentPane?.ActiveControl.Focus();
-                }
+                _connectionManagerWindow.Activate();
+                return;
             }
+
+            _ = OpenConnectionManagerAsync();
+        }
+
+        /// <summary>
+        /// Opens Connection Manager as a real modal window, the way <see cref="OpenSettings"/>
+        /// opens Settings. The manager surface and its event wiring are recreated per open:
+        /// the dialog is now the surface's only lifetime, whereas the old in-window overlay
+        /// kept one control alive inside MainWindow and refreshed it in place.
+        /// </summary>
+        private async Task OpenConnectionManagerAsync()
+        {
+            var window = new ConnectionManagerWindow();
+            var connManager = window.Manager;
+            if (connManager == null)
+            {
+                return;
+            }
+
+            connManager.ApplyTheme(_settings.ActiveTheme);
+            connManager.SavedPasswordAccess = Vault;
+            connManager.OnQuickOpenRequested += (profile, target, diagnosticsLevel) =>
+            {
+                HandleSshQuickOpen(profile, target, diagnosticsLevel);
+                window.Close();
+            };
+            connManager.OnCopyLaunchCommandRequested += (profile, diagnosticsLevel) =>
+            {
+                _ = CopySshLaunchCommandAsync(profile, diagnosticsLevel, window);
+            };
+            connManager.OnConnectionDetailsRequested += (profile, diagnosticsLevel) =>
+            {
+                _ = ShowSshConnectionDetailsAsync(profile, diagnosticsLevel, window);
+            };
+            connManager.OnProfilesChanged += () =>
+            {
+                _sshConnectionService.SaveConnectionProfiles(connManager.GetAllProfiles());
+            };
+            connManager.OnSyncRequested += HandleSshSync;
+            connManager.OnNewConnectionRequested += async () =>
+            {
+                await ShowNewSshConnectionDialogAsync(null, window);
+            };
+            connManager.OnEditProfile += async (profile) =>
+            {
+                await ShowNewSshConnectionDialogAsync(profile, window);
+            };
+            connManager.OnDeleteProfileRequested += async (profile) =>
+            {
+                await DeleteSshProfileAsync(profile, window);
+            };
+
+            // Same "focus search on open" the overlay toggle did. Focus set before the window
+            // is shown does not stick, so it waits for Opened.
+            window.Opened += (_, _) => connManager.FindControl<TextBox>("SearchInput")?.Focus();
+
+            _connectionManagerWindow = window;
+            window.Closed += (_, _) => _connectionManagerWindow = null;
+            window.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
+
+            await window.ShowDialog(this);
+
+            // Same focus return the overlay's hide branch did.
+            _currentPane?.ActiveControl.Focus();
         }
 
         private void TopLevel_PointerPressed(object? sender, PointerPressedEventArgs e)
@@ -2640,10 +2689,6 @@ namespace NovaTerminal
                 }
             }
 
-
-            var btnCloseConn = this.FindControl<Button>("BtnCloseConnections");
-
-            if (btnCloseConn != null) btnCloseConn.Click += (s, e) => ToggleConnections();
 
             if (tabs != null)
             {
@@ -5484,22 +5529,7 @@ namespace NovaTerminal
                 dragBorder.Background = headerBrush;
             }
 
-            _connectionManagerControl?.ApplyTheme(theme);
-
-            var connTitleBar = this.FindControl<Grid>("ConnectionTitleBar");
-            var connTitleText = this.FindControl<TextBlock>("ConnectionTitleText");
-            var btnCloseConn = this.FindControl<Button>("BtnCloseConnections");
-
-            var themeBgColor = theme.Background.ToAvaloniaColor();
-            if (connTitleBar != null) connTitleBar.Background = new SolidColorBrush(themeBgColor.R < 127 ?
-                Color.FromRgb((byte)(themeBgColor.R + 20), (byte)(themeBgColor.G + 20), (byte)(themeBgColor.B + 20)) :
-                Color.FromRgb((byte)Math.Max(0, themeBgColor.R - 20), (byte)Math.Max(0, themeBgColor.G - 20), (byte)Math.Max(0, themeBgColor.B - 20)));
-
-            if (connTitleText != null) connTitleText.Foreground = contrastForeground;
-            if (btnCloseConn != null) btnCloseConn.Foreground = contrastForeground;
-
-            var connOverlay = this.FindControl<Border>("ConnectionOverlay");
-            if (connOverlay != null) connOverlay.Background = new SolidColorBrush(theme.Background.ToAvaloniaColor());
+            _connectionManagerWindow?.ApplyTheme(theme);
         }
 
         private void SetupCommandPalette()
@@ -6114,58 +6144,6 @@ namespace NovaTerminal
             }
         }
 
-        private ConnectionManager? EnsureConnectionManagerControl()
-        {
-            if (_connectionManagerControl != null)
-            {
-                return _connectionManagerControl;
-            }
-
-            var host = this.FindControl<ContentControl>("ConnectionManagerHost");
-            if (host == null)
-            {
-                return null;
-            }
-
-            var connManager = new ConnectionManager();
-            connManager.ApplyTheme(_settings.ActiveTheme);
-            connManager.SavedPasswordAccess = Vault;
-            connManager.OnQuickOpenRequested += (profile, target, diagnosticsLevel) =>
-            {
-                HandleSshQuickOpen(profile, target, diagnosticsLevel);
-                ToggleConnections();
-            };
-            connManager.OnCopyLaunchCommandRequested += (profile, diagnosticsLevel) =>
-            {
-                _ = CopySshLaunchCommandAsync(profile, diagnosticsLevel);
-            };
-            connManager.OnConnectionDetailsRequested += (profile, diagnosticsLevel) =>
-            {
-                _ = ShowSshConnectionDetailsAsync(profile, diagnosticsLevel);
-            };
-            connManager.OnProfilesChanged += () =>
-            {
-                _sshConnectionService.SaveConnectionProfiles(connManager.GetAllProfiles());
-            };
-            connManager.OnSyncRequested += HandleSshSync;
-            connManager.OnNewConnectionRequested += async () =>
-            {
-                await ShowNewSshConnectionDialogAsync(null);
-            };
-            connManager.OnEditProfile += async (profile) =>
-            {
-                await ShowNewSshConnectionDialogAsync(profile);
-            };
-            connManager.OnDeleteProfileRequested += async (profile) =>
-            {
-                await DeleteSshProfileAsync(profile);
-            };
-
-            host.Content = connManager;
-            _connectionManagerControl = connManager;
-            return connManager;
-        }
-
         private TransferCenter? EnsureTransferCenterControl()
         {
             if (_transferCenterControl != null)
@@ -6457,8 +6435,8 @@ namespace NovaTerminal
                 UpdateTransparencyHints();
                 ApplyAgentHostSettingsLive();
 
-                // Refresh Connection Manager if open (or just always update it)
-                _connectionManagerControl?.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
+                // Refresh Connection Manager if open
+                _connectionManagerWindow?.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
             }
             else
             {
@@ -6497,7 +6475,10 @@ namespace NovaTerminal
             double FontSize,
             string ThemeName);
 
-        private async Task ShowNewSshConnectionDialogAsync(TerminalProfile? existingProfile)
+        // Dialogs raised from the Connection Manager window take that window as their owner
+        // (optional `owner`, falling back to MainWindow everywhere else) so they stack on the
+        // surface the user actually acted on rather than on the disabled root window.
+        private async Task ShowNewSshConnectionDialogAsync(TerminalProfile? existingProfile, Window? owner = null)
         {
             var vm = _sshConnectionService.CreateEditorViewModel(existingProfile);
             // The default backend for a NEW profile follows the global toggle: native where it is
@@ -6511,7 +6492,7 @@ namespace NovaTerminal
             vm.ExperimentalNativeSshEnabled = _settings.ExperimentalNativeSshEnabled;
             var dialog = new NewSshConnectionView(vm);
             ApplyThemeToDialogWindow(dialog);
-            bool saved = await dialog.ShowDialog<bool>(this);
+            bool saved = await dialog.ShowDialog<bool>(owner ?? this);
 
             if (!saved)
             {
@@ -6532,7 +6513,8 @@ namespace NovaTerminal
                     {
                         await ShowSimpleMessageDialogAsync(
                             "Native SSH disabled",
-                            "This profile was saved with the Native backend, but native SSH is disabled globally. Turn it on under Settings > SSH or switch the profile back to OpenSSH.");
+                            "This profile was saved with the Native backend, but native SSH is disabled globally. Turn it on under Settings > SSH or switch the profile back to OpenSSH.",
+                            owner);
                         return;
                     }
 
@@ -6545,7 +6527,7 @@ namespace NovaTerminal
             }
         }
 
-        private async Task DeleteSshProfileAsync(TerminalProfile profile)
+        private async Task DeleteSshProfileAsync(TerminalProfile profile, Window? owner = null)
         {
             if (profile == null)
             {
@@ -6561,7 +6543,7 @@ namespace NovaTerminal
                 ? "this connection"
                 : $"\"{displayName}\"";
 
-            if (!await ShowDeleteConnectionConfirmationAsync(label))
+            if (!await ShowDeleteConnectionConfirmationAsync(label, owner))
             {
                 return;
             }
@@ -6590,11 +6572,11 @@ namespace NovaTerminal
             }
             catch (Exception ex)
             {
-                await ShowSimpleMessageDialogAsync("Delete connection", ex.Message);
+                await ShowSimpleMessageDialogAsync("Delete connection", ex.Message, owner);
             }
         }
 
-        private async Task<bool> ShowDeleteConnectionConfirmationAsync(string label)
+        private async Task<bool> ShowDeleteConnectionConfirmationAsync(string label, Window? owner = null)
         {
             bool confirmed = false;
 
@@ -6660,16 +6642,16 @@ namespace NovaTerminal
                 }
             };
 
-            await dialog.ShowDialog(this);
+            await dialog.ShowDialog(owner ?? this);
             return confirmed;
         }
 
-        private async Task CopySshLaunchCommandAsync(TerminalProfile profile, SshDiagnosticsLevel diagnosticsLevel)
+        private async Task CopySshLaunchCommandAsync(TerminalProfile profile, SshDiagnosticsLevel diagnosticsLevel, Window? owner = null)
         {
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel?.Clipboard == null)
             {
-                await ShowSimpleMessageDialogAsync("Copy launch command", "Clipboard is not available.");
+                await ShowSimpleMessageDialogAsync("Copy launch command", "Clipboard is not available.", owner);
                 return;
             }
 
@@ -6681,21 +6663,21 @@ namespace NovaTerminal
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to copy SSH command: {ex.Message}");
-                await ShowSimpleMessageDialogAsync("Copy launch command", ex.Message);
+                await ShowSimpleMessageDialogAsync("Copy launch command", ex.Message, owner);
             }
         }
 
-        private async Task ShowSshConnectionDetailsAsync(TerminalProfile profile, SshDiagnosticsLevel diagnosticsLevel)
+        private async Task ShowSshConnectionDetailsAsync(TerminalProfile profile, SshDiagnosticsLevel diagnosticsLevel, Window? owner = null)
         {
             try
             {
                 var details = _sshConnectionService.BuildLaunchDetails(profile, diagnosticsLevel);
-                await ShowConnectionDetailsDialogAsync(details, diagnosticsLevel);
+                await ShowConnectionDetailsDialogAsync(details, diagnosticsLevel, owner);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to show SSH connection details: {ex.Message}");
-                await ShowSimpleMessageDialogAsync("Connection details", ex.Message);
+                await ShowSimpleMessageDialogAsync("Connection details", ex.Message, owner);
             }
         }
 
@@ -6792,7 +6774,7 @@ namespace NovaTerminal
             await dialog.ShowDialog(this);
         }
 
-        private async Task ShowSimpleMessageDialogAsync(string title, string message)
+        private async Task ShowSimpleMessageDialogAsync(string title, string message, Window? owner = null)
         {
             var dialog = CreateThemedDialogWindow(title, 520, 220, canResize: false);
 
@@ -6822,7 +6804,7 @@ namespace NovaTerminal
                 }
             };
 
-            await dialog.ShowDialog(this);
+            await dialog.ShowDialog(owner ?? this);
         }
 
         protected virtual Task ExecuteOpenRecordingCommandAsync()
@@ -6932,7 +6914,7 @@ namespace NovaTerminal
             return new ShellOpenRequest(recordingsDirectory, null);
         }
 
-        private async Task ShowConnectionDetailsDialogAsync(SshLaunchDetails details, SshDiagnosticsLevel diagnosticsLevel)
+        private async Task ShowConnectionDetailsDialogAsync(SshLaunchDetails details, SshDiagnosticsLevel diagnosticsLevel, Window? owner = null)
         {
             var dialog = CreateThemedDialogWindow("Connection details", 760, 340, canResize: false);
 
@@ -6987,7 +6969,7 @@ namespace NovaTerminal
                 }
             };
 
-            await dialog.ShowDialog(this);
+            await dialog.ShowDialog(owner ?? this);
         }
 
         private void RefreshProfileUIs()
@@ -6995,8 +6977,8 @@ namespace NovaTerminal
             PopulateNewTabMenu();
             SetupCommandPalette();
 
-            // Refresh Connection Manager if open (or just always update it)
-            _connectionManagerControl?.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
+            // Refresh Connection Manager if open
+            _connectionManagerWindow?.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
         }
 
         private void ExecuteCommand(TerminalCommand cmd)
@@ -7261,9 +7243,6 @@ namespace NovaTerminal
         {
             var paletteOverlay = this.FindControl<Grid>("CommandPaletteOverlay");
             if (paletteOverlay?.IsVisible == true) return true;
-
-            var connectionOverlay = this.FindControl<Border>("ConnectionOverlay");
-            if (connectionOverlay?.IsVisible == true) return true;
 
             var transferOverlay = this.FindControl<Border>("TransferOverlay");
             if (transferOverlay?.IsVisible == true) return true;
