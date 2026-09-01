@@ -227,6 +227,12 @@ jobs:
           - os: macos-latest
             rid: osx-arm64
 
+    # The secrets context is not allowed in step-level `if` (the workflow fails to
+    # parse), so the signing gate is materialized here as an env boolean the macOS
+    # keychain step can test.
+    env:
+      MAC_SIGNING_ENABLED: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -484,6 +490,27 @@ jobs:
         if: matrix.rid == 'osx-arm64'
         run: packaging/macos/make-icns.sh src/NovaTerminal.App/Assets/nova_icon.png artifacts/icon/nova_icon.icns
 
+      # ---- Apple signing + notarization, gated on the presence of MAC_CERT_P12_BASE64
+      # ---- so the lane keeps its unsigned behavior until all MAC_* secrets exist (the
+      # ---- gate, the secret list and the one-time setup are documented in
+      # ---- packaging/macos/README.md). The action fails fast on a half-configured
+      # ---- secret set, an identity the p12 does not contain, or Apple rejecting the
+      # ---- notarytool credentials.
+      - name: Set up macOS signing keychain
+        id: mac_signing
+        if: matrix.rid == 'osx-arm64' && env.MAC_SIGNING_ENABLED == 'true'
+        uses: ./.github/actions/setup-mac-signing
+        with:
+          cert-p12-base64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          installer-p12-base64: ${{ secrets.MAC_INSTALLER_CERT_P12_BASE64 }}
+          cert-password: ${{ secrets.MAC_CERT_PASSWORD }}
+          sign-app-identity: ${{ secrets.MAC_SIGN_APP_IDENTITY }}
+          sign-install-identity: ${{ secrets.MAC_SIGN_INSTALL_IDENTITY }}
+          notary-profile: ${{ secrets.MAC_NOTARY_PROFILE }}
+          apple-id: ${{ secrets.MAC_APPLE_ID }}
+          team-id: ${{ secrets.MAC_TEAM_ID }}
+          app-specific-password: ${{ secrets.MAC_APP_SPECIFIC_PASSWORD }}
+
       - name: Pack macOS installer (Velopack)
         if: matrix.rid == 'osx-arm64'
         shell: bash
@@ -494,6 +521,15 @@ jobs:
           RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
           DOWNLOAD_OUTCOME: ${{ steps.velopack_download.outcome }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signing reaches the script through env like everything else: the identity
+          # strings contain spaces and parentheses, so they must never be interpolated
+          # into script source. When the keychain step was skipped these are empty and
+          # the MAC_SIGNING guard below leaves vpk unsigned, exactly as before.
+          MAC_SIGNING: ${{ steps.mac_signing.outputs.imported }}
+          MAC_SIGN_KEYCHAIN: ${{ steps.mac_signing.outputs.keychain }}
+          MAC_SIGN_APP_IDENTITY: ${{ secrets.MAC_SIGN_APP_IDENTITY }}
+          MAC_SIGN_INSTALL_IDENTITY: ${{ secrets.MAC_SIGN_INSTALL_IDENTITY }}
+          MAC_NOTARY_PROFILE: ${{ secrets.MAC_NOTARY_PROFILE }}
         run: |
           set -euo pipefail
           ver="$RELEASE_VERSION"
@@ -545,12 +581,14 @@ jobs:
           # com.benyblack.NovaTerminalApp; this matches the public identity (winget:
           # benyblack.NovaTerminal) instead.
           #
-          # No --signAppIdentity/--signInstallIdentity/--notaryProfile on purpose: no
-          # Apple Developer certificate exists today. vpk warns "Package will not be
-          # signed or notarized" and packages everything unsigned; the app still runs,
-          # because on arm64 the linker ad-hoc-signs the AOT binary and the Rust dylibs.
-          # The seam for enabling real signing later is exactly these three flags plus a
-          # keychain import — documented in packaging/macos/README.md.
+          # Signing is secret-gated (see the "Set up macOS signing keychain" step above):
+          # when that step ran, vpk signs the app bundle and dylibs (deep signing), signs
+          # the pkg, submits for notarization, staples the ticket, and runs spctl
+          # assessments — failing the step if any of that breaks. Without the secret, vpk
+          # warns "Package will not be signed or notarized" and packages everything
+          # unsigned; the app still runs, because on arm64 the linker ad-hoc-signs the
+          # AOT binary and the Rust dylibs. Details: packaging/macos/README.md.
+          #
           # StripSymbols=true leaves a ~94 MB NovaTerminal.dSYM beside the binary (3x the
           # binary's own size). Delete it at the source AND exclude it in vpk: deletion
           # keeps empty dSYM directory skeletons out of the bundle entirely, --exclude
@@ -558,6 +596,17 @@ jobs:
           # defense-in-depth. Nothing else consumes the symbols - the raw publish-dir zip
           # this dSYM used to ship in no longer exists for macOS.
           rm -rf artifacts/publish/osx-arm64/NovaTerminal.dSYM
+          # The +guarded expansion keeps an empty array valid under set -u even if the
+          # runner resolves shell: bash to macOS's 3.2 /bin/bash.
+          sign_args=()
+          if [[ "${MAC_SIGNING:-}" == "1" ]]; then
+            sign_args+=(
+              --signAppIdentity "$MAC_SIGN_APP_IDENTITY"
+              --signInstallIdentity "$MAC_SIGN_INSTALL_IDENTITY"
+              --notaryProfile "$MAC_NOTARY_PROFILE"
+              --keychain "$MAC_SIGN_KEYCHAIN"
+            )
+          fi
           vpk pack \
             --packId NovaTerminalApp \
             --packVersion "$ver" \
@@ -568,7 +617,8 @@ jobs:
             --bundleId com.benyblack.NovaTerminal \
             --icon artifacts/icon/nova_icon.icns \
             --exclude 'NovaTerminal\.dSYM' \
-            --outputDir artifacts/velopack
+            --outputDir artifacts/velopack \
+            ${sign_args[@]+"${sign_args[@]}"}
 
           # The installer's and the zip's file names are ours to choose — nothing
           # resolves them by name. The zip keeps the exact name the raw publish

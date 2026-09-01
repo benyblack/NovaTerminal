@@ -81,9 +81,10 @@ macOS builds installed via the `.pkg` check for updates in the background and ap
 on restart, same as Windows. If the app lives in `/Applications`, macOS will ask for your
 password once per update.
 
-The installer and the app are **not code-signed or notarized yet**
-([#91](https://github.com/benyblack/NovaTerminal/issues/91)), so Gatekeeper blocks the
-first launch. On macOS 13+:
+Releases built while the macOS signing secrets are unset (see
+[packaging/macos](packaging/macos/README.md), tracking
+[#91](https://github.com/benyblack/NovaTerminal/issues/91)) are **not code-signed or
+notarized**, so Gatekeeper blocks their first launch. On macOS 13+:
 
 1. Try to open `NovaTerminal` once (it will be blocked — that's expected).
 2. Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
