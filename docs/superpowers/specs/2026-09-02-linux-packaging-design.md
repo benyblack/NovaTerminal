@@ -441,3 +441,40 @@ Each gets a tracked issue rather than a mention:
 8. `lintian --fail-on error` passes.
 9. Windows and macOS release assets, channels, and update behaviour are byte-for-byte
    unchanged.
+
+## Spike findings (Task 0, 2026-09-02)
+
+1. **`vpk` on linux-arm64:** NOT VERIFIED — no local arm64 emulation; must be answered
+   by the first CI run. This machine's Docker is linux/amd64 with no qemu binfmt
+   handler registered (`docker run --platform linux/arm64 ...` fails with
+   `exec format error`), and installing qemu binfmt or pushing to run CI were both
+   outside what was authorised for this task, so Step 1 was skipped rather than
+   guessed at.
+2. **Cross-pack fallback:** the `[linux]` directive is confirmed usable from an amd64
+   Windows host — `vpk [linux] pack -h` prints
+   `Directive enabled for cross-compiling from Windows (current os) to Linux.` and
+   shows the Linux `pack` help ("Create a Linux .AppImage bundle from application
+   files."). Its `--runtime`/`-r <RID>` option is a free-form string with no
+   help-text-enumerated restriction, so it syntactically accepts
+   `--runtime linux-arm64`; whether that flag actually produces a working arm64
+   AppImage from an amd64 host was not exercised (consistent with Step 1 being
+   skipped) and remains open for the first CI run.
+3. **Channel metadata:** baked into the package — `vpk pack --channel linux-x64`
+   writes `<channel>linux-x64</channel>` and `<rid>linux-x64</rid>` directly into the
+   `.nuspec` inside the `.nupkg`, and the channel is also encoded in the release
+   manifest filenames (`releases.linux-x64.json`, `RELEASES-linux-x64`). So
+   `ExplicitChannel` is a no-op safety net: a client packed with the correct
+   `--channel` flag already carries and resolves its own channel from package
+   metadata; `ExplicitChannel` only guards against a future pack invocation that
+   omits `--channel` and silently falls back to vpk's platform-default `linux`.
+4. **Headless probe:** `nova --vt-report` exits 0 (also `nova --vt-report --json`).
+   Any other argument shape — a bare `--json` without `--vt-report`, a duplicated
+   flag, or any unrecognised third argument — exits 2
+   (`src/NovaTerminal.App/Shell/VtReportCommand.cs`, `ParseArguments`). This dispatch
+   runs before Avalonia's `AppBuilder` is touched (`Program.cs`), so it needs no
+   display server. Empirically confirmed via a Windows build
+   (`scripts/build.sh build src/NovaTerminal.App` then
+   `NovaTerminal.exe --vt-report` → exit code 0); the equivalent Linux binary was not
+   built in this task, so the Linux result is source-derived (the code path is
+   platform-agnostic — no Avalonia, no P/Invoke) rather than independently verified
+   on Linux.
