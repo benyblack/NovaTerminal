@@ -50,6 +50,18 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         </Style>
 
+        <!-- Vertical mode replaces the horizontal selected-tab underline (App.axaml's
+             "TabItem:selected /template/Border#PART_Border" sets BorderThickness 0 0 0 2,
+             which outranks the template's BorderThickness binding) with a 3px LEFT accent
+             bar: UpdateTabVisuals keeps a constant 3,0,0,0 thickness on every TabItem and
+             paints only the selected one's BorderBrush. Re-asserting the thickness here
+             (window styles apply after the App ones) lets that value reach the template
+             border on the selected tab; unselected tabs get it via the plain template
+             binding. -->
+        <Style Selector="TabControl.vertical-tabs TabItem:selected /template/ Border#PART_Border">
+            <Setter Property="BorderThickness" Value="3 0 0 0"/>
+        </Style>
+
         <!-- GridSplitter Custom Template for thinner lines with larger hit area -->
         <Style Selector="GridSplitter">
             <Setter Property="Background" Value="#2D2D2D"/>

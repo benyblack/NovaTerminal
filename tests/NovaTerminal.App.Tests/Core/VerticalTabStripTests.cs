@@ -158,6 +158,196 @@ public sealed class VerticalTabStripTests
         Assert.Null(NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine"));
     }
 
+    // ---- Agent-aware vertical headers: marker chips, dot precedence, accent bar ----
+
+    private static TabItem AddPlainVerticalTab(NovaTerminal.MainWindow window)
+    {
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        // Fresh, unselected tab (selection clears attention; these tests control state exactly).
+        var tab = new TabItem { Content = new Border() };
+        tabs.Items.Add(tab);
+        window.ApplyTabLayout(); // rebuild headers so the new tab gets a vertical row
+        Dispatcher.UIThread.RunJobs();
+        return tab;
+    }
+
+    private static TextBlock ChipOf(TabItem tab, string name)
+    {
+        var chip = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, name);
+        Assert.NotNull(chip);
+        return chip!;
+    }
+
+    private static Avalonia.Media.Color? DotColorOf(TabItem tab)
+    {
+        var dot = NovaTerminal.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot");
+        return (dot?.Fill as Avalonia.Media.ISolidColorBrush)?.Color;
+    }
+
+    [AvaloniaFact]
+    public void VerticalHeader_MarkerChips_ExistHiddenByDefault_DotTransparent()
+    {
+        var window = CreateShownWindow();
+        try
+        {
+            GetSettings(window).TabStripOrientation = "Vertical";
+            window.ApplyTabLayout();
+            Dispatcher.UIThread.RunJobs();
+            var tab = AddPlainVerticalTab(window);
+
+            // All four chips exist, hidden until a marker says otherwise...
+            foreach (string name in new[] { "TabBellChip", "TabActivityChip", "TabAgentWroteChip", "TabAgentWatchedChip" })
+            {
+                var chip = ChipOf(tab, name);
+                Assert.False(chip.IsVisible, $"{name} must start hidden");
+                Assert.False(chip.IsHitTestVisible, $"{name} must not steal header presses");
+            }
+
+            // ...and a fresh tab paints no dot.
+            Assert.Equal(Avalonia.Media.Colors.Transparent, DotColorOf(tab));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void UpdateTabVisuals_Vertical_AccentBarOnEveryTab_HorizontalClearsIt()
+    {
+        var window = CreateShownWindow();
+        try
+        {
+            var settings = GetSettings(window);
+            settings.TabStripOrientation = "Vertical";
+            window.ApplyTabLayout();
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateTabVisuals();
+
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            var allTabs = tabs.Items.Cast<TabItem>().ToList();
+            Assert.NotEmpty(allTabs);
+
+            // Constant 3px left thickness on every tab (selected AND not): the border brush
+            // paints the bar only on selection, but the thickness never toggles, so the
+            // title cannot shift 3px when selection changes.
+            foreach (var tab in allTabs)
+            {
+                Assert.Equal(new Avalonia.Thickness(3, 0, 0, 0), tab.BorderThickness);
+            }
+
+            // The selected tab's template border must actually render the left bar, not the
+            // App.axaml horizontal underline (0 0 0 2) — the local thickness must survive the
+            // template binding end to end.
+            var selected = Assert.IsType<TabItem>(tabs.SelectedItem);
+            var selectedBorder = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(selected)
+                .OfType<Border>()
+                .FirstOrDefault(b => b.Name == "PART_Border");
+            Assert.NotNull(selectedBorder);
+            Assert.Equal(new Avalonia.Thickness(3, 0, 0, 0), selectedBorder!.BorderThickness);
+
+            // Round-trip to horizontal: the local value must be cleared (not Thickness(0)),
+            // so the App.axaml selected style (0 0 0 2) keeps driving the underline.
+            settings.TabStripOrientation = "Horizontal";
+            window.ApplyTabLayout();
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateTabVisuals();
+
+            foreach (var tab in tabs.Items.Cast<TabItem>())
+            {
+                Assert.Equal(default(Avalonia.Thickness), tab.BorderThickness);
+            }
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void UpdateVerticalTabExtras_BellState_BellChipVisible_ActivityChipSuppressed_DotAmber()
+    {
+        var window = CreateShownWindow();
+        try
+        {
+            GetSettings(window).TabStripOrientation = "Vertical";
+            window.ApplyTabLayout();
+            Dispatcher.UIThread.RunJobs();
+            var tab = AddPlainVerticalTab(window);
+
+            // Bell + activity together: bell wins both the chip and the dot.
+            window.SetTabMarkerStateForTest(tab, hasBell: true, hasActivity: true, NovaTerminal.AgentHost.AgentAttentionTier.Idle);
+            window.UpdateTabVisuals();
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(ChipOf(tab, "TabBellChip").IsVisible);
+            Assert.False(ChipOf(tab, "TabActivityChip").IsVisible);
+            Assert.Equal(new Avalonia.Media.Color(0xFF, 0xFF, 0xD2, 0x5A), DotColorOf(tab)); // #FFD25A
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void UpdateVerticalTabExtras_AgentWrote_WroteChipVisible_DotAmberAgent()
+    {
+        var window = CreateShownWindow();
+        try
+        {
+            GetSettings(window).TabStripOrientation = "Vertical";
+            window.ApplyTabLayout();
+            Dispatcher.UIThread.RunJobs();
+            var tab = AddPlainVerticalTab(window);
+
+            window.SetTabMarkerStateForTest(tab, hasBell: false, hasActivity: false, NovaTerminal.AgentHost.AgentAttentionTier.Wrote);
+            window.UpdateTabVisuals();
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(ChipOf(tab, "TabAgentWroteChip").IsVisible);
+            Assert.False(ChipOf(tab, "TabAgentWatchedChip").IsVisible);
+            Assert.Equal(new Avalonia.Media.Color(0xFF, 0xE8, 0xA3, 0x3D), DotColorOf(tab)); // #E8A33D
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void UpdateVerticalTabExtras_AgentWatched_VisibleOnlyUnderAllPolicy()
+    {
+        var window = CreateShownWindow();
+        try
+        {
+            GetSettings(window).TabStripOrientation = "Vertical";
+            window.ApplyTabLayout();
+            Dispatcher.UIThread.RunJobs();
+            var tab = AddPlainVerticalTab(window);
+            var settings = GetSettings(window);
+
+            // Default/WritesOnly policy: a watched tier shows neither chip nor dot.
+            settings.AgentIndicatorTabRollup = "WritesOnly";
+            window.SetTabMarkerStateForTest(tab, hasBell: false, hasActivity: false, NovaTerminal.AgentHost.AgentAttentionTier.Watched);
+            window.UpdateTabVisuals();
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(ChipOf(tab, "TabAgentWatchedChip").IsVisible);
+            Assert.Equal(Avalonia.Media.Colors.Transparent, DotColorOf(tab));
+
+            // "All" rollup: chip visible, blue agent dot.
+            settings.AgentIndicatorTabRollup = "All";
+            window.UpdateTabVisuals();
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(ChipOf(tab, "TabAgentWatchedChip").IsVisible);
+            Assert.Equal(new Avalonia.Media.Color(0xFF, 0x4F, 0xB0, 0xD4), DotColorOf(tab)); // #4FB0D4
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     [AvaloniaFact]
     public void RefreshTabStatuses_WorkingTracker_PaintsThemeDot_AndIdleClearsIt()
     {

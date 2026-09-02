@@ -126,6 +126,17 @@ namespace NovaTerminal
         // Hoisted out of UpdateVerticalTabExtras: that method runs per tab per visual-refresh
         // pass, and allocating a new SolidColorBrush per tab per pass adds up.
         private static readonly IBrush TabAttentionBrush = new SolidColorBrush(Color.Parse("#FFD25A"));
+
+        // Agent-aware tab status colors (dot + marker chips). They intentionally match the
+        // in-pane agent segment (TerminalPane.ApplyAgentAttention: dot #E8A33D/#4FB0D4, text
+        // #F0C07A/#7FC3DC) and the existing tab attention constant above, so the same tier
+        // reads as one color everywhere it appears.
+        private static readonly IBrush TabAgentWroteDotBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0xE8, 0xA3, 0x3D));
+        private static readonly IBrush TabAgentWatchedDotBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0x4F, 0xB0, 0xD4));
+        private static readonly IBrush TabBellChipBrush = TabAttentionBrush; // #FFD25A
+        private static readonly IBrush TabActivityChipBrush = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF));
+        private static readonly IBrush TabAgentWroteChipBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0xF0, 0xC0, 0x7A));
+        private static readonly IBrush TabAgentWatchedChipBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0x7F, 0xC3, 0xDC));
         private bool _isVerticalTabStrip;
         internal bool IsVerticalTabStripActive => _isVerticalTabStrip;
 
@@ -229,6 +240,11 @@ namespace NovaTerminal
             public AgentHost.AgentAttentionTier AgentTier { get; set; }
             public TabStatusTracker Status { get; } = new();
             public TabTrackerStatus RenderedStatus { get; set; }
+
+            /// <summary>True while a pane in this tab has a command running (agent session
+            /// status aggregation). Populated by a later change; until then this stays false
+            /// and the tab dot falls back to the output-burst heuristic alone.</summary>
+            public bool HasRunningCommand { get; set; }
             public TabPreviewTracker Preview { get; } = new();
             public bool PreviewDirty { get; set; }
             public DateTime LastPreviewUpdateUtc { get; set; }
@@ -506,6 +522,18 @@ namespace NovaTerminal
 
         internal void SetTabPreviewDirtyForTest(TabItem tab, bool dirty) => GetOrCreateTabState(tab).PreviewDirty = dirty;
 
+        /// <summary>Test-only seam: sets the marker inputs UpdateVerticalTabExtras resolves
+        /// the chip visibilities and dot color from (same pattern as
+        /// <see cref="SetTabPreviewDirtyForTest"/>), since driving real bell/agent events in
+        /// the headless test host is impractical.</summary>
+        internal void SetTabMarkerStateForTest(TabItem tab, bool hasBell, bool hasActivity, AgentHost.AgentAttentionTier agentTier)
+        {
+            var state = GetOrCreateTabState(tab);
+            state.HasBell = hasBell;
+            state.HasActivity = hasActivity;
+            state.AgentTier = agentTier;
+        }
+
         /// <summary>Timer-driven decay pass: re-evaluates every tab's heuristic status and queues a
         /// visual refresh only for tabs whose rendered status changed. Vertical mode only.</summary>
         internal void RefreshTabStatuses()
@@ -740,28 +768,70 @@ namespace NovaTerminal
             {
                 Name = "TabPreviewLine",
                 Text = string.Empty,
-                Foreground = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)),
+                Foreground = TabActivityChipBrush,
                 FontSize = 10,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 2, 0, 0)
             };
 
-            // Title BEFORE preview: FindTabHeaderTextBlock takes the first TextBlock as the
-            // title, and UpdateTabVisuals rewrites that one with the display label.
+            // Title BEFORE preview (and before the chips): FindTabHeaderTextBlock takes the
+            // first TextBlock as the title, and UpdateTabVisuals rewrites that one with the
+            // display label.
             var textColumn = new StackPanel { Orientation = Avalonia.Layout.Orientation.Vertical };
             textColumn.Children.Add(headerText);
             textColumn.Children.Add(previewText);
 
-            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+            // Trailing status chips: the compact replacements for the attention-marker
+            // suffixes that used to live inside the truncated title text (bell/activity/
+            // agent glyphs). Hidden until UpdateVerticalTabExtras turns the tab's marker
+            // set back on; not hit-testable so pointer presses stay on the header host
+            // (select + context menu + drag-reorder). Chip colors match the in-pane agent
+            // segment and the existing tab attention constant (see the Tab*ChipBrush
+            // declarations above).
+            TextBlock Chip(string name, string glyph, IBrush foreground, string toolTip)
+            {
+                var chip = new TextBlock
+                {
+                    Name = name,
+                    Text = glyph,
+                    Foreground = foreground,
+                    FontSize = 10,
+                    IsVisible = false,
+                    IsHitTestVisible = false,
+                };
+                ToolTip.SetTip(chip, toolTip);
+                return chip;
+            }
+
+            var bellChip = Chip("TabBellChip", "🔔", TabBellChipBrush, "Bell");
+            var activityChip = Chip("TabActivityChip", "•", TabActivityChipBrush, "Recent activity");
+            var agentWroteChip = Chip("TabAgentWroteChip", AgentWroteGlyph, TabAgentWroteChipBrush, "Agent typed here");
+            var agentWatchedChip = Chip("TabAgentWatchedChip", AgentWatchedGlyph, TabAgentWatchedChipBrush, "Agent reading");
+
+            var chipsColumn = new StackPanel
+            {
+                Orientation = Avalonia.Layout.Orientation.Horizontal,
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            chipsColumn.Children.Add(bellChip);
+            chipsColumn.Children.Add(activityChip);
+            chipsColumn.Children.Add(agentWroteChip);
+            chipsColumn.Children.Add(agentWatchedChip);
+
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
             Grid.SetColumn(statusDot, 0);
             Grid.SetColumn(textColumn, 1);
+            Grid.SetColumn(chipsColumn, 2);
             row.Children.Add(statusDot);
             row.Children.Add(textColumn);
+            row.Children.Add(chipsColumn);
 
             var headerHost = new Border
             {
                 Background = Brushes.Transparent,
-                Padding = new Thickness(10, 6),
+                // Right padding keeps the chips clear of the header's trailing edge.
+                Padding = new Thickness(10, 6, 8, 6),
                 Child = row
             };
 
@@ -1948,11 +2018,43 @@ namespace NovaTerminal
         /// <see cref="TruncateTabLabelWithSuffix"/>'s degenerate-case branch
         /// returns the front of the combined suffix, and the marker occupies
         /// the front.
+        ///
+        /// <paramref name="includeMarkers"/> false is the vertical-header mode:
+        /// attention renders as trailing chips there (UpdateVerticalTabExtras),
+        /// so the marker suffix is neither appended nor reserved during
+        /// truncation — the prefixes (pinned/protected/forwarding) live in the
+        /// base label and stay in both modes. The tooltip
+        /// (<see cref="BuildFullTabLabel"/>), tab-list flyout
+        /// (<see cref="GetTabMenuLabel"/>) and automation labels keep their
+        /// markers regardless of mode.
         /// </summary>
-        private Dictionary<TabItem, string> BuildTabDisplayLabels(IReadOnlyList<TabItem> tabs, int maxLength)
+        private Dictionary<TabItem, string> BuildTabDisplayLabels(IReadOnlyList<TabItem> tabs, int maxLength, bool includeMarkers = true)
+            => ResolveTabDisplayLabels(
+                tabs,
+                t => BuildBaseTabLabel(t),
+                t => GetAttentionMarkerSuffix(GetOrCreateTabState(t)),
+                t => "~" + GetTabId(t).ToString("N").Substring(0, 4),
+                maxLength,
+                includeMarkers);
+
+        /// <summary>
+        /// Pure core of <see cref="BuildTabDisplayLabels"/>: same truncation, marker
+        /// reservation, and collision-disambiguation behavior, with the per-tab string
+        /// sources injected so tests can drive it as plain facts without a window (the
+        /// instance method only contributes state-derived strings).
+        /// </summary>
+        internal static Dictionary<TTab, string> ResolveTabDisplayLabels<TTab>(
+            IReadOnlyList<TTab> tabs,
+            Func<TTab, string> baseLabelOf,
+            Func<TTab, string> markerSuffixOf,
+            Func<TTab, string> collisionHintOf,
+            int maxLength,
+            bool includeMarkers)
         {
-            var baseLabels = tabs.ToDictionary(t => t, BuildBaseTabLabel);
-            var markers = tabs.ToDictionary(t => t, t => GetAttentionMarkerSuffix(GetOrCreateTabState(t)));
+            var baseLabels = tabs.ToDictionary(t => t, baseLabelOf);
+            var markers = includeMarkers
+                ? tabs.ToDictionary(t => t, markerSuffixOf)
+                : tabs.ToDictionary(t => t, static _ => string.Empty);
             var truncated = tabs.ToDictionary(t => t, t => TruncateTabLabelWithSuffix(baseLabels[t], maxLength, markers[t]));
 
             var collisions = tabs
@@ -1963,8 +2065,7 @@ namespace NovaTerminal
             {
                 foreach (var tab in group)
                 {
-                    string hint = "~" + GetTabId(tab).ToString("N").Substring(0, 4);
-                    truncated[tab] = TruncateTabLabelWithSuffix(baseLabels[tab], maxLength, markers[tab] + hint);
+                    truncated[tab] = TruncateTabLabelWithSuffix(baseLabels[tab], maxLength, markers[tab] + collisionHintOf(tab));
                 }
             }
 
@@ -5637,11 +5738,33 @@ namespace NovaTerminal
             var contrastForeground = luminance > 0.5 ? Brushes.Black : Brushes.White;
 
             var tabItems = tabs.Items.Cast<TabItem>().ToList();
-            var labels = BuildTabDisplayLabels(tabItems, 44);
+            // Vertical headers show attention as trailing chips (UpdateVerticalTabExtras),
+            // so their title text omits the marker suffix; horizontal headers keep the
+            // suffix inside the title as before.
+            var labels = BuildTabDisplayLabels(tabItems, 44, includeMarkers: !_isVerticalTabStrip);
 
             foreach (TabItem ti in tabItems)
             {
                 ti.BorderBrush = ti.IsSelected ? borderBrush : Brushes.Transparent;
+
+                // Vertical: a constant 3px left thickness on EVERY tab, selected or not, so
+                // the BorderBrush line above paints the selected tab a 3px accent bar —
+                // constant (rather than only-when-selected) because toggling thickness on
+                // selection would shift the title 3px every time. (The selected tab's
+                // PART_Border needs the companion re-assert style in MainWindow.axaml's
+                // Window.Styles: App.axaml's selected underline setter outranks the template
+                // binding.) Horizontal: ClearValue rather than a local Thickness(0), so no
+                // leftover local value competes with the App.axaml selected style
+                // ("TabItem:selected /template/Border#PART_Border", BorderThickness 0 0 0 2),
+                // which keeps driving the underline — hence the asymmetry.
+                if (_isVerticalTabStrip)
+                {
+                    ti.BorderThickness = new Thickness(3, 0, 0, 0);
+                }
+                else
+                {
+                    ti.ClearValue(TabItem.BorderThicknessProperty);
+                }
 
                 if (FindTabHeaderTextBlock(ti.Header) is TextBlock tb)
                 {
@@ -5669,15 +5792,29 @@ namespace NovaTerminal
 
         private void UpdateVerticalTabExtras(TabItem tab, TabRuntimeState state, IBrush workingBrush)
         {
+            // One pure resolve per tab per pass drives both the dot and the marker chips —
+            // the vertical replacement for the title-suffix attention markers (which the
+            // display-label builder no longer appends in vertical mode).
+            var markers = TabStatusPresentation.ResolveTabMarkers(
+                state.HasBell, state.HasActivity, state.AgentTier, _settings.AgentIndicatorTabRollup);
+            var dotVisual = TabStatusPresentation.ResolveTabDot(state.RenderedStatus, markers, state.HasRunningCommand);
+
             if (FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot") is { } dot)
             {
-                dot.Fill = state.RenderedStatus switch
+                dot.Fill = dotVisual switch
                 {
-                    TabTrackerStatus.Working => workingBrush,
-                    TabTrackerStatus.Attention => TabAttentionBrush,
+                    TabDotVisual.Working => workingBrush,
+                    TabDotVisual.Attention => TabAttentionBrush,
+                    TabDotVisual.AgentWrote => TabAgentWroteDotBrush,
+                    TabDotVisual.AgentWatched => TabAgentWatchedDotBrush,
                     _ => Brushes.Transparent,
                 };
             }
+
+            SetChipVisibility(tab, "TabBellChip", markers.Bell);
+            SetChipVisibility(tab, "TabActivityChip", markers.Activity);
+            SetChipVisibility(tab, "TabAgentWroteChip", markers.AgentWrote);
+            SetChipVisibility(tab, "TabAgentWatchedChip", markers.AgentWatched);
 
             // Preview recompute is gated behind a dirty flag + throttle: with several streaming
             // tabs, this visual-refresh pass can run many times a second, and each recompute is
@@ -5702,6 +5839,17 @@ namespace NovaTerminal
                     // later pass picks it up.
                 }
                 // else: nothing new since the last recompute - leave the existing text alone.
+            }
+        }
+
+        /// <summary>Flips one named marker chip's visibility in a vertical header. No-op when
+        /// the chip is absent (e.g. the header was built by the horizontal factory), which
+        /// keeps callers uniform across both header kinds.</summary>
+        private static void SetChipVisibility(TabItem tab, string chipName, bool visible)
+        {
+            if (FindTabHeaderDescendant<TextBlock>(tab.Header, chipName) is { } chip)
+            {
+                chip.IsVisible = visible;
             }
         }
 
