@@ -26,14 +26,19 @@ ls "$artifact_dir"/novaterminal_*.deb >/dev/null 2>&1 \
 # gating it are now the same edit.
 dlopen_sonames="$("$here/build-deb.sh" --print-dlopen-sonames)"
 dlopen_relations="$("$here/build-deb.sh" --print-dlopen-relations)"
-dlopen_count="$(grep -c . <<<"$dlopen_sonames")"
+# `|| true` on both counts: `grep -c` EXITS 1 when it counts zero, so under
+# `set -e` an empty list would kill the script here - failing closed, but silently,
+# before the explanatory message below could ever print. Swallowing the status makes
+# the diagnostic the thing that fires instead of a bare exit 1.
+dlopen_count="$(grep -c . <<<"$dlopen_sonames" || true)"
+relation_count="$(grep -c . <<<"$dlopen_relations" || true)"
 # Anti-vacuity, host side: an empty or malformed table would make the whole Phase A
 # dlopen gate pass having asserted nothing - the exact defect class this change
 # exists to close, reintroduced one level up.
 (( dlopen_count > 0 )) \
   || { echo "build-deb.sh --print-dlopen-sonames produced nothing; the dlopen gate would be vacuous" >&2; exit 1; }
-[[ "$(grep -c . <<<"$dlopen_relations")" -eq "$dlopen_count" ]] \
-  || { echo "dlopen soname/relation lists differ in length; build-deb.sh's table is malformed" >&2; exit 1; }
+(( relation_count == dlopen_count )) \
+  || { echo "build-deb.sh's dlopen table is malformed: $dlopen_count soname(s) but $relation_count relation(s)" >&2; exit 1; }
 while IFS= read -r _so; do
   [[ "$_so" =~ ^lib[A-Za-z0-9_.+-]*\.so(\.[0-9]+)*$ ]] \
     || { echo "not a soname in build-deb.sh's dlopen table: '$_so'" >&2; exit 1; }
