@@ -1507,6 +1507,11 @@ jobs:
       # prerelease mapping from build-deb.sh - asserting it here pins that behaviour.
       - name: Assert expected assets
         run: |
+          # set -euo pipefail is not the default here: GitHub runs `bash -e {0}`, with
+          # neither `pipefail` nor `nounset`. Without pipefail a failing left-hand side
+          # of the `unzip | grep` below was invisible - see the leak assertion's own
+          # comment at the bottom of this step.
+          set -euo pipefail
           cd artifacts/linux
           ls -la
           test -n "$(ls ./*.AppImage 2>/dev/null)" || { echo "vpk pack produced no .AppImage" >&2; exit 1; }
@@ -1519,7 +1524,26 @@ jobs:
           # that here too: no .dbg entry may appear in the full nupkg at all - a
           # .nupkg is a plain zip, so this mirrors the macOS lane's dSYM leak
           # assertion against its Portable.zip exactly.
-          if unzip -l NovaTerminalApp-0.0.1-ci-linux-x64-full.nupkg | grep -q '\.dbg'; then
+          #
+          # THIS CHECK USED TO BE ABLE TO PASS WITHOUT CHECKING ANYTHING, and the shape
+          # it used is the reason - do not revert to it. It was
+          #   if unzip -l <nupkg> | grep -q '\.dbg'; then ... fi
+          # and GitHub's default shell is `bash -e {0}` with NO pipefail. So with `unzip`
+          # absent - one edit to the apt list above away - the pipeline's status is
+          # `grep`'s, which is 1 on empty input; a non-zero status in an `if` CONDITION
+          # does not trip `set -e`; the `if` simply went false and the step passed green
+          # having inspected nothing. Three things now make that impossible:
+          #   1. `set -euo pipefail` at the top of the step,
+          #   2. an explicit `command -v unzip` preflight (pipefail alone is NOT enough -
+          #      a non-zero pipeline inside an `if` condition is still just "false"),
+          #   3. running unzip in a command substitution FIRST, where `set -e` does see
+          #      its failure, and grepping the captured listing via a here-string (also
+          #      avoiding the SIGPIPE-on-large-output hazard documented in
+          #      linux_packaging_detect).
+          command -v unzip >/dev/null \
+            || { echo "unzip is not installed, so the .dbg leak assertion cannot run. Add it back to the container toolchain step - do not let this check silently no-op." >&2; exit 1; }
+          nupkg_listing="$(unzip -l NovaTerminalApp-0.0.1-ci-linux-x64-full.nupkg)"
+          if grep -q '\.dbg' <<<"$nupkg_listing"; then
             echo "NovaTerminal.dbg leaked into the linux-x64 full nupkg" >&2
             exit 1
           fi
