@@ -68,14 +68,13 @@ all three OSes before any bundle is published.
 The installer and the executables are **not code-signed yet** ([#91](https://github.com/benyblack/NovaTerminal/issues/91)),
 so SmartScreen will warn on first run. Choose *More info → Run anyway*.
 
-**Linux / macOS**
+**macOS**
 
 - **macOS (Apple Silicon)** — download `NovaTerminal-Setup-osx-arm64-<tag>.pkg` from the
   [latest release](https://github.com/benyblack/NovaTerminal/releases/latest) and run it;
   it installs into `/Applications` (or `~/Applications`) as a proper `NovaTerminal.app`
   bundle. Alternatively grab `NovaTerminal-osx-arm64-<tag>.zip`, open it, and drag
   `NovaTerminal.app` to `/Applications`.
-- **Linux** — download the `linux-x64` zip and extract it anywhere, or build from source.
 
 macOS builds installed via the `.pkg` check for updates in the background and apply them
 on restart, same as Windows. If the app lives in `/Applications`, macOS will ask for your
@@ -92,6 +91,51 @@ notarized**, so Gatekeeper blocks their first launch. On macOS 13+:
 
 From a terminal, the one-liner equivalent is
 `xattr -cr /Applications/NovaTerminal.app`.
+
+**Linux**
+
+Requires **glibc 2.35 or newer** — Ubuntu 22.04+, Debian 12+, Fedora 36+, or a current
+rolling distro. Debian 11 and RHEL 8/9 are not supported.
+
+**AppImage** (recommended — updates itself):
+
+```sh
+# Replace <tag> with the latest release, and x64 with arm64 on ARM machines.
+curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/NovaTerminal-linux-x64-<tag>.AppImage
+chmod +x NovaTerminal-linux-x64-<tag>.AppImage
+mkdir -p ~/Applications && mv NovaTerminal-linux-x64-<tag>.AppImage ~/Applications/
+~/Applications/NovaTerminal-linux-x64-<tag>.AppImage
+```
+
+Keep it somewhere you can write, such as `~/Applications` — the app updates itself by
+rewriting the AppImage, which it cannot do from a root-owned path like `/opt`.
+
+Ubuntu 22.04 and later ship no `libfuse2`, which AppImages need. Either install it
+(`sudo apt install libfuse2`) or run with `--appimage-extract-and-run`.
+
+**Debian / Ubuntu package** (system integration; update via your package manager):
+
+```sh
+curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/novaterminal_<version>_amd64.deb
+sudo apt install ./novaterminal_<version>_amd64.deb
+nova
+```
+
+Installs `nova` on your PATH, an app-menu entry, and `man nova`. The in-app updater is
+inactive for package installs by design.
+
+**Portable tarball** (no integration):
+
+```sh
+curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/NovaTerminal-linux-x64-<tag>.tar.gz
+tar -xzf NovaTerminal-linux-x64-<tag>.tar.gz && ./NovaTerminal
+```
+
+NovaTerminal is not registered as your default terminal. To do that yourself after
+installing the `.deb`, see `man nova`.
+
+For details on what each Linux package contains and its known limitations, see
+[packaging/linux](packaging/linux/README.md).
 
 For build steps, jump to [Build & test](#build--test) below.
 
