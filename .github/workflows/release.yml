@@ -318,6 +318,26 @@ jobs:
     # build_native_linux as well as build_native: the ubuntu legs' native-* artifacts
     # now come from that job, so needing only build_native would race the download.
     needs: [release_metadata, build_native, build_native_linux]
+    # ADVISORY ARM64 LEG. `fail-fast: true` below means a failing leg CANCELS its
+    # in-flight siblings, and every publish job needs this one - so without this line
+    # a red ubuntu-24.04-arm leg cancels the Windows and macOS legs mid-run, skips
+    # publish_aot, and NO WINDOWS OR MACOS ASSETS PUBLISH AT ALL. That is not a remote
+    # risk: this leg runs NovaTerminal.Rendering.Tests - the project with this repo's
+    # documented Linux font/Skia drift - on an architecture nobody has characterised.
+    # A Linux packaging change must not be able to withhold releases for two platforms
+    # that already ship and are not part of this change.
+    #
+    # `continue-on-error` on a matrix leg is the documented exemption from fail-fast:
+    # the leg still runs, still reports, and still annotates the run when it fails,
+    # but it neither cancels its siblings nor fails the job.
+    #
+    # WHAT THIS COSTS, plainly: while the expression matches, arm64 test results are
+    # ADVISORY - a genuine arm64 test failure will not block the arm64 bundle from
+    # publishing either. That is a real gap in #156's guarantee for arm64 only, and it
+    # is the deliberate price of not coupling two shipping platforms to an
+    # uncharacterised one. Once this leg has been green on a real tag, DELETE THIS LINE
+    # and let arm64 gate like every other platform. That is the whole intent.
+    continue-on-error: ${{ matrix.os == 'ubuntu-24.04-arm' }}
     strategy:
       fail-fast: true
       matrix:
@@ -325,7 +345,8 @@ jobs:
         # ships an arm64 bundle, and #156 - the reason this job exists at all - was
         # precisely that releases published bundles no test had ever touched;
         # shipping a whole new architecture untested would reopen that hole for
-        # arm64. UNVERIFIED: this leg has never run.
+        # arm64. UNVERIFIED: this leg has never run - hence the continue-on-error
+        # above, and the instruction to remove it once it has.
         os: [windows-latest, ubuntu-latest, macos-latest, ubuntu-24.04-arm]
 
     steps:
@@ -895,13 +916,31 @@ jobs:
   # no mode bits.
   #
   # CROSS-ARCHITECTURE COUPLING, stated openly: `needs: publish_linux` waits on the
-  # WHOLE matrix, so a failing linux-arm64 leg keeps linux-x64's proven assets off
-  # the release even though `fail-fast: false` still builds them (they remain
-  # downloadable as workflow artifacts for triage, and "re-run failed jobs" completes
-  # the release). GitHub offers no per-leg `needs`. If the unverified arm64 lane
-  # blocks a release, the contingency is to delete its four matrix entries
-  # (build_native_linux, release_tests, publish_linux, release_linux) and re-run -
-  # NOT to make the smoke gate non-blocking.
+  # WHOLE matrix, so a failing linux-arm64 leg keeps linux-x64's proven assets off the
+  # release even though `fail-fast: false` still builds them. GitHub offers no per-leg
+  # `needs`. Windows and macOS are NOT exposed to this - they do not depend on either
+  # Linux job, and release_tests' arm64 leg is continue-on-error precisely so it
+  # cannot cancel them.
+  #
+  # RECOVERY, and read this before assuming a re-run fixes it. Two genuinely different
+  # situations:
+  #
+  #   (a) A TRANSIENT arm64 failure. "Re-run failed jobs" is correct and sufficient:
+  #       it replays the same workflow file, publish_linux's linux-x64 artifacts are
+  #       still retained, and release_linux then uploads both architectures.
+  #
+  #   (b) The arm64 lane is BROKEN and must come out. Editing the matrix does NOT take
+  #       effect on a re-run: GitHub re-runs replay the workflow file AS OF THE
+  #       TRIGGERING REF, so a tag push replays the file at that tag no matter what
+  #       main now says. Removing the arm64 entries (build_native_linux,
+  #       release_tests, publish_linux, release_linux) therefore requires EITHER a new
+  #       tag on the fixed commit, OR `workflow_dispatch` with `tag_name` set to the
+  #       existing tag from an updated default branch - the dispatch path reads the
+  #       workflow from the default branch, which is what makes the edit apply. In the
+  #       meantime, linux-x64's artifacts remain downloadable from publish_linux for
+  #       triage or manual attachment.
+  #
+  # Either way, NOT by making the smoke gate non-blocking.
   # ===========================================================================
   publish_linux:
     name: Publish Linux (${{ matrix.rid }})
@@ -1041,11 +1080,40 @@ jobs:
       # its own .dbg removal and vpk gets a belt-and-braces --exclude, but neither
       # would have saved the tarball. Same reasoning, and the same 3x ratio, as the
       # macOS lane's dSYM deletion above. Nothing consumes the symbols.
-      - name: Strip debug symbols
+      - name: Strip debug symbols and assert the native libraries survived
         run: |
           set -euo pipefail
-          rm -f artifacts/publish/${{ matrix.rid }}/*.pdb artifacts/publish/${{ matrix.rid }}/*.dbg
-          ls -la artifacts/publish/${{ matrix.rid }}
+          pubdir="artifacts/publish/${{ matrix.rid }}"
+          rm -f "$pubdir"/*.pdb "$pubdir"/*.dbg
+          ls -la "$pubdir"
+
+          # A PTY-LESS BUNDLE OTHERWISE PASSES THIS ENTIRE LANE GREEN. Both Content
+          # items that place these are `Condition="... and Exists(...)"`
+          # (NovaTerminal.App.csproj:387-405), so a native library that did not survive
+          # the cross-job artifact hop is not an error - the item is simply DROPPED, and
+          # the csproj comment at :73-77 says what happens next: "the app ships with no
+          # PTY". Nothing downstream would notice:
+          #   - build-deb.sh:47 preflights only the NovaTerminal binary;
+          #   - smoke-test.sh:87-88 derives its expected ELF count FROM THE FILES
+          #     PRESENT (`so_total + 1`), so a bundle with one fewer .so just expects
+          #     one fewer .so and passes;
+          #   - the AppImage and tarball assert layout and mode bits, not contents.
+          # That is another count-derived check that structurally cannot notice an
+          # absence, so the absence is named explicitly here instead. A terminal
+          # emulator shipping without a PTY is a total product failure, and this is two
+          # `test -f` lines.
+          #
+          # Flat names, not the source paths: the <Link> metadata on both Content items
+          # publishes them to the bundle root.
+          for lib in librusty_pty.so librusty_ssh.so; do
+            test -f "$pubdir/$lib" || {
+              echo "FATAL: $lib is missing from $pubdir." >&2
+              echo "The csproj Content item for it is Exists()-conditional, so this did NOT fail the publish - it silently shipped a bundle without it. librusty_pty.so missing means no PTY at all." >&2
+              echo "Check that build_native_linux's artifact (native-${{ matrix.os }}) unpacked into src/NovaTerminal.App/native with its directory layout intact: librusty_pty.so is consumed from native/target_linux/release/ and librusty_ssh.so from native/rusty_ssh/target/release/." >&2
+              exit 1
+            }
+            echo "ok: $lib present ($(stat -c '%s bytes, mode %a' "$pubdir/$lib"))"
+          done
 
       - name: Build .deb
         env:
@@ -1055,7 +1123,7 @@ jobs:
           chmod +x packaging/linux/*.sh
           packaging/linux/build-deb.sh \
             "artifacts/publish/${{ matrix.rid }}" "$RELEASE_VERSION" \
-            ${{ matrix.debarch }} artifacts/linux
+            ${{ matrix.debarch }} artifacts/deb
 
       # Recorded, not asserted, exactly as ci.yml does: the derived Depends: is a
       # function of what is installed on the packaging machine, so printing it makes
@@ -1064,7 +1132,7 @@ jobs:
       - name: Show derived Depends
         run: |
           set -euo pipefail
-          deb="$(ls artifacts/linux/novaterminal_*_${{ matrix.debarch }}.deb | head -1)"
+          deb="$(ls artifacts/deb/novaterminal_*_${{ matrix.debarch }}.deb | head -1)"
           echo "$deb"
           dpkg-deb -f "$deb" Depends
 
@@ -1085,7 +1153,19 @@ jobs:
           # grep's status, which is the vacuous-check shape this branch has already
           # been bitten by (see ci.yml's .dbg assertion).
           listing="$(tar -tvzf "$tarball")"
-          grep -qE '^-rwxr-xr-x.* \./NovaTerminal$' <<<"$listing" \
+          # `^-rwx`, deliberately NOT `^-rwxr-xr-x`. The bug being guarded is "the
+          # archive lost the executable bit", and the owner-exec bit is the whole of
+          # that. Asserting the full 0755 triad would additionally assert an exact mode
+          # that has never been OBSERVED anywhere: there is no tarball step in ci.yml,
+          # so nothing has ever printed what `dotnet publish` emits for the AOT binary,
+          # and this step first executes on a real tag. build-deb.sh is the evidence
+          # that 0755 is an assumption rather than a fact - at :185-191 it chmods the
+          # whole bundle to 0644 and then RE-ASSERTS 0755 on NovaTerminal specifically,
+          # which is only necessary because the publish directory's modes are not
+          # trusted. A stricter regex would therefore risk a false red on the
+          # publishing lane - the worst possible place for one - while catching nothing
+          # the loose one misses.
+          grep -qE '^-rwx.* \./NovaTerminal$' <<<"$listing" \
             || { echo "tarball lost the executable bit on NovaTerminal - this is the bug the zip had" >&2; echo "$listing" | head -40 >&2; exit 1; }
           if grep -q '\.dbg$' <<<"$listing"; then
             echo "NovaTerminal.dbg leaked into the tarball - the Strip debug symbols step did not run, or ran too late" >&2
@@ -1169,6 +1249,20 @@ jobs:
                 -H "X-GitHub-Api-Version: 2022-11-28" \
                 "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases?per_page=100")"; then
             echo "Querying the releases API failed. Cannot tell a first $channel release from a transient failure, and guessing wrong publishes a release with no delta. Re-run this workflow for this tag." >&2
+            # Echo the body. The whole point of --fail-with-body (rather than plain
+            # --fail) is that on a non-2xx curl still writes GitHub's response, so
+            # $releases_json holds the reason - "API rate limit exceeded", "Bad
+            # credentials", "Not Found". Discarding it here would throw away the one
+            # piece of information a maintainer needs and leave them re-running a
+            # release blind. Truncated because an error body is short but a
+            # misconfiguration could return an HTML page. Truncated by substring
+            # expansion rather than `| head -c`, so this cannot take SIGPIPE and exit
+            # 141 instead of the intended 1 - the same pipeline hazard documented in
+            # ci.yml's linux_packaging_detect.
+            api_error_body="${releases_json:-(empty response body)}"
+            echo "--- GitHub API response body ---" >&2
+            printf '%s\n' "${api_error_body:0:2000}" >&2
+            echo "--------------------------------" >&2
             exit 1
           fi
           prior_full_raw="$(jq --arg tag "$tag" --arg suffix "-$channel-full.nupkg" '
@@ -1249,7 +1343,16 @@ jobs:
           # that is both what smoke-test.sh takes as its argument and what the upload
           # job globs. Version-scoped, so a stale nupkg the download step fetched for
           # delta generation is never re-uploaded onto this release.
-          cp artifacts/linux/novaterminal_*_${{ matrix.debarch }}.deb artifacts/release/
+          # artifacts/deb, NOT artifacts/linux, and this is the reason the .deb gets a
+          # directory of its own: artifacts/linux is vpk's --outputDir AND the target of
+          # `vpk download github`, which deposits a PREVIOUS release's files there for
+          # delta generation. Every neighbouring cp is version-scoped; this one cannot
+          # be, because build-deb.sh maps a SemVer prerelease suffix to a Debian-legal
+          # `~` and the exact filename is not derivable here. So instead of an unscoped
+          # glob over a directory a downloader writes into, build-deb.sh gets its own
+          # out-dir (argument 4, which it already takes) and this glob can only ever see
+          # the .deb this run just built.
+          cp artifacts/deb/novaterminal_*_${{ matrix.debarch }}.deb artifacts/release/
           cp "artifacts/linux/NovaTerminalApp-$ver-$channel-full.nupkg" artifacts/release/
           cp "artifacts/linux/releases.$channel.json" artifacts/release/
           if [[ -f "artifacts/linux/NovaTerminalApp-$ver-$channel-delta.nupkg" ]]; then
