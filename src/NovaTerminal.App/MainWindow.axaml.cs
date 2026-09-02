@@ -556,8 +556,9 @@ namespace NovaTerminal
 
             // Precise running state, one pass over the registry snapshot before the per-tab
             // loop: any tab owning a pane whose agent-session status machine reports Running
-            // has a command in flight. The output-burst heuristic above decays after 2 quiet
-            // seconds, so a silently-thinking agent CLI (60s between tokens is normal) would
+            // has a command in flight. The output-burst heuristic below (Status.Evaluate in
+            // the per-tab loop) decays after 2 quiet seconds, so a silently-thinking agent
+            // CLI (60s between tokens is normal) would
             // flip its dot back to idle; the per-session status machine knows better. Same
             // registration→tab mapping as RefreshTabAgentAttention (TabId vs the persistent
             // tab id). Snapshot() is thread-safe; GetRegistrations() hands back a point-in-time
@@ -588,7 +589,10 @@ namespace NovaTerminal
                 // Same change-driven queueing as RenderedStatus: the flag feeds
                 // ResolveTabDot via UpdateVerticalTabExtras, which only runs in vertical
                 // mode (horizontal headers never read it - stale-but-unread there, cost
-                // zero, which is why this whole method is vertical-only).
+                // zero, which is why this whole method is vertical-only). One benign
+                // transient: flipping horizontal→vertical re-enters with up to 1s of
+                // stale dot state until the first tick resyncs - self-correcting and
+                // cosmetic, so it needs no mode-flip hook here.
                 bool running = runningTabIds.Contains(GetPersistentTabId(tab));
                 if (running != state.HasRunningCommand)
                 {
