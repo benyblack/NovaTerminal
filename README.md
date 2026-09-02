@@ -115,11 +115,26 @@ Ubuntu 22.04 and later ship no `libfuse2`, which AppImages need. Either install 
 
 **Debian / Ubuntu package** (system integration; update via your package manager):
 
+The `.deb` filename is not the release tag substituted into a template, unlike
+every other asset on this page. `build-deb.sh` always appends a Debian revision
+(`-1`), and for a prerelease tag it also turns the `-` before the prerelease
+label into `~` — dpkg reads the *last* `-` in a version as the revision
+separator, so a prerelease left as `-beta.1` would parse as upstream `0.5.0`
+revision `beta.1` and sort *above* the eventual `0.5.0-1` final release; `~`
+sorts before everything, so `~beta.1-1` correctly sorts below it. `v0.5.3` ships
+as `novaterminal_0.5.3-1_amd64.deb`; `v0.5.0-beta.1` ships as
+`novaterminal_0.5.0~beta.1-1_amd64.deb`. Don't construct the filename yourself —
+copy it verbatim from the [releases page](https://github.com/benyblack/NovaTerminal/releases):
+
 ```sh
-curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/novaterminal_<version>_amd64.deb
-sudo apt install ./novaterminal_<version>_amd64.deb
+curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/<exact .deb filename from the release page>
+sudo apt install ./<same filename>
 nova
 ```
+
+On ARM machines, grab the `arm64` asset instead of `amd64` — the `.deb` uses
+Debian architecture names (`amd64`/`arm64`), not the `x64`/`arm64` RID names the
+AppImage and tarball below use.
 
 Installs `nova` on your PATH, an app-menu entry, and `man nova`. The in-app updater is
 inactive for package installs by design.
@@ -127,6 +142,7 @@ inactive for package installs by design.
 **Portable tarball** (no integration):
 
 ```sh
+# Replace <tag> with the latest release, and x64 with arm64 on ARM machines.
 curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/NovaTerminal-linux-x64-<tag>.tar.gz
 tar -xzf NovaTerminal-linux-x64-<tag>.tar.gz && ./NovaTerminal
 ```

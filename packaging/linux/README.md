@@ -2,8 +2,8 @@
 
 This folder holds the Linux packaging pieces used by the release workflow:
 
-- `build-deb.sh` — builds `novaterminal_<ver>_<debarch>.deb` from a NativeAOT publish
-  directory. `dpkg-deb` over a staged tree; nothing is compiled here.
+- `build-deb.sh` — builds `novaterminal_<debver>_<debarch>.deb` from a NativeAOT
+  publish directory. `dpkg-deb` over a staged tree; nothing is compiled here.
 - `smoke-test.sh` — installs and launches the artifacts in bare `ubuntu:22.04`
   containers. The release gate.
 - `test-build-deb.sh` — unit-ish tests for `build-deb.sh` (version mapping, layout,
@@ -19,20 +19,60 @@ in `.github/workflows/release.yml`, mirroring the Windows and macOS lanes.
 | Release asset | Produced by | Notes |
 |---|---|---|
 | `NovaTerminal-linux-<arch>-<tag>.AppImage` | `vpk pack` (renamed) | Portable, self-updating |
-| `novaterminal_<ver>_<debarch>.deb` | `build-deb.sh` | System install; updates via your package manager |
+| `novaterminal_<debver>_<debarch>.deb` | `build-deb.sh` | System install; updates via your package manager |
 | `NovaTerminal-linux-<arch>-<tag>.tar.gz` | `tar` in `release.yml` | Portable, no integration |
 | `NovaTerminalApp-<ver>-linux-<arch>-full.nupkg` / `-delta.nupkg` | `vpk pack` | The update feed the in-app updater consumes |
 | `releases.linux-<arch>.json` | `vpk pack` | Feed index resolved by `VelopackUpdateService` |
 
-`<arch>` is `x64` or `arm64`; `<debarch>` is the Debian spelling, `amd64` or `arm64`.
+`release.yml`'s Linux release-publishing steps have not landed yet (tracked
+separately), so this table states the design target, not something a tagged
+GitHub release has produced. `linux_packaging_build` in `ci.yml` already runs
+the same `build-deb.sh`/`vpk pack` invocations and asserts every filename
+pattern above, but only as a CI dry run at a fixed `0.0.1-ci` version — see "Dry
+run without cutting a release" below, not a real release.
+
+`<arch>` is `x64` or `arm64`; `<debarch>` is the Debian spelling, `amd64` or
+`arm64`. `<debver>` is the Debian-mapped version from `build-deb.sh
+--print-debian-version <tag>` — **not** the tag verbatim; see below.
 
 ## Facts worth knowing
 
-- **The glibc floor is 2.35**, set by publishing on `ubuntu-22.04`. NativeAOT links
-  against the build machine's glibc with no runtime fallback, so the runner choice
-  *is* the minimum supported distro: Ubuntu 22.04+, Debian 12+, Fedora 36+, current
-  rolling distros. Debian 11 and RHEL 8/9 are not supported. Moving either Linux leg
-  to `ubuntu-latest` would silently drop Ubuntu 22.04.
+- **The glibc floor is 2.35**, pinned by building inside an `ubuntu:22.04`
+  *container*. NativeAOT links against the build machine's glibc with no runtime
+  fallback, so the build environment — not whichever runner happens to run it —
+  is the minimum supported distro: Ubuntu 22.04+, Debian 12+, Fedora 36+, current
+  rolling distros. Debian 11 and RHEL 8/9 are not supported.
+
+  This used to be `runs-on: ubuntu-22.04` — the runner image itself *was* the
+  build environment, so the runner choice was the mechanism. It isn't any more:
+  `actions/runner-images#14254` deprecates the `ubuntu-22.04` runner image
+  starting 2026-09-17 (fully unsupported 2027-04-17), which would have retired
+  this floor on GitHub's schedule instead of a deliberate decision. The
+  `linux_packaging_build` job now runs `runs-on: ubuntu-latest` with `container:
+  ubuntu:22.04`, so the floor is pinned to an image tag this repo controls,
+  independent of the runner lifecycle — bumping it is a one-line edit to
+  `ci.yml`, not something that happens to us. Moving the *container image* off
+  `ubuntu:22.04` would silently drop the floor; the runner label no longer
+  carries that meaning.
+- **The `.deb` filename's version is not the release tag.** `build-deb.sh`
+  always appends a Debian revision (`-1`) and, for a prerelease tag, replaces
+  the `-` before the prerelease label with `~`. dpkg reads the *last* `-` in a
+  version as the revision separator, so a prerelease left as `-beta.1` would
+  parse as upstream `0.5.0` revision `beta.1` and sort *above* the eventual
+  `0.5.0-1` final release; `~` sorts before everything, so `~beta.1-1` correctly
+  sorts below it. `v0.5.3` → `0.5.3-1`; `v0.5.0-beta.1` → `0.5.0~beta.1-1`.
+  Verified directly against the script:
+
+  ```
+  $ packaging/linux/build-deb.sh --print-debian-version 0.5.3
+  0.5.3-1
+  $ packaging/linux/build-deb.sh --print-debian-version v0.5.0-beta.1
+  0.5.0~beta.1-1
+  ```
+
+  The AppImage and tarball use the tag untransformed — the `.deb` is the only
+  asset where the filename must be looked up rather than constructed from the
+  tag.
 - **Channels are `linux-x64` and `linux-arm64`, never the bare `linux`.** A Velopack
   feed is per-channel, not per-architecture, and both architectures publish into one
   GitHub release — a shared `linux` channel would offer arm64 clients an x64 package.
@@ -109,14 +149,25 @@ in `.github/workflows/release.yml`, mirroring the Windows and macOS lanes.
 
 ## Dry run without cutting a release
 
-The `Linux Packaging (dry run + smoke)` job in `.github/workflows/ci.yml` runs the
-same `build-deb.sh` and `vpk pack` at version `0.0.1-ci`, asserts every asset name,
-runs the smoke test, and uploads `linux-packaging-dryrun`. It runs automatically on
-every push and on `workflow_dispatch`; on a pull request it runs only when the diff
-against the PR's merge base touches `packaging/linux/**`, a workflow file, `LICENSE`,
-or the app icon (a `Detect packaging changes` step gates the expensive part on that).
-Trigger it manually with `gh workflow run ci.yml`, or by touching a file under
-`packaging/linux/` in a PR.
+Three jobs in `.github/workflows/ci.yml` cover this without cutting a release:
+
+- **`linux_packaging_detect`** (runner, no container) — the change-detection
+  gate. Always signals "run" on `push` and `workflow_dispatch`; on a
+  `pull_request` it only does when the diff against the PR's merge base touches
+  `packaging/linux/**`, a workflow file, `LICENSE`, or the app icon (its
+  `Detect packaging changes` step).
+- **`linux_packaging_build`** (runner, `container: ubuntu:22.04` — the glibc-floor
+  pin described above) — builds the Rust natives, publishes AOT, runs
+  `build-deb.sh` and `vpk pack` at version `0.0.1-ci`, asserts every asset name,
+  and uploads the `linux-packaging-dryrun` artifact.
+- **`linux_packaging_smoke`** (runner, no container) — downloads that artifact
+  and runs `test-build-deb.sh` and `smoke-test.sh` against it. It has to run
+  outside the container: both scripts start their own bare `docker run`
+  containers as their entire test premise, and a `container:` job has no Docker
+  daemon or socket to do that with.
+
+Trigger the lane manually with `gh workflow run ci.yml`, or by touching a file
+under `packaging/linux/` in a PR.
 
 Locally, everything but `vpk pack` runs in Docker. `test-build-deb.sh` needs
 `dpkg-deb`, `dpkg-query`, `file`, `ldd`, `strip` (from `binutils`), an ImageMagick
