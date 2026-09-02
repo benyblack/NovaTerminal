@@ -69,18 +69,18 @@ namespace NovaTerminal.Tests.BufferTests
             return buffer;
         }
 
-        private static RenderCellSnapshot[] FindBannerRowCells(TerminalRenderSnapshot snapshot)
+        private static RenderCellSnapshot[] FindRowCells(TerminalRenderSnapshot snapshot, char firstChar, char secondChar)
         {
             for (int r = 0; r < snapshot.RowsData.Length; r++)
             {
                 var row = snapshot.RowsData.Array![r];
-                if (row.Cells.Length > 2 && row.Cells[0].Character == 'C' && row.Cells[1].Character == 'l')
+                if (row.Cells.Length > 2 && row.Cells[0].Character == firstChar && row.Cells[1].Character == secondChar)
                 {
                     return row.Cells;
                 }
             }
 
-            throw new Xunit.Sdk.XunitException("banner row not found in the snapshot");
+            throw new Xunit.Sdk.XunitException($"row starting with '{firstChar}{secondChar}' not found in the snapshot");
         }
 
         private static void AssertBannerRowUsesNewTheme(TerminalBuffer buffer, TerminalTheme newTheme, bool populateSnapshotCacheFirst)
@@ -107,7 +107,7 @@ namespace NovaTerminal.Tests.BufferTests
                 ScrollOffset = 5
             }, out _);
 
-            var cells = FindBannerRowCells(after);
+            var cells = FindRowCells(after, 'C', 'l');
             Assert.True(cells[0].IsDefaultBackground, "plain banner text must keep the default-background flag");
             Assert.Equal(newTheme.Background, cells[0].Background);
         }
@@ -133,12 +133,12 @@ namespace NovaTerminal.Tests.BufferTests
         }
 
         [Fact]
-        public void ScrollbackRow_MaterializedDefaultColors_AreAdoptedIntoTheNewTheme()
+        public void ScrollbackRow_ExplicitTruecolorEqualToOldDefault_IsLeftAlone()
         {
-            // The "materialized default" shape: cells store the old theme's default colors with
-            // the default flags cleared. They render exactly like default cells under the old
-            // theme, so a switch must adopt them - otherwise scrolled history keeps old-theme
-            // boxes while everything around it follows the new theme.
+            // Greptile P1 on the materialized-default adoption experiment: a program may
+            // explicitly request a truecolor that happens to equal the active theme's default
+            // (e.g. after an OSC 11 query). Explicit colors must stay explicit across theme
+            // switches - only flagged default cells migrate.
             var pool = new NovaTerminal.VT.Storage.TerminalPagePool();
             int cols = 10;
             var scrollback = new NovaTerminal.VT.Storage.ScrollbackPages(cols, pool, maxScrollbackBytes: 16L * 1024 * 1024);
@@ -158,12 +158,40 @@ namespace NovaTerminal.Tests.BufferTests
             scrollback.UpdateThemeDefaults(oldTheme, newTheme);
 
             var updated = scrollback.GetRow(0);
-            Assert.True(updated[0].IsDefaultForeground);
-            Assert.True(updated[0].IsDefaultBackground);
-            Assert.Equal(newTheme.Foreground.ToUint(), updated[0].Fg);
-            Assert.Equal(newTheme.Background.ToUint(), updated[0].Bg);
+            Assert.False(updated[0].IsDefaultForeground);
+            Assert.False(updated[0].IsDefaultBackground);
+            Assert.Equal(oldTheme.Foreground.ToUint(), updated[0].Fg);
+            Assert.Equal(oldTheme.Background.ToUint(), updated[0].Bg);
 
             pool.Clear();
+        }
+
+        [Fact]
+        public void ViewportRow_ExplicitTruecolorEqualToOldDefault_IsLeftAloneAfterSwitch()
+        {
+            // Same contract through the parser: SGR 48;2 with the Solarized background is an
+            // explicit color and must survive a theme switch exactly as emitted.
+            var oldTheme = LoadTheme("SolarizedDark");
+            var newTheme = LoadTheme("GitHubLight");
+            var buffer = new TerminalBuffer(80, 6) { Theme = oldTheme };
+            var parser = new AnsiParser(buffer);
+
+            // #002b36 == Solarized Dark's background, requested explicitly.
+            parser.Process("\x1b[48;2;0;43;54mexplicit truecolor block\x1b[0m");
+
+            buffer.Theme = newTheme;
+            buffer.UpdateThemeColors(oldTheme);
+
+            var after = buffer.CaptureRenderSnapshot(new RenderSnapshotRequest
+            {
+                ViewportRows = 6,
+                ViewportCols = 80,
+                ScrollOffset = 0
+            }, out _);
+
+            var cells = FindRowCells(after, 'e', 'x');
+            Assert.False(cells[0].IsDefaultBackground);
+            Assert.Equal(TermColor.FromRgb(0, 43, 54), cells[0].Background);
         }
 
         [Fact]
@@ -195,7 +223,7 @@ namespace NovaTerminal.Tests.BufferTests
                 ScrollOffset = 0
             }, out _);
 
-            var cells = FindBannerRowCells(after);
+            var cells = FindRowCells(after, 'C', 'l');
             Assert.True(cells[0].IsDefaultBackground, "plain banner text must keep the default-background flag");
             Assert.Equal(newTheme.Background, cells[0].Background);
         }
@@ -224,7 +252,7 @@ namespace NovaTerminal.Tests.BufferTests
                     ScrollOffset = 5
                 }, out _);
 
-                var cells = FindBannerRowCells(after);
+                var cells = FindRowCells(after, 'C', 'l');
                 Assert.Equal(next.Background, cells[0].Background);
                 previous = next;
             }

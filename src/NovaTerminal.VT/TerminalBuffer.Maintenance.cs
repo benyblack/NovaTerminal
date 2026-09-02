@@ -358,10 +358,11 @@ namespace NovaTerminal.VT
                 SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Main);
                 SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Alt);
 
-                // Materialized-default detection colors (see UpdateCell below).
-                uint oldForegroundUint = oldTheme.Foreground.ToUint();
-                uint oldBackgroundUint = oldTheme.Background.ToUint();
-
+                // NOTE: deliberately no value-based adoption here. Rewriting cells whose color
+                // happens to equal the old default would also capture explicitly-requested
+                // truecolors (programs query OSC 11 and paint to match the terminal), silently
+                // converting them to theme-following defaults. Explicit stays explicit; only
+                // flagged default cells migrate.
                 void UpdateCell(ref TerminalCell cell)
                 {
                     // Preserve palette/default flags across theme switches.
@@ -382,15 +383,6 @@ namespace NovaTerminal.VT
                         cell.IsDefaultForeground = true;
                         cell.Fg = Theme.Foreground.ToUint();
                     }
-                    else if (fgIdx < 0 && cell.Fg == oldForegroundUint)
-                    {
-                        // Materialized default: some paths store the resolved old default color
-                        // without the default flag. A cell that rendered exactly like the old
-                        // default reads as "default" to the user - adopt it into the new theme,
-                        // or scrolled history keeps old-theme boxes after a switch.
-                        cell.IsDefaultForeground = true;
-                        cell.Fg = Theme.Foreground.ToUint();
-                    }
 
                     if (bgIdx >= 0 && bgIdx <= 15)
                     {
@@ -401,11 +393,6 @@ namespace NovaTerminal.VT
                     else if (cell.IsDefaultBackground)
                     {
                         cell.IsPaletteBackground = false;
-                        cell.IsDefaultBackground = true;
-                        cell.Bg = Theme.Background.ToUint();
-                    }
-                    else if (bgIdx < 0 && cell.Bg == oldBackgroundUint)
-                    {
                         cell.IsDefaultBackground = true;
                         cell.Bg = Theme.Background.ToUint();
                     }
