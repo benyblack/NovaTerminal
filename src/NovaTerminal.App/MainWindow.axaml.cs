@@ -843,10 +843,11 @@ namespace NovaTerminal
             // suffixes that used to live inside the truncated title text (bell/activity/
             // agent glyphs). Hidden until UpdateVerticalTabExtras turns the tab's marker
             // set back on; not hit-testable so pointer presses stay on the header host
-            // (select + context menu + drag-reorder). Chip colors match the in-pane agent
-            // segment and the existing tab attention constant (see the Tab*ChipBrush
-            // declarations above).
-            TextBlock Chip(string name, string glyph, IBrush foreground, string toolTip)
+            // (select + context menu + drag-reorder), which also means no per-chip
+            // tooltips (a hit-test-invisible control never sees pointer-enter). Chip
+            // colors match the in-pane agent segment and the existing tab attention
+            // constant (see the Tab*ChipBrush declarations above).
+            TextBlock Chip(string name, string glyph, IBrush foreground)
             {
                 var chip = new TextBlock
                 {
@@ -857,14 +858,13 @@ namespace NovaTerminal
                     IsVisible = false,
                     IsHitTestVisible = false,
                 };
-                ToolTip.SetTip(chip, toolTip);
                 return chip;
             }
 
-            var bellChip = Chip("TabBellChip", "🔔", TabBellChipBrush, "Bell");
-            var activityChip = Chip("TabActivityChip", "•", TabActivityChipBrush, "Recent activity");
-            var agentWroteChip = Chip("TabAgentWroteChip", AgentWroteGlyph, TabAgentWroteChipBrush, "Agent typed here");
-            var agentWatchedChip = Chip("TabAgentWatchedChip", AgentWatchedGlyph, TabAgentWatchedChipBrush, "Agent reading");
+            var bellChip = Chip("TabBellChip", "🔔", TabBellChipBrush);
+            var activityChip = Chip("TabActivityChip", "•", TabActivityChipBrush);
+            var agentWroteChip = Chip("TabAgentWroteChip", AgentWroteGlyph, TabAgentWroteChipBrush);
+            var agentWatchedChip = Chip("TabAgentWatchedChip", AgentWatchedGlyph, TabAgentWatchedChipBrush);
 
             var chipsColumn = new StackPanel
             {
@@ -3792,6 +3792,14 @@ namespace NovaTerminal
                 bool moveTabNextShortcut = IsShortcut(e, "move_tab_next", "Ctrl+Shift+PageDown");
                 if (moveTabPrevShortcut || moveTabNextShortcut)
                 {
+                    // Keyboard move is meaningless mid-drag; swallowing the shortcut keeps
+                    // reorder mutations single-threaded through the drag path (cf. the
+                    // Escape guard above).
+                    if (_isTabReorderDragging)
+                    {
+                        e.Handled = true;
+                        return;
+                    }
                     RecordCommandUsage(moveTabPrevShortcut ? "move_tab_prev" : "move_tab_next");
                     MoveSelectedTab(moveTabPrevShortcut ? -1 : 1);
                     e.Handled = true;
