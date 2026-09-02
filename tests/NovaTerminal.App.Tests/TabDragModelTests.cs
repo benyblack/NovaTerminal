@@ -24,6 +24,16 @@ namespace NovaTerminal.Tests
         public void ShouldStartDrag_HonorsCustomThreshold(double pressPos, double currentPos, double threshold, bool expected)
             => Assert.Equal(expected, TabDragModel.ShouldStartDrag(pressPos, currentPos, threshold));
 
+        [Theory]
+        [InlineData(double.NaN, 100)]
+        [InlineData(100, double.NaN)]
+        [InlineData(double.PositiveInfinity, 100)]
+        [InlineData(100, double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity, 100)]
+        [InlineData(100, double.NegativeInfinity)]
+        public void ShouldStartDrag_NonFinitePositionsReturnFalse(double pressPos, double currentPos)
+            => Assert.False(TabDragModel.ShouldStartDrag(pressPos, currentPos));
+
         [Fact]
         public void ComputeInsertIndex_EmptyListReturnsZero()
             => Assert.Equal(0, TabDragModel.ComputeInsertIndex(new List<double>(), pointerPos: 100));
@@ -49,6 +59,13 @@ namespace NovaTerminal.Tests
             => Assert.Equal(expected, TabDragModel.ComputeInsertIndex(new List<double> { 100, 200, 300 }, pointerPos));
 
         [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void ComputeInsertIndex_NonFinitePointerReturnsZero(double pointerPos)
+            => Assert.Equal(0, TabDragModel.ComputeInsertIndex(new List<double> { 100, 200, 300 }, pointerPos));
+
+        [Theory]
         [InlineData(300)] // well inside
         [InlineData(24)] // exactly at the start boundary is inside the safe zone
         [InlineData(576)] // exactly at the end boundary is inside the safe zone
@@ -72,7 +89,7 @@ namespace NovaTerminal.Tests
                 TabDragModel.ComputeAutoScrollDelta(viewportStart: 0, viewportLength: 600, pointerPos));
 
         [Fact]
-        public void ComputeAutoScrollDelta_NonZeroViewportStartMeasuresZonesRelativeToToIt()
+        public void ComputeAutoScrollDelta_NonZeroViewportStartMeasuresZonesRelativeToIt()
         {
             // Viewport [100..400]: start zone is [100..124), end zone is (376..400].
             Assert.Equal(0, TabDragModel.ComputeAutoScrollDelta(viewportStart: 100, viewportLength: 300, pointerPos: 124));

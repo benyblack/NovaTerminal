@@ -21,15 +21,18 @@ namespace NovaTerminal.Shell
         internal const double AutoScrollStep = 12;
 
         /// <summary>True once the pointer has moved at least <paramref name="threshold"/> along the
-        /// drag axis from the press position, in either direction.</summary>
+        /// drag axis from the press position, in either direction. Non-finite positions return false.</summary>
         internal static bool ShouldStartDrag(double pressPos, double currentPos, double threshold = DragStartThreshold)
-            => Math.Abs(currentPos - pressPos) >= threshold;
+            => double.IsFinite(pressPos) && double.IsFinite(currentPos) && Math.Abs(currentPos - pressPos) >= threshold;
 
         /// <summary>Insertion index in [0..count]: the number of headers whose center is strictly
-        /// less than <paramref name="pointerPos"/>, i.e. the drop happens before the first header
-        /// whose center is below/right of the pointer. An empty list returns 0.</summary>
+        /// less than <paramref name="pointerPos"/>, i.e. before the first header whose center is at
+        /// or beyond the pointer. An empty list returns 0, and a non-finite pointer position returns 0.</summary>
         internal static int ComputeInsertIndex(IReadOnlyList<double> headerCenters, double pointerPos)
         {
+            if (!double.IsFinite(pointerPos))
+                return 0;
+
             var index = 0;
             for (var i = 0; i < headerCenters.Count; i++)
             {
