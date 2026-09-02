@@ -1163,43 +1163,75 @@ jobs:
           retention-days: 7
           path: artifacts/publish/${{ matrix.rid }}
 
+  # ===========================================================================
   # Linux packaging: dry run + smoke gate (#91 Linux leg). Two callers of the same
   # scripts release.yml uses, so packaging breaks land on a PR rather than on a tag.
   #
-  # ubuntu-22.04, not ubuntu-latest, and that is not incidental: NativeAOT links
-  # against the build machine's glibc with no runtime fallback, so the runner choice
-  # IS the minimum supported distro. 22.04 sets the floor at glibc 2.35 (Ubuntu
-  # 22.04+, Debian 12+, Fedora 36+). Publishing on ubuntu-latest would silently
-  # exclude the most-deployed LTS - which is what it was doing before this job.
+  # THREE jobs, not one, and the split is load-bearing - read this before merging
+  # them back together.
+  #
+  # 1. `linux_packaging_detect` (runner, no container): the change-detection gate.
+  #    Cheap, needs `git` + full history, and its output gates the other two.
+  # 2. `linux_packaging_build` (runner + `container: ubuntu:22.04`): everything that
+  #    produces artifacts - cargo, AOT publish, build-deb.sh, vpk pack, assertions.
+  # 3. `linux_packaging_smoke` (runner, no container): the docker-based gates -
+  #    test-build-deb.sh and smoke-test.sh - consuming job 2's artifacts.
+  #
+  # WHY A CONTAINER AT ALL. NativeAOT links against the build machine's glibc with
+  # no runtime fallback, so whatever builds the binary IS the minimum supported
+  # distro. This lane used `runs-on: ubuntu-22.04` to pin that floor at glibc 2.35
+  # (Ubuntu 22.04+, Debian 12+, Fedora 36+). But actions/runner-images#14254
+  # deprecates the ubuntu-22.04 image starting 2026-09-17 (fully unsupported
+  # 2027-04-17), which would have retired our glibc floor on GitHub's schedule
+  # rather than ours. `runs-on: ubuntu-latest` + `container: ubuntu:22.04` pins the
+  # floor to an image tag we control, permanently and independently of the runner
+  # lifecycle. Bumping the floor is now a deliberate one-line edit here.
+  #
+  # WHY THE SMOKE GATE CANNOT BE IN THE CONTAINER. smoke-test.sh and
+  # test-build-deb.sh both `docker run` bare containers themselves - that is the
+  # entire design premise of the smoke test (a pristine machine that installs
+  # nothing but the .deb). A `container:` job has no docker daemon and no socket, so
+  # docker-in-docker is not available; mounting the host socket would be a
+  # privilege escalation and would also break the `-v "$PWD:..."` mounts, because
+  # paths inside the job container do not exist on the daemon's host. So the smoke
+  # gate stays on the runner, where a daemon exists, and receives the artifacts via
+  # upload/download-artifact. The gate is NOT dropped or weakened - it runs exactly
+  # the same two scripts against exactly the artifacts job 2 produced.
+  #
+  # Artifact permissions are not preserved by upload/download-artifact. That is
+  # harmless here: the .deb carries its own internal modes in its data tarball, and
+  # smoke-test.sh already does `cp "$img" /tmp/nova.AppImage && chmod +x` before
+  # launching an AppImage.
   #
   # x64 only: this lane exists to catch asset-naming and layout mistakes, which are
   # architecture-independent. release.yml covers arm64.
+  # ===========================================================================
   #
-  # This job is deliberately NOT gated by a workflow-level `paths:` filter - that
+  # This lane is deliberately NOT gated by a workflow-level `paths:` filter - that
   # would gate every other job in this file, and the `pull_request` trigger above
-  # only has `paths-ignore`. Instead the job's own `if:` stays event-based (always
-  # eligible to run), and the "Detect packaging changes" step below decides whether
-  # the expensive part actually runs: workflow_dispatch is always a full dry run,
-  # push (to main, per the trigger above - i.e. a post-merge run, not every commit)
-  # always runs fully too as a cheap post-merge canary, and pull_request only runs
-  # fully when the diff against the PR's merge base touches packaging/linux/** or a
-  # workflow file - otherwise the job exits quickly without doing the ~40-minute
-  # AOT/build/smoke work.
-  linux_packaging:
-    name: Linux Packaging (dry run + smoke)
-    runs-on: ubuntu-22.04
-    # 40 -> 60: uncached cargo (two crates) + full NuGet restore + AOT publish +
-    # a docker harness that apt-installs on every invocation + vpk pack + two
-    # smoke containers that each apt-install their own tooling, cold. aot_publish
-    # needed the same kind of bump (40 -> 90) for a lighter workload. This is a
-    # capacity estimate for a cold job with the caching added below, not a flake
-    # being papered over - if it ever flakes AFTER caching, that is a hypothesis
-    # to investigate, not a number to bump again.
-    timeout-minutes: 60
+  # only has `paths-ignore`. Instead this job's `if:` stays event-based (always
+  # eligible to run) and publishes a `run` output that gates the two expensive jobs:
+  # workflow_dispatch is always a full dry run, push (to main, per the trigger above
+  # - i.e. a post-merge run, not every commit) always runs fully too as a cheap
+  # post-merge canary, and pull_request only runs fully when the diff against the
+  # PR's merge base touches packaging/linux/** or a workflow file - otherwise the
+  # ~40-minute AOT/build/smoke work never starts.
+  #
+  # This job replaces the per-step `if: steps.detect.outputs.run == 'true'` guards
+  # the single-job version used. A job output is the only way to share the decision
+  # across jobs, and it gives a truer run summary too: the expensive jobs now show
+  # as "skipped" rather than as a green job of skipped steps. A failure INSIDE this
+  # job still reds the workflow, same as the old failing detect step did.
+  linux_packaging_detect:
+    name: Linux Packaging (detect)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
       github.event_name == 'pull_request'
+    outputs:
+      run: ${{ steps.detect.outputs.run }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1244,58 +1276,153 @@ jobs:
             echo "No packaging/linux or workflow changes detected - skipping the packaging build."
           fi
 
-      # Cache + Setup .NET mirror the pattern the `build` job uses (see its own
-      # comments): a persistent SDK cache keyed on global.json, plus setup-dotnet's
-      # own NuGet package cache keyed on every .csproj. This job restores the whole
-      # solution cold otherwise, on every run that reaches this point.
+  linux_packaging_build:
+    name: Linux Packaging (dry run)
+    needs: linux_packaging_detect
+    if: needs.linux_packaging_detect.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    # The glibc floor. See the block comment above - this tag, not the runner
+    # image, is what defines the minimum distro NovaTerminal's Linux build
+    # supports. Do not bump it without deciding to drop a distro.
+    container:
+      image: ubuntu:22.04
+    # 40 -> 60: uncached cargo (two crates) + full NuGet restore + AOT publish +
+    # vpk pack, cold, plus - new with the container - an SDK download and an
+    # apt-install of the entire toolchain on every run that misses the caches.
+    # aot_publish needed the same kind of bump (40 -> 90) for a lighter workload.
+    # This is a capacity estimate for a cold job, not a flake being papered over -
+    # if it ever flakes AFTER caching, that is a hypothesis to investigate, not a
+    # number to bump again.
+    timeout-minutes: 60
+    steps:
+      # MUST be the first step, before actions/checkout: a bare ubuntu:22.04 has
+      # no git, and actions/checkout silently falls back to a tarball download via
+      # the REST API when git is absent - which produces no `.git` at all, so
+      # `fetch-depth` and anything git-shaped downstream would be meaningless.
+      #
+      # Everything the pipeline needs is installed explicitly. A bare image has
+      # almost nothing, and this job's standing philosophy ("relying on image
+      # contents is what breaks when the image rolls") is now not a philosophy but
+      # a hard requirement:
+      #   ca-certificates curl  - dotnet-install.sh, rustup, TLS for both
+      #   git                   - actions/checkout (see above)
+      #   unzip                 - the nupkg .dbg leak assertion below
+      #   zstd, tar, gzip       - actions/cache's archive backends (tar/gzip are in
+      #                           the base image; zstd is not, and cache silently
+      #                           degrades to gzip without it)
+      #   clang zlib1g-dev      - the NativeAOT link step (documented prerequisites)
+      #   binutils              - `strip`, which build-deb.sh preflights and fails
+      #                           loudly without
+      #   file                  - build-deb.sh's ELF discovery for Depends: walking
+      #   imagemagick           - `convert`, for the hicolor icon set
+      #   squashfs-tools        - `mksquashfs`. vpk pack builds a type-2 AppImage
+      #                           and CANNOT produce one without it; a bare
+      #                           ubuntu:22.04 does not ship it, and the local
+      #                           end-to-end only ever produced an AppImage once it
+      #                           was installed. Not optional.
+      #   fontconfig libfreetype6 x11-utils
+      #                         - build-deb.sh's Depends: derivation walks ldd
+      #                           against whatever is ALREADY resolvable on this
+      #                           machine, so leaving these implicit makes the
+      #                           derived set a function of imagemagick's own
+      #                           dependency graph on whichever apt snapshot is
+      #                           current - which is exactly how a 24.04 run and a
+      #                           22.04 run produced two different transitive sets
+      #                           from identical binaries. Declaring them makes it a
+      #                           function of this list instead.
+      #   libicu70 libssl3      - the .NET SDK's own runtime prerequisites on 22.04
+      - name: Install container toolchain
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y \
+            ca-certificates curl git unzip zstd \
+            clang zlib1g-dev binutils file imagemagick squashfs-tools \
+            fontconfig libfreetype6 x11-utils \
+            libicu70 libssl3
+          echo "--- container identity (the glibc floor this lane pins) ---"
+          cat /etc/os-release | head -2
+          ldd --version | head -1
+
+      - uses: actions/checkout@v4
+
+      # Cache the SDK payload itself, keyed on global.json: dotnet-install.sh is a
+      # ~220 MB download on every cold run, and unlike the runner image the
+      # container has no preinstalled SDK to fall back on. dotnet-install.sh
+      # no-ops when the requested version is already present in --install-dir, so a
+      # cache hit skips the download entirely.
       - name: Cache .NET SDK
-        if: steps.detect.outputs.run == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          key: dotnet-sdk-container-ubuntu2204-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-container-ubuntu2204-
 
-      - name: Setup .NET
-        if: steps.detect.outputs.run == 'true'
-        uses: actions/setup-dotnet@v4
-        env:
-          DOTNET_INSTALL_DIR: ~/.dotnet
-        with:
-          global-json-file: global.json
-          cache: true
-          cache-dependency-path: "**/*.csproj"
-
-      # The AOT toolchain. Present on the x64 runner image today, installed
-      # explicitly because relying on image contents is what breaks when the image
-      # rolls - nightly.yml already installs clang for the same reason.
+      # actions/setup-dotnet is deliberately NOT used here. It is a node action
+      # that shells out to this same dotnet-install.sh, so it would add a layer
+      # whose behaviour inside a bare container is unproven, to gain only the
+      # `cache: true` NuGet cache - which is one actions/cache block below.
+      # Calling the script directly is what was actually verified end-to-end in
+      # ubuntu:22.04.
       #
-      # fontconfig + libfreetype6 (not just imagemagick's transitive pull of them):
-      # build-deb.sh's Depends: derivation walks ldd against whatever is ALREADY
-      # resolvable on this machine, so leaving fontconfig implicit means the
-      # derived set is a function of imagemagick's own dependency graph on
-      # whichever apt snapshot happens to be current - which is exactly how a
-      # 24.04 test run and a 22.04 test run produced two different transitive
-      # package sets from the identical binaries. Installing it explicitly makes
-      # the derived Depends: a function of a declared package list instead.
-      - name: Install AOT and packaging toolchain
-        if: steps.detect.outputs.run == 'true'
+      # --jsonfile global.json, NOT --version <literal>: the SDK version is read
+      # out of global.json itself, so this can never drift from the pin. Verified:
+      # `dotnet-install.sh --jsonfile global.json --dry-run` resolves to
+      # dotnet-sdk-10.0.400-linux-x64, matching global.json's `sdk.version`.
+      - name: Install .NET SDK (version pinned by global.json)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang zlib1g-dev imagemagick file binutils fontconfig libfreetype6
+          set -euo pipefail
+          curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+          chmod +x /tmp/dotnet-install.sh
+          /tmp/dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet"
+          # Both entries: `dotnet` itself, and the global-tool shim dir that
+          # `dotnet tool install -g vpk` writes into. Neither is on PATH in a
+          # container, unlike on the hosted runner image.
+          echo "$HOME/.dotnet" >> "$GITHUB_PATH"
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+          echo "DOTNET_ROOT=$HOME/.dotnet" >> "$GITHUB_ENV"
 
+      - name: Verify dotnet is on PATH
+        run: |
+          set -euo pipefail
+          command -v dotnet
+          dotnet --version
+
+      # setup-dotnet's `cache: true` (used by the other jobs in this file) is not
+      # available without setup-dotnet, so the NuGet package cache is declared
+      # directly with the same dependency path it would have used.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-container-ubuntu2204-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-container-ubuntu2204-
+
+      # dtolnay/rust-toolchain@stable is not used here: it drives an EXISTING
+      # rustup, which the hosted runner image preinstalls and a bare
+      # ubuntu:22.04 does not. Same intent, via the upstream installer.
       - name: Install Rust
-        if: steps.detect.outputs.run == 'true'
-        uses: dtolnay/rust-toolchain@stable
+        run: |
+          set -euo pipefail
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
+      - name: Verify cargo is on PATH
+        run: |
+          set -euo pipefail
+          command -v cargo
+          cargo --version
+          rustc --version
+
+      # Kept as-is: a node action, so it runs in the container, and it only needs
+      # cargo on PATH - which the step above put there via $GITHUB_PATH.
       - name: Rust incremental build cache
-        if: steps.detect.outputs.run == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/NovaTerminal.App/native
 
       - name: Build Rust native
-        if: steps.detect.outputs.run == 'true'
         run: |
           cd src/NovaTerminal.App/native
           cargo build --release
@@ -1304,14 +1431,12 @@ jobs:
           cd rusty_ssh && cargo build --release
 
       - name: Restore
-        if: steps.detect.outputs.run == 'true'
         run: dotnet restore
 
       # -p:SkipCliShim=true for the same reason as release.yml's Publish AOT: the
       # shim needs a RID-less framework-dependent build, and the AOT binary
       # dispatches the CLI modes itself.
       - name: Publish AOT (linux-x64)
-        if: steps.detect.outputs.run == 'true'
         env:
           SKIP_RUST_NATIVE_BUILD: "1"
         run: >-
@@ -1322,30 +1447,20 @@ jobs:
           -o artifacts/publish/linux-x64
 
       - name: Build .deb
-        if: steps.detect.outputs.run == 'true'
         run: |
           chmod +x packaging/linux/*.sh
           packaging/linux/build-deb.sh artifacts/publish/linux-x64 0.0.1-ci amd64 artifacts/linux
 
-      # fontconfig + x11-utils: test-build-deb.sh's own header comment documents
-      # these as the donor-ELF providers (fc-match, xdpyinfo) its dedupe check
-      # needs to be non-vacuous. Without them here, fc-match/xdpyinfo are absent
-      # too, and the harness's donor search falls back to whatever imagemagick
-      # happened to pull in transitively - which is exactly the "only
-      # libfontconfig1 is discriminating" gap this list closes. binutils: strip's
-      # preflight in build-deb.sh fails loudly without it, same as the runner-level
-      # toolchain step above.
-      - name: Test build-deb.sh
-        if: steps.detect.outputs.run == 'true'
-        run: |
-          docker run --rm -v "$PWD:/w:ro" -w /w ubuntu:22.04 bash -c \
-            'apt-get update -qq && apt-get install -y -qq file imagemagick fontconfig x11-utils binutils >/dev/null &&
-             packaging/linux/test-build-deb.sh'
+      # Recorded, not asserted: the derived Depends: is a function of what is
+      # installed on the machine doing the packaging (see the toolchain step's
+      # note on fontconfig), so printing it makes an image-driven change visible
+      # in the log instead of only showing up as a smoke-test failure.
+      - name: Show derived Depends
+        run: dpkg-deb -f artifacts/linux/novaterminal_0.0.1~ci-1_amd64.deb Depends
 
       # vpk pinned to 1.2.0, in lockstep with Directory.Packages.props and the two
       # other install sites in these workflows.
       - name: Install vpk
-        if: steps.detect.outputs.run == 'true'
         run: dotnet tool install -g vpk --version 1.2.0
 
       # --channel linux-x64, NOT the platform default 'linux'. Linux publishes two
@@ -1369,8 +1484,10 @@ jobs:
       # alternation rather than passed twice (unverified whether a second
       # occurrence would error or silently overwrite the first - not worth finding
       # out on the release-lane-adjacent invocation).
+      #
+      # mksquashfs (squashfs-tools, installed above) is a hard prerequisite of this
+      # step - a type-2 AppImage IS a squashfs image.
       - name: Pack AppImage (Velopack)
-        if: steps.detect.outputs.run == 'true'
         run: |
           rm -f artifacts/publish/linux-x64/*.pdb artifacts/publish/linux-x64/*.dbg
           vpk pack \
@@ -1389,7 +1506,6 @@ jobs:
       # surfaces here instead of on a tag. The `~` in the .deb filename is the
       # prerelease mapping from build-deb.sh - asserting it here pins that behaviour.
       - name: Assert expected assets
-        if: steps.detect.outputs.run == 'true'
         run: |
           cd artifacts/linux
           ls -la
@@ -1408,12 +1524,12 @@ jobs:
             exit 1
           fi
 
-      - name: Smoke test (bare containers)
-        if: steps.detect.outputs.run == 'true'
-        run: packaging/linux/smoke-test.sh artifacts/linux
-
+      # if: always() so a failure in the assertions above still leaves the produced
+      # artifacts downloadable for triage. This upload is also the ONLY channel by
+      # which the smoke job below receives them, so its name and the download step's
+      # name must stay in sync.
       - name: Upload dry-run artifact
-        if: always() && steps.detect.outputs.run == 'true'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: linux-packaging-dryrun
@@ -1423,3 +1539,52 @@ jobs:
             artifacts/linux/*.deb
             artifacts/linux/*.nupkg
             artifacts/linux/releases.*.json
+
+  # The docker half. Runs on the runner, NOT in a container, because both scripts
+  # below start their own bare containers - see the block comment at the top of
+  # this lane for why docker-in-docker is not an option. This is the release gate:
+  # if it is ever skipped or made non-blocking, the lane has lost its point.
+  linux_packaging_smoke:
+    name: Linux Packaging (smoke)
+    needs: [linux_packaging_detect, linux_packaging_build]
+    if: >-
+      needs.linux_packaging_detect.outputs.run == 'true' &&
+      needs.linux_packaging_build.result == 'success'
+    runs-on: ubuntu-latest
+    # Two cold smoke containers that each apt-install their own tooling, plus the
+    # test-build-deb.sh harness container. No compilation happens here.
+    timeout-minutes: 30
+    steps:
+      # The scripts live in the repo, the artifacts come from the build job.
+      - uses: actions/checkout@v4
+
+      - name: Download dry-run artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-packaging-dryrun
+          path: artifacts/linux
+
+      - name: Show downloaded artifacts
+        run: ls -la artifacts/linux
+
+      # fontconfig + x11-utils: test-build-deb.sh's own header comment documents
+      # these as the donor-ELF providers (fc-match, xdpyinfo) its dedupe check
+      # needs to be non-vacuous. Without them here, fc-match/xdpyinfo are absent
+      # too, and the harness's donor search falls back to whatever imagemagick
+      # happened to pull in transitively - which is exactly the "only
+      # libfontconfig1 is discriminating" gap this list closes. binutils: strip's
+      # preflight in build-deb.sh fails loudly without it.
+      #
+      # ubuntu:22.04 here, matching the build job's container: this harness runs
+      # build-deb.sh, so it must see the same distro the real .deb was built on.
+      - name: Test build-deb.sh
+        run: |
+          chmod +x packaging/linux/*.sh
+          docker run --rm -v "$PWD:/w:ro" -w /w ubuntu:22.04 bash -c \
+            'apt-get update -qq && apt-get install -y -qq file imagemagick fontconfig x11-utils binutils >/dev/null &&
+             packaging/linux/test-build-deb.sh'
+
+      - name: Smoke test (bare containers)
+        run: |
+          chmod +x packaging/linux/*.sh
+          packaging/linux/smoke-test.sh artifacts/linux

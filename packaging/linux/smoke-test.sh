@@ -50,19 +50,49 @@ docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
   # incomplete Depends: would install cleanly and then fail at dlopen/dlsym time on
   # a real users machine with nothing here to have caught it.
   #
-  # Captured first, not piped straight into grep: under `pipefail` a non-zero ldd
-  # (missing binary, non-ELF file, static binary) combined with a non-matching grep
-  # still yields a non-zero PIPELINE, so the `if` below would be false and the
-  # script would print "ok" without the probe having run at all. Checking the exit
-  # status of ldd separately closes that hole.
-  while IFS= read -r elf; do
-    ldd_out="$(ldd "$elf")" \
-      || { echo "  FAIL: ldd failed on $elf" >&2; exit 1; }
+  # ELF DISCOVERY IS BY MAGIC BYTES, NOT BY `file`. `file` is not installed in this
+  # container and MUST NOT be, per the phase A rule above. An earlier version of
+  # this loop discovered ELFs with
+  #   find ... -exec sh -c "file -b \"$1\" | grep -q ^ELF" _ {} \; -print
+  # which printed `file: not found` once per candidate, emitted no paths at all, and
+  # so ran the loop body ZERO times while still printing the ok line below - a check
+  # that could not fail. `head -c4` + `od` are coreutils, present in every base
+  # image, and need nothing installed. ELF files start with 7f 45 4c 46.
+  #
+  # ldd is captured first, not piped straight into grep: under `pipefail` a non-zero
+  # ldd combined with a non-matching grep still yields a non-zero PIPELINE, so the
+  # `if` would be false and this would print ok without the probe having run.
+  # Checking ldd exit status separately closes that hole. Note that ldd exits 0 -
+  # not non-zero - when it reports `=> not found`, so the grep is the ONLY thing
+  # that can catch an unresolved soname; a non-zero ldd here means something else
+  # (a non-dynamic ELF, an unreadable file) and is worth failing on too.
+  elf_count=0
+  main_checked=0
+  while IFS= read -r f; do
+    [ "$(head -c4 "$f" | od -An -tx1 | tr -d " \n")" = "7f454c46" ] || continue
+    elf_count=$((elf_count + 1))
+    if [ "$f" = "/usr/lib/novaterminal/NovaTerminal" ]; then main_checked=1; fi
+    ldd_out="$(ldd "$f")" \
+      || { echo "  FAIL: ldd failed on $f" >&2; exit 1; }
     if grep "not found" <<<"$ldd_out"; then
-      echo "  FAIL: unresolved linked libraries in $elf above" >&2; exit 1
+      echo "  FAIL: unresolved linked libraries in $f above" >&2; exit 1
     fi
-  done < <(find /usr/lib/novaterminal -type f -exec sh -c '\''file -b "$1" | grep -q "^ELF"'\'' _ {} \; -print)
-  echo "  ok: no unresolved linked libraries in any bundled ELF"
+  done < <(find /usr/lib/novaterminal -type f)
+
+  # Anti-vacuity assertions, because a silently zero-iteration loop is exactly how
+  # this check stopped working before. Expectation is DERIVED from the bundle, not
+  # hardcoded: every *.so plus the main AOT binary must have been ldd-ed, so adding
+  # or removing a native library needs no edit here, while a discovery regression
+  # (or a *.so that is somehow not an ELF) fails loudly.
+  so_total="$(find /usr/lib/novaterminal -type f -name "*.so" | wc -l)"
+  expected=$((so_total + 1))
+  if [ "$main_checked" != 1 ]; then
+    echo "  FAIL: ELF discovery never reached /usr/lib/novaterminal/NovaTerminal - the check did not run" >&2; exit 1
+  fi
+  if [ "$elf_count" -lt "$expected" ]; then
+    echo "  FAIL: ELF discovery checked $elf_count file(s) but the bundle has $so_total *.so plus the main binary ($expected)" >&2; exit 1
+  fi
+  echo "  ok: no unresolved linked libraries in any of the $elf_count bundled ELFs"
 
   # These are dlopen loaded at runtime, so ldd above cannot see them. They must
   # resolve from the package own Depends - nothing else has been installed that
