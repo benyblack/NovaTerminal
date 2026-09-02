@@ -1162,3 +1162,184 @@ jobs:
           name: aot-${{ matrix.rid }}
           retention-days: 7
           path: artifacts/publish/${{ matrix.rid }}
+
+  # Linux packaging: dry run + smoke gate (#91 Linux leg). Two callers of the same
+  # scripts release.yml uses, so packaging breaks land on a PR rather than on a tag.
+  #
+  # ubuntu-22.04, not ubuntu-latest, and that is not incidental: NativeAOT links
+  # against the build machine's glibc with no runtime fallback, so the runner choice
+  # IS the minimum supported distro. 22.04 sets the floor at glibc 2.35 (Ubuntu
+  # 22.04+, Debian 12+, Fedora 36+). Publishing on ubuntu-latest would silently
+  # exclude the most-deployed LTS - which is what it was doing before this job.
+  #
+  # x64 only: this lane exists to catch asset-naming and layout mistakes, which are
+  # architecture-independent. release.yml covers arm64.
+  #
+  # This job is deliberately NOT gated by a workflow-level `paths:` filter - that
+  # would gate every other job in this file, and the `pull_request` trigger above
+  # only has `paths-ignore`. Instead the job's own `if:` stays event-based (always
+  # eligible to run), and the "Detect packaging changes" step below decides whether
+  # the expensive part actually runs: workflow_dispatch is always a full dry run,
+  # push (to main, per the trigger above - i.e. a post-merge run, not every commit)
+  # always runs fully too as a cheap post-merge canary, and pull_request only runs
+  # fully when the diff against the PR's merge base touches packaging/linux/** or a
+  # workflow file - otherwise the job exits quickly without doing the ~40-minute
+  # AOT/build/smoke work.
+  linux_packaging:
+    name: Linux Packaging (dry run + smoke)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history, not the default shallow (depth-1) checkout: the change-
+          # detection step below needs `git diff` against the PR's merge base, and
+          # for a pull_request event the default checkout is the merge commit with
+          # no parents fetched. A shallow checkout would make that diff wrong or
+          # empty - silently disabling the PR gate this job exists to provide.
+          fetch-depth: 0
+
+      # Dependency-free path filter (no third-party action - this repo uses none
+      # for path filtering elsewhere). workflow_dispatch and push always run the
+      # full job; pull_request only runs it when the diff against the PR's merge
+      # base touches packaging/linux/** or a workflow file.
+      - name: Detect packaging changes
+        id: detect
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "${{ github.event_name }}: always runs the full job."
+            exit 0
+          fi
+          base="${{ github.event.pull_request.base.sha }}"
+          echo "Diffing against PR merge base: $base"
+          changed="$(git diff --name-only "$base"...HEAD)"
+          echo "Changed files vs merge base:"
+          echo "$changed"
+          if echo "$changed" | grep -qE '^(packaging/linux/|\.github/workflows/[^/]+\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Packaging or workflow files changed - running the full job."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No packaging/linux or workflow changes detected - skipping the packaging build."
+          fi
+
+      - name: Setup .NET
+        if: steps.detect.outputs.run == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # The AOT toolchain. Present on the x64 runner image today, installed
+      # explicitly because relying on image contents is what breaks when the image
+      # rolls - nightly.yml already installs clang for the same reason.
+      - name: Install AOT and packaging toolchain
+        if: steps.detect.outputs.run == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang zlib1g-dev imagemagick file
+
+      - name: Build Rust native
+        if: steps.detect.outputs.run == 'true'
+        run: |
+          cd src/NovaTerminal.App/native
+          cargo build --release
+          mkdir -p target_linux/release
+          cp target/release/librusty_pty.so target_linux/release/
+          cd rusty_ssh && cargo build --release
+
+      - name: Restore
+        if: steps.detect.outputs.run == 'true'
+        run: dotnet restore
+
+      # -p:SkipCliShim=true for the same reason as release.yml's Publish AOT: the
+      # shim needs a RID-less framework-dependent build, and the AOT binary
+      # dispatches the CLI modes itself.
+      - name: Publish AOT (linux-x64)
+        if: steps.detect.outputs.run == 'true'
+        env:
+          SKIP_RUST_NATIVE_BUILD: "1"
+        run: >-
+          dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj
+          -c ${{ env.CONFIGURATION }} -r linux-x64 --self-contained true
+          -p:PublishAot=true -p:SkipCliShim=true
+          -p:Version=0.0.1-ci -p:InformationalVersion=0.0.1-ci
+          -o artifacts/publish/linux-x64
+
+      - name: Build .deb
+        if: steps.detect.outputs.run == 'true'
+        run: |
+          chmod +x packaging/linux/*.sh
+          packaging/linux/build-deb.sh artifacts/publish/linux-x64 0.0.1-ci amd64 artifacts/linux
+
+      - name: Test build-deb.sh
+        if: steps.detect.outputs.run == 'true'
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w ubuntu:22.04 bash -c \
+            'apt-get update -qq && apt-get install -y -qq file imagemagick >/dev/null &&
+             packaging/linux/test-build-deb.sh'
+
+      # vpk pinned to 1.2.0, in lockstep with Directory.Packages.props and the two
+      # other install sites in these workflows.
+      - name: Install vpk
+        if: steps.detect.outputs.run == 'true'
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      # --channel linux-x64, NOT the platform default 'linux'. Linux publishes two
+      # architectures into one GitHub release, and a Velopack feed is per-channel,
+      # not per-architecture, so a shared 'linux' channel would offer an arm64
+      # client an x64 package. Must match VelopackUpdateService.ResolveExplicitChannel.
+      #
+      # 0.0.1-ci because vpk rejects anything below 0.0.1. No --delta concerns here:
+      # there is no prior release in this scratch output directory, so a full-only
+      # pack is expected and correct for a dry run.
+      - name: Pack AppImage (Velopack)
+        if: steps.detect.outputs.run == 'true'
+        run: |
+          rm -f artifacts/publish/linux-x64/*.pdb
+          vpk pack \
+            --packId NovaTerminalApp \
+            --packVersion 0.0.1-ci \
+            --packDir artifacts/publish/linux-x64 \
+            --mainExe NovaTerminal \
+            --packTitle NovaTerminal \
+            --packAuthors benyblack \
+            --channel linux-x64 \
+            --icon src/NovaTerminal.App/Assets/nova_icon.png \
+            --exclude '.*\.pdb' \
+            -o artifacts/linux
+
+      # Mirrors release.yml's post-pack assertions, so a silent vpk behaviour change
+      # surfaces here instead of on a tag. The `~` in the .deb filename is the
+      # prerelease mapping from build-deb.sh - asserting it here pins that behaviour.
+      - name: Assert expected assets
+        if: steps.detect.outputs.run == 'true'
+        run: |
+          cd artifacts/linux
+          ls -la
+          test -n "$(ls ./*.AppImage 2>/dev/null)" || { echo "vpk pack produced no .AppImage" >&2; exit 1; }
+          test -f novaterminal_0.0.1~ci-1_amd64.deb || { echo "no .deb (or wrong prerelease version mapping)" >&2; exit 1; }
+          test -f NovaTerminalApp-0.0.1-ci-linux-x64-full.nupkg || { echo "no linux-x64 full nupkg" >&2; exit 1; }
+          test -f releases.linux-x64.json || { echo "no releases.linux-x64.json" >&2; exit 1; }
+          dpkg-deb --contents novaterminal_0.0.1~ci-1_amd64.deb
+
+      - name: Smoke test (bare containers)
+        if: steps.detect.outputs.run == 'true'
+        run: packaging/linux/smoke-test.sh artifacts/linux
+
+      - name: Upload dry-run artifact
+        if: always() && steps.detect.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packaging-dryrun
+          retention-days: 5
+          path: |
+            artifacts/linux/*.AppImage
+            artifacts/linux/*.deb
+            artifacts/linux/*.nupkg
+            artifacts/linux/releases.*.json
