@@ -42,9 +42,17 @@ namespace NovaTerminal.Update
         /// macOS one, so each resolves its platform-default channel (win, osx) unambiguously.
         /// Linux publishes x64 and arm64 into the SAME GitHub release, and a Velopack feed is
         /// per-channel, not per-architecture - so a single `linux` channel would put both
-        /// architectures' packages in one releases.linux.json and hand an arm64 client an x64
-        /// update. Hence a channel per architecture, matching the --channel passed to `vpk pack`
-        /// in release.yml.
+        /// architectures' packages in one releases.linux.json and could hand an arm64 client an
+        /// x64 update.
+        ///
+        /// `vpk pack --channel linux-x64` (or linux-arm64) already bakes that channel into the
+        /// package's .nuspec and into the release manifest filenames, so a client packed
+        /// correctly resolves its own channel unaided - this method is a no-op in that case, not
+        /// the mechanism preventing the collision. What this method actually guards against is a
+        /// future release.yml change that packs without --channel: Velopack would then fall back
+        /// to its platform-default `linux` channel, silently recreating the collision above. This
+        /// resolves linux-x64 / linux-arm64 explicitly so that regression cannot happen, matching
+        /// the --channel values release.yml passes to `vpk pack`.
         ///
         /// Taking isLinux and architecture as parameters rather than reading RuntimeInformation
         /// inline is what makes this assertable on any CI leg (see VelopackUpdateServiceTests).
