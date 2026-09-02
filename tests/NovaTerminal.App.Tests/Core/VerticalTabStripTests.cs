@@ -348,6 +348,44 @@ public sealed class VerticalTabStripTests
         }
     }
 
+    // Vertical headers replaced the in-title attention markers with trailing chips
+    // (UpdateVerticalTabExtras), which is wired in UpdateTabVisuals as
+    // BuildTabDisplayLabels(..., includeMarkers: !_isVerticalTabStrip). This pins both
+    // halves of that split end-to-end through a bell: the title TextBlock must EXCLUDE
+    // the marker suffix (otherwise the bell is double-reported as chip AND title text),
+    // while the header host's tooltip - BuildFullTabLabel, marker-suffixed in both
+    // modes - must still INCLUDE it (otherwise the marker is lost entirely on hover).
+    [AvaloniaFact]
+    public void UpdateTabVisuals_Vertical_BellMarkerExcludedFromTitle_ButPresentInTooltip()
+    {
+        var window = CreateShownWindow();
+        try
+        {
+            GetSettings(window).TabStripOrientation = "Vertical";
+            window.ApplyTabLayout();
+            Dispatcher.UIThread.RunJobs();
+            var tab = AddPlainVerticalTab(window);
+
+            window.SetTabMarkerStateForTest(tab, hasBell: true, hasActivity: false, NovaTerminal.AgentHost.AgentAttentionTier.Idle);
+            window.UpdateTabVisuals();
+            Dispatcher.UIThread.RunJobs();
+
+            // The chip is the vertical surface for the bell...
+            Assert.True(ChipOf(tab, "TabBellChip").IsVisible);
+            // ...so the title text must not ALSO carry the marker suffix.
+            Assert.DoesNotContain("🔔", GetTabHeaderTextOf(window, tab));
+
+            // The tooltip reads the untruncated full label, which keeps its markers
+            // regardless of strip orientation.
+            var host = Assert.IsType<Border>(tab.Header);
+            Assert.Contains("🔔", Assert.IsType<string>(Avalonia.Controls.ToolTip.GetTip(host)));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     [AvaloniaFact]
     public void RefreshTabStatuses_WorkingTracker_PaintsThemeDot_AndIdleClearsIt()
     {

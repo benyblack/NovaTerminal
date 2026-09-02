@@ -71,6 +71,29 @@ namespace NovaTerminal.Tests
             => Assert.Equal(Markers(bell: true, watched: true), TabStatusPresentation.ResolveTabMarkers(
                 hasBell: true, hasActivity: false, AgentAttentionTier.Watched, rollupPolicy: "All"));
 
+        // ---- Parity with MainWindow's copy of the rollup-policy rule ----
+
+        // ResolveTabMarkers re-implements the same rollup-policy gate that
+        // MainWindow.ShouldShowTierInTabStrip applies when RefreshTabAgentAttention filters
+        // each tab's stored tier, so the two rules must agree on every policy input for the
+        // Watched tier — a divergence would let a tab show the read chip (or paint the
+        // watched dot) for a tier the strip-level rule says was filtered out, or hide a read
+        // the rollup setting says should surface. Both are deliberately Ordinal "All"
+        // (case-sensitive, so "all" hides reads); this theory pins that one shared decision
+        // across both copies so neither can drift silently.
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("WritesOnly")]
+        [InlineData("All")]
+        [InlineData("all")]
+        [InlineData("garbage")]
+        public void ResolveTabMarkers_WatchedTier_AgreesWithMainWindowTabStripRule(string? policy)
+            => Assert.Equal(
+                NovaTerminal.MainWindow.ShouldShowTierInTabStrip(policy, AgentAttentionTier.Watched),
+                TabStatusPresentation.ResolveTabMarkers(
+                    hasBell: false, hasActivity: false, AgentAttentionTier.Watched, rollupPolicy: policy).AgentWatched);
+
         // ---- ResolveTabDot: precedence, highest first ----
 
         [Fact]
