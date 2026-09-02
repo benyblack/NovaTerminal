@@ -1372,8 +1372,17 @@ jobs:
             fontconfig libfreetype6 x11-utils \
             libicu70 libssl3
           echo "--- container identity (the glibc floor this lane pins) ---"
-          cat /etc/os-release | head -2
-          ldd --version | head -1
+          # Read the file directly / capture-then-select-one-line, not `| head`:
+          # `head` closes its end of the pipe once it has read enough, so the
+          # writer (cat, or here ldd's own multi-echo version script) can take
+          # SIGPIPE and turn this purely-informational step red under
+          # `pipefail` - exactly what happened in CI run 33669171961. `head -2
+          # /etc/os-release` reads the file directly, no pipe at all. `ldd
+          # --version` has no file to read from, so its output is captured
+          # first and `sed` selects line 1 from the already-complete string -
+          # sed here never has an upstream process to starve.
+          head -2 /etc/os-release
+          sed -n '1p' <<<"$(ldd --version)"
 
       - uses: actions/checkout@v4
 

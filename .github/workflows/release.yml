@@ -255,7 +255,13 @@ jobs:
             libicu70 libssl3
           echo "--- container identity (the glibc floor this lane pins) ---"
           head -2 /etc/os-release
-          ldd --version | head -1
+          # Captured, not piped into `head`: ldd's version script emits its
+          # lines via separate writes, so `| head -1` can close the pipe
+          # while ldd is still writing and take SIGPIPE under `pipefail` -
+          # the exact hazard ci.yml's identical diagnostic hit in CI run
+          # 33669171961. sed selects line 1 from the already-complete string,
+          # with nothing left upstream to starve.
+          sed -n '1p' <<<"$(ldd --version)"
           # `cc` is what rustc invokes as its linker driver for *-unknown-linux-gnu.
           # It is not installed directly - it arrives as an alternative through
           # clang's dependency chain - so assert it rather than assume it.
@@ -1079,7 +1085,13 @@ jobs:
             libicu70 libssl3
           echo "--- container identity (the glibc floor this lane pins) ---"
           head -2 /etc/os-release
-          ldd --version | head -1
+          # Captured, not piped into `head`: ldd's version script emits its
+          # lines via separate writes, so `| head -1` can close the pipe
+          # while ldd is still writing and take SIGPIPE under `pipefail` -
+          # the exact hazard ci.yml's identical diagnostic hit in CI run
+          # 33669171961. sed selects line 1 from the already-complete string,
+          # with nothing left upstream to starve.
+          sed -n '1p' <<<"$(ldd --version)"
           # build-deb.sh preflights these and fails loudly without them; assert here
           # so a failure names the missing package instead of the script.
           for t in dpkg-deb dpkg-query file ldd strip convert mksquashfs unzip jq; do
@@ -1315,7 +1327,14 @@ jobs:
           # publishing lane - the worst possible place for one - while catching nothing
           # the loose one misses.
           grep -qE '^-rwx.* \./NovaTerminal$' <<<"$listing" \
-            || { echo "tarball lost the executable bit on NovaTerminal - this is the bug the zip had" >&2; echo "$listing" | head -40 >&2; exit 1; }
+            || { echo "tarball lost the executable bit on NovaTerminal - this is the bug the zip had" >&2
+                 # `head -40 <<<...`, not `echo ... | head -40`: a here-string is
+                 # a temp file bash has already written in full, so head reads a
+                 # finished file rather than closing a pipe on a live writer -
+                 # nothing here can take SIGPIPE and turn this diagnostic dump
+                 # into a mangled exit code.
+                 head -40 <<<"$listing" >&2
+                 exit 1; }
           if grep -q '\.dbg$' <<<"$listing"; then
             echo "NovaTerminal.dbg leaked into the tarball - the Strip debug symbols step did not run, or ran too late" >&2
             exit 1
