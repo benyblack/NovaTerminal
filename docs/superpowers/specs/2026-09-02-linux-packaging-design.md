@@ -413,6 +413,9 @@ Each gets a tracked issue rather than a mention:
 - **AUR, RPM, Snap**; **musl / Alpine**; **32-bit**.
 - **GPG-signed artifacts and `SHA256SUMS`.**
 
+Tracked as: #383 (APT repository), #384 (terminal-emulator contract),
+#385 (Flatpak/AUR/RPM/Snap and the dropped items).
+
 ## Risks
 
 | Risk | Severity | Mitigation |
