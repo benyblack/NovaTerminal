@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using NovaTerminal.Update;
@@ -53,5 +54,44 @@ public class VelopackUpdateServiceTests
         // apply-and-restart path — which would have logged "Applying update and restarting."
         // first, and then terminated this test host.
         Assert.Empty(log);
+    }
+
+    // Channel resolution is a pure function taking isLinux and architecture explicitly,
+    // rather than reading RuntimeInformation directly, so these cases are assertable on any
+    // CI leg regardless of the host OS and CPU. That is the whole reason for the seam.
+    [Theory]
+    [InlineData(true, Architecture.X64, "linux-x64")]
+    [InlineData(true, Architecture.Arm64, "linux-arm64")]
+    public void Resolves_a_per_architecture_channel_on_linux(
+        bool isLinux, Architecture architecture, string expected)
+    {
+        Assert.Equal(expected, VelopackUpdateService.ResolveExplicitChannel(isLinux, architecture));
+    }
+
+    /// <summary>
+    /// Null means "let Velopack use the channel this release was packed with". Windows and
+    /// macOS have shipped installed clients against their platform-default channels (win, osx)
+    /// since #91, so returning anything but null off Linux would repoint existing installs at
+    /// a feed that does not exist.
+    /// </summary>
+    [Theory]
+    [InlineData(false, Architecture.X64)]
+    [InlineData(false, Architecture.Arm64)]
+    public void Resolves_no_explicit_channel_off_linux(bool isLinux, Architecture architecture)
+    {
+        Assert.Null(VelopackUpdateService.ResolveExplicitChannel(isLinux, architecture));
+    }
+
+    /// <summary>
+    /// An architecture we publish no feed for must degrade to "no update available", not to a
+    /// wrong feed and not to a throw. Null falls back to the packed default, which finds
+    /// nothing on a channel we never published.
+    /// </summary>
+    [Theory]
+    [InlineData(Architecture.X86)]
+    [InlineData(Architecture.Arm)]
+    public void Resolves_no_explicit_channel_for_unpublished_architectures(Architecture architecture)
+    {
+        Assert.Null(VelopackUpdateService.ResolveExplicitChannel(true, architecture));
     }
 }

@@ -18,7 +18,9 @@ namespace NovaTerminal.Update
     {
         /// <summary>
         /// False when this process was not installed by Velopack - a portable zip, a winget
-        /// portable install, or a dev run. Those must never see update UI or errors.
+        /// portable install, a Linux system package (.deb), or a dev run. Those must never see
+        /// update UI or errors. A .deb install is updated through the user's package manager,
+        /// so the in-app updater staying silent there is correct, not a gap.
         /// </summary>
         bool IsSupported { get; }
 

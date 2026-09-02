@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Velopack;
@@ -32,6 +33,52 @@ namespace NovaTerminal.Update
         private readonly UpdateManager _manager;
         private UpdateInfo? _downloaded;
 
+        /// <summary>
+        /// The Velopack channel this process should read updates from, or null to use whatever
+        /// channel the running release was packed with.
+        /// </summary>
+        /// <remarks>
+        /// Linux is the only platform that needs this. Windows publishes one architecture and
+        /// macOS one, so each resolves its platform-default channel (win, osx) unambiguously.
+        /// Linux publishes x64 and arm64 into the SAME GitHub release, and a Velopack feed is
+        /// per-channel, not per-architecture - so a single `linux` channel would put both
+        /// architectures' packages in one releases.linux.json and hand an arm64 client an x64
+        /// update. Hence a channel per architecture, matching the --channel passed to `vpk pack`
+        /// in release.yml.
+        ///
+        /// Taking isLinux and architecture as parameters rather than reading RuntimeInformation
+        /// inline is what makes this assertable on any CI leg (see VelopackUpdateServiceTests).
+        ///
+        /// Returning null off Linux is load-bearing, not tidiness: Windows and macOS have
+        /// installed clients in the field on their default channels, and naming a channel here
+        /// would repoint them at a feed that does not exist.
+        /// </remarks>
+        internal static string? ResolveExplicitChannel(bool isLinux, Architecture architecture)
+        {
+            if (!isLinux)
+            {
+                return null;
+            }
+
+            return architecture switch
+            {
+                Architecture.X64 => "linux-x64",
+                Architecture.Arm64 => "linux-arm64",
+                // Any architecture we publish no feed for: fall back to the packed default,
+                // which finds nothing rather than offering a package for the wrong CPU.
+                _ => null,
+            };
+        }
+
+        private static UpdateOptions? BuildUpdateOptions()
+        {
+            var channel = ResolveExplicitChannel(
+                RuntimeInformation.IsOSPlatform(OSPlatform.Linux),
+                RuntimeInformation.ProcessArchitecture);
+
+            return channel is null ? null : new UpdateOptions { ExplicitChannel = channel };
+        }
+
         public VelopackUpdateService(string repoUrl, Action<string> log)
         {
             _log = log;
@@ -54,7 +101,7 @@ namespace NovaTerminal.Update
             var locator = VelopackLocator.IsCurrentSet
                 ? VelopackLocator.Current
                 : VelopackLocator.CreateDefaultForPlatform(null, null);
-            _manager = new UpdateManager(new GithubSource(repoUrl, null, false), null, locator);
+            _manager = new UpdateManager(new GithubSource(repoUrl, null, false), BuildUpdateOptions(), locator);
         }
 
         /// <summary>
