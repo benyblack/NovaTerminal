@@ -144,10 +144,15 @@ version — see "Dry run without cutting a release" below.
 
 ## Known traps
 
-- **AppImage needs FUSE.** Ubuntu 22.04+ ships no `libfuse2`, so a stock AppImage
-  fails with a confusing FUSE error. Either `sudo apt install libfuse2`, or run it
-  as `./NovaTerminal-*.AppImage --appimage-extract-and-run`. `smoke-test.sh` tests
-  both paths, one per container.
+- **AppImage needs FUSE.** Ubuntu 22.04+ ships no FUSE 2 by default, so a stock
+  AppImage fails with a confusing FUSE error. Either `sudo apt install fuse`
+  (**not** `libfuse2` — on ubuntu:22.04 `libfuse2` supplies only the shared
+  library, not the `fusermount` binary the AppImage mount step execs; `fuse`
+  ships `/usr/bin/fusermount` and pulls in `libfuse2` as its own dependency, so
+  installing `fuse` alone is both necessary and sufficient — verified empirically
+  in a bare `ubuntu:22.04` container with `--device /dev/fuse --cap-add
+  SYS_ADMIN`), or run it as `./NovaTerminal-*.AppImage --appimage-extract-and-run`.
+  `smoke-test.sh` tests both paths, one per container.
 - **The AppImage self-updates in place**, so it must live somewhere the user can
   write. Parked in `/opt` or `/usr/local/bin` it cannot update itself. `~/Applications`
   is the right home.

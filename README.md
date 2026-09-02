@@ -110,8 +110,10 @@ mkdir -p ~/Applications && mv NovaTerminal-linux-x64-<tag>.AppImage ~/Applicatio
 Keep it somewhere you can write, such as `~/Applications` — the app updates itself by
 rewriting the AppImage, which it cannot do from a root-owned path like `/opt`.
 
-Ubuntu 22.04 and later ship no `libfuse2`, which AppImages need. Either install it
-(`sudo apt install libfuse2`) or run with `--appimage-extract-and-run`.
+Ubuntu 22.04 and later ship no FUSE 2 by default, which AppImages need. Either
+install it (`sudo apt install fuse`, which pulls in `libfuse2` — `libfuse2` alone
+supplies only the library, not the `fusermount` binary the mount step needs) or
+run with `--appimage-extract-and-run`.
 
 **Debian / Ubuntu package** (system integration; update via your package manager):
 

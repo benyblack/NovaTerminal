@@ -182,14 +182,26 @@ docker run --rm --device /dev/fuse --cap-add SYS_ADMIN -v "$artifact_dir:/art:ro
 
   launches "deb install (/usr/bin/nova)" nova
 
-  # The AppImage is tested TWICE on purpose. Ubuntu 22.04+ ships no libfuse2, so a
-  # stock type-2 AppImage fails there with a confusing FUSE error - users hit the
-  # mounted path, CI must cover both.
+  # The AppImage is tested TWICE on purpose. Ubuntu 22.04+ ships no FUSE 2 by
+  # default, so a stock type-2 AppImage fails there with a confusing FUSE error -
+  # users hit the mounted path, CI must cover both.
+  #
+  # `libfuse2` alone is NOT enough: on ubuntu:22.04 it supplies only the shared
+  # library, not the `fusermount` helper. The AppImage mount step execs
+  # `fusermount`, so without it the mount fails with "No suitable fusermount
+  # binary found on the PATH" even though the library is present. `fuse` is the
+  # package that ships `/usr/bin/fusermount` (setuid root), and it depends on
+  # `libfuse2` so apt pulls that in too - installing `fuse` alone is both
+  # necessary and sufficient. Verified empirically in a fresh ubuntu:22.04
+  # container with these same --device /dev/fuse --cap-add SYS_ADMIN flags:
+  # `apt-get install libfuse2` left `command -v fusermount` empty; `apt-get
+  # install fuse` produced `-rwsr-xr-x 1 root root .../usr/bin/fusermount` and
+  # the mounted launch below then succeeded.
   shopt -s nullglob
   for img in /art/*.AppImage; do
     cp "$img" /tmp/nova.AppImage && chmod +x /tmp/nova.AppImage
     launches "AppImage (extracted, no FUSE)" /tmp/nova.AppImage --appimage-extract-and-run
-    apt-get install -y -qq libfuse2
+    apt-get install -y -qq fuse
     launches "AppImage (FUSE-mounted)" /tmp/nova.AppImage
   done
 '
