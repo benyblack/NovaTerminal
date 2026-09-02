@@ -41,17 +41,28 @@ docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
   apt-get install -y -qq /art/novaterminal_*.deb    # fails if Depends are incomplete
   echo "  ok: .deb installed with its declared Depends only"
 
+  # Every ELF under the bundle, not just NovaTerminal: this is the ONLY place an
+  # undeclared LINKED dependency can be caught honestly. Container 2 below installs
+  # xvfb+xdotool before ever launching the app, which drag in libx11-6/libxext6/
+  # libxi6/libxrandr2/libxkbcommon0 and Mesa/GL - exactly the libraries most likely
+  # to be missing - so by the time anything launches there, those libraries are
+  # already present regardless of whether the .deb declared them. A silently
+  # incomplete Depends: would install cleanly and then fail at dlopen/dlsym time on
+  # a real users machine with nothing here to have caught it.
+  #
   # Captured first, not piped straight into grep: under `pipefail` a non-zero ldd
   # (missing binary, non-ELF file, static binary) combined with a non-matching grep
   # still yields a non-zero PIPELINE, so the `if` below would be false and the
   # script would print "ok" without the probe having run at all. Checking the exit
   # status of ldd separately closes that hole.
-  ldd_out="$(ldd /usr/lib/novaterminal/NovaTerminal)" \
-    || { echo "  FAIL: ldd failed on /usr/lib/novaterminal/NovaTerminal" >&2; exit 1; }
-  if grep "not found" <<<"$ldd_out"; then
-    echo "  FAIL: unresolved linked libraries above" >&2; exit 1
-  fi
-  echo "  ok: no unresolved linked libraries"
+  while IFS= read -r elf; do
+    ldd_out="$(ldd "$elf")" \
+      || { echo "  FAIL: ldd failed on $elf" >&2; exit 1; }
+    if grep "not found" <<<"$ldd_out"; then
+      echo "  FAIL: unresolved linked libraries in $elf above" >&2; exit 1
+    fi
+  done < <(find /usr/lib/novaterminal -type f -exec sh -c '\''file -b "$1" | grep -q "^ELF"'\'' _ {} \; -print)
+  echo "  ok: no unresolved linked libraries in any bundled ELF"
 
   # These are dlopen loaded at runtime, so ldd above cannot see them. They must
   # resolve from the package own Depends - nothing else has been installed that

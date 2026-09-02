@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Tests build-deb.sh without needing a real NovaTerminal publish. Run inside a
-# Debian-family container as root (it needs dpkg-deb, dpkg-query, file, ldd, an
-# ImageMagick 'magick' or 'convert', plus 'fc-match' and 'xdpyinfo' as donor ELFs
-# that link real libfontconfig1/libx11-6 - see the "package construction" section
-# below):
+# Debian-family container as root (it needs dpkg-deb, dpkg-query, file, ldd,
+# binutils' strip, an ImageMagick 'magick' or 'convert', plus 'fc-match' and
+# 'xdpyinfo' as donor ELFs that link real libfontconfig1/libx11-6 - see the
+# "package construction" section below):
 #   docker run --rm -v "$PWD:/w" -w /w ubuntu:22.04 \
 #     bash -c 'apt-get update -qq &&
-#              apt-get install -y -qq file imagemagick fontconfig x11-utils >/dev/null &&
+#              apt-get install -y -qq file imagemagick fontconfig x11-utils binutils >/dev/null &&
 #              packaging/linux/test-build-deb.sh'
 #
 # Running as root is required so this script can drop privileges (via setpriv) before
@@ -45,6 +45,17 @@ pub="$work/publish"; out="$work/out"
 mkdir -p "$pub" "$out"
 cp /bin/true "$pub/NovaTerminal"          # a real ELF, so ldd has something to read
 mkdir -p "$pub/themes" && echo '{}' > "$pub/themes/default.json"
+
+# A dummy .so so this fast harness also exercises the lintian-fix-round path
+# (strip --strip-unneeded, chmod normalisation to 0644) without needing a real
+# Rust/SkiaSharp build. Before this, the fixture shipped zero *.so files, so that
+# path was covered by zero cheap tests. /bin/true is a real ELF; the .so
+# extension is all build-deb.sh's strip/chmod loops key off, not the ELF type -
+# executable-by-default (0755) so the chmod-to-0644 assertion below actually
+# exercises something, matching how the real SkiaSharp/HarfBuzzSharp binaries
+# ship (0744, the exact bug the chmod pass fixes).
+cp /bin/true "$pub/libtest-fixture.so"
+chmod 0755 "$pub/libtest-fixture.so"
 
 # A second ELF that actually links libraries owned by DLOPEN_DEPENDS packages, so the
 # ldd-derived path and the dlopen dedupe loop get exercised for real, not just "did
@@ -98,6 +109,7 @@ else
     for path in \
       ./usr/lib/novaterminal/NovaTerminal \
       ./usr/lib/novaterminal/themes/default.json \
+      ./usr/lib/novaterminal/libtest-fixture.so \
       ./usr/bin/nova \
       ./usr/share/applications/novaterminal.desktop \
       ./usr/share/man/man1/nova.1.gz \
@@ -112,6 +124,20 @@ else
       || fail "NovaTerminal is not 0755 in the package"
     grep -qE '^lrwxrwxrwx.* \./usr/bin/nova -> ' <<<"$contents" \
       || fail "/usr/bin/nova is not a symlink"
+
+    # Lintian-fix-round assertions. The fixture .so is staged at 0755 (matching
+    # how the real SkiaSharp/HarfBuzzSharp binaries actually ship) specifically so
+    # this checks something: a fixture that started at 0644 would pass even if the
+    # chmod-normalisation pass in build-deb.sh were deleted entirely.
+    grep -qE '^-rw-r--r--.* \./usr/lib/novaterminal/libtest-fixture\.so$' <<<"$contents" \
+      || fail "libtest-fixture.so is not 0644 in the package (chmod-normalisation regressed)"
+
+    # The lintian overrides file must ship, or every future build silently loses
+    # the documented embedded-library exceptions and `lintian --fail-on error`
+    # starts failing every real build again with no explanation in this fast
+    # harness - only the slow, real containerised run would ever catch it.
+    grep -q -- './usr/share/lintian/overrides/novaterminal' <<<"$contents" \
+      || fail "lintian overrides file missing from package"
 
     # Every entry must be root-owned (--root-owner-group), never the invoking uid -
     # checked strictly (no entry may be anything other than root/root), not just

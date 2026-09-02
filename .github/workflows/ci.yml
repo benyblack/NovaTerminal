@@ -1188,7 +1188,14 @@ jobs:
   linux_packaging:
     name: Linux Packaging (dry run + smoke)
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
+    # 40 -> 60: uncached cargo (two crates) + full NuGet restore + AOT publish +
+    # a docker harness that apt-installs on every invocation + vpk pack + two
+    # smoke containers that each apt-install their own tooling, cold. aot_publish
+    # needed the same kind of bump (40 -> 90) for a lighter workload. This is a
+    # capacity estimate for a cold job with the caching added below, not a flake
+    # being papered over - if it ever flakes AFTER caching, that is a hypothesis
+    # to investigate, not a number to bump again.
+    timeout-minutes: 60
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
@@ -1206,7 +1213,10 @@ jobs:
       # Dependency-free path filter (no third-party action - this repo uses none
       # for path filtering elsewhere). workflow_dispatch and push always run the
       # full job; pull_request only runs it when the diff against the PR's merge
-      # base touches packaging/linux/** or a workflow file.
+      # base touches packaging/linux/**, a workflow file, or one of the two other
+      # inputs build-deb.sh reads directly (LICENSE, the app icon) - a change to
+      # either would otherwise land invisibly, since neither lives under
+      # packaging/linux/.
       - name: Detect packaging changes
         id: detect
         run: |
@@ -1221,7 +1231,12 @@ jobs:
           changed="$(git diff --name-only "$base"...HEAD)"
           echo "Changed files vs merge base:"
           echo "$changed"
-          if echo "$changed" | grep -qE '^(packaging/linux/|\.github/workflows/[^/]+\.yml$)'; then
+          # <<< the here-string, not `echo ... | grep`: under pipefail, a changed-file
+          # list exceeding the pipe buffer would make `echo` take SIGPIPE, the
+          # pipeline non-zero, this `if` false, and the job skip itself SILENTLY -
+          # the exact failure class this gate exists to prevent. smoke-test.sh and
+          # build-deb.sh both avoid the same construct for the same reason.
+          if grep -qE '^(packaging/linux/|\.github/workflows/[^/]+\.ya?ml$|LICENSE$|src/NovaTerminal\.App/Assets/nova_icon\.png$)' <<<"$changed"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             echo "Packaging or workflow files changed - running the full job."
           else
@@ -1229,20 +1244,55 @@ jobs:
             echo "No packaging/linux or workflow changes detected - skipping the packaging build."
           fi
 
+      # Cache + Setup .NET mirror the pattern the `build` job uses (see its own
+      # comments): a persistent SDK cache keyed on global.json, plus setup-dotnet's
+      # own NuGet package cache keyed on every .csproj. This job restores the whole
+      # solution cold otherwise, on every run that reaches this point.
+      - name: Cache .NET SDK
+        if: steps.detect.outputs.run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         if: steps.detect.outputs.run == 'true'
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/*.csproj"
 
       # The AOT toolchain. Present on the x64 runner image today, installed
       # explicitly because relying on image contents is what breaks when the image
       # rolls - nightly.yml already installs clang for the same reason.
+      #
+      # fontconfig + libfreetype6 (not just imagemagick's transitive pull of them):
+      # build-deb.sh's Depends: derivation walks ldd against whatever is ALREADY
+      # resolvable on this machine, so leaving fontconfig implicit means the
+      # derived set is a function of imagemagick's own dependency graph on
+      # whichever apt snapshot happens to be current - which is exactly how a
+      # 24.04 test run and a 22.04 test run produced two different transitive
+      # package sets from the identical binaries. Installing it explicitly makes
+      # the derived Depends: a function of a declared package list instead.
       - name: Install AOT and packaging toolchain
         if: steps.detect.outputs.run == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang zlib1g-dev imagemagick file binutils
+          sudo apt-get install -y clang zlib1g-dev imagemagick file binutils fontconfig libfreetype6
+
+      - name: Install Rust
+        if: steps.detect.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust incremental build cache
+        if: steps.detect.outputs.run == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/NovaTerminal.App/native
 
       - name: Build Rust native
         if: steps.detect.outputs.run == 'true'
@@ -1277,11 +1327,19 @@ jobs:
           chmod +x packaging/linux/*.sh
           packaging/linux/build-deb.sh artifacts/publish/linux-x64 0.0.1-ci amd64 artifacts/linux
 
+      # fontconfig + x11-utils: test-build-deb.sh's own header comment documents
+      # these as the donor-ELF providers (fc-match, xdpyinfo) its dedupe check
+      # needs to be non-vacuous. Without them here, fc-match/xdpyinfo are absent
+      # too, and the harness's donor search falls back to whatever imagemagick
+      # happened to pull in transitively - which is exactly the "only
+      # libfontconfig1 is discriminating" gap this list closes. binutils: strip's
+      # preflight in build-deb.sh fails loudly without it, same as the runner-level
+      # toolchain step above.
       - name: Test build-deb.sh
         if: steps.detect.outputs.run == 'true'
         run: |
           docker run --rm -v "$PWD:/w:ro" -w /w ubuntu:22.04 bash -c \
-            'apt-get update -qq && apt-get install -y -qq file imagemagick binutils >/dev/null &&
+            'apt-get update -qq && apt-get install -y -qq file imagemagick fontconfig x11-utils binutils >/dev/null &&
              packaging/linux/test-build-deb.sh'
 
       # vpk pinned to 1.2.0, in lockstep with Directory.Packages.props and the two
@@ -1298,10 +1356,23 @@ jobs:
       # 0.0.1-ci because vpk rejects anything below 0.0.1. No --delta concerns here:
       # there is no prior release in this scratch output directory, so a full-only
       # pack is expected and correct for a dry run.
+      # StripSymbols=true (NovaTerminal.App.csproj) emits a ~79 MB NovaTerminal.dbg
+      # beside the AOT binary on Linux - the same class of leak the macOS lane
+      # already guards against for its dSYM (delete at the source AND --exclude in
+      # the pack, see that job's comments). build-deb.sh already deletes *.dbg
+      # before staging the .deb, so only this AppImage/nupkg path was exposed:
+      # every full-nupkg download was roughly tripling, silently, and Task 5 was
+      # about to copy this exact invocation into the real release lane.
+      #
+      # One --exclude, not two: `vpk pack --help` documents it as a single REGEX
+      # value ("[default: .*\.pdb]"), so both patterns are combined into one
+      # alternation rather than passed twice (unverified whether a second
+      # occurrence would error or silently overwrite the first - not worth finding
+      # out on the release-lane-adjacent invocation).
       - name: Pack AppImage (Velopack)
         if: steps.detect.outputs.run == 'true'
         run: |
-          rm -f artifacts/publish/linux-x64/*.pdb
+          rm -f artifacts/publish/linux-x64/*.pdb artifacts/publish/linux-x64/*.dbg
           vpk pack \
             --packId NovaTerminalApp \
             --packVersion 0.0.1-ci \
@@ -1311,8 +1382,8 @@ jobs:
             --packAuthors benyblack \
             --channel linux-x64 \
             --icon src/NovaTerminal.App/Assets/nova_icon.png \
-            --exclude '.*\.pdb' \
-            -o artifacts/linux
+            --exclude '.*\.pdb|NovaTerminal\.dbg' \
+            --outputDir artifacts/linux
 
       # Mirrors release.yml's post-pack assertions, so a silent vpk behaviour change
       # surfaces here instead of on a tag. The `~` in the .deb filename is the
@@ -1327,6 +1398,15 @@ jobs:
           test -f NovaTerminalApp-0.0.1-ci-linux-x64-full.nupkg || { echo "no linux-x64 full nupkg" >&2; exit 1; }
           test -f releases.linux-x64.json || { echo "no releases.linux-x64.json" >&2; exit 1; }
           dpkg-deb --contents novaterminal_0.0.1~ci-1_amd64.deb
+          # StripSymbols leaves NovaTerminal.dbg beside the binary; the rm + --exclude
+          # in the Pack step above keep it out of what users/updaters download. Pin
+          # that here too: no .dbg entry may appear in the full nupkg at all - a
+          # .nupkg is a plain zip, so this mirrors the macOS lane's dSYM leak
+          # assertion against its Portable.zip exactly.
+          if unzip -l NovaTerminalApp-0.0.1-ci-linux-x64-full.nupkg | grep -q '\.dbg'; then
+            echo "NovaTerminal.dbg leaked into the linux-x64 full nupkg" >&2
+            exit 1
+          fi
 
       - name: Smoke test (bare containers)
         if: steps.detect.outputs.run == 'true'

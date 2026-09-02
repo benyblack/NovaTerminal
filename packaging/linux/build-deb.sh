@@ -87,19 +87,38 @@ DLOPEN_DEPENDS=(
 derive_linked_depends() {
   local root="$1"
   local -a found=()
-  local elf path resolved pkg
+  local -a unresolved=()
+  local elf soname path resolved pkg
 
   while IFS= read -r elf; do
-    # ldd's second field (soname) is unused here - only the resolved path matters.
-    while read -r _ path; do
-      [[ -n "$path" && -e "$path" ]] || continue
+    # ldd's second field ("=>") is a fixed separator, kept only so `path` lands in
+    # $3 - it is never used itself. For a resolved line ("libc.so.6 => /path (0x...)")
+    # $3 is the absolute path. For an UNRESOLVED line ("libfoo.so.1 => not found")
+    # $3 is the literal word "not" - that is the signal distinguished below, not
+    # some ambient "junk path" the old `-e "$path"` check was quietly absorbing.
+    while read -r soname _ path; do
+      [[ -n "$soname" ]] || continue
+      if [[ "$path" == "not" || -z "$path" ]]; then
+        # Previously silently dropped here (`[[ -n "$path" && -e "$path" ]] ||
+        # continue` treated "not" exactly like a nonexistent path, discarding the
+        # exact signal the two-mechanism dependency design exists to surface: an
+        # unresolved link means Depends: is about to ship incomplete). Loud now.
+        unresolved+=("$soname needed by $elf")
+        continue
+      fi
+      [[ -e "$path" ]] || continue
       resolved="$(readlink -f "$path")"
       pkg="$(dpkg-query -S "$resolved" 2>/dev/null | head -1 | cut -d: -f1 || true)"
       # dpkg-query can answer with a comma-separated list; take the first name.
       pkg="${pkg%%,*}"
       [[ -n "$pkg" ]] && found+=("$pkg")
-    done < <(ldd "$elf" 2>/dev/null | awk '/=>/ { print $1, $3 }')
+    done < <(ldd "$elf" 2>/dev/null | awk '/=>/ { print $1, $2, $3 }')
   done < <(find "$root" -type f -exec sh -c 'file -b "$1" | grep -q "^ELF"' _ {} \; -print)
+
+  if ((${#unresolved[@]})); then
+    printf 'error: unresolved shared library dependency: %s\n' "${unresolved[@]}" >&2
+    return 1
+  fi
 
   if ((${#found[@]})); then
     printf '%s\n' "${found[@]}" | sort -u
@@ -113,10 +132,17 @@ derive_linked_depends() {
 # Debian 12, libicu74 on 24.04). Hard-depending on one would refuse to install across
 # most of the supported range.
 depends="libc6 (>= 2.35), libicu74 | libicu72 | libicu71 | libicu70"
+# Command substitution, not `< <(...)`: a process substitution's exit status is
+# invisible to the loop that reads it (bash does not propagate it, and `set -e`
+# does not catch it either), so derive_linked_depends's new `return 1` on an
+# unresolved soname would be silently swallowed by the very construct meant to
+# consume its output. Capturing into a variable first makes `||` below real.
+linked_pkgs="$(derive_linked_depends "$publish_dir")" \
+  || { echo "build-deb.sh: dependency derivation failed (see unresolved sonames above)" >&2; exit 1; }
 while IFS= read -r pkg; do
   [[ -z "$pkg" || "$pkg" == "libc6" ]] && continue
   depends+=", $pkg"
-done < <(derive_linked_depends "$publish_dir")
+done <<< "$linked_pkgs"
 for pkg in "${DLOPEN_DEPENDS[@]}"; do
   # -qE, not -q: the pattern uses extended-regex alternation `(^|, )...(,|$)`, which a
   # basic regex (grep -q's default) treats as literal parentheses/pipe and can never
@@ -141,13 +167,16 @@ find "$stage/usr/lib/novaterminal" -name '*.dbg' -delete
 # Strip debug symbols from the bundled native libraries (SkiaSharp, HarfBuzzSharp,
 # the Rust natives) - standard Debian practice, and lintian's
 # unstripped-binary-or-object flags every one of them as an ERROR otherwise.
-# Deliberately every *.so under the bundle, not four hardcoded names, so a future
-# native library added here is stripped too without editing this script again.
+# Deliberately every *.so* under the bundle (versioned sonames like libfoo.so.1
+# included, not just the unversioned dev-symlink shape), not four hardcoded
+# names, so a future native library added here is stripped too without editing
+# this script again - '*.so' alone would silently miss a real .so.N and leave
+# it to redden lintian on the next unrelated change.
 # Deliberately NOT the NovaTerminal AOT binary itself: lintian does not flag it,
 # and NativeAOT output is not something to strip-and-hope on.
 while IFS= read -r -d '' so; do
   strip --strip-unneeded "$so"
-done < <(find "$stage/usr/lib/novaterminal" -name '*.so' -print0)
+done < <(find "$stage/usr/lib/novaterminal" -name '*.so*' -print0)
 
 # cp -a inherits every mode bit from the publish directory verbatim, including
 # the 0744 SkiaSharp/HarfBuzzSharp ship with - lintian correctly flags a shared
