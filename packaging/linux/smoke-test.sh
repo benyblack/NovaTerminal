@@ -41,7 +41,14 @@ docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
   apt-get install -y -qq /art/novaterminal_*.deb    # fails if Depends are incomplete
   echo "  ok: .deb installed with its declared Depends only"
 
-  if ldd /usr/lib/novaterminal/NovaTerminal | grep "not found"; then
+  # Captured first, not piped straight into grep: under `pipefail` a non-zero ldd
+  # (missing binary, non-ELF file, static binary) combined with a non-matching grep
+  # still yields a non-zero PIPELINE, so the `if` below would be false and the
+  # script would print "ok" without the probe having run at all. Checking the exit
+  # status of ldd separately closes that hole.
+  ldd_out="$(ldd /usr/lib/novaterminal/NovaTerminal)" \
+    || { echo "  FAIL: ldd failed on /usr/lib/novaterminal/NovaTerminal" >&2; exit 1; }
+  if grep "not found" <<<"$ldd_out"; then
     echo "  FAIL: unresolved linked libraries above" >&2; exit 1
   fi
   echo "  ok: no unresolved linked libraries"
@@ -81,7 +88,12 @@ docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
 
 echo
 echo "=== Container 2: GUI launch (xvfb permitted) ==="
-docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
+# --device /dev/fuse --cap-add SYS_ADMIN: a type-2 AppImage self-mounts via FUSE and
+# has no fallback, so without the device node AND the capability the FUSE-mounted
+# launch below fails on a perfectly good AppImage - the same false-gate class the
+# dpkg-excludes fix in Container 1 exists to prevent. `apt-get install libfuse2`
+# alone only supplies the library, not the device or the privilege to use it.
+docker run --rm --device /dev/fuse --cap-add SYS_ADMIN -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
   export DEBIAN_FRONTEND=noninteractive
 
   # Same dpkg excludes fix as Container 1 - see the comment there. Not load-bearing
@@ -96,18 +108,35 @@ docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
   launches() {                     # launches <label> <command...>
     local label="$1"; shift
     echo "  launching: $label"
-    xvfb-run -a --server-args="-screen 0 1024x768x24" "$@" &
-    local pid=$!
-    for _ in $(seq 1 20); do
-      sleep 1
-      kill -0 "$pid" 2>/dev/null || { echo "  FAIL: $label exited early" >&2; return 1; }
-      if DISPLAY=:99 xdotool search --class -- NovaTerminal >/dev/null 2>&1; then
-        echo "  ok: $label mapped a window"; kill "$pid" 2>/dev/null || true; return 0
-      fi
-    done
-    echo "  FAIL: $label never mapped a window in 20s" >&2
-    kill "$pid" 2>/dev/null || true
-    return 1
+    local rc=0
+    # The probe MUST run inside the same xvfb-run invocation as the app, not beside
+    # it: xvfb-run exports DISPLAY/XAUTHORITY only into the environment of its own
+    # child process, and finds the NEXT free server number on each call (:99, :100,
+    # :101, ...), so a sibling process with a hardcoded DISPLAY=:99 cannot see later
+    # launches at all and instead silently attaches to a server left over from an
+    # earlier call - a probe that can never legitimately fail. Nesting here is what
+    # makes DISPLAY/XAUTHORITY inherited and removes the hardcoded server number
+    # entirely. --onlyvisible excludes windows that exist but were never mapped, so
+    # "ok" only fires on a window actually drawn on screen. Exit codes distinguish
+    # "process died" (2) from "process alive but never mapped a window" (3) so the
+    # log keeps that distinction.
+    xvfb-run -a --server-args="-screen 0 1024x768x24" bash -c '\''
+      set -uo pipefail
+      "$@" & app=$!
+      for _ in $(seq 1 20); do
+        sleep 1
+        kill -0 "$app" 2>/dev/null || exit 2
+        if xdotool search --onlyvisible --class -- NovaTerminal >/dev/null 2>&1; then
+          kill "$app" 2>/dev/null || true; exit 0
+        fi
+      done
+      kill "$app" 2>/dev/null || true; exit 3
+    '\'' _ "$@" || rc=$?
+    case "$rc" in
+      0) echo "  ok: $label mapped a window"; return 0 ;;
+      2) echo "  FAIL: $label exited early" >&2; return 1 ;;
+      *) echo "  FAIL: $label never mapped a window in 20s" >&2; return 1 ;;
+    esac
   }
 
   launches "deb install (/usr/bin/nova)" nova
