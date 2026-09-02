@@ -182,6 +182,31 @@ jobs:
     # a warm, fully preinstalled runner image.
     timeout-minutes: 40
     needs: [release_metadata]
+    # ADVISORY ARM64 LEG - the upstream half of the pair. `fail-fast: false` below
+    # stops a red arm64 leg cancelling its x64 sibling, but it does NOT stop the leg
+    # failing the JOB, and the job failure is what propagates: release_tests
+    # `needs: build_native_linux`, and publish_aot `needs: release_tests`. So without
+    # this line a failing arm64 native build skips release_tests, skips publish_aot,
+    # and NO WINDOWS OR MACOS ASSETS PUBLISH AT ALL - the same outcome
+    # release_tests' own continue-on-error was added to prevent, one hop upstream
+    # where it was still wide open.
+    #
+    # This is not a remote risk. This leg has never executed in any form: it
+    # bootstraps rustup via `curl | sh` inside a bare arm64 ubuntu:22.04 container and
+    # then runs two `cargo build --release` passes on aarch64, none of which has been
+    # exercised in CI or locally (no arm64 emulation on the development machine).
+    #
+    # `continue-on-error` on a matrix leg is the documented exemption: the leg still
+    # runs, still reports, and still annotates the run when it fails, but it neither
+    # cancels its siblings nor fails the job.
+    #
+    # WHAT THIS COSTS, plainly: a genuine arm64 native-build failure no longer blocks
+    # the run - it degrades to the accepted behaviour spelled out in the publish_linux
+    # comment below. Once this leg has been green on a real tag, DELETE THIS LINE and
+    # let arm64 gate like every other platform. Matches release_tests' line, which
+    # keys off `matrix.os` because that job has no `rid`; this job has both, and `rid`
+    # is the architecture, so it is the honest key here.
+    continue-on-error: ${{ matrix.rid == 'linux-arm64' }}
     strategy:
       fail-fast: false
       matrix:
@@ -918,9 +943,41 @@ jobs:
   # CROSS-ARCHITECTURE COUPLING, stated openly: `needs: publish_linux` waits on the
   # WHOLE matrix, so a failing linux-arm64 leg keeps linux-x64's proven assets off the
   # release even though `fail-fast: false` still builds them. GitHub offers no per-leg
-  # `needs`. Windows and macOS are NOT exposed to this - they do not depend on either
-  # Linux job, and release_tests' arm64 leg is continue-on-error precisely so it
-  # cannot cancel them.
+  # `needs`.
+  #
+  # WINDOWS AND MACOS *DO* DEPEND ON build_native_linux - TRANSITIVELY. Be precise
+  # about this, because an earlier version of this comment claimed the opposite and it
+  # was wrong. The edge is:
+  #
+  #   build_native_linux -> release_tests -> publish_aot -> (win .zip / Setup.exe /
+  #                                                          win feed; osx .pkg /
+  #                                                          .zip / osx feed)
+  #
+  # release_tests `needs: [release_metadata, build_native, build_native_linux]` because
+  # the ubuntu legs' native-* artifacts come from that job, and publish_aot - which
+  # builds and uploads every Windows and macOS asset - `needs: release_tests`. So a
+  # plain job failure anywhere in build_native_linux skips release_tests, skips
+  # publish_aot, and publishes nothing for two platforms that ship today and are not
+  # part of this change.
+  #
+  # THE TWO `continue-on-error` LINES ARE WHAT DECOUPLE THEM, and they only work as a
+  # pair: one on build_native_linux (`matrix.rid == 'linux-arm64'`) and one on
+  # release_tests (`matrix.os == 'ubuntu-24.04-arm'`). Either one alone leaves the
+  # chain intact at the other hop. Delete neither in isolation.
+  #
+  # DEGRADED BEHAVIOUR WHEN THE ARM64 NATIVE BUILD FAILS - this is the accepted
+  # outcome, not an oversight:
+  #   - build_native_linux's arm64 leg is red but advisory; the job does not fail.
+  #   - release_tests' arm64 leg is red but advisory too (it has no native-* artifact
+  #     to download, so it fails at that step); the job does not fail.
+  #   - publish_aot runs normally, so Windows and macOS publish as usual.
+  #   - publish_linux's arm64 leg fails - on its own `Download Native Artifact` step,
+  #     because nothing uploaded one.
+  #   - release_linux is therefore SKIPPED (it needs the whole publish_linux matrix),
+  #     so NO Linux assets reach the release at all - not even linux-x64's, which were
+  #     built and proven. That is the cross-architecture coupling above, and it is the
+  #     deliberate trade: no unverified Linux bundle ships, and no Linux failure can
+  #     withhold Windows or macOS.
   #
   # RECOVERY, and read this before assuming a re-run fixes it. Two genuinely different
   # situations:
@@ -1442,13 +1499,23 @@ jobs:
       - name: Show downloaded artifacts
         run: ls -la artifacts/release
 
-      - name: Verify docker is available
+      - name: Verify docker and /dev/fuse are available
         run: |
           set -euo pipefail
           command -v docker >/dev/null \
             || { echo "no docker on ${{ matrix.os }}; the smoke gate cannot run, and skipping it is not an option - it is the only thing standing between an unverified bundle and the release page." >&2; exit 1; }
           docker version
           uname -m
+          # The second prerequisite, and the less obvious one: smoke-test.sh's
+          # Container 2 passes `--device /dev/fuse` so a type-2 AppImage can self-mount.
+          # `docker run --device` on a node with no /dev/fuse fails hard with an opaque
+          # error about the device path, which reads as a broken smoke script rather
+          # than a missing kernel module. Name the prerequisite here instead. This is a
+          # second unverified assumption about ubuntu-24.04-arm, alongside the docker
+          # daemon above - neither has ever been observed on that image.
+          test -e /dev/fuse \
+            || { echo "no /dev/fuse on ${{ matrix.os }}; smoke-test.sh's Container 2 passes --device /dev/fuse for the AppImage self-mount and cannot start without it. Load the fuse module on the runner, or the gate has to be reworked - do not drop it." >&2; exit 1; }
+          ls -l /dev/fuse
 
       # THE GATE. Everything above produced or moved artifacts; nothing has been
       # published. If this is ever made non-blocking or conditional, the lane has

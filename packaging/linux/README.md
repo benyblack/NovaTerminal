@@ -24,12 +24,30 @@ in `.github/workflows/release.yml`, mirroring the Windows and macOS lanes.
 | `NovaTerminalApp-<ver>-linux-<arch>-full.nupkg` / `-delta.nupkg` | `vpk pack` | The update feed the in-app updater consumes |
 | `releases.linux-<arch>.json` | `vpk pack` | Feed index resolved by `VelopackUpdateService` |
 
-`release.yml`'s Linux release-publishing steps have not landed yet (tracked
-separately), so this table states the design target, not something a tagged
-GitHub release has produced. `linux_packaging_build` in `ci.yml` already runs
-the same `build-deb.sh`/`vpk pack` invocations and asserts every filename
-pattern above, but only as a CI dry run at a fixed `0.0.1-ci` version — see "Dry
-run without cutting a release" below, not a real release.
+`release.yml` produces and publishes every asset in that table. Two jobs do it,
+and the split is load-bearing:
+
+- **`publish_linux`** (`runs-on: ubuntu-latest` + `container: ubuntu:22.04`, one leg
+  per architecture) does the AOT publish, `build-deb.sh`, `vpk pack`, and the
+  tarball — and publishes *nothing*.
+- **`release_linux`** (plain runner, no container, so it has a docker daemon) runs
+  `smoke-test.sh` against those artifacts and only then uploads them to the release.
+
+`build_native_linux` (also `container: ubuntu:22.04`) builds the Rust native
+libraries the publish consumes. Nothing reaches the release page until the smoke
+gate has installed the `.deb` and launched the bundle in a pristine `ubuntu:22.04`
+container.
+
+What has **not** happened yet: no tagged release has run this lane, and the
+`linux-arm64` legs have never executed at all — no arm64 build of this project has
+run in CI or locally. Both arm64 legs of `build_native_linux` and `release_tests`
+carry `continue-on-error` so an arm64 failure cannot withhold the Windows and macOS
+assets, which depend on `build_native_linux` transitively via `release_tests`; see
+the comment block above `publish_linux` in `release.yml` for the exact degraded
+behaviour. `linux_packaging_build` in `ci.yml` runs the same
+`build-deb.sh`/`vpk pack` invocations and asserts every filename pattern above on
+every PR that touches this directory, but as a dry run at a fixed `0.0.1-ci`
+version — see "Dry run without cutting a release" below.
 
 `<arch>` is `x64` or `arm64`; `<debarch>` is the Debian spelling, `amd64` or
 `arm64`. `<debver>` is the Debian-mapped version from `build-deb.sh
@@ -175,7 +193,7 @@ Locally, everything but `vpk pack` runs in Docker. `test-build-deb.sh` needs
 `libfontconfig1`/`libx11-6` for the dependency-derivation checks:
 
 ```sh
-docker run --rm -v "$PWD:/w" -w /w ubuntu:22.04 bash -c \
+docker run --rm -v "$PWD:/w:ro" -w /w ubuntu:22.04 bash -c \
   'apt-get update -qq && apt-get install -y -qq file imagemagick fontconfig x11-utils binutils >/dev/null &&
    packaging/linux/test-build-deb.sh'
 ```

@@ -200,35 +200,47 @@ chmod 0644 "$stage/usr/share/man/man1/nova.1.gz"
 # cross-platform source of truth (same principle as packaging/macos/make-icns.sh).
 icon_src="$repo_root/src/NovaTerminal.App/Assets/nova_icon.png"
 
-if [[ -f "$icon_src" ]]; then
-  # A missing resize tool is fatal, not a warn-and-continue case like an individual
-  # failed resize below: with no tool at all, EVERY size would install the same
-  # unscaled source file unchanged into all six hicolor buckets - a broken icon theme
-  # (wrong sizes everywhere) shipped silently, which is exactly what the spec's
-  # app-menu-icon acceptance criterion exists to catch. A single size occasionally
-  # failing to scale is tolerable degradation; having no scaler at all is not.
-  if command -v magick >/dev/null 2>&1; then
-    resize() { magick "$1" -resize "$2x$2" "$3"; }        # ImageMagick 7
-  elif command -v convert >/dev/null 2>&1; then
-    resize() { convert "$1" -resize "$2x$2" "$3"; }       # ImageMagick 6 (ubuntu-22.04)
-  else
-    echo "error: no image resize tool found (need ImageMagick 'magick' or 'convert') - cannot build a valid hicolor icon theme" >&2
-    exit 1
-  fi
-
-  for size in 16 32 48 64 128 256; do
-    dir="$stage/usr/share/icons/hicolor/${size}x${size}/apps"
-    install -d "$dir"
-    if resize "$icon_src" "$size" "$dir/novaterminal.png" 2>/dev/null; then
-      chmod 0644 "$dir/novaterminal.png"
-    else
-      echo "warning: could not scale icon to ${size}x${size}; installing unscaled" >&2
-      install -m 0644 "$icon_src" "$dir/novaterminal.png"
-    fi
-  done
-else
-  echo "warning: icon source not found at $icon_src; package will have no icon" >&2
+# A MISSING ICON SOURCE IS FATAL - it used to warn and continue, which meant this
+# script could exit 0 having produced a package with no /usr/share/icons/hicolor/**
+# at all. Nothing downstream catches that: desktop-file-validate does not check that
+# `Icon=novaterminal` resolves to an installed file, and lintian's icon-size-mismatch
+# is a warning, so `--fail-on error` passes it too. Spec acceptance criterion 5
+# ("NovaTerminal appears in the app menu with its icon") would then have zero
+# coverage while ci.yml's change-detection pattern watches nova_icon.png, implying
+# coverage that did not exist. Same reasoning as the missing-scaler case below: an
+# iconless package is not a degraded package, it is a broken one.
+if [[ ! -f "$icon_src" ]]; then
+  echo "error: icon source not found at $icon_src - cannot build a valid hicolor icon theme, and a package with no icon fails the app-menu acceptance criterion" >&2
+  exit 1
 fi
+
+# A missing resize tool is fatal, not a warn-and-continue case like an individual
+# failed resize below: with no tool at all, EVERY size would install the same
+# unscaled source file unchanged into all six hicolor buckets - a broken icon theme
+# (wrong sizes everywhere) shipped silently, which is exactly what the spec's
+# app-menu-icon acceptance criterion exists to catch. A single size occasionally
+# failing to scale is tolerable degradation; having no scaler at all is not.
+if command -v magick >/dev/null 2>&1; then
+  resize() { magick "$1" -resize "$2x$2" "$3"; }        # ImageMagick 7
+elif command -v convert >/dev/null 2>&1; then
+  resize() { convert "$1" -resize "$2x$2" "$3"; }       # ImageMagick 6 (ubuntu-22.04)
+else
+  echo "error: no image resize tool found (need ImageMagick 'magick' or 'convert') - cannot build a valid hicolor icon theme" >&2
+  exit 1
+fi
+
+# The per-size warn-and-continue fallback below is DELIBERATE and stays: one bucket
+# failing to scale should install the unscaled source rather than fail the build.
+for size in 16 32 48 64 128 256; do
+  dir="$stage/usr/share/icons/hicolor/${size}x${size}/apps"
+  install -d "$dir"
+  if resize "$icon_src" "$size" "$dir/novaterminal.png" 2>/dev/null; then
+    chmod 0644 "$dir/novaterminal.png"
+  else
+    echo "warning: could not scale icon to ${size}x${size}; installing unscaled" >&2
+    install -m 0644 "$icon_src" "$dir/novaterminal.png"
+  fi
+done
 
 # --- lintian overrides -------------------------------------------------------
 # SkiaSharp's native build statically links freetype/libjpeg/libpng, and

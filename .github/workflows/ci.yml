@@ -1251,14 +1251,23 @@ jobs:
       # packaging/linux/.
       - name: Detect packaging changes
         id: detect
+        # Both values reach the script through env, never through `${{ }}` inside the
+        # `run` block. Neither is attacker-controlled (github.event_name is a fixed
+        # vocabulary, and base.sha is a 40-char hex the forge computes), so this is not
+        # closing a live injection - it is the env-only rule release.yml already
+        # documents and enforces for `run` inputs, applied here so the newest job is
+        # not the one exception someone later cites as precedent.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "${{ github.event_name }}: always runs the full job."
+            echo "$EVENT_NAME: always runs the full job."
             exit 0
           fi
-          base="${{ github.event.pull_request.base.sha }}"
+          base="$BASE_SHA"
           echo "Diffing against PR merge base: $base"
           changed="$(git diff --name-only "$base"...HEAD)"
           echo "Changed files vs merge base:"

@@ -4,7 +4,7 @@
 # binutils' strip, an ImageMagick 'magick' or 'convert', plus 'fc-match' and
 # 'xdpyinfo' as donor ELFs that link real libfontconfig1/libx11-6 - see the
 # "package construction" section below):
-#   docker run --rm -v "$PWD:/w" -w /w ubuntu:22.04 \
+#   docker run --rm -v "$PWD:/w:ro" -w /w ubuntu:22.04 \
 #     bash -c 'apt-get update -qq &&
 #              apt-get install -y -qq file imagemagick fontconfig x11-utils binutils >/dev/null &&
 #              packaging/linux/test-build-deb.sh'
@@ -106,6 +106,14 @@ else
 
   if [[ -f "$deb" ]]; then
     contents="$(dpkg-deb --contents "$deb")"
+    # The six hicolor icon paths are the ONLY automated coverage of spec acceptance
+    # criterion 5 ("NovaTerminal appears in the app menu with its icon"). Nothing else
+    # in the chain catches a package built with no icons: desktop-file-validate does
+    # not check that `Icon=novaterminal` resolves to an installed file, and lintian's
+    # icon-size-mismatch is a WARNING, so `--fail-on error` lets it through too.
+    # Paired with build-deb.sh treating a missing icon source as fatal, these two
+    # changes are what make ci.yml's change-detection watch on nova_icon.png mean
+    # something.
     for path in \
       ./usr/lib/novaterminal/NovaTerminal \
       ./usr/lib/novaterminal/themes/default.json \
@@ -113,7 +121,13 @@ else
       ./usr/bin/nova \
       ./usr/share/applications/novaterminal.desktop \
       ./usr/share/man/man1/nova.1.gz \
-      ./usr/share/doc/novaterminal/copyright
+      ./usr/share/doc/novaterminal/copyright \
+      ./usr/share/icons/hicolor/16x16/apps/novaterminal.png \
+      ./usr/share/icons/hicolor/32x32/apps/novaterminal.png \
+      ./usr/share/icons/hicolor/48x48/apps/novaterminal.png \
+      ./usr/share/icons/hicolor/64x64/apps/novaterminal.png \
+      ./usr/share/icons/hicolor/128x128/apps/novaterminal.png \
+      ./usr/share/icons/hicolor/256x256/apps/novaterminal.png
     do
       grep -q -- "$path" <<<"$contents" || fail "missing from package: $path"
     done
@@ -168,11 +182,26 @@ else
     pass "control fields checked"
 
     # No maintainer scripts, by design: dpkg triggers handle the caches.
-    for s in preinst postinst prerm postrm; do
-      dpkg-deb --ctrl-tarfile "$deb" | tar -t 2>/dev/null | grep -q "$s" \
-        && fail "unexpected maintainer script: $s"
-    done
-    pass "no maintainer scripts"
+    #
+    # This is an ABSENCE assertion, and this script runs under `set -uo pipefail` with
+    # no `-e`. Written as a `dpkg-deb ... | tar -t 2>/dev/null | grep -q "$s"` pipeline
+    # per iteration it was VACUOUS: if dpkg-deb or tar produced nothing - with
+    # 2>/dev/null hiding why - every grep would simply fail to match, no `fail` would
+    # fire, and `pass "no maintainer scripts"` would print having inspected an empty
+    # string. Same defect class as the `unzip | grep` .dbg leak fixed earlier on this
+    # branch. So: capture once, prove the listing is real with a POSITIVE control
+    # (./control is mandatory in every .deb control tarball), then check absences
+    # against that captured text.
+    ctrl="$(dpkg-deb --ctrl-tarfile "$deb" | tar -t)"
+    if ! grep -q './control' <<<"$ctrl"; then
+      fail "control tarball listing has no ./control entry - the maintainer-script check below would prove nothing. Got: $(printf '%q' "$ctrl")"
+    else
+      pass "control tarball listing is readable (positive control: ./control present)"
+      for s in preinst postinst prerm postrm; do
+        grep -q "$s" <<<"$ctrl" && fail "unexpected maintainer script: $s"
+      done
+      pass "no maintainer scripts"
+    fi
   fi
 fi
 

@@ -22,6 +22,18 @@ The glibc floor is **2.35** (Ubuntu 22.04), set by publishing on the `ubuntu-22.
 Update channels are **`linux-x64`** and **`linux-arm64`** — not the platform-default
 `linux` — because two architectures in one GitHub release must not share one feed.
 
+> **SUPERSEDED IN IMPLEMENTATION — the glibc *mechanism*, not the floor.** Everywhere
+> this document says the floor is set by `runs-on: ubuntu-22.04`, the shipped lane
+> instead uses `runs-on: ubuntu-latest` (or `ubuntu-24.04-arm`) with
+> `container: ubuntu:22.04`. Reason: `actions/runner-images#14254` deprecates the
+> `ubuntu-22.04` runner image from 2026-09-17 (fully unsupported 2027-04-17), which
+> would have retired the floor on GitHub's schedule rather than by decision. **The
+> glibc 2.35 floor itself is unchanged**, as is every consequence of it (supported
+> distros, the derived `Depends:`, the `libc6 (>= 2.35)` assertion). Affects the
+> paragraph above, the `glibc floor` decision row, the `release.yml` job table and its
+> mechanical consequences, and the runner-retirement risk row — each carries a pointer
+> back to this note. See `packaging/linux/README.md` for the current mechanism.
+
 ## What exists today (before this change)
 
 - `release.yml`'s `publish_aot` runs a NativeAOT self-contained publish for `linux-x64` on
@@ -52,7 +64,7 @@ Update channels are **`linux-x64`** and **`linux-arm64`** — not the platform-d
 | Decision | Choice | Rationale |
 |---|---|---|
 | Formats | AppImage + `.deb` + `tar.gz` | AppImage is the auto-updating path; `.deb` is the system-integrated path; tarball for everyone else |
-| glibc floor | 2.35, via `ubuntu-22.04` | Covers Ubuntu 22.04/24.04, Debian 12+, Fedora 36+, Arch. One-line change, no container. Excludes Debian 11 and RHEL 8/9 |
+| glibc floor | 2.35, via `ubuntu-22.04` — **superseded: now `container: ubuntu:22.04`, same 2.35 floor; see the note under Summary** | Covers Ubuntu 22.04/24.04, Debian 12+, Fedora 36+, Arch. One-line change, no container. Excludes Debian 11 and RHEL 8/9 |
 | Architectures | `linux-x64` + `linux-arm64` | Native arm64 hosted runners are free for public repos |
 | Update channels | `linux-x64`, `linux-arm64` | Two arches in one release must not share one feed |
 | `.deb` updates | Manual reinstall; apt repo deferred | A signed APT feed is a long-term commitment; breaking it breaks users' package manager |
@@ -133,6 +145,16 @@ download volume is low, and shipping both would ship one broken artifact on purp
 ## CI topology
 
 ### `release.yml`
+
+> **SUPERSEDED — see the note under Summary.** This table's `ubuntu-22.04` /
+> `ubuntu-22.04-arm` runner labels became `ubuntu-latest` / `ubuntu-24.04-arm` with
+> `container: ubuntu:22.04`, and the shape of the change grew: the Linux legs moved
+> out of `build_native` and `publish_aot` into four dedicated jobs
+> (`build_native_linux`, `publish_linux`, `release_linux`, plus an arm64 leg on
+> `release_tests`), because a `container:` job has no docker daemon for the smoke
+> gate. The `native-${{ matrix.os }}` artifact names below are therefore
+> `native-ubuntu-latest` / `native-ubuntu-24.04-arm`. The glibc 2.35 floor is
+> unchanged.
 
 Three existing jobs change shape:
 
@@ -421,7 +443,7 @@ Tracked as: #383 (APT repository), #384 (terminal-emulator contract),
 | Risk | Severity | Mitigation |
 |---|---|---|
 | `vpk` 1.2.0 may not run on linux-arm64 (dotnet tool carrying native updater binaries; an arm64 build may not exist) | High — blocks the arm64 AppImage | Opening spike. Fallback: cross-pack from the x64 runner via the documented `vpk [linux] pack --runtime linux-arm64` directive, with AOT publish still native on arm64. Worst case arm64 ships `.deb` + tarball only — a decision to bring back to the user, not to take silently |
-| GitHub retires the `ubuntu-22.04` runner | Medium — forces a rebuild of the lane | Known one-way door. The floor then has to move to a container build (the option declined on 2026-09-02). Recorded here so the reason stays legible |
+| GitHub retires the `ubuntu-22.04` runner | Medium — forces a rebuild of the lane | Known one-way door. The floor then has to move to a container build (the option declined on 2026-09-02). Recorded here so the reason stays legible. **RESOLVED, and it happened during implementation, not later:** `actions/runner-images#14254` announced the deprecation (2026-09-17 start), so the lane was built on `container: ubuntu:22.04` from the outset rather than being rebuilt afterwards. Same glibc 2.35 floor — see the note under Summary |
 | AppImage FUSE friction on 22.04+ | Medium — first-run failure | Documented in release notes and `packaging/linux/README.md`; both launch paths smoke-tested |
 | `libicu` alternatives list goes stale on a future distro | Low | One-line fix; caught if that distro joins the smoke matrix |
 | AppImage cannot self-update from a root-owned path | Low | Documented: keep it in `~/Applications` |

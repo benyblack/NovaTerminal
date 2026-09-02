@@ -114,7 +114,9 @@ namespace NovaTerminal.Update
 
         /// <summary>
         /// True only when Velopack installed this process. False for the portable zip, the winget
-        /// portable package, and every dev run.
+        /// portable package, a Linux system package (.deb), and every dev run. A .deb install is
+        /// updated through the user's package manager, so the in-app updater staying silent there
+        /// is correct, not a gap - see <see cref="IUpdateService.IsSupported"/>.
         /// </summary>
         public bool IsSupported => _manager.IsInstalled;
 
