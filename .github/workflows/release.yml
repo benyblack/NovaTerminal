@@ -101,7 +101,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        # Linux is deliberately NOT in this matrix - see build_native_linux below.
+        # librusty_pty.so / librusty_ssh.so SHIP INSIDE the bundle, so they are
+        # subject to the same glibc floor as the AOT binary and must be built in the
+        # ubuntu:22.04 container rather than on whatever glibc the hosted runner
+        # happens to carry. Building them here on ubuntu-latest (24.04, glibc 2.39)
+        # is what made the shipped Linux bundle refuse to start on Ubuntu 22.04 and
+        # Debian 12 - the .so would have been the failing link even if the AOT binary
+        # itself were fixed. The artifact NAME is unchanged (native-ubuntu-latest),
+        # so release_tests and every other consumer needs no edit.
+        os: [windows-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -124,16 +133,6 @@ jobs:
           cd rusty_ssh
           cargo build --release
 
-      - name: Build Rust (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          cd src/NovaTerminal.App/native
-          cargo build --release
-          mkdir -p ../native/target_linux/release
-          cp target/release/librusty_pty.so ../native/target_linux/release/
-          cd rusty_ssh
-          cargo build --release
-
       - name: Build Rust (macOS)
         if: matrix.os == 'macos-latest'
         run: |
@@ -150,19 +149,184 @@ jobs:
             src/NovaTerminal.App/native/target*/**/release/*pty.*
             src/NovaTerminal.App/native/rusty_ssh/target*/**/release/*ssh.*
 
+  # ===========================================================================
+  # Linux native libraries, built on the glibc floor. Split out of build_native
+  # because it needs `container:` and Windows/macOS must not have one.
+  #
+  # WHY A CONTAINER RATHER THAN `runs-on: ubuntu-22.04`. NativeAOT and cdylib
+  # crates alike link against the BUILD machine's glibc with no runtime fallback,
+  # so whatever builds them IS the minimum supported distro. Pinning that with a
+  # runner label was the original plan, but actions/runner-images#14254 deprecates
+  # the ubuntu-22.04 image from 2026-09-17 (fully unsupported 2027-04-17) and
+  # ubuntu-22.04-arm inherits the same date - so the floor would have retired on
+  # GitHub's schedule instead of ours. `runs-on: ubuntu-latest` (x64) /
+  # `ubuntu-24.04-arm` (arm64) plus `container: ubuntu:22.04` pins glibc 2.35
+  # (Ubuntu 22.04+, Debian 12+, Fedora 36+) to an image tag we control. Bumping the
+  # floor is now a deliberate two-line edit (here and in publish_linux).
+  #
+  # This mirrors ci.yml's linux_packaging_build container recipe, which is the
+  # version actually proven end-to-end in ubuntu:22.04. Read that job's comments
+  # before changing anything here; each line of the recipe is a silent-failure trap
+  # somebody already found (checkout degrading to a REST tarball without git,
+  # actions/cache degrading without zstd, dotnet-install drifting off global.json,
+  # dtolnay/rust-toolchain needing a rustup the bare image lacks, $HOME being
+  # /github/home rather than /root, and no sudo).
+  # ===========================================================================
+  build_native_linux:
+    name: Build Native Linux (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    container:
+      image: ubuntu:22.04
+    # 20 -> 40: the container starts from nothing, so every run pays an apt install
+    # and a rustup bootstrap on top of the two cargo builds that used to run against
+    # a warm, fully preinstalled runner image.
+    timeout-minutes: 40
+    needs: [release_metadata]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          # ubuntu-24.04-arm, NOT ubuntu-22.04-arm: same September 2026 deprecation
+          # as the x64 image. The CONTAINER is still ubuntu:22.04 on both legs, so
+          # the glibc floor is identical across architectures and independent of the
+          # runner label. `ubuntu:22.04` is a multi-arch manifest, so this pulls the
+          # arm64 variant here.
+          #
+          # UNVERIFIED: no arm64 Linux build of this project has ever run, in CI or
+          # locally (the development machine has no arm64 emulation). This leg is
+          # built as designed rather than proven.
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+    steps:
+      # MUST precede actions/checkout: a bare ubuntu:22.04 has no git, and
+      # actions/checkout silently falls back to a REST tarball download when git is
+      # absent - producing no `.git` at all.
+      #
+      # This list is deliberately IDENTICAL to publish_linux's below (and to
+      # ci.yml's, plus jq, which only publish_linux uses). Two nearly-identical
+      # lists that drift apart is a worse failure mode than a few seconds of apt
+      # installing packages this particular job does not use, because the drift
+      # shows up as a silently different .deb Depends: set rather than as an error.
+      # Per-package rationale lives in ci.yml's linux_packaging_build.
+      - name: Install container toolchain
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y \
+            ca-certificates curl git unzip zstd jq \
+            clang zlib1g-dev binutils file imagemagick squashfs-tools \
+            fontconfig libfreetype6 x11-utils \
+            libicu70 libssl3
+          echo "--- container identity (the glibc floor this lane pins) ---"
+          head -2 /etc/os-release
+          ldd --version | head -1
+          # `cc` is what rustc invokes as its linker driver for *-unknown-linux-gnu.
+          # It is not installed directly - it arrives as an alternative through
+          # clang's dependency chain - so assert it rather than assume it.
+          command -v cc
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release_metadata.outputs.checkout_ref }}
+
+      # dtolnay/rust-toolchain@stable drives an EXISTING rustup, which the hosted
+      # runner image preinstalls and a bare ubuntu:22.04 does not. Same intent, via
+      # the upstream installer. rustup detects the host triple itself, so this line
+      # is architecture-agnostic.
+      - name: Install Rust
+        run: |
+          set -euo pipefail
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Verify cargo is on PATH
+        run: |
+          set -euo pipefail
+          command -v cargo
+          cargo --version
+          rustc --version
+
+      # A node action, so it runs inside the container, and it only needs cargo on
+      # PATH - which the step above put there via $GITHUB_PATH. Keyed per runner
+      # architecture by rust-cache's own job/target hashing.
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/NovaTerminal.App/native
+
+      # target_linux/ is an arch-agnostic staging directory and each leg builds
+      # natively for its own runner, so no --target and no arch branch is needed.
+      # The artifacts stay distinct because they are named per runner OS below.
+      - name: Build Rust (Linux)
+        run: |
+          set -euo pipefail
+          cd src/NovaTerminal.App/native
+          cargo build --release
+          mkdir -p target_linux/release
+          cp target/release/librusty_pty.so target_linux/release/
+          cd rusty_ssh
+          cargo build --release
+
+      # native-${{ matrix.os }}, exactly the name build_native used to publish for
+      # its ubuntu-latest leg, so release_tests and publish_linux download it
+      # without knowing which job produced it.
+      - name: Upload Native Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.os }}
+          path: |
+            src/NovaTerminal.App/native/target*/**/release/*pty.*
+            src/NovaTerminal.App/native/rusty_ssh/target*/**/release/*ssh.*
+
   # Release gate (#156): releases used to publish AOT bundles without running a
   # single test. Run the same deterministic unit lane that gates PRs in ci.yml —
   # on all three release OSes, which also gives macOS its only automated test
   # coverage — before any bundle is published.
+  #
+  # DELIBERATELY NOT CONTAINERISED, unlike build_native_linux and publish_linux.
+  # This job is the one place in the Linux lane where the glibc floor is NOT
+  # enforced, so the reasoning is recorded rather than left implicit:
+  #
+  #   - Nothing this job produces ships. It runs `dotnet test` against a RID-less,
+  #     framework-dependent build; the shipped artifact is a self-contained AOT
+  #     binary that this job never builds, links, or executes. The floor is a
+  #     LINK-time property of the AOT binary and the Rust cdylibs, and both of those
+  #     are produced under the container by the jobs that do ship them.
+  #   - The native libraries under test here ARE the container-built ones
+  #     (native-${{ matrix.os }} comes from build_native_linux), so the artifacts
+  #     being exercised are the shipping artifacts even though the host glibc is
+  #     newer. glibc is forward compatible, so a 2.35-linked .so loads fine on 2.39.
+  #   - Containerising would cost a ~220 MB SDK download per leg and, more
+  #     importantly, run the gating Rendering tests inside an image with no fonts
+  #     and no fontconfig data - a known source of Linux font drift in this repo.
+  #     That trades a theoretical glibc signal for a likely false red on the release
+  #     lane, which is the worst possible place for one.
+  #
+  # WHAT THAT GIVES UP, stated plainly: a runtime regression that reproduces only on
+  # glibc 2.35 and not on 2.39 would not be caught by these tests. The compensating
+  # control is real but narrower - publish_linux's smoke gate launches the actual
+  # shipped bundle inside a pristine ubuntu:22.04 container, which is where the floor
+  # is genuinely exercised. If that ever proves insufficient, the fix is to add a
+  # containerised leg here, not to weaken the smoke gate.
   release_tests:
     name: Release Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    needs: [release_metadata, build_native]
+    # build_native_linux as well as build_native: the ubuntu legs' native-* artifacts
+    # now come from that job, so needing only build_native would race the download.
+    needs: [release_metadata, build_native, build_native_linux]
     strategy:
       fail-fast: true
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        # ubuntu-24.04-arm is the arm64 test leg. It exists because publish_linux
+        # ships an arm64 bundle, and #156 - the reason this job exists at all - was
+        # precisely that releases published bundles no test had ever touched;
+        # shipping a whole new architecture untested would reopen that hole for
+        # arm64. UNVERIFIED: this leg has never run.
+        os: [windows-latest, ubuntu-latest, macos-latest, ubuntu-24.04-arm]
 
     steps:
       - uses: actions/checkout@v4
@@ -222,11 +386,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # linux-x64 has moved to publish_linux, and linux-arm64 is new there. It
+        # cannot live in this matrix: its build needs `container: ubuntu:22.04` (the
+        # glibc floor) while Windows and macOS must not have a container, and its
+        # release gate needs a docker daemon, which a `container:` job does not have.
+        # This job's Windows and macOS behaviour - assets, channels, delta feeds,
+        # signing, notarization - is unchanged.
         include:
           - os: windows-latest
             rid: win-x64
-          - os: ubuntu-latest
-            rid: linux-x64
           - os: macos-latest
             rid: osx-arm64
 
@@ -300,12 +468,19 @@ jobs:
           RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
         run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true "-p:Version=$RELEASE_VERSION" "-p:InformationalVersion=$RELEASE_VERSION" -o artifacts/publish/${{ matrix.rid }}
 
-      # osx-arm64 is excluded here: its user-facing zip is the Velopack Portable bundle
+      # win-x64 only. osx-arm64's user-facing zip is the Velopack Portable bundle
       # (NovaTerminal.app inside a ditto zip) built by the macOS Velopack steps below and
-      # uploaded under this same NovaTerminal-osx-arm64-<tag>.zip name. Archiving the raw
+      # uploaded under this same NovaTerminal-osx-arm64-<tag>.zip name; archiving the raw
       # publish directory too would ship a second, near-identical zip.
+      #
+      # `== 'win-x64'` rather than `!= 'osx-arm64'`: with linux-x64 moved to
+      # publish_linux this matrix contains exactly {win-x64, osx-arm64}, so the two
+      # conditions select the identical set - the rewrite is behaviour-preserving and
+      # says what it means. Linux now builds a tar.gz instead (Compress-Archive
+      # cannot write Unix mode bits, so the zip it replaces shipped a NovaTerminal
+      # binary with no executable bit).
       - name: Archive bundle
-        if: matrix.rid != 'osx-arm64'
+        if: matrix.rid == 'win-x64'
         shell: pwsh
         # Same reasoning as the metadata job's env block, for PowerShell: in a double-quoted
         # string `"$(...)"` is a subexpression PowerShell EXECUTES, so a tag named
@@ -323,17 +498,23 @@ jobs:
           if (Test-Path $dest) { Remove-Item $dest -Force }
           Compress-Archive -Path "$source/*" -DestinationPath $dest
 
-      # osx-arm64 skips this for the same reason as Archive bundle above: the mac zip
-      # uploads from the Velopack output directory instead.
+      # win-x64 only, and equivalent to the previous `!= 'osx-arm64'` for the same
+      # reason as Archive bundle above: osx-arm64's zip uploads from the Velopack
+      # output directory instead, and linux no longer runs in this job.
       - name: Upload release asset
-        if: matrix.rid != 'osx-arm64'
+        if: matrix.rid == 'win-x64'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.zip
 
-      # ---- Velopack installers + update feeds (#91). win-x64 and osx-arm64; linux-x64
-      # ---- keeps shipping its portable zip exactly as before.
+      # ---- Velopack installers + update feeds (#91). win-x64 and osx-arm64 only -
+      # ---- Linux's AppImage, .deb, tarball and per-architecture update feeds are
+      # ---- built and gated in publish_linux / release_linux below.
+      #
+      # The `|| matrix.rid == 'osx-arm64'` half of each guard below is now redundant
+      # (the matrix holds nothing else), but it is left alone on purpose: rewriting
+      # working, signed, notarized macOS steps for tidiness is risk with no return.
       - name: Install vpk
         if: matrix.rid == 'win-x64' || matrix.rid == 'osx-arm64'
         run: dotnet tool install -g vpk --version 1.2.0
@@ -680,6 +861,523 @@ jobs:
             artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-osx-full.nupkg
             artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-osx-delta.nupkg
             artifacts/velopack/releases.osx.json
+
+  # ===========================================================================
+  # Linux release lane (#91): AppImage + .deb + tarball + per-architecture update
+  # feeds, for linux-x64 and linux-arm64.
+  #
+  # TWO JOBS, and the split is load-bearing - do not merge them back together.
+  #
+  #   publish_linux (container: ubuntu:22.04) produces every artifact and PUBLISHES
+  #   NOTHING. release_linux (plain runner) runs the docker smoke gate against those
+  #   artifacts and only then uploads them to the release.
+  #
+  # WHY. packaging/linux/smoke-test.sh `docker run`s pristine containers itself -
+  # that IS the test (a machine that installs nothing but the .deb). A `container:`
+  # job has no docker daemon and no socket, so docker-in-docker is unavailable;
+  # mounting the host socket would be privilege escalation AND would break the
+  # script's own `-v "$dir:/art:ro"` mounts, because a path inside the job container
+  # does not exist on the daemon's host. So the gate stays on the runner and receives
+  # the artifacts through upload/download-artifact. ci.yml's linux_packaging_* lane
+  # made the identical split for the identical reason.
+  #
+  # ORDERING IS THE POINT OF THIS REWRITE. The lane this replaces uploaded
+  # NovaTerminal-linux-x64-<tag>.zip from publish_aot's `Upload release asset` step -
+  # before anything had packed, let alone launched, anything. Now every asset for a
+  # given architecture is produced, asserted, and smoke-launched in a bare
+  # ubuntu:22.04 container before a single byte reaches the release.
+  #
+  # Artifact permissions are not preserved by upload/download-artifact. Harmless
+  # here: the .tar.gz and the .deb carry their own internal modes (and the tarball's
+  # exec bit is asserted below, in the job that creates it, before upload), and
+  # smoke-test.sh already does its own `chmod +x` on the AppImage copy it launches.
+  # An AppImage downloaded from a GitHub release needs chmod +x regardless - HTTP has
+  # no mode bits.
+  #
+  # CROSS-ARCHITECTURE COUPLING, stated openly: `needs: publish_linux` waits on the
+  # WHOLE matrix, so a failing linux-arm64 leg keeps linux-x64's proven assets off
+  # the release even though `fail-fast: false` still builds them (they remain
+  # downloadable as workflow artifacts for triage, and "re-run failed jobs" completes
+  # the release). GitHub offers no per-leg `needs`. If the unverified arm64 lane
+  # blocks a release, the contingency is to delete its four matrix entries
+  # (build_native_linux, release_tests, publish_linux, release_linux) and re-run -
+  # NOT to make the smoke gate non-blocking.
+  # ===========================================================================
+  publish_linux:
+    name: Publish Linux (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    # The glibc floor, identical to build_native_linux's - see that job's comment for
+    # why this is a container tag rather than a `runs-on: ubuntu-22.04` label.
+    container:
+      image: ubuntu:22.04
+    # 60, matching ci.yml's equivalent: cold apt install + SDK download + full NuGet
+    # restore + AOT publish + build-deb.sh + vpk pack, with no preinstalled anything
+    # to fall back on. Not 90 like publish_aot - there is no notarization wait here.
+    timeout-minutes: 60
+    needs: [release_metadata, create_release, build_native_linux, release_tests]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            debarch: amd64
+          # UNVERIFIED end to end: no arm64 build of this project has ever run, and
+          # whether `vpk` can produce an AppImage on linux-arm64 has been open since
+          # the opening spike (the development machine has no arm64 emulation).
+          # Documented contingency if `vpk pack` turns out to be x64-only: vpk's
+          # `[linux] pack --runtime linux-arm64` cross-pack from the x64 leg. Not
+          # implemented speculatively - it would replace a real per-architecture
+          # build with an untested cross-build to fix a problem that may not exist.
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+            debarch: arm64
+    steps:
+      # MUST precede actions/checkout (no git -> checkout silently degrades to a REST
+      # tarball with no .git). List is identical to build_native_linux's; per-package
+      # rationale is in ci.yml's linux_packaging_build. jq is the one addition beyond
+      # ci.yml's list - the prior-release query below needs it, and `gh` is NOT an
+      # option: it lives on the runner host, not inside this container.
+      - name: Install container toolchain
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y \
+            ca-certificates curl git unzip zstd jq \
+            clang zlib1g-dev binutils file imagemagick squashfs-tools \
+            fontconfig libfreetype6 x11-utils \
+            libicu70 libssl3
+          echo "--- container identity (the glibc floor this lane pins) ---"
+          head -2 /etc/os-release
+          ldd --version | head -1
+          # build-deb.sh preflights these and fails loudly without them; assert here
+          # so a failure names the missing package instead of the script.
+          for t in dpkg-deb dpkg-query file ldd strip convert mksquashfs unzip jq; do
+            command -v "$t" >/dev/null || { echo "missing required tool: $t" >&2; exit 1; }
+          done
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release_metadata.outputs.checkout_ref }}
+
+      # Unlike the hosted runner image, the container has no preinstalled SDK to fall
+      # back on, so the ~220 MB dotnet-install.sh download is cached on global.json.
+      # Keyed per architecture: the payload is a different RID's SDK on each leg.
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-container-ubuntu2204-${{ matrix.rid }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-container-ubuntu2204-${{ matrix.rid }}-
+
+      # actions/setup-dotnet (used by the win/osx jobs above) is deliberately not used
+      # here: it is a node action that shells out to this same script, so it would add
+      # a layer whose behaviour in a bare container is unproven to gain only its NuGet
+      # cache - which is one actions/cache block below.
+      #
+      # --jsonfile global.json, NOT --version <literal>: the SDK version is read out
+      # of global.json, so this can never drift from the pin the other jobs use via
+      # setup-dotnet's global-json-file input.
+      - name: Install .NET SDK (version pinned by global.json)
+        run: |
+          set -euo pipefail
+          curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+          chmod +x /tmp/dotnet-install.sh
+          /tmp/dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet"
+          # Both entries. $HOME is /github/home in a container job, not /root, and
+          # neither `dotnet` nor the global-tool shim dir that `dotnet tool install -g
+          # vpk` writes into is on PATH here, unlike on the hosted runner image.
+          echo "$HOME/.dotnet" >> "$GITHUB_PATH"
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+          echo "DOTNET_ROOT=$HOME/.dotnet" >> "$GITHUB_ENV"
+
+      - name: Verify dotnet is on PATH
+        run: |
+          set -euo pipefail
+          command -v dotnet
+          dotnet --version
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-container-ubuntu2204-${{ matrix.rid }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-container-ubuntu2204-${{ matrix.rid }}-
+
+      # The .so files built under the same ubuntu:22.04 container by
+      # build_native_linux, so what ships is linked against the floor's glibc.
+      - name: Download Native Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-${{ matrix.os }}
+          path: src/NovaTerminal.App/native
+
+      - name: Restore
+        run: dotnet restore
+
+      # RELEASE_VERSION through env, never interpolated into script source: it derives
+      # from a tag or a workflow_dispatch input and `$(...)` executes in bash. Same
+      # rule as every other run block in this file. -p:SkipCliShim=true because the
+      # shim needs a RID-less framework-dependent build and the AOT binary dispatches
+      # the CLI modes itself.
+      - name: Publish AOT
+        env:
+          SKIP_RUST_NATIVE_BUILD: "1"
+          RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj \
+            -c "$CONFIGURATION" -r ${{ matrix.rid }} --self-contained true \
+            -p:PublishAot=true -p:SkipCliShim=true \
+            "-p:Version=$RELEASE_VERSION" "-p:InformationalVersion=$RELEASE_VERSION" \
+            -o artifacts/publish/${{ matrix.rid }}
+
+      # BEFORE anything packages this directory, not after. StripSymbols=true
+      # (NovaTerminal.App.csproj) emits a ~79 MB NovaTerminal.dbg beside the AOT
+      # binary - larger than the binary itself - and every consumer below reads this
+      # same directory: the tarball, the .deb, and vpk's full/delta nupkgs. Deleting
+      # once at the source is why the tarball is not triple-sized; build-deb.sh does
+      # its own .dbg removal and vpk gets a belt-and-braces --exclude, but neither
+      # would have saved the tarball. Same reasoning, and the same 3x ratio, as the
+      # macOS lane's dSYM deletion above. Nothing consumes the symbols.
+      - name: Strip debug symbols
+        run: |
+          set -euo pipefail
+          rm -f artifacts/publish/${{ matrix.rid }}/*.pdb artifacts/publish/${{ matrix.rid }}/*.dbg
+          ls -la artifacts/publish/${{ matrix.rid }}
+
+      - name: Build .deb
+        env:
+          RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          chmod +x packaging/linux/*.sh
+          packaging/linux/build-deb.sh \
+            "artifacts/publish/${{ matrix.rid }}" "$RELEASE_VERSION" \
+            ${{ matrix.debarch }} artifacts/linux
+
+      # Recorded, not asserted, exactly as ci.yml does: the derived Depends: is a
+      # function of what is installed on the packaging machine, so printing it makes
+      # a toolchain-driven change visible in the log rather than only as a smoke-test
+      # failure two jobs later.
+      - name: Show derived Depends
+        run: |
+          set -euo pipefail
+          deb="$(ls artifacts/linux/novaterminal_*_${{ matrix.debarch }}.deb | head -1)"
+          echo "$deb"
+          dpkg-deb -f "$deb" Depends
+
+      - name: Archive tarball
+        # tar, NOT Compress-Archive. System.IO.Compression cannot write Unix mode
+        # bits, so the zip this replaces shipped a NovaTerminal binary with no
+        # executable bit and every user had to chmod +x before first launch. That is
+        # the original bug, so the exec bit is asserted rather than assumed.
+        env:
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
+          RID: ${{ matrix.rid }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release
+          tarball="artifacts/release/NovaTerminal-$RID-$RELEASE_TAG.tar.gz"
+          tar -czf "$tarball" -C "artifacts/publish/$RID" .
+          # Capture first, then match: `tar | grep` would hide a tar failure behind
+          # grep's status, which is the vacuous-check shape this branch has already
+          # been bitten by (see ci.yml's .dbg assertion).
+          listing="$(tar -tvzf "$tarball")"
+          grep -qE '^-rwxr-xr-x.* \./NovaTerminal$' <<<"$listing" \
+            || { echo "tarball lost the executable bit on NovaTerminal - this is the bug the zip had" >&2; echo "$listing" | head -40 >&2; exit 1; }
+          if grep -q '\.dbg$' <<<"$listing"; then
+            echo "NovaTerminal.dbg leaked into the tarball - the Strip debug symbols step did not run, or ran too late" >&2
+            exit 1
+          fi
+          echo "ok: tarball preserved the exec bit on ./NovaTerminal and carries no .dbg"
+
+      # Pinned to 1.2.0, in lockstep with Directory.Packages.props and the other
+      # install sites in these workflows.
+      - name: Install vpk
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      # --channel is MANDATORY on download as well as on pack. `vpk download github`
+      # resolves its channel from the runner's OS (DefaultName.GetDefaultChannel
+      # yields plain 'linux' here) - a channel we never publish - so without it this
+      # step fetches nothing, no prior full lands in the output directory, and delta
+      # generation silently degrades to full-only.
+      #
+      # continue-on-error because the FIRST release on a channel legitimately has
+      # nothing to download. The Pack step below is what distinguishes that from a
+      # transient failure, by asking GitHub rather than by inspecting this directory.
+      - name: Download previous Velopack release (Linux, for delta generation)
+        id: linux_download
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RID: ${{ matrix.rid }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/linux
+          vpk download github \
+            --repoUrl https://github.com/benyblack/NovaTerminal \
+            --token "$GH_TOKEN" \
+            --channel "$RID" \
+            --outputDir artifacts/linux
+
+      - name: Pack AppImage (Velopack)
+        env:
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
+          DOWNLOAD_OUTCOME: ${{ steps.linux_download.outcome }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RID: ${{ matrix.rid }}
+        run: |
+          set -euo pipefail
+          ver="$RELEASE_VERSION"
+          tag="$RELEASE_TAG"
+          # The channel and the RID are intentionally the same string, so this is
+          # correct by construction rather than by coincidence. It must keep matching
+          # VelopackUpdateService.ResolveExplicitChannel
+          # (src/NovaTerminal.App/Update/VelopackUpdateService.cs); never the platform
+          # default 'linux', because a Velopack feed is per-channel and one shared
+          # 'linux' channel would offer arm64 clients an x64 package.
+          channel="$RID"
+
+          # Whether a delta is EXPECTED must be decided from GitHub, not from this
+          # directory. An empty artifacts/linux means two different things - "no prior
+          # Velopack release on this channel" (legitimate, and the only correct outcome
+          # on the first one) and "the download step failed" (transient). The download
+          # step is continue-on-error so the first case cannot fail the release, which
+          # means that without this query a FAILED download looks exactly like a first
+          # release, no assertion fires, and the release publishes full-only -
+          # permanently and silently dropping delta updates for every Linux client.
+          # The win and osx lanes above learned this the same way.
+          #
+          # curl + jq, not `gh`: the GitHub CLI is installed on the runner host, not
+          # inside this container. --fail-with-body makes a non-2xx an exit failure,
+          # and capturing into a variable means `set -e` actually sees it - a bare
+          # `curl | jq` would hand jq an error body and hide the failure.
+          #
+          # The filter mirrors what `vpk download github --channel "$channel"` itself
+          # fetches: prereleases and drafts excluded (the same GitHub flag
+          # create_release sets from the tag's SemVer suffix), and only this channel's
+          # own -<channel>-full.nupkg assets counted. The suffix is unambiguous across
+          # every channel we publish - linux-arm64, osx and win names cannot end in
+          # "-linux-x64-full.nupkg" and vice versa - so unlike the win lane this needs
+          # no exclusion clause.
+          if ! releases_json="$(curl -sS --fail-with-body \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases?per_page=100")"; then
+            echo "Querying the releases API failed. Cannot tell a first $channel release from a transient failure, and guessing wrong publishes a release with no delta. Re-run this workflow for this tag." >&2
+            exit 1
+          fi
+          prior_full_raw="$(jq --arg tag "$tag" --arg suffix "-$channel-full.nupkg" '
+            [ .[]
+              | select(.tag_name != $tag)
+              | select(.prerelease == false)
+              | select(.draft == false)
+              | .assets[]?
+              | select(.name | endswith($suffix)) ] | length' <<<"$releases_json")"
+          if [[ ! "$prior_full_raw" =~ ^[0-9]+$ ]]; then
+            echo "The releases API query returned '$prior_full_raw', which is not a count. Refusing to guess whether a delta is expected." >&2
+            exit 1
+          fi
+          prior_full_count=$((prior_full_raw))
+          expect_delta=$(( prior_full_count > 0 ? 1 : 0 ))
+          echo "Prior $channel full packages on GitHub (excluding $tag): $prior_full_count. Download step outcome: $DOWNLOAD_OUTCOME."
+
+          if (( expect_delta )) && [[ "$DOWNLOAD_OUTCOME" != "success" ]]; then
+            echo "A prior Velopack $channel release exists, but 'vpk download github' did not succeed (outcome: $DOWNLOAD_OUTCOME). Packing now would publish a full-only release and silently drop delta updates. Re-run this workflow for this tag once GitHub is reachable." >&2
+            exit 1
+          fi
+          if (( expect_delta )); then
+            echo "A delta is expected and will be asserted after packing."
+          else
+            echo "No prior Velopack $channel release; full-only output is the correct result."
+          fi
+
+          # Re-run idempotency, same as the win and osx lanes: `vpk download github`
+          # picks the max-version full out of the channel feed, which for an
+          # already-published tag is the tag's OWN nupkg, and `vpk pack` then hard-
+          # fails with "There is a release in channel <c> which is equal or greater to
+          # the current version". This workflow supports workflow_dispatch re-runs by
+          # design, so dropping this version's own artifacts first is required.
+          rm -f artifacts/linux/NovaTerminalApp-"$ver"-"$channel"-*.nupkg
+
+          # --packId NovaTerminalApp, matching the win and osx lanes: it is the
+          # updater's application identity and must not be "tidied" to NovaTerminal
+          # (see the Windows lane's long comment on the uninstall hazard).
+          # One --exclude, not two: `vpk pack --help` documents it as a single REGEX,
+          # so both patterns are one alternation. mksquashfs (squashfs-tools) is a hard
+          # prerequisite - a type-2 AppImage IS a squashfs image.
+          vpk pack \
+            --packId NovaTerminalApp \
+            --packVersion "$ver" \
+            --packDir "artifacts/publish/$RID" \
+            --mainExe NovaTerminal \
+            --packTitle NovaTerminal \
+            --packAuthors benyblack \
+            --channel "$channel" \
+            --icon src/NovaTerminal.App/Assets/nova_icon.png \
+            --exclude '.*\.pdb|NovaTerminal\.dbg' \
+            --outputDir artifacts/linux
+
+          echo "Velopack output:"
+          ls -l artifacts/linux
+
+          test -f "artifacts/linux/NovaTerminalApp-$ver-$channel-full.nupkg" \
+            || { echo "vpk pack produced no NovaTerminalApp-$ver-$channel-full.nupkg - the $channel update feed would be unusable." >&2; exit 1; }
+          test -f "artifacts/linux/releases.$channel.json" \
+            || { echo "vpk pack produced no releases.$channel.json" >&2; exit 1; }
+          if (( expect_delta )) && [[ ! -f "artifacts/linux/NovaTerminalApp-$ver-$channel-delta.nupkg" ]]; then
+            echo "A prior Velopack $channel release exists but vpk pack produced no NovaTerminalApp-$ver-$channel-delta.nupkg - delta generation silently failed." >&2
+            exit 1
+          fi
+
+          # vpk names the AppImage from packId plus channel with NO version in it -
+          # NovaTerminalApp-linux-x64.AppImage - so it is matched by glob and renamed
+          # to the tagged asset name, as the macOS lane renames its .pkg and .zip.
+          # Do not assume a version appears in vpk's own output name.
+          appimage="$(ls artifacts/linux/*.AppImage 2>/dev/null | head -1 || true)"
+          if [[ -z "$appimage" ]]; then
+            echo "vpk pack produced no .AppImage (is squashfs-tools installed? mksquashfs is required)" >&2
+            exit 1
+          fi
+          mv "$appimage" "artifacts/release/NovaTerminal-$RID-$tag.AppImage"
+
+          # Stage everything the release will carry into ONE flat directory, because
+          # that is both what smoke-test.sh takes as its argument and what the upload
+          # job globs. Version-scoped, so a stale nupkg the download step fetched for
+          # delta generation is never re-uploaded onto this release.
+          cp artifacts/linux/novaterminal_*_${{ matrix.debarch }}.deb artifacts/release/
+          cp "artifacts/linux/NovaTerminalApp-$ver-$channel-full.nupkg" artifacts/release/
+          cp "artifacts/linux/releases.$channel.json" artifacts/release/
+          if [[ -f "artifacts/linux/NovaTerminalApp-$ver-$channel-delta.nupkg" ]]; then
+            cp "artifacts/linux/NovaTerminalApp-$ver-$channel-delta.nupkg" artifacts/release/
+          fi
+          echo "Staged for release:"
+          ls -l artifacts/release
+
+      # Mirrors ci.yml's Assert expected assets, in its hardened form - see that
+      # step's comment for why the `unzip | grep` shape it replaced could pass while
+      # inspecting nothing. Copying the fragile version into the lane that publishes
+      # to users is exactly what this checks against.
+      - name: Assert expected assets
+        env:
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
+          RID: ${{ matrix.rid }}
+        run: |
+          set -euo pipefail
+          cd artifacts/release
+          ls -la
+          test -f "NovaTerminal-$RID-$RELEASE_TAG.AppImage" || { echo "no AppImage" >&2; exit 1; }
+          test -f "NovaTerminal-$RID-$RELEASE_TAG.tar.gz" || { echo "no tarball" >&2; exit 1; }
+          test -n "$(ls ./novaterminal_*_${{ matrix.debarch }}.deb 2>/dev/null)" || { echo "no ${{ matrix.debarch }} .deb" >&2; exit 1; }
+          test -f "NovaTerminalApp-$RELEASE_VERSION-$RID-full.nupkg" || { echo "no $RID full nupkg" >&2; exit 1; }
+          test -f "releases.$RID.json" || { echo "no releases.$RID.json" >&2; exit 1; }
+          # No .dbg may appear in the full nupkg. `unzip` is preflighted and its
+          # output captured BEFORE grepping: pipefail alone does not help, because a
+          # non-zero pipeline inside an `if` condition is merely "false" and the step
+          # would pass green having checked nothing.
+          command -v unzip >/dev/null \
+            || { echo "unzip is not installed, so the .dbg leak assertion cannot run. Add it back to the container toolchain step - do not let this check silently no-op." >&2; exit 1; }
+          nupkg_listing="$(unzip -l "NovaTerminalApp-$RELEASE_VERSION-$RID-full.nupkg")"
+          if grep -q '\.dbg' <<<"$nupkg_listing"; then
+            echo "NovaTerminal.dbg leaked into the $RID full nupkg" >&2
+            exit 1
+          fi
+          echo "ok: all expected $RID assets present, no .dbg in the full nupkg"
+
+      # The ONLY channel by which release_linux receives these, so this name and the
+      # download step's name must stay in sync. NOT if: always() unlike ci.yml's
+      # equivalent: an artifact set that failed its assertions must not be reachable
+      # by a job whose next action after the gate is to publish it.
+      - name: Upload Linux artifacts for the smoke gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release-${{ matrix.rid }}
+          retention-days: 5
+          path: artifacts/release
+
+  # THE GATE, plus the only upload. Runs on a plain runner because both halves need
+  # what a `container:` job does not have: a docker daemon (smoke-test.sh) - see the
+  # block comment above publish_linux.
+  release_linux:
+    name: Release Linux (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    # Two cold smoke containers that each apt-install their own tooling. No
+    # compilation happens here.
+    timeout-minutes: 30
+    needs: [release_metadata, publish_linux]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          # An arm64 runner, not qemu on x64: the gate launches an arm64 AppImage and
+          # installs an arm64 .deb, and `ubuntu:22.04` is multi-arch so the smoke
+          # containers come up natively. UNVERIFIED, and note the extra assumption
+          # this leg carries beyond the rest of the arm64 path - that the
+          # ubuntu-24.04-arm image ships a working docker daemon. The step below
+          # asserts it rather than discovering it as a confusing script failure.
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+    steps:
+      # The scripts live in the repo; the artifacts come from publish_linux.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release_metadata.outputs.checkout_ref }}
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-release-${{ matrix.rid }}
+          path: artifacts/release
+
+      - name: Show downloaded artifacts
+        run: ls -la artifacts/release
+
+      - name: Verify docker is available
+        run: |
+          set -euo pipefail
+          command -v docker >/dev/null \
+            || { echo "no docker on ${{ matrix.os }}; the smoke gate cannot run, and skipping it is not an option - it is the only thing standing between an unverified bundle and the release page." >&2; exit 1; }
+          docker version
+          uname -m
+
+      # THE GATE. Everything above produced or moved artifacts; nothing has been
+      # published. If this is ever made non-blocking or conditional, the lane has
+      # lost its point.
+      - name: Smoke test (bare containers)
+        run: |
+          set -euo pipefail
+          chmod +x packaging/linux/*.sh
+          packaging/linux/smoke-test.sh artifacts/release
+
+      # Only now. The .deb is globbed rather than named because build-deb.sh maps a
+      # SemVer prerelease suffix into a Debian-legal `~` (0.5.0-beta.1 ->
+      # 0.5.0~beta.1), so its exact filename is not derivable from release_version
+      # without reimplementing that mapping. The directory holds exactly one
+      # architecture's .deb, so the glob is unambiguous.
+      #
+      # fail_on_unmatched_files is left at its permissive default on purpose: the
+      # first release on a channel legitimately produces no delta nupkg, so flipping
+      # it would break exactly the case it looks like it would protect. The delta
+      # assertion lives in publish_linux, where "was a delta expected?" is known from
+      # GitHub instead of guessed from a missing file. Same as the win and osx lanes.
+      - name: Upload Linux release assets and update feed
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ needs.release_metadata.outputs.release_tag }}
+          files: |
+            artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.AppImage
+            artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.tar.gz
+            artifacts/release/*.deb
+            artifacts/release/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-${{ matrix.rid }}-full.nupkg
+            artifacts/release/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-${{ matrix.rid }}-delta.nupkg
+            artifacts/release/releases.${{ matrix.rid }}.json
 
   # Opens a submission PR to microsoft/winget-pkgs for the just-published Windows
   # zip (portable package; see packaging/winget/). Optional and self-skipping:
