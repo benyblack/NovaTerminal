@@ -174,15 +174,51 @@ else
     grep -q 'libfontconfig1'            <<<"$info" || fail "Depends lacks libfontconfig1 (dlopen'd by Skia)"
     grep -q 'libx11-6'                  <<<"$info" || fail "Depends lacks libx11-6 (dlopen'd by Avalonia)"
     grep -q 'libicu'                    <<<"$info" || fail "Depends lacks an ICU alternatives list"
-    # Each dlopen'd dependency must appear exactly once - the dedupe loop must actually
-    # dedupe. Anchored on (^|[ ,]) ... (,|$), not a bare substring match: unanchored,
-    # "libgl1" also matches inside "libgl1-mesa-dri", which the donor ELFs above could
-    # plausibly pull in via ldd - a false "duplicate" that has nothing to do with
-    # whether the dedupe loop actually deduped.
-    for pkg in libfontconfig1 libx11-6 libxrandr2 libxi6 libxcursor1 libxext6 libice6 libsm6 libgl1; do
-      count="$(grep -oE "(^|[ ,])$pkg(,|$)" <<<"$info" | wc -l)"
-      [[ "$count" -eq 1 ]] || fail "Depends has $pkg $count times, want exactly 1"
-    done
+    # Named explicitly, on top of the derived loop below, because these two are the
+    # regression this assertion block was extended for: without them a clean .deb
+    # install on a machine that simply lacks libsecret leaves LinuxSecretStore
+    # catching DllNotFoundException and reporting IsAvailable == false, i.e.
+    # persistent SSH password storage silently disabled with no user-visible error.
+    grep -q 'libsecret-1-0'             <<<"$info" || fail "Depends lacks libsecret-1-0 (dlopen'd by LinuxSecretStore; without it the vault silently disables)"
+    grep -q 'libglib2.0-0'              <<<"$info" || fail "Depends lacks libglib2.0-0{,t64} (dlopen'd by LinuxSecretStore)"
+
+    # Every dlopen'd relation must appear exactly once - the dedupe loop must actually
+    # dedupe. The list is READ FROM build-deb.sh, not copied here: a hardcoded copy is
+    # what let libsecret/libglib be absent from the packaging list and from every gate
+    # at the same time, invisible to both.
+    relations="$("$script" --print-dlopen-relations)" || fail "--print-dlopen-relations errored"
+    rel_count="$(grep -c . <<<"$relations")"
+    # Anti-vacuity: an empty list would make the loop below iterate zero times and
+    # still print its pass line - the same defect class as the maintainer-script check
+    # further down. Cross-checked against the soname column so a half-malformed table
+    # (relations present, sonames missing) also fails here rather than in the slow
+    # containerised smoke test.
+    if (( rel_count == 0 )); then
+      fail "build-deb.sh --print-dlopen-relations produced nothing - the dedupe check below would be vacuous"
+    elif [[ "$("$script" --print-dlopen-sonames | grep -c .)" -ne "$rel_count" ]]; then
+      fail "build-deb.sh's dlopen table has $rel_count relation(s) but a different number of sonames"
+    else
+      pass "dlopen relation list read from build-deb.sh ($rel_count entries)"
+      dedupe_bad=0
+      while IFS= read -r rel; do
+        [[ -n "$rel" ]] || continue
+        if [[ "$rel" == *"|"* ]]; then
+          # An alternatives group ("libglib2.0-0t64 | libglib2.0-0") must appear as a
+          # unit, so it is matched literally (grep -F) rather than with the anchored
+          # regex used for plain names - and its members are deliberately NOT counted
+          # individually, since one name legitimately appears inside the group text.
+          count="$(grep -oF -- "$rel" <<<"$info" | wc -l)"
+        else
+          # Anchored on (^|[ ,]) ... (,|$), not a bare substring match: unanchored,
+          # "libgl1" also matches inside "libgl1-mesa-dri", which the donor ELFs above
+          # could plausibly pull in via ldd - a false "duplicate" that has nothing to
+          # do with whether the dedupe loop actually deduped.
+          count="$(grep -oE "(^|[ ,])$rel(,|$)" <<<"$info" | wc -l)"
+        fi
+        [[ "$count" -eq 1 ]] || { fail "Depends has '$rel' $count times, want exactly 1"; dedupe_bad=1; }
+      done <<<"$relations"
+      (( dedupe_bad )) || pass "every dlopen relation appears in Depends exactly once"
+    fi
     pass "control fields checked"
 
     # No maintainer scripts, by design: dpkg triggers handle the caches.

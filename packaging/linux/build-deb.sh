@@ -3,6 +3,8 @@
 #
 # Usage: build-deb.sh <publish-dir> <version> <debarch> <out-dir>
 #        build-deb.sh --print-debian-version <version>
+#        build-deb.sh --print-dlopen-sonames     (one soname per line)
+#        build-deb.sh --print-dlopen-relations   (one Depends: relation per line)
 #
 # There is nothing to compile here - the AOT bundle arrives prebuilt - so this is a
 # file layout plus a control file, which is exactly what dpkg-deb is for. No
@@ -25,9 +27,99 @@ print_debian_version() {
   printf '%s-1\n' "${v/-/\~}"
 }
 
+# --- runtime-loaded (dlopen'd) libraries -----------------------------------
+# ONE TABLE, TWO COLUMNS, ONE SOURCE OF TRUTH: "<soname>|<Depends: relation>".
+#
+# These libraries are opened at RUNTIME (P/Invoke module resolution, or an explicit
+# NativeLibrary.Load), so `ldd` cannot see them and the ldd-driven derivation below
+# will never produce them. They have to be declared, and a declaration nobody checks
+# is worthless - so the same table drives both mechanisms:
+#
+#   * the relation column lands in Depends: (below, and via --print-dlopen-relations)
+#   * the soname column is what smoke-test.sh asserts actually resolves inside a
+#     pristine container that has installed NOTHING but this .deb
+#     (via --print-dlopen-sonames)
+#
+# WHY ONE TABLE AND NOT TWO LISTS: until now the packaging list lived here and the
+# smoke-test assertion list lived in smoke-test.sh, hand-maintained separately. A
+# library missing from both was therefore invisible to both mechanisms at once - the
+# .deb shipped without the dependency AND the gate never looked for it. That is
+# exactly how libsecret-1.so.0 / libglib-2.0.so.0 (LinuxSecretStore, i.e. persistent
+# SSH password storage) survived nine review rounds: a clean install on a machine
+# without libsecret hit LinuxSecretStore's `catch (DllNotFoundException)` and
+# silently reported IsAvailable == false, with no user-visible error. Adding a line
+# here now moves the package and its gate together, or neither moves.
+#
+# Column separator is the FIRST '|' only ("${e%%|*}" / "${e#*|}"), so a relation may
+# itself be a Debian alternatives group containing '|' - which libglib needs, see
+# below.
+DLOPEN_LIBS=(
+  # SkiaSharp font enumeration. Also a real DT_NEEDED of libSkiaSharp.so, so ldd
+  # finds it too; kept here because the fontconfig *lookup* is a runtime concern and
+  # the dedupe loop below makes the overlap harmless.
+  "libfontconfig.so.1|libfontconfig1"
+  "libX11.so.6|libx11-6"           # Avalonia X11 backend
+  "libXrandr.so.2|libxrandr2"      # display/DPI enumeration
+  "libXi.so.6|libxi6"              # XInput2 pointer + keyboard
+  "libXcursor.so.1|libxcursor1"    # cursor themes
+  "libXext.so.6|libxext6"          # X extensions used by the X11 backend
+  "libICE.so.6|libice6"            # X session management
+  "libSM.so.6|libsm6"              # X session management
+  "libGL.so.1|libgl1"              # GLX/OpenGL rendering path
+  # src/NovaTerminal.App/Shell/Secrets/LinuxSecretStore.cs - the Secret Service
+  # (GNOME Keyring / KWallet) vault that backs persistent SSH password storage.
+  # libsecret via [DllImport("libsecret-1.so.0")]; glib via NativeLibrary.Load plus
+  # [DllImport("libglib-2.0.so.0")] for the GHashTable the non-varargs
+  # secret_password_*v_sync API takes its attributes in.
+  "libsecret-1.so.0|libsecret-1-0"
+  # An ALTERNATIVES GROUP, for the same reason the ICU relation below is one: Ubuntu
+  # 24.04 / Debian 13 renamed this package to libglib2.0-0t64 in the 64-bit time_t
+  # transition and no longer ship a `libglib2.0-0` at all (verified: `apt-cache
+  # policy libglib2.0-0` on noble reports "Candidate: (none)"), while 22.04 and
+  # Debian 12 only have the old name. A hard dependency on either one alone would be
+  # uninstallable on half the supported range. libglib2.0-0{,t64} also ships
+  # libgobject-2.0.so.0, which is what Avalonia's optional GTK path wants.
+  "libglib-2.0.so.0|libglib2.0-0t64 | libglib2.0-0"
+)
+
+# DELIBERATELY NOT in the table above - runtime-loaded, audited, and judged not to be
+# Depends:. Recorded here so the next audit does not have to re-derive the reasoning,
+# and so "absent from the table" never again means "nobody looked":
+#   libgtk-3.so.0, libgdk-3.so.0, libgobject-2.0.so.0
+#       Avalonia.X11's GtkSystemDialog - the FALLBACK file picker. X11PlatformOptions
+#       defaults UseDBusFilePicker=true, and the DBus/portal path (DBusSystemDialog)
+#       is pure managed Tmds.DBus.Protocol over a unix socket, no native library at
+#       all. With neither portal nor GTK the app still starts and runs; only the file
+#       picker is unavailable, and every call site here already guards
+#       `topLevel?.StorageProvider == null`. Hard-depending on libgtk-3-0 to recover
+#       a fallback would pull a large GTK stack into every install.
+#   libvulkan.so.1
+#       Avalonia.X11's Vulkan rendering mode. Not selected: this app never sets
+#       X11PlatformOptions.RenderingMode, so the default Glx/Software path is used.
+#   libdbus-1.so.3
+#       Avalonia.FreeDesktop.AtSpi's AT-SPI accessibility bridge, loaded only once an
+#       assistive technology activates the a11y bus. Not on the launch path (the
+#       smoke test maps a window in a container that has no libdbus at all).
+# If any of those ever becomes load-bearing, it belongs in DLOPEN_LIBS above - which
+# gates it in the same commit that depends on it.
+
 if [[ "${1:-}" == "--print-debian-version" ]]; then
   [[ $# -eq 2 ]] || { echo "usage: $0 --print-debian-version <version>" >&2; exit 2; }
   print_debian_version "$2"
+  exit 0
+fi
+
+# Consumed by smoke-test.sh (soname gate) and test-build-deb.sh (Depends: gate), so
+# neither has to keep its own copy of this list. Both are printed one-per-line, in
+# table order, and both MUST come out non-empty - each caller asserts that, because
+# an empty list would make its own gate vacuous.
+if [[ "${1:-}" == "--print-dlopen-sonames" ]]; then
+  for _e in "${DLOPEN_LIBS[@]}"; do printf '%s\n' "${_e%%|*}"; done
+  exit 0
+fi
+
+if [[ "${1:-}" == "--print-dlopen-relations" ]]; then
+  for _e in "${DLOPEN_LIBS[@]}"; do printf '%s\n' "${_e#*|}"; done
   exit 0
 fi
 
@@ -69,20 +161,11 @@ trap 'rm -rf "$stage"' EXIT
 #
 # 1. Linked deps: ldd every ELF and map sonames to owning packages. Catches libc6,
 #    libstdc++6, libgcc-s1, libssl3 and whatever libSkiaSharp.so really pulls in.
-# 2. dlopen'd deps: a hand-maintained list, because ldd CANNOT see them. Avalonia's
-#    X11 backend and SkiaSharp's fontconfig lookup load these at runtime. A missing
-#    entry here is precisely what smoke-test.sh exists to catch.
-DLOPEN_DEPENDS=(
-  libfontconfig1   # SkiaSharp font enumeration
-  libx11-6         # Avalonia X11 backend
-  libxrandr2       # display/DPI enumeration
-  libxi6           # XInput2 pointer + keyboard
-  libxcursor1      # cursor themes
-  libxext6         # X extensions used by the X11 backend
-  libice6          # X session management
-  libsm6           # X session management
-  libgl1           # GLX/OpenGL rendering path
-)
+# 2. dlopen'd deps: the DLOPEN_LIBS table near the top of this file, because ldd
+#    CANNOT see them. Avalonia's X11 backend, SkiaSharp's fontconfig lookup and
+#    LinuxSecretStore's libsecret/glib load these at runtime. A missing entry there
+#    is precisely what smoke-test.sh exists to catch - and it reads the same table,
+#    so the two can no longer disagree.
 
 derive_linked_depends() {
   local root="$1"
@@ -143,12 +226,27 @@ while IFS= read -r pkg; do
   [[ -z "$pkg" || "$pkg" == "libc6" ]] && continue
   depends+=", $pkg"
 done <<< "$linked_pkgs"
-for pkg in "${DLOPEN_DEPENDS[@]}"; do
-  # -qE, not -q: the pattern uses extended-regex alternation `(^|, )...(,|$)`, which a
-  # basic regex (grep -q's default) treats as literal parentheses/pipe and can never
-  # match - every dlopen dependency would be appended unconditionally, duplicating any
-  # package ldd already found (lintian flags a duplicated Depends relation).
-  grep -qE "(^|, )$pkg(,|$)" <<<"$depends" || depends+=", $pkg"
+for _entry in "${DLOPEN_LIBS[@]}"; do
+  relation="${_entry#*|}"
+  # An alternatives group is deduped on each of its ALTERNATIVES, not on the
+  # composite string: "libglib2.0-0t64 | libglib2.0-0" as a whole can never match
+  # anything ldd produced (ldd yields bare package names), so a composite-only check
+  # would append the group even when one of its members is already in Depends:.
+  already=0
+  IFS='|' read -r -a _alts <<<"$relation"
+  for _alt in "${_alts[@]}"; do
+    # Trim the padding the table writes for readability ("a | b").
+    _alt="${_alt#"${_alt%%[![:space:]]*}"}"
+    _alt="${_alt%"${_alt##*[![:space:]]}"}"
+    [[ -n "$_alt" ]] || continue
+    # -qE, not -q: the pattern uses extended-regex alternation `(^|, )...(,|$)`, which
+    # a basic regex (grep -q's default) treats as literal parentheses/pipe and can
+    # never match - every dlopen dependency would be appended unconditionally,
+    # duplicating any package ldd already found (lintian flags a duplicated Depends
+    # relation).
+    if grep -qE "(^|, )$_alt(,|$)" <<<"$depends"; then already=1; break; fi
+  done
+  (( already )) || depends+=", $relation"
 done
 
 # --- stage the tree --------------------------------------------------------

@@ -12,12 +12,41 @@ set -euo pipefail
 artifact_dir="${1:?usage: smoke-test.sh <artifact-dir>}"
 artifact_dir="$(cd "$artifact_dir" && pwd)"
 image="${SMOKE_IMAGE:-ubuntu:22.04}"
+here="$(cd "$(dirname "$0")" && pwd)"
 
 ls "$artifact_dir"/novaterminal_*.deb >/dev/null 2>&1 \
   || { echo "no novaterminal_*.deb in $artifact_dir" >&2; exit 1; }
 
+# The dlopen gate in Phase A is DERIVED from build-deb.sh's DLOPEN_LIBS table, not
+# hand-maintained here. Before this, the sonames were a second hardcoded list in this
+# file: a library forgotten in build-deb.sh was also, necessarily, absent from the
+# assertion here, so the .deb shipped without the dependency AND the gate never
+# looked for it. Nothing could see the omission - which is how libsecret/libglib
+# survived nine review rounds. Reading the table means adding a dependency and
+# gating it are now the same edit.
+dlopen_sonames="$("$here/build-deb.sh" --print-dlopen-sonames)"
+dlopen_relations="$("$here/build-deb.sh" --print-dlopen-relations)"
+dlopen_count="$(grep -c . <<<"$dlopen_sonames")"
+# Anti-vacuity, host side: an empty or malformed table would make the whole Phase A
+# dlopen gate pass having asserted nothing - the exact defect class this change
+# exists to close, reintroduced one level up.
+(( dlopen_count > 0 )) \
+  || { echo "build-deb.sh --print-dlopen-sonames produced nothing; the dlopen gate would be vacuous" >&2; exit 1; }
+[[ "$(grep -c . <<<"$dlopen_relations")" -eq "$dlopen_count" ]] \
+  || { echo "dlopen soname/relation lists differ in length; build-deb.sh's table is malformed" >&2; exit 1; }
+while IFS= read -r _so; do
+  [[ "$_so" =~ ^lib[A-Za-z0-9_.+-]*\.so(\.[0-9]+)*$ ]] \
+    || { echo "not a soname in build-deb.sh's dlopen table: '$_so'" >&2; exit 1; }
+done <<<"$dlopen_sonames"
+echo "dlopen gate will assert $dlopen_count soname(s) from build-deb.sh's table:"
+sed 's/^/  - /' <<<"$dlopen_sonames"
+
 echo "=== Container 1: dependency completeness (pristine $image, no X11) ==="
-docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
+docker run --rm -v "$artifact_dir:/art:ro" \
+  -e DLOPEN_SONAMES="$dlopen_sonames" \
+  -e DLOPEN_RELATIONS="$dlopen_relations" \
+  -e DLOPEN_COUNT="$dlopen_count" \
+  "$image" bash -euo pipefail -c '
   export DEBIAN_FRONTEND=noninteractive
 
   # stock ubuntu:22.04 ships /etc/dpkg/dpkg.cfg.d/excludes, which path-excludes
@@ -97,11 +126,45 @@ docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
   # These are dlopen loaded at runtime, so ldd above cannot see them. They must
   # resolve from the package own Depends - nothing else has been installed that
   # could provide them.
-  for so in libX11.so.6 libfontconfig.so.1 libXrandr.so.2 libXi.so.6 \
-            libXcursor.so.1 libXext.so.6 libICE.so.6 libSM.so.6 libGL.so.1; do
-    ldconfig -p | grep -q "$so" || { echo "  FAIL: $so missing (dlopen dep not in Depends)" >&2; exit 1; }
-  done
-  echo "  ok: every dlopen loaded library resolves"
+  #
+  # The list is NOT hardcoded here: it arrives in $DLOPEN_SONAMES, printed by
+  # build-deb.sh from the same DLOPEN_LIBS table that produced the packages Depends:.
+  # A hardcoded copy is what made this gate blind to libsecret/libglib - both were
+  # missing from the packaging list and from the assertion list simultaneously, so
+  # neither mechanism could see it.
+  [ -n "${DLOPEN_SONAMES:-}" ] \
+    || { echo "  FAIL: DLOPEN_SONAMES is empty - the dlopen gate would assert nothing" >&2; exit 1; }
+  soname_count=0
+  while IFS= read -r so; do
+    [ -n "$so" ] || continue
+    soname_count=$((soname_count + 1))
+    ldconfig -p | grep -q -- "$so" || { echo "  FAIL: $so missing (dlopen dep not in Depends)" >&2; exit 1; }
+  done <<<"$DLOPEN_SONAMES"
+  # Transport anti-vacuity: the host counted the table itself and passed the count
+  # separately, so a truncated or mangled env var cannot silently shrink the gate.
+  [ "$soname_count" -eq "${DLOPEN_COUNT:-0}" ] \
+    || { echo "  FAIL: asserted $soname_count soname(s) but the table has ${DLOPEN_COUNT:-0}" >&2; exit 1; }
+  echo "  ok: all $soname_count dlopen loaded libraries resolve"
+
+  # And now the half that makes the table self-checking rather than merely shared:
+  # every relation in it must appear in the INSTALLED packages own Depends:. The
+  # assertion above proves each soname resolves; it cannot prove the .deb is why -
+  # a soname could resolve because some other Depends dragged it in transitively.
+  # Together they mean a library cannot be gated without being depended on, nor
+  # depended on without being gated, and a table entry whose package name is wrong
+  # (or whose derivation silently dropped it) fails here instead of at a users
+  # dlopen. Whitespace is squeezed on both sides because dpkg normalises the field
+  # it re-emits, and the relation may be an alternatives group ("a | b").
+  installed_depends="$(dpkg-query -f "\${Depends}" -W novaterminal | tr -s " ")"
+  [ -n "$installed_depends" ] \
+    || { echo "  FAIL: dpkg-query returned an empty Depends: for novaterminal - the coverage check below would prove nothing" >&2; exit 1; }
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    grep -qF -- "$(tr -s " " <<<"$rel")" <<<"$installed_depends" \
+      || { echo "  FAIL: installed Depends: does not cover the dlopen relation \"$rel\"" >&2
+           echo "        got: $installed_depends" >&2; exit 1; }
+  done <<<"$DLOPEN_RELATIONS"
+  echo "  ok: installed Depends: covers every relation in the dlopen table"
 
   test -x /usr/lib/novaterminal/NovaTerminal || { echo "  FAIL: bundle binary not executable" >&2; exit 1; }
   test -L /usr/bin/nova                      || { echo "  FAIL: /usr/bin/nova is not a symlink" >&2; exit 1; }
