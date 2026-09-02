@@ -241,9 +241,11 @@ namespace NovaTerminal
             public TabStatusTracker Status { get; } = new();
             public TabTrackerStatus RenderedStatus { get; set; }
 
-            /// <summary>True while a pane in this tab has a command running (agent session
-            /// status aggregation). Populated by a later change; until then this stays false
-            /// and the tab dot falls back to the output-burst heuristic alone.</summary>
+            /// <summary>True while any pane in this tab has a command running — the agent-session
+            /// status machine's precise per-session state (see <see cref="RefreshTabStatuses"/>),
+            /// which survives silent stretches that decay the output-burst heuristic. Feeds
+            /// <see cref="TabStatusPresentation.ResolveTabDot"/> via
+            /// <see cref="UpdateVerticalTabExtras"/>; vertical mode only.</summary>
             public bool HasRunningCommand { get; set; }
             public TabPreviewTracker Preview { get; } = new();
             public bool PreviewDirty { get; set; }
@@ -518,6 +520,15 @@ namespace NovaTerminal
 
         internal TabStatusTracker GetTabStatusTracker(TabItem tab) => GetOrCreateTabState(tab).Status;
 
+        /// <summary>Test-only seam: reads the precise running-command flag
+        /// <see cref="RefreshTabStatuses"/> populates from agent-session registrations (same
+        /// pattern as <see cref="GetTabStatusTracker"/>).</summary>
+        internal bool IsTabRunningCommandForTest(TabItem tab) => GetOrCreateTabState(tab).HasRunningCommand;
+
+        /// <summary>Test-only seam: reads the last status the 1 Hz pass rendered (the heuristic
+        /// input ResolveTabDot pairs with <see cref="IsTabRunningCommandForTest"/>).</summary>
+        internal TabTrackerStatus GetTabRenderedStatusForTest(TabItem tab) => GetOrCreateTabState(tab).RenderedStatus;
+
         internal bool GetTabPreviewDirtyForTest(TabItem tab) => GetOrCreateTabState(tab).PreviewDirty;
 
         internal void SetTabPreviewDirtyForTest(TabItem tab, bool dirty) => GetOrCreateTabState(tab).PreviewDirty = dirty;
@@ -534,13 +545,34 @@ namespace NovaTerminal
             state.AgentTier = agentTier;
         }
 
-        /// <summary>Timer-driven decay pass: re-evaluates every tab's heuristic status and queues a
-        /// visual refresh only for tabs whose rendered status changed. Vertical mode only.</summary>
+        /// <summary>Timer-driven decay pass: re-evaluates every tab's heuristic status and
+        /// precise running-command flag (agent-session registry), queueing a visual refresh
+        /// only for tabs where either changed. Vertical mode only.</summary>
         internal void RefreshTabStatuses()
         {
             if (!_isVerticalTabStrip) return;
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs == null) return;
+
+            // Precise running state, one pass over the registry snapshot before the per-tab
+            // loop: any tab owning a pane whose agent-session status machine reports Running
+            // has a command in flight. The output-burst heuristic above decays after 2 quiet
+            // seconds, so a silently-thinking agent CLI (60s between tokens is normal) would
+            // flip its dot back to idle; the per-session status machine knows better. Same
+            // registration→tab mapping as RefreshTabAgentAttention (TabId vs the persistent
+            // tab id). Snapshot() is thread-safe; GetRegistrations() hands back a point-in-time
+            // array, so no registry lock is held. 1 Hz over at most dozens of registrations:
+            // one HashSet per tick is the whole allocation cost.
+            var runningTabIds = new HashSet<Guid>();
+            foreach (var registration in AgentHost.AgentSessionRegistry.Instance.GetRegistrations())
+            {
+                var tabId = registration.TabId;
+                if (tabId.HasValue
+                    && registration.StatusMachine.Snapshot().Kind == AgentHost.AgentSessionStatusKind.Running)
+                {
+                    runningTabIds.Add(tabId.Value);
+                }
+            }
 
             var now = DateTime.UtcNow;
             foreach (TabItem tab in tabs.Items.Cast<TabItem>())
@@ -550,6 +582,17 @@ namespace NovaTerminal
                 if (status != state.RenderedStatus)
                 {
                     state.RenderedStatus = status;
+                    QueueTabVisualRefresh(tab);
+                }
+
+                // Same change-driven queueing as RenderedStatus: the flag feeds
+                // ResolveTabDot via UpdateVerticalTabExtras, which only runs in vertical
+                // mode (horizontal headers never read it - stale-but-unread there, cost
+                // zero, which is why this whole method is vertical-only).
+                bool running = runningTabIds.Contains(GetPersistentTabId(tab));
+                if (running != state.HasRunningCommand)
+                {
+                    state.HasRunningCommand = running;
                     QueueTabVisualRefresh(tab);
                 }
             }
