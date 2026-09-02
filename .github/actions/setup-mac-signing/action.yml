@@ -94,12 +94,20 @@ runs:
         printf '%s' "$CERT_P12_BASE64" | base64 --decode > "$cert_path"
 
         security create-keychain -p "$CERT_PASSWORD" "$keychain"
-        # Turn any future path mismatch into a named failure here, before notarytool
-        # or vpk surface it as a confusing "file doesn't exist".
+        # `security` resolves bare keychain names suffix-flexibly, but notarytool and
+        # vpk's codesign need the literal existing file — and some macOS versions
+        # materialize build.keychain-db even when given this explicit .keychain path.
+        # Locate whatever was actually created; fail with the directory listing if
+        # nothing matches, so the log shows where the keychain went.
         if [[ ! -f "$keychain" ]]; then
-          echo "::error::security create-keychain did not produce '$keychain'." >&2
+          keychain=$(ls "$HOME/Library/Keychains/"build.keychain* 2>/dev/null | head -n 1 || true)
+        fi
+        if [[ -z "${keychain:-}" || ! -f "$keychain" ]]; then
+          echo "::error::could not find the created build keychain (expected $HOME/Library/Keychains/build.keychain*). Directory contents:" >&2
+          ls -la "$HOME/Library/Keychains" >&2 || true
           exit 1
         fi
+        echo "Using keychain: $keychain"
         # 6h autolock so the identity stays usable for the whole job, including vpk's
         # synchronous wait for Apple to finish notarizing.
         security set-keychain-settings -lut 21600 "$keychain"
