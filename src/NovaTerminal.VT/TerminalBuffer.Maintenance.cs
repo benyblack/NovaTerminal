@@ -345,6 +345,11 @@ namespace NovaTerminal.VT
             Lock.EnterWriteLock();
             try
             {
+                // Invalidate render-side caches keyed by the theme epoch (paged-scrollback
+                // snapshots and everything derived from them). Must happen under the write lock
+                // so a snapshot captured after this call always observes the new epoch.
+                _renderThemeEpoch++;
+
                 // Sync current buffer defaults to new theme
                 if (IsDefaultForeground) CurrentForeground = Theme.Foreground;
                 if (IsDefaultBackground) CurrentBackground = Theme.Background;
@@ -352,6 +357,10 @@ namespace NovaTerminal.VT
                 SyncThemeDefaultsInCursorStateNoLock(_savedCursors.Alt);
                 SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Main);
                 SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Alt);
+
+                // Materialized-default detection colors (see UpdateCell below).
+                uint oldForegroundUint = oldTheme.Foreground.ToUint();
+                uint oldBackgroundUint = oldTheme.Background.ToUint();
 
                 void UpdateCell(ref TerminalCell cell)
                 {
@@ -373,6 +382,15 @@ namespace NovaTerminal.VT
                         cell.IsDefaultForeground = true;
                         cell.Fg = Theme.Foreground.ToUint();
                     }
+                    else if (fgIdx < 0 && cell.Fg == oldForegroundUint)
+                    {
+                        // Materialized default: some paths store the resolved old default color
+                        // without the default flag. A cell that rendered exactly like the old
+                        // default reads as "default" to the user - adopt it into the new theme,
+                        // or scrolled history keeps old-theme boxes after a switch.
+                        cell.IsDefaultForeground = true;
+                        cell.Fg = Theme.Foreground.ToUint();
+                    }
 
                     if (bgIdx >= 0 && bgIdx <= 15)
                     {
@@ -383,6 +401,11 @@ namespace NovaTerminal.VT
                     else if (cell.IsDefaultBackground)
                     {
                         cell.IsPaletteBackground = false;
+                        cell.IsDefaultBackground = true;
+                        cell.Bg = Theme.Background.ToUint();
+                    }
+                    else if (bgIdx < 0 && cell.Bg == oldBackgroundUint)
+                    {
                         cell.IsDefaultBackground = true;
                         cell.Bg = Theme.Background.ToUint();
                     }

@@ -22,6 +22,9 @@
         <SolidColorBrush x:Key="NtFg4"             Color="#5c6370"/>
         <SolidColorBrush x:Key="NtBlue"            Color="#61afef"/>
         <SolidColorBrush x:Key="NtBlueDim"         Color="#2461afef"/>
+        <SolidColorBrush x:Key="NtAccentHover"     Color="#7cc1f5"/>
+        <SolidColorBrush x:Key="NtAccentPressed"   Color="#4f9bde"/>
+        <SolidColorBrush x:Key="NtAccentFg"        Color="#0a1622"/>
         <SolidColorBrush x:Key="NtGreen"           Color="#98c379"/>
         <SolidColorBrush x:Key="NtYellow"          Color="#e5c07b"/>
         <SolidColorBrush x:Key="NtRed"             Color="#e06c75"/>
@@ -117,7 +120,7 @@
         <!-- Primary action button -->
         <Style Selector="Button.Primary">
             <Setter Property="Background" Value="{StaticResource NtBlue}"/>
-            <Setter Property="Foreground" Value="#0a1622"/>
+            <Setter Property="Foreground" Value="{StaticResource NtAccentFg}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="CornerRadius" Value="5"/>
@@ -127,10 +130,10 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
         <Style Selector="Button.Primary:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#7cc1f5"/>
+            <Setter Property="Background" Value="{StaticResource NtAccentHover}"/>
         </Style>
         <Style Selector="Button.Primary:pressed /template/ ContentPresenter">
-            <Setter Property="Background" Value="#4f9bde"/>
+            <Setter Property="Background" Value="{StaticResource NtAccentPressed}"/>
         </Style>
 
         <!-- Secondary pill button -->
@@ -144,7 +147,7 @@
             <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
         </Style>
         <Style Selector="Button.Pill:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#2a2f38"/>
+            <Setter Property="Background" Value="{StaticResource NtHairline}"/>
         </Style>
 
         <!-- Danger button (delete) -->
@@ -177,7 +180,7 @@
             <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
         </Style>
         <Style Selector="Button.IconBtn:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#2a2f38"/>
+            <Setter Property="Background" Value="{StaticResource NtHairline}"/>
         </Style>
 
         <!-- Sidebar (ListBox + items) -->
@@ -197,7 +200,7 @@
             <Setter Property="FontSize" Value="13"/>
         </Style>
         <Style Selector="ListBox.SideNav ListBoxItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#1f2730"/>
+            <Setter Property="Background" Value="{StaticResource NtPanelAlt}"/>
         </Style>
         <Style Selector="ListBox.SideNav ListBoxItem:selected /template/ ContentPresenter">
             <Setter Property="Background" Value="{StaticResource NtBlueDim}"/>

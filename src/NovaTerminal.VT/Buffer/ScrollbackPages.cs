@@ -362,14 +362,19 @@ namespace NovaTerminal.VT.Storage
         /// <summary>
         /// Updates the default foreground and background colors for all cells currently retained.
         /// This is allowed to be a slower full-scan because theme changes are infrequent.
+        /// Cells whose stored color equals the OLD theme's default but which lost their default
+        /// flag are adopted into the new theme as well - otherwise materialized-default history
+        /// keeps rendering in the previous theme's colors after a switch.
         /// </summary>
         public void UpdateThemeDefaults(TerminalTheme oldTheme, TerminalTheme newTheme)
         {
             uint fgUint = newTheme.Foreground.ToUint();
             uint bgUint = newTheme.Background.ToUint();
+            uint oldFgUint = oldTheme.Foreground.ToUint();
+            uint oldBgUint = oldTheme.Background.ToUint();
             foreach (var page in _pages)
             {
-                page.UpdateThemeDefaults(fgUint, bgUint);
+                page.UpdateThemeDefaults(fgUint, bgUint, oldFgUint, oldBgUint);
             }
         }
 

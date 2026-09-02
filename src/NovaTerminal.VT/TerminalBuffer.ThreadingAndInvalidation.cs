@@ -21,7 +21,12 @@ namespace NovaTerminal.VT
         private int[] _cachedRenderRowCols = Array.Empty<int>();
         private RenderCellSnapshot[][] _cachedRenderRowCells = Array.Empty<RenderCellSnapshot[]>();
         private int _lastSnapshotCols = -1;
+        private int _lastSnapshotThemeEpoch;
         private bool _hasSnapshotState;
+        // Bumped by UpdateThemeColors. Scrollback rows are otherwise treated as immutable
+        // (revision 0), so both the paged-row cell snapshots and every render-side cache keyed
+        // by the snapshot revision would keep serving pre-switch colors forever.
+        private int _renderThemeEpoch;
         private TermColor[]? _cachedAnsiPalette;
 
         public bool IsSynchronizedOutput => _isSynchronizedOutput;
@@ -245,6 +250,8 @@ namespace NovaTerminal.VT
                 cursorCol = _cursorCol;
                 cursorStyle = Modes.CursorStyle;
                 theme = CreateRenderThemeSnapshot_NoLock();
+                int themeEpoch = _renderThemeEpoch;
+                bool themeEpochChanged = _hasSnapshotState && _lastSnapshotThemeEpoch != themeEpoch;
 
                 EnsureSnapshotStateCapacity_NoLock(viewportRows);
 
@@ -278,9 +285,13 @@ namespace NovaTerminal.VT
                         rowSnapshot = new RenderRowSnapshot
                         {
                             AbsRow = absRow,
-                            Revision = 0, // Scrollback rows are immutable
+                            // Scrollback row content is immutable, but a theme switch rewrites
+                            // the stored default colors (UpdateThemeColors). Stamping the theme
+                            // epoch here is what invalidates the paged-row snapshot cache below
+                            // and every render-side cache keyed by this revision.
+                            Revision = (uint)themeEpoch,
                             Cols = viewportCols,
-                            Cells = GetOrBuildCachedPagedRenderRowCells_NoLock(r, absRow, absRowId, viewportCols),
+                            Cells = GetOrBuildCachedPagedRenderRowCells_NoLock(r, absRow, absRowId, viewportCols, themeEpoch),
                             RowId = absRowId
                         };
                         rowId = rowSnapshot.RowId;
@@ -310,7 +321,11 @@ namespace NovaTerminal.VT
                     bool fullRowDirty = !_hasSnapshotState ||
                                         _lastSnapshotCols != viewportCols ||
                                         _lastSnapshotAbsRows[r] != absRow ||
-                                        _lastSnapshotRowIds[r] != rowId;
+                                        _lastSnapshotRowIds[r] != rowId ||
+                                        // A theme switch recolors cells in place; the span-diff
+                                        // would compare against pre-switch snapshots and miss
+                                        // recolored regions, so re-render every row once.
+                                        themeEpochChanged;
 
                     if (rowSnapshot.Cols > 0 && viewportCols > 0)
                     {
@@ -346,6 +361,7 @@ namespace NovaTerminal.VT
                 }
 
                 _lastSnapshotCols = viewportCols;
+                _lastSnapshotThemeEpoch = themeEpoch;
                 _hasSnapshotState = true;
                 dirtySpans = NormalizeDirtySpans(dirtyList, viewportRows, viewportCols);
 
@@ -681,7 +697,7 @@ namespace NovaTerminal.VT
             return PooledArray<SearchHighlightSnapshot>.Empty;
         }
 
-        private RenderCellSnapshot[] GetOrBuildCachedPagedRenderRowCells_NoLock(int rowIndex, int absRow, long rowId, int viewportCols)
+        private RenderCellSnapshot[] GetOrBuildCachedPagedRenderRowCells_NoLock(int rowIndex, int absRow, long rowId, int viewportCols, int themeEpoch)
         {
             if (viewportCols <= 0)
             {
@@ -693,7 +709,7 @@ namespace NovaTerminal.VT
                 cachedCells != null &&
                 cachedCells.Length == viewportCols &&
                 _cachedRenderRowIds[rowIndex] == rowId &&
-                _cachedRenderRowRevisions[rowIndex] == 0 &&
+                _cachedRenderRowRevisions[rowIndex] == (uint)themeEpoch &&
                 _cachedRenderRowCols[rowIndex] == viewportCols;
 
             if (canReuse)
@@ -758,7 +774,7 @@ namespace NovaTerminal.VT
             }
 
             _cachedRenderRowIds[rowIndex] = rowId;
-            _cachedRenderRowRevisions[rowIndex] = 0;
+            _cachedRenderRowRevisions[rowIndex] = (uint)themeEpoch;
             _cachedRenderRowCols[rowIndex] = viewportCols;
             _cachedRenderRowCells[rowIndex] = rebuiltCells;
 
