@@ -540,7 +540,9 @@ public sealed class VerticalTabStripTests
     {
         var method = typeof(NovaTerminal.MainWindow).GetMethod("PopulateTabListMenu", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
-        method!.Invoke(window, new object[] { false });
+        // Reflection Invoke fills no optional parameters - the anchor override must be
+        // passed explicitly (null = title-bar anchor chain, the pre-pill behavior).
+        method!.Invoke(window, new object[] { false, null });
     }
 
     // Regression coverage for the perf fix: recomputing the preview line on every batched
@@ -918,5 +920,263 @@ public sealed class VerticalTabStripTests
         }
 
         Assert.Equal(before, tabs.Items.Cast<TabItem>().ToList());
+    }
+
+    // ---- Keyboard move-tab (MoveSelectedTab, sharing the drag commit path) ----
+    //
+    // MoveSelectedTab commits through the same ReorderTabInItems primitive as
+    // CommitTabReorder, so these pin the keyboard-specific half: clamped ±1 movement,
+    // selection restoration on the moved tab, and no MRU churn beyond the selection's own
+    // TouchTabMru (which is a no-op re-insert when the moved tab is already the MRU head).
+
+    private static List<TabItem> GetTabMru(NovaTerminal.MainWindow window)
+        => ((List<TabItem>)typeof(NovaTerminal.MainWindow)
+            .GetField("_tabMru", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(window)!).ToList();
+
+    /// <summary>Puts the strip in a deterministic selection state: two real selection
+    /// changes so MRU head is provably <paramref name="selected"/> before the move.</summary>
+    private static void SelectViaRealEvents(TabControl tabs, TabItem selected)
+    {
+        var other = tabs.Items.Cast<TabItem>().First(t => t != selected);
+        tabs.SelectedItem = other;
+        tabs.SelectedItem = selected;
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
+    public void MoveSelectedTab_PlusOne_SwapsWithNext_KeepsSelection_MruUntouched()
+    {
+        var window = CreateShownVerticalWindowWithPlainTabs(plainTabCount: 2);
+        try
+        {
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            var before = tabs.Items.Cast<TabItem>().ToList();
+            Assert.True(before.Count >= 3, "move needs at least three tabs");
+
+            SelectViaRealEvents(tabs, before[0]);
+            var mruBefore = GetTabMru(window);
+
+            window.MoveSelectedTab(+1);
+
+            var after = tabs.Items.Cast<TabItem>().ToList();
+            Assert.Equal(before.Count, after.Count);
+            Assert.Equal(new[] { before[1], before[0] }.Concat(before.Skip(2)).ToList(), after);
+            Assert.Same(before[0], tabs.SelectedItem);
+            Assert.Equal(mruBefore, GetTabMru(window));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void MoveSelectedTab_MinusOneAtTopIndex_IsNoOp()
+    {
+        var window = CreateShownVerticalWindowWithPlainTabs(plainTabCount: 2);
+        try
+        {
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            var before = tabs.Items.Cast<TabItem>().ToList();
+            SelectViaRealEvents(tabs, before[0]);
+            var mruBefore = GetTabMru(window);
+
+            window.MoveSelectedTab(-1);
+
+            Assert.Equal(before, tabs.Items.Cast<TabItem>().ToList());
+            Assert.Same(before[0], tabs.SelectedItem);
+            Assert.Equal(mruBefore, GetTabMru(window));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    // Same tunneled-KeyDown path the Escape-cancel drag test uses: raising KeyDown on the
+    // window reaches the tunneled shortcut handler, which must recognize the catalogued
+    // Ctrl+Shift+PageDown chord and route it to MoveSelectedTab.
+    [AvaloniaFact]
+    public void KeyDown_CtrlShiftPageDown_MovesSelectedTabDown()
+    {
+        var window = CreateShownVerticalWindowWithPlainTabs(plainTabCount: 2);
+        try
+        {
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            var before = tabs.Items.Cast<TabItem>().ToList();
+            Assert.True(before.Count >= 3, "move needs at least three tabs");
+            SelectViaRealEvents(tabs, before[0]);
+
+            window.RaiseEvent(new KeyEventArgs
+            {
+                RoutedEvent = InputElement.KeyDownEvent,
+                Key = Key.PageDown,
+                KeyModifiers = KeyModifiers.Control | KeyModifiers.Shift,
+                Source = window
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            var after = tabs.Items.Cast<TabItem>().ToList();
+            Assert.Equal(new[] { before[1], before[0] }.Concat(before.Skip(2)).ToList(), after);
+            Assert.Same(before[0], tabs.SelectedItem);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    // ---- Vertical overflow pill (PART_TabOverflowPill) ----
+
+    private static Button? FindOverflowPill(NovaTerminal.MainWindow window)
+        => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window)
+            .OfType<Button>()
+            .FirstOrDefault(b => b.Name == "PART_TabOverflowPill");
+
+    /// <summary>The pill's text part. Read from Content rather than the visual tree for
+    /// the same reason production does: while the pill is hidden its own template has
+    /// never been applied, so the TextBlock has no visual-tree presence yet.</summary>
+    private static TextBlock? FindOverflowPillText(Button pill)
+        => pill.Content as TextBlock;
+
+    /// <summary>Small window (height set before Show so the first layout already measures
+    /// against it) plus enough vertical rows to overflow the sidebar viewport. Plain
+    /// TabItems bypass AddTab (which would spawn a real PTY per tab - same trick as
+    /// AddWidePlainTabs); re-applying the layout rebuilds their headers as vertical
+    /// rows.</summary>
+    private static NovaTerminal.MainWindow CreateShownVerticalWindowWithOverflow(
+        int plainTabCount, double height)
+    {
+        var window = TestMainWindowFactory.Create();
+        window.Height = height;
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var settings = GetSettings(window);
+        settings.TabStripOrientation = "Vertical";
+        settings.VerticalTabStripWidth = 200;
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        var tabs = window.FindControl<TabControl>("Tabs");
+        Assert.NotNull(tabs);
+        for (int i = 0; i < plainTabCount; i++)
+        {
+            tabs!.Items.Add(new TabItem
+            {
+                Header = new TextBlock { Text = $"OverflowRow{i}" },
+                Content = new Border()
+            });
+        }
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+        return window;
+    }
+
+    [AvaloniaFact]
+    public void OverflowPill_VerticalWithHiddenTabs_ShowsCount_HorizontalHides()
+    {
+        var window = CreateShownVerticalWindowWithOverflow(plainTabCount: 6, height: 260);
+        try
+        {
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            // Second visual pass after the layout settle above: the pill update reads
+            // Bounds, which only reflect the added rows after a layout pass has run.
+            window.UpdateTabVisuals();
+            Dispatcher.UIThread.RunJobs();
+
+            var pill = FindOverflowPill(window);
+            Assert.NotNull(pill);
+            var pillText = FindOverflowPillText(pill!);
+            Assert.NotNull(pillText);
+            // XAML part-name contract.
+            Assert.Equal("PART_TabOverflowPillText", pillText!.Name);
+
+            // The expected count comes from the same pure math the production update
+            // uses, so the assertion pins wiring (visible + text), not arithmetic.
+            var scrollViewer = InvokeFindTabHeaderScrollViewer(window)!;
+            int expected = NovaTerminal.MainWindow.CountHiddenTabs(
+                scrollViewer.Bounds.Height,
+                tabs.Items.Cast<TabItem>().Select(t => t.Bounds.Height),
+                44);
+            Assert.True(expected > 0, "test premise: a 260px viewport cannot fit 7+ 44px rows");
+
+            Assert.True(pill!.IsVisible);
+            Assert.Equal($"+{expected} more", pillText!.Text);
+
+            // Horizontal mode: the title-bar TabOverflowBadge owns the affordance - the
+            // pill must hide on the mode flip's viewport pass.
+            GetSettings(window).TabStripOrientation = "Horizontal";
+            window.ApplyTabLayout();
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(pill.IsVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void OverflowPill_VerticalWithoutOverflow_StaysHidden()
+    {
+        var window = CreateShownWindow();
+        try
+        {
+            GetSettings(window).TabStripOrientation = "Vertical";
+            window.ApplyTabLayout();
+            Dispatcher.UIThread.RunJobs();
+
+            // The deterministic startup bundle creates dozens of tabs, so "no overflow"
+            // must be reached by enlarging the viewport, not by assuming a small strip:
+            // size the window to fit every actual row (with headroom) and let layout
+            // settle before the asserting pass.
+            var tabs = window.FindControl<TabControl>("Tabs")!;
+            int rowCount = tabs.Items.Count;
+            Assert.True(rowCount > 0);
+            window.Height = rowCount * 60 + 120;
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateTabVisuals();
+            Dispatcher.UIThread.RunJobs();
+
+            var pill = FindOverflowPill(window);
+            Assert.NotNull(pill);
+            Assert.False(pill!.IsVisible, "a viewport that fits every row must show no pill");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    // Click wiring: the pill's Click opens the tab-list menu at the pill through
+    // PopulateTabListMenu's anchorOverride path, into the pill-dedicated flyout. Driving
+    // the routed ClickEvent directly stands in for a real pointer click (the same
+    // substitution the headless host makes for the drag tests' raw pointer events).
+    [AvaloniaFact]
+    public void OverflowPill_Click_OpensTabListMenuAtPill()
+    {
+        var window = CreateShownVerticalWindowWithOverflow(plainTabCount: 2, height: 400);
+        try
+        {
+            var pill = FindOverflowPill(window);
+            Assert.NotNull(pill);
+
+            pill!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(
+                Avalonia.Controls.Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+
+            var flyout = (MenuFlyout?)typeof(NovaTerminal.MainWindow)
+                .GetField("_tabOverflowPillFlyout", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(window);
+            Assert.NotNull(flyout);
+            Assert.True(flyout!.IsOpen, "click must open the tab-list flyout");
+            Assert.NotEmpty(flyout.Items);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 }

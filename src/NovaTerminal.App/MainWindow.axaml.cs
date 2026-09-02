@@ -99,6 +99,12 @@ namespace NovaTerminal
         // overflow button already owns a different MenuFlyout for its own menu, and the
         // TitleBarItemsHost StackPanel fallback has no Flyout property to hold one at all.
         private MenuFlyout? _tabListFallbackFlyout;
+        // Dedicated flyout for the vertical overflow pill (PART_TabOverflowPill): same
+        // keep-alive rationale as _tabListFallbackFlyout - the pill is a Button that must
+        // NOT carry this as its own Flyout (Button auto-opens an empty flyout on click
+        // before the lazy populate could fill it), so MainWindow owns the instance and
+        // PopulateTabListMenu(anchorOverride: pill) fills + shows it on demand.
+        private MenuFlyout? _tabOverflowPillFlyout;
         private bool _closePaneInProgress;
         private bool _closeTabInProgress;
         private readonly SshConnectionService _sshConnectionService;
@@ -187,6 +193,11 @@ namespace NovaTerminal
         // vertical mode, Height in horizontal - the XAML element deliberately sets no
         // size). Brush/alignment live in the template XAML.
         private const double TabInsertIndicatorThickness = 2;
+        // Estimated height of one vertical tab row: the fallback CountHiddenTabs uses for
+        // headers not yet measured (Bounds.Height 0 before the first layout pass) when the
+        // vertical overflow pill counts hidden rows. Matches the vertical TabItem MinHeight
+        // set in MainWindow.axaml's styles.
+        private const double DefaultVerticalTabRowHeight = 44;
         private const double TabInsertIndicatorMinLength = 16;
 
         /// <summary>Test-only seam: exposes the mid-reorder-drag state (same pattern as
@@ -1256,22 +1267,32 @@ namespace NovaTerminal
             int insertIndex = Math.Clamp(_tabDragInsertIndex, 0, tabs.Items.Count);
             int newIndex = insertIndex > oldIndex ? insertIndex - 1 : insertIndex;
 
+            ReorderTabInItems(tabs, draggedTab, newIndex);
+        }
+
+        /// <summary>The single reorder primitive, shared by the drag commit
+        /// (<see cref="CommitTabReorder"/>) and <see cref="MoveSelectedTab"/>: reinserts
+        /// the tab at <paramref name="newIndex"/> inside the guarded
+        /// <see cref="_isTabReorderCommitting"/> window (TabControl's AlwaysSelected mode
+        /// promotes index 0 to SelectedItem for the microseconds before the restore below -
+        /// the SelectionChanged handler skips that transient promotion: no MRU touch, no
+        /// attention clear, no focus steal on a tab the user never actually viewed), then
+        /// restores the moved tab as the selection, which re-runs the full select path with
+        /// the final Items order. The mutation itself is the same
+        /// remove-from-live-ItemCollection pattern CloseTab uses: the TabItem and its pane
+        /// content are reused, never recreated (ApplyTabLayout's ownership contract).</summary>
+        private void ReorderTabInItems(TabControl tabs, TabItem movedTab, int newIndex)
+        {
+            int oldIndex = tabs.Items.IndexOf(movedTab);
+            if (oldIndex < 0) return;
+
             if (newIndex != oldIndex)
             {
-                // Selected-item removal under TabControl's AlwaysSelected mode promotes
-                // whatever lands at index 0 to SelectedItem until the restore below - the
-                // SelectionChanged handler skips that transient promotion via
-                // _isTabReorderCommitting (no MRU touch, no attention clear, no focus steal
-                // on a tab the user never actually viewed), then the restore re-runs the
-                // full select path for the dragged tab with the final Items order. The
-                // mutation itself is the same remove-from-live-ItemCollection pattern
-                // CloseTab uses: the TabItem and its pane content are reused, never
-                // recreated (ApplyTabLayout's ownership contract).
                 _isTabReorderCommitting = true;
                 try
                 {
                     tabs.Items.RemoveAt(oldIndex);
-                    tabs.Items.Insert(newIndex, draggedTab);
+                    tabs.Items.Insert(newIndex, movedTab);
                 }
                 finally
                 {
@@ -1279,7 +1300,33 @@ namespace NovaTerminal
                 }
             }
 
-            tabs.SelectedItem = draggedTab;
+            tabs.SelectedItem = movedTab;
+        }
+
+        /// <summary>Moves the selected tab one slot along the strip (delta -1/+1), clamped
+        /// at the ends - the keyboard counterpart of drag-to-reorder, committing through the
+        /// same <see cref="ReorderTabInItems"/> semantics (pinned/protected tabs move
+        /// freely, consistent with the drag path). Internal for headless tests.</summary>
+        internal void MoveSelectedTab(int delta)
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs?.SelectedItem is not TabItem selected) return;
+
+            int currentIndex = tabs.Items.IndexOf(selected);
+            int newIndex = ComputeMoveTabIndex(currentIndex, tabs.Items.Count, delta);
+            if (newIndex < 0 || newIndex == currentIndex) return;
+
+            ReorderTabInItems(tabs, selected, newIndex);
+        }
+
+        /// <summary>Pure move-tab index math: the clamped target for moving the tab at
+        /// <paramref name="currentIndex"/> by <paramref name="delta"/> slots. Returns -1
+        /// when no move is expressible (no tabs, a single tab, or an out-of-range current
+        /// index); a clamp back onto <paramref name="currentIndex"/> is a caller no-op.</summary>
+        internal static int ComputeMoveTabIndex(int currentIndex, int count, int delta)
+        {
+            if (count <= 1 || currentIndex < 0 || currentIndex >= count) return -1;
+            return Math.Clamp(currentIndex + delta, 0, count - 1);
         }
 
         /// <summary>Shared non-committing cleanup for drag end, Escape and involuntary
@@ -1508,6 +1555,7 @@ namespace NovaTerminal
             Dispatcher.UIThread.Post(() =>
             {
                 WireTabStripResizeGrip();
+                WireTabOverflowPill();
                 UpdateTabVisuals();
             }, DispatcherPriority.Background);
         }
@@ -1640,6 +1688,7 @@ namespace NovaTerminal
                 // UpdateTabOverflowIndicator's own vertical guard so the reset logic (badge,
                 // tab-list button tooltip/foreground) lives in one place.
                 UpdateTabOverflowIndicator();
+                UpdateTabOverflowPill(scrollViewer);
                 return;
             }
 
@@ -1661,6 +1710,7 @@ namespace NovaTerminal
             scrollViewer.ClipToBounds = true;
 
             UpdateTabOverflowIndicator();
+            UpdateTabOverflowPill(scrollViewer);
         }
 
         private void UpdateTabOverflowIndicator()
@@ -1739,6 +1789,87 @@ namespace NovaTerminal
             return hiddenCount;
         }
 
+        /// <summary>Drives the vertical-mode overflow pill (PART_TabOverflowPill): visible
+        /// with "+N more" when tab rows run past the sidebar viewport, hidden otherwise -
+        /// including every horizontal pass, where the title-bar TabOverflowBadge owns the
+        /// affordance instead (UpdateTabOverflowIndicator, deliberately untouched here).
+        /// CountHiddenTabs is axis-generic 1D packing math, so the vertical pass simply
+        /// feeds it the viewport height and the header heights.
+        ///
+        /// Called only from UpdateTabHeaderViewport - deliberately NOT from the
+        /// RefreshTabStatuses 1 Hz tick: the hidden count can only change when tabs are
+        /// added/removed (AddTab/CloseTab both route through UpdateTabVisuals →
+        /// UpdateTabHeaderViewport), the viewport resizes (window/title-bar SizeChanged →
+        /// UpdateTabHeaderViewport), or selection shifts (SelectionChanged →
+        /// UpdateTabHeaderViewport), all of which already re-run this. Colors are reapplied
+        /// on every visible pass so a theme change takes effect without a tab/viewport
+        /// change (two small brush allocations, same precedent as UpdateTabVisuals).</summary>
+        private void UpdateTabOverflowPill(ScrollViewer scrollViewer)
+        {
+            var pill = FindTabTemplatePart<Button>("PART_TabOverflowPill");
+            if (pill == null) return;
+
+            // The text part is the pill's XAML Content, read straight off the property
+            // rather than via a visual-tree lookup: a hidden control is never measured,
+            // so while the pill is IsVisible=False its own template (and with it the
+            // TextBlock's visual-tree presence) has never been applied - a visual lookup
+            // would come back empty and the pill could never become visible at all.
+            // Content still holds the TextBlock instance, and setting its text/foreground
+            // works pre-materialization: the ContentPresenter shows it with these values
+            // on the first pass after visibility turns on.
+            if (pill.Content is not TextBlock pillText) return;
+
+            if (!_isVerticalTabStrip)
+            {
+                pill.IsVisible = false;
+                return;
+            }
+
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null)
+            {
+                pill.IsVisible = false;
+                return;
+            }
+
+            int hiddenCount = CountHiddenTabs(
+                scrollViewer.Bounds.Height,
+                tabs.Items.Cast<TabItem>().Select(t => t.Bounds.Height),
+                fallbackTabWidth: DefaultVerticalTabRowHeight);
+            if (hiddenCount <= 0)
+            {
+                pill.IsVisible = false;
+                return;
+            }
+
+            var theme = _settings.ActiveTheme;
+            pill.Background = new SolidColorBrush(theme.Background.ToAvaloniaColor());
+            // Same luminance-contrast pick as UpdateTabVisuals' header text, so the pill
+            // reads on both light and dark theme backgrounds.
+            double luminance = (0.299 * theme.Background.R + 0.587 * theme.Background.G + 0.114 * theme.Background.B) / 255.0;
+            pillText.Foreground = luminance > 0.5 ? Brushes.Black : Brushes.White;
+            pillText.Text = $"+{hiddenCount} more";
+            pill.IsVisible = true;
+        }
+
+        /// <summary>Wires the vertical overflow pill (PART_TabOverflowPill) click: opens the
+        /// tab-list menu anchored at the pill (PopulateTabListMenu's anchorOverride path),
+        /// the same lazy-populate-flyout-on-demand pattern the tab headers' ContextFlyout
+        /// uses. The pill is a permanent part of the single inline template (like the resize
+        /// grip, see ApplyTabLayout's remarks), so wiring happens once per window instance
+        /// (guarded Tag) and survives every mode flip; a hidden pill in horizontal mode is
+        /// not hit-tested, so the handler is inert there.</summary>
+        private void WireTabOverflowPill()
+        {
+            var pill = FindTabTemplatePart<Button>("PART_TabOverflowPill");
+            if (pill == null || Equals(pill.Tag, "wired")) return;
+            pill.Tag = "wired";
+
+            // Focusable=False (XAML) keeps the click from moving keyboard focus off the
+            // terminal; the open flyout takes focus only while open, like any menu.
+            pill.Click += (_, _) => PopulateTabListMenu(showFlyout: true, anchorOverride: pill);
+        }
+
         private void EnsureSelectedTabHeaderVisible()
         {
             if (_isVerticalTabStrip)
@@ -1777,48 +1908,61 @@ namespace NovaTerminal
             }
         }
 
-        private void PopulateTabListMenu(bool showFlyout = false)
+        private void PopulateTabListMenu(bool showFlyout = false, Control? anchorOverride = null)
         {
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs == null) return;
 
-            // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
-            // layout, in which case FindTitleBarButton returns null for its dedicated button - but
-            // the action must still be reachable by shortcut and command palette (that is the whole
-            // premise of Hidden: still there, just not a dedicated icon). DO NOT simplify this back
-            // to the button-only lookup: that was exactly the bug (Codex P2 on PR #342) - with no
-            // fallback, setting Tab List to Overflow or Hidden turned the overflow menu item, the
-            // Ctrl+Shift+O shortcut, and the command palette entry all into silent no-ops. Fall back
-            // to the overflow button when it exists, and finally to the title bar host panel itself,
-            // which always exists.
-            var button = FindTitleBarButton(TitleBarCatalog.OpenTabListId);
-            var host = this.FindControl<StackPanel>("TitleBarItemsHost");
-            var overflowButton = host?.Children.OfType<Button>()
-                .FirstOrDefault(b => b.Name == TitleBarViewFactory.OverflowButtonName);
-            Control? anchor = (Control?)button ?? (Control?)overflowButton ?? host;
-            if (anchor == null) return;
-
-            // A pinned item's own button starts out with no popup menu attached, so this method is
-            // where one gets created and attached, the first time it is needed. The overflow ("...")
-            // button is different: it already carries its own popup, prebuilt to list whichever
-            // actions do not have a dedicated icon right now, and grabbing hold of that same popup
-            // here would silently replace those contents the next time someone opens the "..." menu.
-            // The panel hosting the title bar buttons cannot carry a popup at all. So whenever the
-            // anchor is not a pinned item's own button, this method falls back to one dedicated menu
-            // kept alive across calls purely to support that case.
+            Control? anchor;
             MenuFlyout flyout;
-            if (button is not null)
+            if (anchorOverride is not null)
             {
-                if (button.Flyout is not MenuFlyout existing)
-                {
-                    existing = new MenuFlyout();
-                    button.Flyout = existing;
-                }
-                flyout = existing;
+                // Vertical overflow pill path: anchor the menu at the pill instead of the
+                // title bar, into the pill-dedicated flyout (see _tabOverflowPillFlyout for
+                // why it cannot ride the pill's own Flyout property). The item-building and
+                // show logic below is shared verbatim with the title-bar paths.
+                anchor = anchorOverride;
+                flyout = _tabOverflowPillFlyout ??= new MenuFlyout();
             }
             else
             {
-                flyout = _tabListFallbackFlyout ??= new MenuFlyout();
+                // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
+                // layout, in which case FindTitleBarButton returns null for its dedicated button - but
+                // the action must still be reachable by shortcut and command palette (that is the whole
+                // premise of Hidden: still there, just not a dedicated icon). DO NOT simplify this back
+                // to the button-only lookup: that was exactly the bug (Codex P2 on PR #342) - with no
+                // fallback, setting Tab List to Overflow or Hidden turned the overflow menu item, the
+                // Ctrl+Shift+O shortcut, and the command palette entry all into silent no-ops. Fall back
+                // to the overflow button when it exists, and finally to the title bar host panel itself,
+                // which always exists.
+                var button = FindTitleBarButton(TitleBarCatalog.OpenTabListId);
+                var host = this.FindControl<StackPanel>("TitleBarItemsHost");
+                var overflowButton = host?.Children.OfType<Button>()
+                    .FirstOrDefault(b => b.Name == TitleBarViewFactory.OverflowButtonName);
+                anchor = (Control?)button ?? (Control?)overflowButton ?? host;
+                if (anchor == null) return;
+
+                // A pinned item's own button starts out with no popup menu attached, so this method is
+                // where one gets created and attached, the first time it is needed. The overflow ("...")
+                // button is different: it already carries its own popup, prebuilt to list whichever
+                // actions do not have a dedicated icon right now, and grabbing hold of that same popup
+                // here would silently replace those contents the next time someone opens the "..." menu.
+                // The panel hosting the title bar buttons cannot carry a popup at all. So whenever the
+                // anchor is not a pinned item's own button, this method falls back to one dedicated menu
+                // kept alive across calls purely to support that case.
+                if (button is not null)
+                {
+                    if (button.Flyout is not MenuFlyout existing)
+                    {
+                        existing = new MenuFlyout();
+                        button.Flyout = existing;
+                    }
+                    flyout = existing;
+                }
+                else
+                {
+                    flyout = _tabListFallbackFlyout ??= new MenuFlyout();
+                }
             }
 
             flyout.Items.Clear();
@@ -3638,6 +3782,15 @@ namespace NovaTerminal
                         e.Handled = true;
                         return;
                     }
+                }
+                bool moveTabPrevShortcut = IsShortcut(e, "move_tab_prev", "Ctrl+Shift+PageUp");
+                bool moveTabNextShortcut = IsShortcut(e, "move_tab_next", "Ctrl+Shift+PageDown");
+                if (moveTabPrevShortcut || moveTabNextShortcut)
+                {
+                    RecordCommandUsage(moveTabPrevShortcut ? "move_tab_prev" : "move_tab_next");
+                    MoveSelectedTab(moveTabPrevShortcut ? -1 : 1);
+                    e.Handled = true;
+                    return;
                 }
                 if (IsShortcut(e, TitleBarCatalog.OpenTabListId, "Ctrl+Shift+O"))
                 {
@@ -6277,6 +6430,8 @@ namespace NovaTerminal
             CommandRegistry.Register("Close Pane", "General", () => CloseActivePane(), GetEffectiveShortcutBinding("close_pane", "Ctrl+Shift+W"), "close_pane");
             CommandRegistry.Register("Tab: Next (MRU)", "General", () => SwitchTabByMru(reverse: false), GetEffectiveShortcutBinding("next_tab", "Ctrl+Tab"), "next_tab");
             CommandRegistry.Register("Tab: Previous (MRU)", "General", () => SwitchTabByMru(reverse: true), GetEffectiveShortcutBinding("prev_tab", "Ctrl+Shift+Tab"), "prev_tab");
+            CommandRegistry.Register("Tab: Move Up", "General", () => MoveSelectedTab(-1), GetEffectiveShortcutBinding("move_tab_prev", "Ctrl+Shift+PageUp"), "move_tab_prev");
+            CommandRegistry.Register("Tab: Move Down", "General", () => MoveSelectedTab(1), GetEffectiveShortcutBinding("move_tab_next", "Ctrl+Shift+PageDown"), "move_tab_next");
             CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), GetEffectiveShortcutBinding(TitleBarCatalog.OpenTabListId, "Ctrl+Shift+O"), TitleBarCatalog.OpenTabListId);
             CommandRegistry.Register("Tabs: Toggle Vertical Tab Sidebar", "General", () => ToggleTabOrientation(), GetEffectiveShortcutBinding("toggle_tab_orientation", "Ctrl+Shift+L"), "toggle_tab_orientation");
             CommandRegistry.Register("Tab: Rename Current", "General", () => _ = RenameSelectedTabAsync(), "");

@@ -145,6 +145,40 @@
                                             ZIndex="10"
                                             IsVisible="False"
                                             IsHitTestVisible="False" />
+                                    <!-- Vertical-mode overflow pill: a bottom-pinned affordance
+                                         over the scrolling headers when rows run past the sidebar
+                                         viewport (horizontal mode keeps the title-bar
+                                         TabOverflowBadge instead). Inert by default exactly like
+                                         PART_TabInsertIndicator above - IsVisible=False and colors
+                                         unset here; UpdateTabOverflowPill (from
+                                         UpdateTabHeaderViewport) owns visibility, text and
+                                         Background/Foreground. The code-set background is opaque so
+                                         rows scroll under it, and this fixed top hairline separates
+                                         it from the last visible row. Focusable=False keeps clicks
+                                         from stealing keyboard focus from the terminal (same rule
+                                         as BtnNewTab). The right margin keeps the pill clear of
+                                         PART_TabStripResizeGrip (right-edge, 5px wide, full
+                                         height): without it the pill would cover the grip's
+                                         bottom-right corner and make the strip un-resizable while
+                                         tabs overflow. -->
+                                    <Button Name="PART_TabOverflowPill"
+                                            Focusable="False"
+                                            Cursor="Hand"
+                                            Padding="0,6"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Bottom"
+                                            Margin="0,0,10,0"
+                                            ZIndex="5"
+                                            IsVisible="False"
+                                            BorderThickness="0,1,0,0"
+                                            BorderBrush="#28FFFFFF">
+                                        <Button.Content>
+                                            <TextBlock Name="PART_TabOverflowPillText"
+                                                       FontSize="10"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
+                                        </Button.Content>
+                                    </Button>
                                 </Grid>
                                 <ContentPresenter Name="PART_SelectedContentHost"
                                                 Margin="0"

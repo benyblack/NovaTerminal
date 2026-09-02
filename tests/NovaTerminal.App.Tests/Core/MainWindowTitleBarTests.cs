@@ -699,7 +699,9 @@ public sealed class MainWindowTitleBarTests
     {
         var method = typeof(NovaTerminal.MainWindow).GetMethod("PopulateTabListMenu", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
-        method!.Invoke(window, [showFlyout]);
+        // Reflection Invoke fills no optional parameters - the anchor override must be
+        // passed explicitly (null = title-bar anchor chain, the pre-pill behavior).
+        method!.Invoke(window, [showFlyout, null]);
     }
 
     private static void InvokeUpdateTabOverflowIndicator(NovaTerminal.MainWindow window)
