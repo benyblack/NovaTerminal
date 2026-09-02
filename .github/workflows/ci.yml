@@ -985,7 +985,10 @@ jobs:
     name: AOT Publish (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'workflow_dispatch'
-    timeout-minutes: 40
+    # 90 rather than 40: the signed mac lane waits synchronously on Apple's
+    # notarization queue inside vpk pack, which alone can run 10-30+ minutes on a
+    # slow day — 40 was cutting the job down mid-wait.
+    timeout-minutes: 90
     needs: [build]
     strategy:
       fail-fast: false
