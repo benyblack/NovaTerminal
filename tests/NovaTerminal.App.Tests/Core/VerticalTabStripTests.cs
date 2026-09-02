@@ -1,8 +1,10 @@
 using System.Linq;
 using System.Reflection;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using NovaTerminal.Shell;
@@ -400,5 +402,247 @@ public sealed class VerticalTabStripTests
         var preview = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
         Assert.NotNull(preview);
         Assert.False(window.GetTabPreviewDirtyForTest(tab), "the first vertical pass should have recomputed and cleared dirty");
+    }
+
+    // ---- Drag-to-reorder (MainWindow.WireTabHeaderReorderDrag + Shell/TabDragModel) ----
+    //
+    // Real pointer-event routing exists in the headless host (unlike the grip-drag tests
+    // further up, which had to fake state through a seam): each test drives the actual
+    // routed PointerPressed/Moved/Released/KeyDown events through a real Pointer instance
+    // with window-space positions translated from the laid-out header bounds.
+
+    /// <summary>Raises left-button press/move/release routed events through one real
+    /// pointer, mirroring how the platform input manager would deliver them (window-space
+    /// rootVisualPosition; the event args translate on demand via GetPosition).</summary>
+    private sealed class PointerDriver
+    {
+        private readonly Avalonia.Input.Pointer _pointer = new(Avalonia.Input.Pointer.GetNextFreeId(), PointerType.Mouse, isPrimary: true);
+        private ulong _timestamp;
+
+        public IPointer Pointer => _pointer;
+
+        public void Press(Control target, Window window, Point windowPosition)
+            => target.RaiseEvent(new PointerPressedEventArgs(
+                target, _pointer, window, windowPosition, ++_timestamp,
+                new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+                KeyModifiers.None));
+
+        public void Move(Control target, Window window, Point windowPosition)
+            => target.RaiseEvent(new PointerEventArgs(
+                InputElement.PointerMovedEvent, target, _pointer, window, windowPosition, ++_timestamp,
+                new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other),
+                KeyModifiers.None));
+
+        public void Release(Control target, Window window, Point windowPosition)
+            => target.RaiseEvent(new PointerReleasedEventArgs(
+                target, _pointer, window, windowPosition, ++_timestamp,
+                new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+                KeyModifiers.None, MouseButton.Left));
+    }
+
+    // Vertical strip with extra plain tabs to reorder. Plain TabItems bypass AddTab (which
+    // would spawn a real PTY per tab - same trick as AddWidePlainTabs above); re-applying
+    // the layout rebuilds every header through the wired factories, so the added tabs get
+    // drag-wired vertical header hosts.
+    private static NovaTerminal.MainWindow CreateShownVerticalWindowWithPlainTabs(int plainTabCount)
+    {
+        var window = CreateShownWindow();
+        GetSettings(window).TabStripOrientation = "Vertical";
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        var tabs = window.FindControl<TabControl>("Tabs");
+        Assert.NotNull(tabs);
+        for (int i = 0; i < plainTabCount; i++)
+        {
+            tabs!.Items.Add(new TabItem
+            {
+                Header = new TextBlock { Text = $"DragPlain{i}" },
+                Content = new Border()
+            });
+        }
+
+        window.ApplyTabLayout();
+        Dispatcher.UIThread.RunJobs();
+        return window;
+    }
+
+    private static Point HeaderCenterInWindow(Control headerHost, Window window)
+    {
+        var center = headerHost.TranslatePoint(
+            new Point(headerHost.Bounds.Width / 2, headerHost.Bounds.Height / 2), window);
+        Assert.NotNull(center); // the header must be attached and laid out for the drag math
+        return center!.Value;
+    }
+
+    private static Border HeaderHostOf(TabItem tab)
+    {
+        var host = tab.Header as Border;
+        Assert.NotNull(host);
+        return host!;
+    }
+
+    private static Border? FindInsertIndicator(NovaTerminal.MainWindow window)
+        => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window)
+            .OfType<Border>()
+            .FirstOrDefault(b => b.Name == "PART_TabInsertIndicator");
+
+    [AvaloniaFact]
+    public void DragReorder_Commit_MovesDraggedTabLast_AndRestoresSelection()
+    {
+        var window = CreateShownVerticalWindowWithPlainTabs(plainTabCount: 2);
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var before = tabs.Items.Cast<TabItem>().ToList();
+        Assert.True(before.Count >= 3, "reorder needs at least three tabs");
+        var dragged = before[0];
+        var host0 = HeaderHostOf(dragged);
+        var host2 = HeaderHostOf(before[2]);
+
+        var driver = new PointerDriver();
+        var pressPos = HeaderCenterInWindow(host0, window);
+        driver.Press(host0, window, pressPos);
+
+        // Cross the start threshold (>= 5 DIP along the strip axis), still over tab 0.
+        driver.Move(host0, window, new Point(pressPos.X, pressPos.Y + 6));
+        Assert.True(window.IsTabReorderDraggingForTest, "past-threshold move must begin the drag");
+        Assert.Equal(0.5, host0.Opacity, 5);
+
+        // Drop below tab 2's center: insert index = count, so the dragged tab lands last.
+        var belowTab2 = new Point(pressPos.X, HeaderCenterInWindow(host2, window).Y + 4);
+        driver.Move(host0, window, belowTab2);
+        driver.Release(host0, window, belowTab2);
+
+        Assert.False(window.IsTabReorderDraggingForTest);
+        Assert.Equal(1, host0.Opacity, 5);
+
+        var after = tabs.Items.Cast<TabItem>().ToList();
+        Assert.Equal(before.Count, after.Count);
+        // Pointer below tab 2's center -> insert index 3 -> dragged tab (from slot 0) lands
+        // at index 2; anything below the drop point (startup-restore tabs included) keeps
+        // its relative order.
+        var expected = new List<TabItem> { before[1], before[2], dragged };
+        expected.AddRange(before.Skip(3));
+        Assert.Equal(expected, after);
+        Assert.Same(dragged, tabs.SelectedItem);
+    }
+
+    [AvaloniaFact]
+    public void DragReorder_SubThresholdMove_IsAPlainClick_NoDragNoReorder()
+    {
+        var window = CreateShownVerticalWindowWithPlainTabs(plainTabCount: 2);
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var before = tabs.Items.Cast<TabItem>().ToList();
+        var dragged = before[0];
+        var host0 = HeaderHostOf(dragged);
+
+        var driver = new PointerDriver();
+        var pressPos = HeaderCenterInWindow(host0, window);
+        driver.Press(host0, window, pressPos);
+
+        // 2 DIP is under the 5 DIP start threshold.
+        driver.Move(host0, window, new Point(pressPos.X, pressPos.Y + 2));
+        Assert.False(window.IsTabReorderDraggingForTest);
+        Assert.Equal(1, host0.Opacity, 5);
+        Assert.False(FindInsertIndicator(window)!.IsVisible);
+
+        driver.Release(host0, window, pressPos);
+
+        Assert.False(window.IsTabReorderDraggingForTest);
+        Assert.Equal(before, tabs.Items.Cast<TabItem>().ToList());
+        Assert.Same(dragged, tabs.SelectedItem);
+    }
+
+    [AvaloniaFact]
+    public void DragReorder_Indicator_VisibleMidDrag_HiddenAfterRelease()
+    {
+        var window = CreateShownVerticalWindowWithPlainTabs(plainTabCount: 2);
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var before = tabs.Items.Cast<TabItem>().ToList();
+        var indicator = FindInsertIndicator(window);
+        Assert.NotNull(indicator);
+        Assert.False(indicator!.IsVisible);
+
+        // Drag tab 1 (the middle tab) just past its own center so the drop lands back in
+        // its own slot - the indicator must appear mid-drag even when no reorder results.
+        var dragged = before[1];
+        var host1 = HeaderHostOf(dragged);
+        var pressPos = HeaderCenterInWindow(host1, window);
+
+        var driver = new PointerDriver();
+        driver.Press(host1, window, pressPos);
+        driver.Move(host1, window, new Point(pressPos.X, pressPos.Y + 6));
+
+        Assert.True(window.IsTabReorderDraggingForTest);
+        Assert.True(indicator.IsVisible, "insert indicator must be visible mid-drag");
+
+        driver.Release(host1, window, new Point(pressPos.X, pressPos.Y + 6));
+
+        Assert.False(indicator.IsVisible, "insert indicator must hide after release");
+        Assert.False(window.IsTabReorderDraggingForTest);
+        Assert.Equal(before, tabs.Items.Cast<TabItem>().ToList());
+    }
+
+    [AvaloniaFact]
+    public void DragReorder_Escape_CancelsWithoutReorder_AndLaterReleaseIsHarmless()
+    {
+        var window = CreateShownVerticalWindowWithPlainTabs(plainTabCount: 2);
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var before = tabs.Items.Cast<TabItem>().ToList();
+        var dragged = before[0];
+        var host0 = HeaderHostOf(dragged);
+        var indicator = FindInsertIndicator(window)!;
+
+        var driver = new PointerDriver();
+        var pressPos = HeaderCenterInWindow(host0, window);
+        driver.Press(host0, window, pressPos);
+        driver.Move(host0, window, new Point(pressPos.X, pressPos.Y + 6));
+        Assert.True(window.IsTabReorderDraggingForTest);
+
+        window.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.Escape,
+            Source = window
+        });
+
+        Assert.False(window.IsTabReorderDraggingForTest, "Escape must cancel the drag");
+        Assert.False(indicator.IsVisible);
+        Assert.Equal(1, host0.Opacity, 5);
+        Assert.Equal(before, tabs.Items.Cast<TabItem>().ToList());
+
+        // A stray release (and the capture cleanup that already ran) must be a no-op.
+        driver.Release(host0, window, new Point(pressPos.X, pressPos.Y + 6));
+        Assert.Equal(before, tabs.Items.Cast<TabItem>().ToList());
+        Assert.Same(dragged, tabs.SelectedItem);
+    }
+
+    [AvaloniaFact]
+    public void DragReorder_DuringGripDrag_HeaderPressMustNotStartReorder()
+    {
+        var window = CreateShownVerticalWindowWithPlainTabs(plainTabCount: 2);
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var before = tabs.Items.Cast<TabItem>().ToList();
+        var host0 = HeaderHostOf(before[0]);
+
+        // Mid-grip-drag state (the grip owns the pointer): a header press + threshold move
+        // arriving meanwhile must be ignored, not turned into a second concurrent drag.
+        window.IsTabStripGripDraggingForTest = true;
+        try
+        {
+            var driver = new PointerDriver();
+            var pressPos = HeaderCenterInWindow(host0, window);
+            driver.Press(host0, window, pressPos);
+            driver.Move(host0, window, new Point(pressPos.X, pressPos.Y + 6));
+
+            Assert.False(window.IsTabReorderDraggingForTest);
+            Assert.False(FindInsertIndicator(window)!.IsVisible);
+            driver.Release(host0, window, pressPos);
+        }
+        finally
+        {
+            window.IsTabStripGripDraggingForTest = false;
+        }
+
+        Assert.Equal(before, tabs.Items.Cast<TabItem>().ToList());
     }
 }

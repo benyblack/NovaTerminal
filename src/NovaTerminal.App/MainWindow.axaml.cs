@@ -143,6 +143,44 @@ namespace NovaTerminal
             get => _isTabStripGripDragging;
             set => _isTabStripGripDragging = value;
         }
+
+        // ---- Tab drag-to-reorder state (handlers near OnTabHeaderPointerPressed) ----
+        // A left press on a header host only ARMS a reorder; the drag begins once
+        // TabDragModel.ShouldStartDrag sees >= 5 DIP of movement along the strip axis, so a
+        // plain click keeps its select-on-press behavior. From that point the pressed header
+        // host holds pointer capture and is dimmed, PART_TabInsertIndicator marks the drop
+        // gap, and an auto-scroll DispatcherTimer runs near the viewport edges. The reorder
+        // itself only moves entries inside Tabs.Items - the same TabItem instances and pane
+        // content are reused (ApplyTabLayout's PART_SelectedContentHost ownership contract).
+        private bool _isTabReorderDragging;
+        private bool _isTabHeaderLeftPressPending;
+        private Border? _tabDragPressedHost;
+        private IPointer? _tabDragPointer;
+        private TabControl? _tabDragTabs;
+        private double _tabDragPressAxisPos;
+        // Pointer position along the strip axis in the header ScrollViewer's VIEWPORT
+        // coordinate space - kept fresh on every move so the auto-scroll tick can evaluate
+        // the edge zones without waiting for another pointer event. Viewport space (unlike
+        // the ItemsPresenter's content space, which the insert-index math uses) is what
+        // stays constant while the pointer parks in an edge zone and only the strip
+        // scrolls underneath. NaN = "no position yet"; TabDragModel treats that as no-op.
+        private double _tabDragPointerAxisPos = double.NaN;
+        private int _tabDragInsertIndex;
+        private DispatcherTimer? _tabDragAutoScrollTimer;
+        // True only inside the RemoveAt/Insert window of CommitTabReorder. TabControl is
+        // AlwaysSelected, so removing the (selected) dragged tab promotes index 0 for the
+        // microseconds before selection is restored - the SelectionChanged handler bails on
+        // that transient promotion (see the guard at its top).
+        private bool _isTabReorderCommitting;
+        // Hoisted like TabAttentionBrush: assigned on every drag start, not per-move.
+        private static readonly IBrush TabInsertIndicatorBrush = new SolidColorBrush(Color.Parse("#4FB0D4"));
+        private const double TabInsertIndicatorThickness = 2;
+        private const double TabInsertIndicatorMinLength = 16;
+
+        /// <summary>Test-only seam: exposes the mid-reorder-drag state (same pattern as
+        /// <see cref="IsTabStripGripDraggingForTest"/>).</summary>
+        internal bool IsTabReorderDraggingForTest => _isTabReorderDragging;
+
         private bool _isDraggingTransferOverlay;
         private Point _transferOverlayDragStart;
         private Point _transferOverlayOffsetStart;
@@ -671,6 +709,7 @@ namespace NovaTerminal
 
             headerHost.ContextFlyout = new MenuFlyout();
             headerHost.PointerPressed += (_, e) => OnTabHeaderPointerPressed(tab, e);
+            WireTabHeaderReorderDrag(tab, headerHost);
             ToolTip.SetTip(headerHost, text);
             return headerHost;
         }
@@ -727,6 +766,7 @@ namespace NovaTerminal
 
             headerHost.ContextFlyout = new MenuFlyout();
             headerHost.PointerPressed += (_, e) => OnTabHeaderPointerPressed(tab, e);
+            WireTabHeaderReorderDrag(tab, headerHost);
             ToolTip.SetTip(headerHost, text);
             return headerHost;
         }
@@ -780,6 +820,359 @@ namespace NovaTerminal
                     e.Handled = true;
                     ShowTabContextMenu(tab, headerHost, flyout, ShouldDeferTabContextMenuOpen(wasSelected));
                 }
+            }
+        }
+
+        // ---- Tab drag-to-reorder (pure math lives in Shell/TabDragModel.cs) ----
+        //
+        // Subscribed by both header factories, so the behavior is axis-generic: which
+        // coordinate feeds TabDragModel is decided by _isVerticalTabStrip, and header bounds
+        // and pointer positions are both measured in the ItemsPresenter's (content)
+        // coordinate space so scrolling is accounted for. The reorder only moves entries
+        // inside Tabs.Items - TabItem instances and their pane content are never recreated
+        // (ApplyTabLayout's ownership contract for PART_SelectedContentHost).
+        private void WireTabHeaderReorderDrag(TabItem tab, Border headerHost)
+        {
+            headerHost.PointerPressed += (_, e) => OnTabReorderPointerPressed(tab, headerHost, e);
+            headerHost.PointerMoved += (_, e) => OnTabReorderPointerMoved(tab, headerHost, e);
+            headerHost.PointerReleased += (_, e) => OnTabReorderPointerReleased(tab, headerHost, e);
+            // Involuntary capture loss (another control steals it, window deactivates
+            // mid-drag) must abort without committing - the same non-committing-cleanup
+            // contract the sidebar grip's PointerCaptureLost follows.
+            headerHost.PointerCaptureLost += (_, _) => EndTabReorderDrag();
+        }
+
+        private void OnTabReorderPointerPressed(TabItem tab, Border headerHost, PointerPressedEventArgs e)
+        {
+            // Middle/right presses have already been claimed (handled) by
+            // OnTabHeaderPointerPressed for select/close/context-menu; only an unhandled
+            // left press can become a reorder drag.
+            if (e.Handled || !e.GetCurrentPoint(headerHost).Properties.IsLeftButtonPressed)
+            {
+                _isTabHeaderLeftPressPending = false;
+                return;
+            }
+
+            // Arm, don't capture (yet): a plain click must keep its existing behavior, and a
+            // capture here would break hover on the other headers before any drag starts.
+            _isTabHeaderLeftPressPending = true;
+            _tabDragPressedHost = headerHost;
+            _tabDragTabs = this.FindControl<TabControl>("Tabs");
+            _tabDragPressAxisPos = GetTabStripAxisPosition(e);
+        }
+
+        private void OnTabReorderPointerMoved(TabItem tab, Border headerHost, PointerEventArgs e)
+        {
+            if (_isTabReorderDragging)
+            {
+                if (!ReferenceEquals(e.Pointer.Captured, headerHost)) return;
+                UpdateTabDrag(e);
+                return;
+            }
+
+            if (!_isTabHeaderLeftPressPending || !ReferenceEquals(_tabDragPressedHost, headerHost)) return;
+
+            // The button coming up outside this host (nothing captured yet) leaves the armed
+            // press stale; the next buttonless move over the host must not graduate it.
+            if (!e.GetCurrentPoint(headerHost).Properties.IsLeftButtonPressed)
+            {
+                _isTabHeaderLeftPressPending = false;
+                return;
+            }
+
+            // The grip owns the pointer for the duration of a sidebar resize; a header move
+            // arriving then is a stray cross-route event, not a reorder gesture. Likewise a
+            // single-tab strip can never reorder.
+            if (_isTabStripGripDragging || _tabDragTabs == null || _tabDragTabs.Items.Count < 2)
+            {
+                _isTabHeaderLeftPressPending = false;
+                return;
+            }
+
+            var axisPos = GetTabStripAxisPosition(e);
+            if (!TabDragModel.ShouldStartDrag(_tabDragPressAxisPos, axisPos)) return;
+
+            BeginTabReorderDrag(headerHost, e);
+        }
+
+        private void BeginTabReorderDrag(Border headerHost, PointerEventArgs e)
+        {
+            _isTabHeaderLeftPressPending = false;
+            _isTabReorderDragging = true;
+            _tabDragPointer = e.Pointer;
+            e.Pointer.Capture(headerHost);
+            headerHost.Opacity = 0.5;
+
+            UpdateTabDrag(e);
+
+            // Auto-scroll near the viewport edges runs on a timer rather than only on moves:
+            // once the pointer parks inside an edge zone, it stops generating PointerMoved
+            // events but the strip must keep scrolling.
+            _tabDragAutoScrollTimer ??= CreateTabDragAutoScrollTimer();
+            _tabDragAutoScrollTimer.Start();
+        }
+
+        private DispatcherTimer CreateTabDragAutoScrollTimer()
+        {
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
+            timer.Tick += (_, _) => AutoScrollTabDrag();
+            return timer;
+        }
+
+        private void UpdateTabDrag(PointerEventArgs e)
+        {
+            var axisPos = GetTabStripAxisPosition(e);
+            if (!double.IsFinite(axisPos)) return;
+
+            // Viewport-space pointer position for the auto-scroll tick: content-space minus
+            // the current scroll offset (content = viewport + offset).
+            var scrollViewer = FindTabHeaderScrollViewer();
+            double offset = scrollViewer == null
+                ? 0
+                : (_isVerticalTabStrip ? scrollViewer.Offset.Y : scrollViewer.Offset.X);
+            _tabDragPointerAxisPos = axisPos - offset;
+
+            var bounds = GetTabHeaderBoundsInStrip();
+            if (bounds.Count == 0) return;
+
+            _tabDragInsertIndex = TabDragModel.ComputeInsertIndex(HeaderCenters(bounds), axisPos);
+            PositionTabInsertIndicator(bounds);
+        }
+
+        private static List<double> HeaderCenters(List<(double Start, double End)> bounds)
+        {
+            var centers = new List<double>(bounds.Count);
+            foreach (var extent in bounds)
+            {
+                centers.Add((extent.Start + extent.End) / 2);
+            }
+
+            return centers;
+        }
+
+        /// <summary>Pointer position along the strip axis in the ItemsPresenter's (content)
+        /// coordinate space - the same space <see cref="GetTabHeaderBoundsInStrip"/> reports,
+        /// so scrolling never desynchronizes the two. Non-finite when the presenter or the
+        /// position transform is unavailable; TabDragModel's guards treat that as
+        /// "no drag start / insert index 0".</summary>
+        private double GetTabStripAxisPosition(PointerEventArgs e)
+        {
+            var presenter = FindTabItemsPresenter();
+            if (presenter == null) return double.NaN;
+            var position = e.GetPosition(presenter);
+            return _isVerticalTabStrip ? position.Y : position.X;
+        }
+
+        /// <summary>Along-axis extent of every tab's header container (the TabItem itself, a
+        /// realized child of the items panel) in the ItemsPresenter's coordinate space, in
+        /// visual (= Items) order. The dragged tab keeps its original slot until commit, so
+        /// the list always reflects the pre-reorder order ComputeInsertIndex expects.</summary>
+        private List<(double Start, double End)> GetTabHeaderBoundsInStrip()
+        {
+            var bounds = new List<(double Start, double End)>();
+            var presenter = FindTabItemsPresenter();
+            var tabs = _tabDragTabs ?? this.FindControl<TabControl>("Tabs");
+            if (presenter == null || tabs == null) return bounds;
+
+            foreach (var tab in tabs.Items.Cast<TabItem>())
+            {
+                var topLeft = tab.TranslatePoint(new Point(0, 0), presenter);
+                if (topLeft == null) continue;
+                bounds.Add(_isVerticalTabStrip
+                    ? (topLeft.Value.Y, topLeft.Value.Y + tab.Bounds.Height)
+                    : (topLeft.Value.X, topLeft.Value.X + tab.Bounds.Width));
+            }
+
+            return bounds;
+        }
+
+        private void PositionTabInsertIndicator(List<(double Start, double End)> bounds)
+        {
+            var indicator = FindTabTemplatePart<Border>("PART_TabInsertIndicator");
+            var sidebar = FindTabTemplatePart<Grid>("PART_TabSidebar");
+            if (indicator == null || sidebar == null || bounds.Count == 0) return;
+
+            // Gap along the axis: the near edge of the header currently at the insert index,
+            // or the far edge of the last header when dropping at the very end.
+            var index = Math.Clamp(_tabDragInsertIndex, 0, bounds.Count);
+            double edge = index < bounds.Count ? bounds[index].Start : bounds[bounds.Count - 1].End;
+
+            // Translate the content-space edge into the sidebar Grid's space (the indicator's
+            // parent), so auto-scrolling mid-drag keeps the line glued to the on-screen gap.
+            var gapInContent = _isVerticalTabStrip ? new Point(0, edge) : new Point(edge, 0);
+            var gapInSidebar = FindTabItemsPresenter()?.TranslatePoint(gapInContent, sidebar);
+            if (gapInSidebar == null)
+            {
+                indicator.IsVisible = false;
+                return;
+            }
+
+            // Length spans the dragged header's row/column (2px thick along the other axis),
+            // centered in the strip along the cross-axis.
+            double crossLength = _isVerticalTabStrip
+                ? Math.Max(TabInsertIndicatorMinLength, _tabDragPressedHost?.Bounds.Height ?? 0)
+                : Math.Max(TabInsertIndicatorMinLength, _tabDragPressedHost?.Bounds.Width ?? 0);
+
+            indicator.Background = TabInsertIndicatorBrush;
+            indicator.HorizontalAlignment = HorizontalAlignment.Left;
+            indicator.VerticalAlignment = VerticalAlignment.Top;
+            if (_isVerticalTabStrip)
+            {
+                indicator.Width = TabInsertIndicatorThickness;
+                indicator.Height = crossLength;
+                indicator.Margin = new Thickness(
+                    sidebar.Bounds.Width / 2 - TabInsertIndicatorThickness / 2, gapInSidebar.Value.Y, 0, 0);
+            }
+            else
+            {
+                indicator.Height = TabInsertIndicatorThickness;
+                indicator.Width = crossLength;
+                indicator.Margin = new Thickness(
+                    gapInSidebar.Value.X, sidebar.Bounds.Height / 2 - TabInsertIndicatorThickness / 2, 0, 0);
+            }
+
+            indicator.IsVisible = true;
+        }
+
+        private void AutoScrollTabDrag()
+        {
+            if (!_isTabReorderDragging)
+            {
+                _tabDragAutoScrollTimer?.Stop();
+                return;
+            }
+
+            var scrollViewer = FindTabHeaderScrollViewer();
+            if (scrollViewer == null) return;
+
+            // _tabDragPointerAxisPos is already viewport-space (where the edge zones live),
+            // and it stays constant while the pointer parks and the strip scrolls - so the
+            // tick keeps scrolling until the extent clamp stops it, rather than the pointer
+            // "drifting" out of the zone it is physically still in.
+            bool vertical = _isVerticalTabStrip;
+            double viewportLength = vertical ? scrollViewer.Viewport.Height : scrollViewer.Viewport.Width;
+            double delta = TabDragModel.ComputeAutoScrollDelta(0, viewportLength, _tabDragPointerAxisPos);
+            if (delta == 0) return;
+
+            // Clamp to the scrollable extent (Extent - Viewport), mirroring what the
+            // ScrollViewer itself would do with an out-of-range Offset assignment.
+            double offset = vertical ? scrollViewer.Offset.Y : scrollViewer.Offset.X;
+            double maxOffset = vertical
+                ? scrollViewer.Extent.Height - scrollViewer.Viewport.Height
+                : scrollViewer.Extent.Width - scrollViewer.Viewport.Width;
+            double next = Math.Clamp(offset + delta, 0, Math.Max(0, maxOffset));
+            scrollViewer.Offset = vertical
+                ? new Vector(scrollViewer.Offset.X, next)
+                : new Vector(next, scrollViewer.Offset.Y);
+
+            // Content scrolled under the parked pointer: its content-space position
+            // (viewport + offset) moved with it, so re-derive the insert index instead of
+            // letting the drop gap lag behind the headers until the next pointer move.
+            var bounds = GetTabHeaderBoundsInStrip();
+            if (bounds.Count > 0)
+            {
+                _tabDragInsertIndex = TabDragModel.ComputeInsertIndex(
+                    HeaderCenters(bounds), _tabDragPointerAxisPos + next);
+            }
+
+            PositionTabInsertIndicator(bounds);
+        }
+
+        private void OnTabReorderPointerReleased(TabItem tab, Border headerHost, PointerReleasedEventArgs e)
+        {
+            if (_isTabReorderDragging && ReferenceEquals(e.Pointer.Captured, headerHost))
+            {
+                // Releasing capture synchronously raises PointerCaptureLost, which runs the
+                // shared non-committing cleanup; commit afterwards, ordered by the final
+                // insert index.
+                e.Pointer.Capture(null);
+                CommitTabReorder(tab);
+                return;
+            }
+
+            // An armed press that never crossed the drag threshold ends here (a plain
+            // click): disarm without touching anything.
+            if (_isTabHeaderLeftPressPending && ReferenceEquals(_tabDragPressedHost, headerHost))
+            {
+                _isTabHeaderLeftPressPending = false;
+            }
+        }
+
+        private void CommitTabReorder(TabItem draggedTab)
+        {
+            var tabs = _tabDragTabs ?? this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            int oldIndex = tabs.Items.IndexOf(draggedTab);
+            if (oldIndex < 0) return;
+
+            // ComputeInsertIndex ran over the pre-reorder order (the dragged header never
+            // leaves its slot during the drag), so a target past the dragged tab collapses by
+            // one once the dragged tab is removed from Items.
+            int insertIndex = Math.Clamp(_tabDragInsertIndex, 0, tabs.Items.Count);
+            int newIndex = insertIndex > oldIndex ? insertIndex - 1 : insertIndex;
+
+            if (newIndex != oldIndex)
+            {
+                // Selected-item removal under TabControl's AlwaysSelected mode promotes
+                // whatever lands at index 0 to SelectedItem until the restore below - the
+                // SelectionChanged handler skips that transient promotion via
+                // _isTabReorderCommitting (no MRU touch, no attention clear, no focus steal
+                // on a tab the user never actually viewed), then the restore re-runs the
+                // full select path for the dragged tab with the final Items order. The
+                // mutation itself is the same remove-from-live-ItemCollection pattern
+                // CloseTab uses: the TabItem and its pane content are reused, never
+                // recreated (ApplyTabLayout's ownership contract).
+                _isTabReorderCommitting = true;
+                try
+                {
+                    tabs.Items.RemoveAt(oldIndex);
+                    tabs.Items.Insert(newIndex, draggedTab);
+                }
+                finally
+                {
+                    _isTabReorderCommitting = false;
+                }
+            }
+
+            tabs.SelectedItem = draggedTab;
+        }
+
+        /// <summary>Shared non-committing cleanup for drag end, Escape and involuntary
+        /// capture loss alike: hide the indicator, restore the dimmed header, stop the
+        /// auto-scroll timer. Does not reset <c>_tabDragInsertIndex</c> - the release
+        /// handler still needs it for its commit after capture release runs this first.</summary>
+        private void EndTabReorderDrag()
+        {
+            _isTabReorderDragging = false;
+            _isTabHeaderLeftPressPending = false;
+            if (_tabDragPressedHost != null)
+            {
+                _tabDragPressedHost.Opacity = 1;
+            }
+
+            _tabDragPressedHost = null;
+            _tabDragPointer = null;
+            _tabDragTabs = null;
+            _tabDragAutoScrollTimer?.Stop();
+            if (FindTabTemplatePart<Border>("PART_TabInsertIndicator") is { } indicator)
+            {
+                indicator.IsVisible = false;
+            }
+        }
+
+        /// <summary>Aborts an in-flight reorder drag without committing (Escape). Dropping
+        /// capture raises PointerCaptureLost on the header host, running the shared
+        /// <see cref="EndTabReorderDrag"/> cleanup - the same contract as a capture steal.</summary>
+        private void CancelTabReorderDrag()
+        {
+            if (_tabDragPointer?.Captured != null)
+            {
+                _tabDragPointer.Capture(null);
+            }
+            else
+            {
+                EndTabReorderDrag();
             }
         }
 
@@ -1086,6 +1479,11 @@ namespace NovaTerminal
                 // the 1s tab-status timer) must not reset it back to the stale persisted value,
                 // or the in-progress drag is silently discarded (visible snap-back, and a
                 // release without another move would persist the reverted width).
+                //
+                // A reorder drag needs no analogous guard: it owns neither Width, Height nor
+                // Offset - only the insert indicator (positioned in PART_TabSidebar space) and
+                // the dragged header's opacity, none of which this method resets. Rewriting the
+                // identical sizing values below is a no-op for an in-flight reorder.
                 if (!_isTabStripGripDragging)
                 {
                     scrollViewer.Width = TabStripLayout.ClampSidebarWidth(_settings.VerticalTabStripWidth);
@@ -2694,6 +3092,15 @@ namespace NovaTerminal
             {
                 tabs.SelectionChanged += (s, e) =>
                 {
+                    // A reorder commit removes the selected (dragged) tab from Items and
+                    // reinserts it at the drop index; TabControl's AlwaysSelected mode
+                    // promotes index 0 to SelectedItem for the duration of that window (see
+                    // CommitTabReorder). That promotion is an implementation artifact, not a
+                    // user selection: skip it entirely (MRU touch, attention clear, focus
+                    // handoff) - the restore of the dragged tab right after re-enters here
+                    // with the true final selection and runs the full path.
+                    if (_isTabReorderCommitting) return;
+
                     var sw = System.Diagnostics.Stopwatch.StartNew();
                     bool updatedSpecific = false;
                     foreach (var removed in e.RemovedItems.OfType<TabItem>())
@@ -2847,6 +3254,17 @@ namespace NovaTerminal
             // Keyboard Shortcuts
             this.AddHandler(KeyDownEvent, (s, e) =>
             {
+                // An in-flight tab reorder drag owns the pointer; Escape aborts it before
+                // anything else - in particular before the broadcast-to-panes fallback at
+                // the bottom of this handler, which would otherwise also feed the raw ESC
+                // byte to the terminals while the user is only canceling a drag.
+                if (_isTabReorderDragging && e.Key == Key.Escape)
+                {
+                    CancelTabReorderDrag();
+                    e.Handled = true;
+                    return;
+                }
+
                 var modifiers = e.KeyModifiers;
                 bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
                 bool isShift = (modifiers & KeyModifiers.Shift) != 0;

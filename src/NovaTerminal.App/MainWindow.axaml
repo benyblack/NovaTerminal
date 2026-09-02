@@ -116,6 +116,17 @@
                                             Background="Transparent"
                                             Cursor="SizeWestEast"
                                             IsVisible="False" />
+                                    <!-- Drag-to-reorder insert indicator: a 2px accent line at the
+                                         current drop gap. It lives in this Grid (ZIndex keeps it above
+                                         the headers) so it can span the strip in either orientation;
+                                         MainWindow's drag wiring owns background, length, position and
+                                         visibility, so the element is inert in XAML alone. -->
+                                    <Border Name="PART_TabInsertIndicator"
+                                            Width="2"
+                                            CornerRadius="1"
+                                            ZIndex="10"
+                                            IsVisible="False"
+                                            IsHitTestVisible="False" />
                                 </Grid>
                                 <ContentPresenter Name="PART_SelectedContentHost"
                                                 Margin="0"
