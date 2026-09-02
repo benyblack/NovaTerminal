@@ -100,10 +100,15 @@ imports one or two accordingly.
   ```bash
   curl -LO https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
   openssl x509 -inform der -in DeveloperIDG2CA.cer -out DeveloperIDG2CA.pem
+  # The algorithm profile matters: OpenSSL 3's defaults (AES-256 PBES2 + SHA-256
+  # MAC) fail to import via macOS's `security` tool with a bogus "wrong password"
+  # error (OpenRadar FB8988319). 3DES + SHA-1 is the compatible set.
   openssl pkcs12 -export -out app.p12 -inkey app.key \
-    -in developerID_application.cer -certfile DeveloperIDG2CA.pem -name "Developer ID Application"
+    -in developerID_application.cer -certfile DeveloperIDG2CA.pem -name "Developer ID Application" \
+    -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1
   openssl pkcs12 -export -out installer.p12 -inkey installer.key \
-    -in developerID_installer.cer -certfile DeveloperIDG2CA.pem -name "Developer ID Installer"
+    -in developerID_installer.cer -certfile DeveloperIDG2CA.pem -name "Developer ID Installer" \
+    -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1
   base64 -w 0 app.p12 > app.p12.b64        # macOS: base64 -i app.p12 -o app.p12.b64
   base64 -w 0 installer.p12 > installer.p12.b64
   ```
