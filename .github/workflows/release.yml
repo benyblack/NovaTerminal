@@ -267,12 +267,30 @@ jobs:
 
       # dtolnay/rust-toolchain@stable drives an EXISTING rustup, which the hosted
       # runner image preinstalls and a bare ubuntu:22.04 does not. Same intent, via
-      # the upstream installer. rustup detects the host triple itself, so this line
-      # is architecture-agnostic.
+      # the upstream installer.
+      #
+      # The upstream installer is NOT invoked as `curl https://sh.rustup.rs | sh`,
+      # though: this job's output ships as a release artifact end users install,
+      # and a release pipeline should not execute an unverified script fetched
+      # through a redirector. Instead: download a version-pinned rustup-init for
+      # this container's own architecture, verify it against rustup's published
+      # SHA256 before executing anything, then run the verified binary.
+      # RUSTUP_VERSION is pinned in a variable (not buried in a URL) so the pin
+      # is visible and trivial to bump. `uname -m` maps directly onto the
+      # "<arch>-unknown-linux-gnu" triple name for both x86_64 and aarch64, so
+      # no per-arch branch is needed - this runs unchanged on the
+      # ubuntu-24.04-arm leg.
       - name: Install Rust
         run: |
           set -euo pipefail
-          curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+          RUSTUP_VERSION=1.29.1
+          triple="$(uname -m)-unknown-linux-gnu"
+          base_url="https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${triple}"
+          curl --proto '=https' --tlsv1.2 -sSf -o /tmp/rustup-init "${base_url}/rustup-init"
+          curl --proto '=https' --tlsv1.2 -sSf -o /tmp/rustup-init.sha256 "${base_url}/rustup-init.sha256"
+          (cd /tmp && sha256sum -c rustup-init.sha256)
+          chmod +x /tmp/rustup-init
+          /tmp/rustup-init -y --default-toolchain stable --profile minimal
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Verify cargo is on PATH
@@ -286,7 +304,7 @@ jobs:
       # PATH - which the step above put there via $GITHUB_PATH. Keyed per runner
       # architecture by rust-cache's own job/target hashing.
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/NovaTerminal.App/native
 
@@ -297,11 +315,11 @@ jobs:
         run: |
           set -euo pipefail
           cd src/NovaTerminal.App/native
-          cargo build --release
+          cargo build --release --locked
           mkdir -p target_linux/release
           cp target/release/librusty_pty.so target_linux/release/
           cd rusty_ssh
-          cargo build --release
+          cargo build --release --locked
 
       # native-${{ matrix.os }}, exactly the name build_native used to publish for
       # its ubuntu-latest leg, so release_tests and publish_linux download it
@@ -1093,7 +1111,7 @@ jobs:
       - name: Install .NET SDK (version pinned by global.json)
         run: |
           set -euo pipefail
-          curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+          curl -sSL --proto '=https' --tlsv1.2 https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
           chmod +x /tmp/dotnet-install.sh
           /tmp/dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet"
           # Both entries. $HOME is /github/home in a container job, not /root, and
