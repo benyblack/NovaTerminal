@@ -985,7 +985,10 @@ jobs:
     name: AOT Publish (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'workflow_dispatch'
-    timeout-minutes: 40
+    # 90 rather than 40: the signed mac lane waits synchronously on Apple's
+    # notarization queue inside vpk pack, which alone can run 10-30+ minutes on a
+    # slow day — 40 was cutting the job down mid-wait.
+    timeout-minutes: 90
     needs: [build]
     strategy:
       fail-fast: false
@@ -997,6 +1000,12 @@ jobs:
             rid: linux-x64
           - os: macos-latest
             rid: osx-arm64
+
+    # The secrets context is not allowed in step-level `if` (the workflow fails to
+    # parse), so the signing gate is materialized here as an env boolean the macOS
+    # keychain step can test. Mirrors release.yml's publish_aot.
+    env:
+      MAC_SIGNING_ENABLED: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -1055,6 +1064,26 @@ jobs:
         if: matrix.rid == 'osx-arm64'
         run: packaging/macos/make-icns.sh src/NovaTerminal.App/Assets/nova_icon.png artifacts/icon/nova_icon.icns
 
+      # Same secret-gated signing setup as release.yml's osx-arm64 lane (same action,
+      # same gate), so this dispatch lane is also the pre-tag validation of the whole
+      # codesign/notarize/staple path — not just of the unsigned packaging. When
+      # MAC_CERT_P12_BASE64 is unset the step (and the flags below) is skipped and the
+      # dry run packs unsigned, as it always did. See packaging/macos/README.md.
+      - name: Set up macOS signing keychain
+        id: mac_signing
+        if: matrix.rid == 'osx-arm64' && env.MAC_SIGNING_ENABLED == 'true'
+        uses: ./.github/actions/setup-mac-signing
+        with:
+          cert-p12-base64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          installer-p12-base64: ${{ secrets.MAC_INSTALLER_CERT_P12_BASE64 }}
+          cert-password: ${{ secrets.MAC_CERT_PASSWORD }}
+          sign-app-identity: ${{ secrets.MAC_SIGN_APP_IDENTITY }}
+          sign-install-identity: ${{ secrets.MAC_SIGN_INSTALL_IDENTITY }}
+          notary-profile: ${{ secrets.MAC_NOTARY_PROFILE }}
+          apple-id: ${{ secrets.MAC_APPLE_ID }}
+          team-id: ${{ secrets.MAC_TEAM_ID }}
+          app-specific-password: ${{ secrets.MAC_APP_SPECIFIC_PASSWORD }}
+
       # 0.0.1-ci: a dry-run version that can never collide with a real release's feed
       # (vpk rejects anything below 0.0.1, so 0.0.0-ci is not an option here).
       # Assertions mirror what release.yml asserts post-pack, so a silent vpk change
@@ -1062,6 +1091,14 @@ jobs:
       - name: Pack macOS bundle (Velopack dry run)
         if: matrix.rid == 'osx-arm64'
         shell: bash
+        env:
+          # Signing reaches the script through env, never interpolated into its source;
+          # when the keychain step was skipped these are empty and vpk stays unsigned.
+          MAC_SIGNING: ${{ steps.mac_signing.outputs.imported }}
+          MAC_SIGN_KEYCHAIN: ${{ steps.mac_signing.outputs.keychain }}
+          MAC_SIGN_APP_IDENTITY: ${{ secrets.MAC_SIGN_APP_IDENTITY }}
+          MAC_SIGN_INSTALL_IDENTITY: ${{ secrets.MAC_SIGN_INSTALL_IDENTITY }}
+          MAC_NOTARY_PROFILE: ${{ secrets.MAC_NOTARY_PROFILE }}
         run: |
           set -euo pipefail
           # StripSymbols=true leaves a ~94 MB NovaTerminal.dSYM beside the binary (3x the
@@ -1071,6 +1108,17 @@ jobs:
           # consumes the symbols - the raw publish-dir zip this dSYM used to ship in no
           # longer exists for macOS.
           rm -rf artifacts/publish/osx-arm64/NovaTerminal.dSYM
+          # Same secret-gated signing flags as release.yml (see its comments there);
+          # the +guard keeps an empty array valid under set -u on bash 3.2.
+          sign_args=()
+          if [[ "${MAC_SIGNING:-}" == "1" ]]; then
+            sign_args+=(
+              --signAppIdentity "$MAC_SIGN_APP_IDENTITY"
+              --signInstallIdentity "$MAC_SIGN_INSTALL_IDENTITY"
+              --notaryProfile "$MAC_NOTARY_PROFILE"
+              --keychain "$MAC_SIGN_KEYCHAIN"
+            )
+          fi
           vpk pack \
             --packId NovaTerminalApp \
             --packVersion 0.0.1-ci \
@@ -1081,7 +1129,8 @@ jobs:
             --bundleId com.benyblack.NovaTerminal \
             --icon artifacts/icon/nova_icon.icns \
             --exclude 'NovaTerminal\.dSYM' \
-            --outputDir artifacts/velopack-dryrun
+            --outputDir artifacts/velopack-dryrun \
+            ${sign_args[@]+"${sign_args[@]}"}
 
           echo "Velopack dry-run output:"
           ls -l artifacts/velopack-dryrun

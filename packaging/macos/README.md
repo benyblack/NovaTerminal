@@ -32,65 +32,114 @@ Facts worth knowing (all verified against the vpk 1.2.0 source, see
 ## Dry run without cutting a release
 
 The `AOT Publish` job in `.github/workflows/ci.yml` is `workflow_dispatch`-only and runs
-the same `vpk pack` (version `0.0.0-ci`) plus assertions, uploading
+the same `vpk pack` (version `0.0.1-ci`) plus assertions, uploading
 `macos-packaging-dryrun` as a workflow artifact. Use it to verify bundle structure, the
-pkg, and asset names before tagging. None of this is runnable from a Windows or Linux
-dev box.
+pkg, and asset names before tagging — and, once the `MAC_*` secrets are set, the whole
+sign/notarize/staple path too. None of this is runnable from a Windows or Linux dev box.
 
-## Current state: unsigned (the "signing seam")
+## Signing + notarization (secret-gated)
 
-No Apple Developer Program membership exists today, so releases ship **unsigned and
-un-notarized**. `vpk pack` is invoked without signing options; it logs
-`Package will not be signed or notarized` and packages everything anyway. The app still
-runs: on arm64, `ld` ad-hoc-signs the NativeAOT binary and the Rust dylibs at build time,
-and the SkiaSharp/HarfBuzz dylibs ship signed by their maintainers.
+Signing is wired into both `vpk pack` lanes (the release lane in `release.yml` and the
+dry run above) but **gated on the `MAC_CERT_P12_BASE64` repo secret**:
 
-The first-launch Gatekeeper flow for users is documented in the main `README.md`
-(System Settings → Privacy & Security → "Open Anyway" on macOS 15+, or
-`xattr -cr /Applications/NovaTerminal.app` in Terminal).
+- Secret set → `.github/actions/setup-mac-signing` imports the Developer ID identities
+  into a build keychain and stores the notarytool profile, and `vpk pack` runs with
+  `--signAppIdentity`/`--signInstallIdentity`/`--notaryProfile`/`--keychain`. vpk then
+  signs the app bundle and dylibs (deep signing), signs the pkg, submits for
+  notarization, staples the ticket, and runs `spctl` assessments — verified in vpk's
+  `OsxPackCommandRunner`/`CodeSign`.
+- Secret unset → both lanes behave exactly as they did before: `vpk pack` warns
+  "Package will not be signed or notarized" and packages everything unsigned. The app
+  still runs, because on arm64 `ld` ad-hoc-signs the NativeAOT binary and the Rust
+  dylibs at build time, and the SkiaSharp/HarfBuzz dylibs ship signed by their
+  maintainers.
 
-### Turning signing + notarization on later
+The gate is all-or-nothing: the action fails fast (naming the missing secret) if
+`MAC_CERT_P12_BASE64` is set but any other required `MAC_*` secret is missing, the
+imported keychain lacks one of the two identities, or Apple rejects the notarytool
+credentials — rather than letting `vpk pack` fail minutes later inside
+codesign/productbuild.
 
-This is deliberately **not** pre-wired with secret-gated workflow steps: an untestable
-dead path in a release pipeline is worse than a documented diff. When a Developer ID
-certificate exists, the change is exactly this:
+### One-time setup
 
-1. Create a "Developer ID Application" and a "Developer ID Installer" certificate
-   (appleid.apple.com → Certificates), export both as one `.p12`.
-2. Store repo secrets: `MAC_CERT_P12_BASE64` (base64 of the p12), `MAC_CERT_PASSWORD`,
-   `MAC_SIGN_APP_IDENTITY` (e.g. `Developer ID Application: Beny Black (TEAMID)`),
-   `MAC_SIGN_INSTALL_IDENTITY` (e.g. `Developer ID Installer: Beny Black (TEAMID)`),
-   `MAC_NOTARY_PROFILE` (a notarytool profile name), plus `MAC_APPLE_ID`, `MAC_TEAM_ID`,
-   `MAC_APP_SPECIFIC_PASSWORD`.
-3. In the osx-arm64 leg of `publish_aot` in `release.yml`, add a step before `vpk pack`
-   that imports the keychain and stores the notarytool profile:
+Prerequisites: a **paid Apple Developer Program membership** (a free Apple ID cannot
+create Developer ID certificates or submit for notarization), and an app-specific
+password for notarytool (appleid.apple.com → Sign-In and Security → App-Specific
+Passwords).
 
-   ```bash
-   cert_path=$(mktemp -d)/cert.p12
-   echo "$MAC_CERT_P12_BASE64" | base64 --decode > "$cert_path"
-   security create-keychain -p "$MAC_CERT_PASSWORD" build.keychain
-   security default-keychain -s build.keychain
-   security unlock-keychain -p "$MAC_CERT_PASSWORD" build.keychain
-   security import "$cert_path" -k build.keychain -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
-   security set-key-partition-list -S apple-tool:,apple: -k "$MAC_CERT_PASSWORD" build.keychain
-   xcrun notarytool store-credentials "$MAC_NOTARY_PROFILE" \
-     --apple-id "$MAC_APPLE_ID" --team-id "$MAC_TEAM_ID" --password "$MAC_APP_SPECIFIC_PASSWORD" \
-     --keychain build.keychain
-   ```
+**1. Create the two certificates.** On developer.apple.com → Certificates, Identifiers
+& Profiles → Certificates → **+**, create one **Developer ID Application** and one
+**Developer ID Installer** certificate. Each needs a CSR:
 
-4. Add these flags to `vpk pack`:
+- *With a Mac*: Keychain Access → Certificate Assistant → Request a Certificate from a
+  Certificate Authority… (keeps the key in the login keychain), then double-click each
+  downloaded `.cer` to pair it with its key.
+- *Without a Mac* — openssl works everywhere and Git Bash on Windows ships it. The
+  `MSYS_NO_PATHCONV=1` prefix stops Git Bash from rewriting the leading-slash `-subj`
+  into a Windows path; it is inert on macOS/Linux:
 
-   ```
-   --signAppIdentity "$MAC_SIGN_APP_IDENTITY" \
-   --signInstallIdentity "$MAC_SIGN_INSTALL_IDENTITY" \
-   --notaryProfile "$MAC_NOTARY_PROFILE" \
-   --keychain "$HOME/Library/Keychains/build.keychain"
-   ```
+  ```bash
+  MSYS_NO_PATHCONV=1 openssl req -new -newkey rsa:2048 -nodes -keyout app.key -out app.csr -subj "/CN=NovaTerminal"
+  MSYS_NO_PATHCONV=1 openssl req -new -newkey rsa:2048 -nodes -keyout installer.key -out installer.csr -subj "/CN=NovaTerminal"
+  ```
 
-vpk then signs the app bundle and dylibs (deep signing), signs the pkg, submits for
-notarization, staples the ticket, and runs `spctl` assessments — verified in vpk's
-`OsxPackCommandRunner`/`CodeSign`. Nothing else in the pipeline changes: same asset
-names, same feed, updater-agnostic.
+  Upload `app.csr` for the Developer ID Application certificate, `installer.csr` for
+  the Developer ID Installer certificate, and download both `.cer` files. Keep the
+  `.key` files: they are the certificate private keys (re-exporting or moving the
+  identities later requires them; losing them means revoking and reissuing).
+
+**2. Produce the p12(s).** The identities may travel as one combined p12 (Mac route)
+or as two files (openssl route — a p12 can only carry one private key); the CI action
+imports one or two accordingly.
+
+- *Mac route (one file)*: in Keychain Access select both new certificate+key pairs and
+  export them as a single `.p12`.
+- *openssl route (two files)* — Apple serves the intermediate as DER, and notarization
+  requires the signature to carry it, so fold it in via `-certfile`:
+
+  ```bash
+  curl -LO https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+  openssl x509 -inform der -in DeveloperIDG2CA.cer -out DeveloperIDG2CA.pem
+  # The algorithm profile matters: OpenSSL 3's defaults (AES-256 PBES2 + SHA-256
+  # MAC) fail to import via macOS's `security` tool with a bogus "wrong password"
+  # error (OpenRadar FB8988319). 3DES + SHA-1 is the compatible set.
+  openssl pkcs12 -export -out app.p12 -inkey app.key \
+    -in developerID_application.cer -certfile DeveloperIDG2CA.pem -name "Developer ID Application" \
+    -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1
+  openssl pkcs12 -export -out installer.p12 -inkey installer.key \
+    -in developerID_installer.cer -certfile DeveloperIDG2CA.pem -name "Developer ID Installer" \
+    -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1
+  base64 -w 0 app.p12 > app.p12.b64        # macOS: base64 -i app.p12 -o app.p12.b64
+  base64 -w 0 installer.p12 > installer.p12.b64
+  ```
+
+  The exact identity strings for the secrets below are the certificate CNs — read them
+  verbatim with
+  `openssl x509 -inform der -in developerID_application.cer -noout -subject`, which
+  prints e.g. `subject=CN = Developer ID Application: LEGAL NAME (TEAMID), …`. That
+  parenthesized 10-character value is also the team ID.
+
+**3. Set the repo secrets:**
+
+| Secret | Value |
+|---|---|
+| `MAC_CERT_P12_BASE64` | base64 of the `.p12` with the Developer ID Application identity (the combined Mac export holds both) |
+| `MAC_INSTALLER_CERT_P12_BASE64` | *optional* — base64 of a separate `.p12` with the Developer ID Installer identity (the openssl route); omit on the Mac route |
+| `MAC_CERT_PASSWORD` | the `.p12` export password (use the same password for both files on the openssl route) |
+| `MAC_SIGN_APP_IDENTITY` | `Developer ID Application: <legal name> (TEAMID)` — the CN, verbatim |
+| `MAC_SIGN_INSTALL_IDENTITY` | `Developer ID Installer: <legal name> (TEAMID)` — the CN, verbatim |
+| `MAC_NOTARY_PROFILE` | any profile name, e.g. `nova-notary` |
+| `MAC_APPLE_ID` | the Apple ID |
+| `MAC_TEAM_ID` | the 10-character team ID (Membership page) |
+| `MAC_APP_SPECIFIC_PASSWORD` | the app-specific password |
+
+4. Dispatch the `AOT Publish` workflow once before tagging: the mac lane performs the
+   same signed pack at version `0.0.1-ci`, so a broken certificate, identity string, or
+   notarytool credential fails there instead of at the next release.
+
+The first-launch Gatekeeper flow documented in the main `README.md` (System Settings →
+Privacy & Security → "Open Anyway" on macOS 15+, or `xattr -cr` in Terminal) applies to
+unsigned builds; drop that section from `README.md` when the first signed release ships.
 
 ### Known limitations
 

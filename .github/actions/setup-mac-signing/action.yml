@@ -1,0 +1,153 @@
+name: Set up macOS signing keychain
+description: >-
+  Imports the Developer ID Application + Installer identities from one or two
+  base64-encoded .p12 files into a dedicated build keychain and stores an xcrun
+  notarytool credentials profile in it, for Velopack's --signAppIdentity/
+  --signInstallIdentity/--notaryProfile/--keychain flags. All-or-nothing by design:
+  every required input must be non-empty, both identities must resolve in the
+  keychain, and Apple must accept the notarytool credentials — so a misconfigured
+  secret fails here, named, instead of deep inside vpk's codesign/productbuild/
+  notarytool calls.
+
+inputs:
+  cert-p12-base64:
+    description: >-
+      Base64 of the .p12 holding the Developer ID Application identity (and, on the
+      Mac single-export route, the Installer identity too).
+    required: true
+  installer-p12-base64:
+    description: >-
+      Base64 of a separate .p12 holding the Developer ID Installer identity.
+      Optional: omit when cert-p12-base64 already contains both identities. Must use
+      the same export password as cert-p12-base64.
+    required: false
+  cert-password:
+    description: Password of the .p12 (doubles as the build keychain password).
+    required: true
+  sign-app-identity:
+    description: 'e.g. Developer ID Application: Beny Black (TEAMID)'
+    required: true
+  sign-install-identity:
+    description: 'e.g. Developer ID Installer: Beny Black (TEAMID)'
+    required: true
+  notary-profile:
+    description: Keychain profile name vpk passes to notarytool.
+    required: true
+  apple-id:
+    description: Apple ID used for notarization.
+    required: true
+  team-id:
+    description: Apple Developer Team ID.
+    required: true
+  app-specific-password:
+    description: App-specific password for the Apple ID (notarytool).
+    required: true
+
+outputs:
+  imported:
+    description: '"1" when the keychain and notarytool profile were set up.'
+    value: ${{ steps.keychain.outputs.imported }}
+  keychain:
+    description: Absolute path of the created keychain.
+    value: ${{ steps.keychain.outputs.keychain }}
+
+runs:
+  using: composite
+  steps:
+    - id: keychain
+      shell: bash
+      env:
+        CERT_P12_BASE64: ${{ inputs.cert-p12-base64 }}
+        INSTALLER_P12_BASE64: ${{ inputs.installer-p12-base64 }}
+        CERT_PASSWORD: ${{ inputs.cert-password }}
+        SIGN_APP_IDENTITY: ${{ inputs.sign-app-identity }}
+        SIGN_INSTALL_IDENTITY: ${{ inputs.sign-install-identity }}
+        NOTARY_PROFILE: ${{ inputs.notary-profile }}
+        APPLE_ID: ${{ inputs.apple-id }}
+        TEAM_ID: ${{ inputs.team-id }}
+        APP_SPECIFIC_PASSWORD: ${{ inputs.app-specific-password }}
+      run: |
+        set -euo pipefail
+
+        missing=""
+        for v in CERT_P12_BASE64 CERT_PASSWORD SIGN_APP_IDENTITY SIGN_INSTALL_IDENTITY NOTARY_PROFILE APPLE_ID TEAM_ID APP_SPECIFIC_PASSWORD; do
+          if [[ -z "${!v:-}" ]]; then
+            missing="$missing $v"
+          fi
+        done
+        if [[ -n "$missing" ]]; then
+          echo "::error::macOS signing inputs incomplete (missing:$missing). Set all MAC_* repo secrets, or unset MAC_CERT_P12_BASE64 to fall back to the unsigned lane." >&2
+          exit 1
+        fi
+
+        # Every keychain reference below uses this explicit full path, never the bare
+        # name: `security` resolves bare names suffix-flexibly (name, name.keychain,
+        # name.keychain-db), but notarytool — and vpk's codesign call — take literal
+        # file paths and fail with "file doesn't exist" on the unresolved variant.
+        # Creating with an explicit path guarantees the exact file exists.
+        keychain="$HOME/Library/Keychains/build.keychain"
+        cert_dir=$(mktemp -d)
+        cert_path="$cert_dir/cert.p12"
+        # The decoded p12s only ever live on the ephemeral runner; the trap keeps
+        # them out of anything later uploaded even when a command below fails.
+        trap 'rm -rf "$cert_dir"' EXIT
+        printf '%s' "$CERT_P12_BASE64" | base64 --decode > "$cert_path"
+
+        security create-keychain -p "$CERT_PASSWORD" "$keychain"
+        # `security` resolves bare keychain names suffix-flexibly, but notarytool and
+        # vpk's codesign need the literal existing file — and some macOS versions
+        # materialize build.keychain-db even when given this explicit .keychain path.
+        # Locate whatever was actually created; fail with the directory listing if
+        # nothing matches, so the log shows where the keychain went.
+        if [[ ! -f "$keychain" ]]; then
+          keychain=$(ls "$HOME/Library/Keychains/"build.keychain* 2>/dev/null | head -n 1 || true)
+        fi
+        if [[ -z "${keychain:-}" || ! -f "$keychain" ]]; then
+          echo "::error::could not find the created build keychain (expected $HOME/Library/Keychains/build.keychain*). Directory contents:" >&2
+          ls -la "$HOME/Library/Keychains" >&2 || true
+          exit 1
+        fi
+        echo "Using keychain: $keychain"
+        # 6h autolock so the identity stays usable for the whole job, including vpk's
+        # synchronous wait for Apple to finish notarizing.
+        security set-keychain-settings -lut 21600 "$keychain"
+        security unlock-keychain -p "$CERT_PASSWORD" "$keychain"
+        # -T names the binaries allowed to use the key without a prompt; productbuild
+        # sits beside codesign because vpk signs the .pkg with it.
+        security import "$cert_path" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+        # openssl can only place one private key in a p12, so the no-Mac route carries
+        # the Installer identity in a second file; the Mac Keychain Access single
+        # export folds both into cert.p12 and never sets this input.
+        if [[ -n "${INSTALLER_P12_BASE64:-}" ]]; then
+          installer_path="$cert_dir/installer.p12"
+          printf '%s' "$INSTALLER_P12_BASE64" | base64 --decode > "$installer_path"
+          security import "$installer_path" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+        fi
+        # Non-interactive key access for those Apple-signed tools.
+        security set-key-partition-list -S apple-tool:,apple: -k "$CERT_PASSWORD" "$keychain"
+        # The build keychain first in the search list: vpk passes --keychain to
+        # codesign explicitly, but productbuild and notarytool resolve identities and
+        # the stored profile through the user search list.
+        security list-keychain -d user -s "$keychain" login
+
+        identities=$(security find-identity -v "$keychain")
+        echo "$identities"
+        if [[ "$identities" != *"$SIGN_APP_IDENTITY"* ]]; then
+          echo "::error::Developer ID Application identity '$SIGN_APP_IDENTITY' not found in the keychain imported from MAC_CERT_P12_BASE64." >&2
+          exit 1
+        fi
+        if [[ "$identities" != *"$SIGN_INSTALL_IDENTITY"* ]]; then
+          echo "::error::Developer ID Installer identity '$SIGN_INSTALL_IDENTITY' not found in the imported keychain. Include both identities in MAC_CERT_P12_BASE64, or set MAC_INSTALLER_CERT_P12_BASE64 to a p12 containing the Installer identity." >&2
+          exit 1
+        fi
+
+        # Contacts Apple: a wrong Apple ID / team ID / app-specific password fails
+        # here, not inside vpk after minutes of packing.
+        xcrun notarytool store-credentials "$NOTARY_PROFILE" \
+          --apple-id "$APPLE_ID" \
+          --team-id "$TEAM_ID" \
+          --password "$APP_SPECIFIC_PASSWORD" \
+          --keychain "$keychain"
+
+        echo "imported=1" >> "$GITHUB_OUTPUT"
+        echo "keychain=$keychain" >> "$GITHUB_OUTPUT"
