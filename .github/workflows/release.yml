@@ -177,6 +177,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     container:
       image: ubuntu:22.04
+    # A `container:` job does NOT get bash as its default shell the way a plain
+    # runner does - GitHub runs its inline `run:` blocks under `sh` (dash on this
+    # image), and dash has no `pipefail` option, no `<<<`, no `[[`. Every step
+    # below uses one or both. See ci.yml's linux_packaging_build for the CI run
+    # that surfaced this the hard way.
+    defaults:
+      run:
+        shell: bash
     # 20 -> 40: the container starts from nothing, so every run pays an apt install
     # and a rustup bootstrap on top of the two cargo builds that used to run against
     # a warm, fully preinstalled runner image.
@@ -1006,6 +1014,13 @@ jobs:
     # why this is a container tag rather than a `runs-on: ubuntu-22.04` label.
     container:
       image: ubuntu:22.04
+    # Same fix as build_native_linux above: a `container:` job's inline `run:`
+    # blocks run under `sh` (dash), not bash, unless declared here. This job's
+    # steps lean on `pipefail`, `<<<`, `[[ ]]`, `$(( ))` arithmetic and substring
+    # expansion throughout - all bash-only, none of it dash-compatible.
+    defaults:
+      run:
+        shell: bash
     # 60, matching ci.yml's equivalent: cold apt install + SDK download + full NuGet
     # restore + AOT publish + build-deb.sh + vpk pack, with no preinstalled anything
     # to fall back on. Not 90 like publish_aot - there is no notarization wait here.

@@ -1295,6 +1295,20 @@ jobs:
     # supports. Do not bump it without deciding to drop a distro.
     container:
       image: ubuntu:22.04
+    # THE FIX for the first real CI failure of this lane: inside a `container:`
+    # job GitHub does NOT default the shell to bash the way it does on a plain
+    # runner - it invokes the inline `run:` blocks under `sh`, which on this
+    # image is dash. Every step below opens with `set -euo pipefail`, and dash
+    # has no `pipefail` option at all ("set: Illegal option -o pipefail"), so
+    # the very first step failed on line 1 before anything else ran. Every local
+    # verification of this recipe used `docker run ... bash -c '...'` explicitly,
+    # so this gap was invisible until GitHub picked the shell itself. Declaring
+    # the job-level default is the systemic fix - it also covers the `<<<`
+    # here-strings and other bash-only constructs used later in this job's
+    # `run:` blocks, none of which dash supports either.
+    defaults:
+      run:
+        shell: bash
     # 40 -> 60: uncached cargo (two crates) + full NuGet restore + AOT publish +
     # vpk pack, cold, plus - new with the container - an SDK download and an
     # apt-install of the entire toolchain on every run that misses the caches.
