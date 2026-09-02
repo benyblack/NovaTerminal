@@ -1242,7 +1242,7 @@ jobs:
         if: steps.detect.outputs.run == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang zlib1g-dev imagemagick file
+          sudo apt-get install -y clang zlib1g-dev imagemagick file binutils
 
       - name: Build Rust native
         if: steps.detect.outputs.run == 'true'
@@ -1280,8 +1280,8 @@ jobs:
       - name: Test build-deb.sh
         if: steps.detect.outputs.run == 'true'
         run: |
-          docker run --rm -v "$PWD:/w" -w /w ubuntu:22.04 bash -c \
-            'apt-get update -qq && apt-get install -y -qq file imagemagick >/dev/null &&
+          docker run --rm -v "$PWD:/w:ro" -w /w ubuntu:22.04 bash -c \
+            'apt-get update -qq && apt-get install -y -qq file imagemagick binutils >/dev/null &&
              packaging/linux/test-build-deb.sh'
 
       # vpk pinned to 1.2.0, in lockstep with Directory.Packages.props and the two

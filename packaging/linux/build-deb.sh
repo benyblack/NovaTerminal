@@ -53,7 +53,10 @@ repo_root="$(cd "$here/../.." && pwd)"
 # whatever libSkiaSharp.so really links), an install that succeeds and then fails at
 # load time on a clean machine with nothing in the build log to explain why. That is
 # exactly the failure mode the two-mechanism dependency design exists to prevent.
-for _tool in dpkg-deb dpkg-query file ldd; do
+# strip is here for the same reason: without it, the strip call below would need
+# its own silent-skip fallback, and a .deb built on a host missing binutils would
+# ship unstripped .so files with nothing in the build log to explain why.
+for _tool in dpkg-deb dpkg-query file ldd strip; do
   command -v "$_tool" >/dev/null 2>&1 || { echo "missing required tool: $_tool" >&2; exit 1; }
 done
 
@@ -131,10 +134,32 @@ install -d "$stage/usr/share/man/man1"
 install -d "$stage/usr/share/doc/novaterminal"
 
 cp -a "$publish_dir/." "$stage/usr/lib/novaterminal/"
-chmod 0755 "$stage/usr/lib/novaterminal/NovaTerminal"
 # A .deb ships no build leftovers; the AOT publish can contain debug symbols.
 find "$stage/usr/lib/novaterminal" -name '*.pdb' -delete
 find "$stage/usr/lib/novaterminal" -name '*.dbg' -delete
+
+# Strip debug symbols from the bundled native libraries (SkiaSharp, HarfBuzzSharp,
+# the Rust natives) - standard Debian practice, and lintian's
+# unstripped-binary-or-object flags every one of them as an ERROR otherwise.
+# Deliberately every *.so under the bundle, not four hardcoded names, so a future
+# native library added here is stripped too without editing this script again.
+# Deliberately NOT the NovaTerminal AOT binary itself: lintian does not flag it,
+# and NativeAOT output is not something to strip-and-hope on.
+while IFS= read -r -d '' so; do
+  strip --strip-unneeded "$so"
+done < <(find "$stage/usr/lib/novaterminal" -name '*.so' -print0)
+
+# cp -a inherits every mode bit from the publish directory verbatim, including
+# the 0744 SkiaSharp/HarfBuzzSharp ship with - lintian correctly flags a shared
+# library carrying an execute bit (shared-library-is-executable): the dynamic
+# loader only needs read permission to mmap a .so, never execute. Normalise every
+# regular file in the bundle to 0644 and every directory to 0755, THEN re-assert
+# 0755 on the one file that must stay executable: the entry point binary. Order
+# matters - reversing these two steps would have the blanket pass clobber the
+# binary's own exec bit right back off.
+find "$stage/usr/lib/novaterminal" -type f -exec chmod 0644 {} +
+find "$stage/usr/lib/novaterminal" -type d -exec chmod 0755 {} +
+chmod 0755 "$stage/usr/lib/novaterminal/NovaTerminal"
 
 ln -s /usr/lib/novaterminal/NovaTerminal "$stage/usr/bin/nova"
 install -m 0644 "$here/nova.desktop" "$stage/usr/share/applications/novaterminal.desktop"
@@ -175,6 +200,39 @@ if [[ -f "$icon_src" ]]; then
 else
   echo "warning: icon source not found at $icon_src; package will have no icon" >&2
 fi
+
+# --- lintian overrides -------------------------------------------------------
+# SkiaSharp's native build statically links freetype/libjpeg/libpng, and
+# NativeAOT statically links zlib into the published binary. Both are inherent
+# to what a self-contained bundle IS - there is no "unbundle and Depend on the
+# system library" option available here the way there would be for a normally
+# source-built Debian package. Named tags and exact paths only, deliberately no
+# wildcard override: a genuinely new embedded library pulled in by a future
+# SkiaSharp/AOT bump must still trip this gate rather than being silently waved
+# through by an override that was written to cover today's four findings.
+#
+# No brackets around the path: verified empirically against real lintian
+# (2.114.0, ubuntu-22.04's apt version) - an override written as
+# "embedded-library freetype [path]" (matching the printed E: line literally)
+# comes back as `mismatched-override`, because lintian's own info field for
+# this tag has no brackets. The printed message adds them for readability; the
+# override text must match the tag's raw info field, not the rendered message.
+install -d "$stage/usr/share/lintian/overrides"
+cat > "$stage/usr/share/lintian/overrides/novaterminal" <<'EOF'
+# SkiaSharp's prebuilt native binary statically links freetype. Vendored
+# upstream by the SkiaSharp NuGet package - not something this script builds
+# or can unbundle.
+novaterminal: embedded-library freetype usr/lib/novaterminal/libSkiaSharp.so
+# Same as above: SkiaSharp statically links libjpeg.
+novaterminal: embedded-library libjpeg usr/lib/novaterminal/libSkiaSharp.so
+# Same as above: SkiaSharp statically links libpng.
+novaterminal: embedded-library libpng usr/lib/novaterminal/libSkiaSharp.so
+# NativeAOT statically links zlib into the published binary. A self-contained
+# AOT publish has no "link against the system libz at runtime" mode to fall
+# back to - this is what --self-contained true -p:PublishAot=true produces.
+novaterminal: embedded-library zlib usr/lib/novaterminal/NovaTerminal
+EOF
+chmod 0644 "$stage/usr/share/lintian/overrides/novaterminal"
 
 # --- control + docs --------------------------------------------------------
 installed_kb="$(du -sk "$stage/usr" | cut -f1)"
