@@ -114,6 +114,7 @@ else
     # Paired with build-deb.sh treating a missing icon source as fatal, these two
     # changes are what make ci.yml's change-detection watch on nova_icon.png mean
     # something.
+    layout_missing=0
     for path in \
       ./usr/lib/novaterminal/NovaTerminal \
       ./usr/lib/novaterminal/themes/default.json \
@@ -129,9 +130,12 @@ else
       ./usr/share/icons/hicolor/128x128/apps/novaterminal.png \
       ./usr/share/icons/hicolor/256x256/apps/novaterminal.png
     do
-      grep -q -- "$path" <<<"$contents" || fail "missing from package: $path"
+      grep -q -- "$path" <<<"$contents" || { fail "missing from package: $path"; layout_missing=$((layout_missing + 1)); }
     done
-    pass "layout checked"
+    # Gated, unlike the older `pass` calls below: with thirteen paths in the loop a
+    # bare `pass "layout checked"` printed right underneath its own FAIL lines, which
+    # reads like the layout was checked AND fine.
+    (( layout_missing )) || pass "layout checked"
 
     # The bundle binary must be executable, and /usr/bin/nova must be a symlink to it.
     grep -qE '^-rwxr-xr-x.* \./usr/lib/novaterminal/NovaTerminal$' <<<"$contents" \
