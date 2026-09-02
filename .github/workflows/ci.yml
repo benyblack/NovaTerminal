@@ -1327,8 +1327,15 @@ jobs:
       # almost nothing, and this job's standing philosophy ("relying on image
       # contents is what breaks when the image rolls") is now not a philosophy but
       # a hard requirement:
-      #   ca-certificates curl  - dotnet-install.sh, rustup, TLS for both
+      #   ca-certificates curl  - the SDK/rustup downloads, TLS for both
       #   git                   - actions/checkout (see above)
+      #   jq                    - reads sdk.version out of global.json for the
+      #                           checksum-verified SDK install below. Parsing it
+      #                           with sed would have to skip global.json's two "//"
+      #                           comment keys, whose values mention version numbers
+      #                           of their own; jq cannot confuse a comment for the
+      #                           pin. release.yml's equivalent job already installs
+      #                           it for its prior-release query.
       #   unzip                 - the nupkg .dbg leak assertion below
       #   zstd, tar, gzip       - actions/cache's archive backends (tar/gzip are in
       #                           the base image; zstd is not, and cache silently
@@ -1360,7 +1367,7 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y \
-            ca-certificates curl git unzip zstd \
+            ca-certificates curl git unzip zstd jq \
             clang zlib1g-dev binutils file imagemagick squashfs-tools \
             fontconfig libfreetype6 x11-utils \
             libicu70 libssl3
@@ -1370,11 +1377,11 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      # Cache the SDK payload itself, keyed on global.json: dotnet-install.sh is a
+      # Cache the SDK payload itself, keyed on global.json: the SDK tarball is a
       # ~220 MB download on every cold run, and unlike the runner image the
-      # container has no preinstalled SDK to fall back on. dotnet-install.sh
-      # no-ops when the requested version is already present in --install-dir, so a
-      # cache hit skips the download entirely.
+      # container has no preinstalled SDK to fall back on. The install step below
+      # skips the download when $HOME/.dotnet/sdk/<version> is already there, so a
+      # cache hit costs nothing.
       - name: Cache .NET SDK
         uses: actions/cache@v4
         with:
@@ -1383,22 +1390,76 @@ jobs:
           restore-keys: dotnet-sdk-container-ubuntu2204-
 
       # actions/setup-dotnet is deliberately NOT used here. It is a node action
-      # that shells out to this same dotnet-install.sh, so it would add a layer
-      # whose behaviour inside a bare container is unproven, to gain only the
+      # that shells out to dotnet-install.sh, so it would add a layer whose
+      # behaviour inside a bare container is unproven, to gain only the
       # `cache: true` NuGet cache - which is one actions/cache block below.
-      # Calling the script directly is what was actually verified end-to-end in
-      # ubuntu:22.04.
       #
-      # --jsonfile global.json, NOT --version <literal>: the SDK version is read
-      # out of global.json itself, so this can never drift from the pin. Verified:
-      # `dotnet-install.sh --jsonfile global.json --dry-run` resolves to
-      # dotnet-sdk-10.0.400-linux-x64, matching global.json's `sdk.version`.
+      # dotnet-install.sh is not used either, and that IS a change: this step used
+      # to `curl` it from the dot.net redirector and execute it. Transport was
+      # hardened (`--proto '=https' --tlsv1.2`) but the content never was - so this
+      # lane executed mutable remote script content before compiling the artifacts
+      # users install, which is precisely the property the pinned+checksummed rustup
+      # bootstrap below was changed to remove. Doing it here too: fetch the SDK
+      # tarball and its published .sha512 sidecar, verify, then extract. Nothing
+      # downloaded is executed before it has been verified.
+      #
+      # The version is READ OUT OF global.json (jq), never a literal, so this cannot
+      # drift from the pin the win/osx jobs get via setup-dotnet's global-json-file
+      # input - that was the whole reason the old code passed `--jsonfile global.json`.
+      # Behaviour difference worth stating: dotnet-install.sh --jsonfile honoured
+      # `rollForward: latestPatch` and could therefore install a NEWER 10.0.4xx patch
+      # than the pin names, while this installs exactly `sdk.version`. That is
+      # strictly more reproducible, matches the actions/cache key (which is
+      # hashFiles('global.json')), and global.json's rollForward still governs which
+      # installed SDK `dotnet build` selects.
+      #
+      # Per-arch by `uname -m`, so this runs unchanged on an arm64 leg. An
+      # unrecognised architecture is a hard error, not a silent fallthrough.
       - name: Install .NET SDK (version pinned by global.json)
         run: |
           set -euo pipefail
-          curl -sSL --proto '=https' --tlsv1.2 https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
-          chmod +x /tmp/dotnet-install.sh
-          /tmp/dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet"
+          sdk_version="$(jq -re '.sdk.version' global.json)"
+          case "$(uname -m)" in
+            x86_64)  sdk_rid=linux-x64 ;;
+            aarch64) sdk_rid=linux-arm64 ;;
+            *) echo "no pinned .NET SDK download for architecture $(uname -m)" >&2; exit 1 ;;
+          esac
+          tarball="dotnet-sdk-${sdk_version}-${sdk_rid}.tar.gz"
+          base_url="https://builds.dotnet.microsoft.com/dotnet/Sdk/${sdk_version}"
+          if [[ -d "$HOME/.dotnet/sdk/$sdk_version" ]]; then
+            # actions/cache above restored it; the old script self-no-opped here.
+            echo "SDK $sdk_version already present in \$HOME/.dotnet (cache hit); skipping download"
+          else
+            curl --proto '=https' --tlsv1.2 -sSfL -o "/tmp/$tarball"        "$base_url/$tarball"
+            curl --proto '=https' --tlsv1.2 -sSfL -o "/tmp/$tarball.sha512" "$base_url/$tarball.sha512"
+            # NOT `sha512sum -c`: the sidecar's shape is not contractual across
+            # .NET's download hosts. builds.dotnet.microsoft.com currently serves the
+            # two-column "<hash>  <filename>" form, but the older dotnetcli.* CDN
+            # sidecars are a BARE hash with no filename, which `sha512sum -c` rejects
+            # outright ("no properly formatted checksum lines found"). Taking field 1
+            # of line 1 reads both shapes; the hex-digest assertion is what stops it
+            # from quietly accepting an error page, a truncated body or an empty file
+            # instead - without it, a garbage sidecar would compare unequal for the
+            # wrong reason, or (if empty) not compare at all.
+            expected="$(awk 'NR==1 { print tolower($1) }' "/tmp/$tarball.sha512")"
+            [[ "$expected" =~ ^[0-9a-f]{128}$ ]] \
+              || { echo "::error::$tarball.sha512 is not a SHA-512 hex digest (got '${expected:0:80}') - refusing to install an unverified SDK" >&2; exit 1; }
+            actual="$(sha512sum "/tmp/$tarball" | awk '{ print tolower($1) }')"
+            if [[ "$expected" != "$actual" ]]; then
+              echo "::error::sha512 mismatch for $tarball" >&2
+              echo "  expected: $expected" >&2
+              echo "  actual:   $actual" >&2
+              exit 1
+            fi
+            echo "sha512 verified for $tarball: $actual"
+            mkdir -p "$HOME/.dotnet"
+            tar -xzf "/tmp/$tarball" -C "$HOME/.dotnet"
+            # A verified tarball of the wrong SHAPE would otherwise leave a $HOME
+            # /.dotnet that PATH points at and nothing in it, failing later with a
+            # confusing "dotnet: not found" instead of here.
+            [[ -x "$HOME/.dotnet/dotnet" && -d "$HOME/.dotnet/sdk/$sdk_version" ]] \
+              || { echo "::error::extracted SDK has no dotnet/sdk/$sdk_version - wrong payload shape" >&2; exit 1; }
+          fi
           # Both entries: `dotnet` itself, and the global-tool shim dir that
           # `dotnet tool install -g vpk` writes into. Neither is on PATH in a
           # container, unlike on the hosted runner image.
