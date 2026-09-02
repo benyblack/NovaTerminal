@@ -1128,10 +1128,11 @@ public sealed class VerticalTabStripTests
             window.ApplyTabLayout();
             Dispatcher.UIThread.RunJobs();
 
-            // The deterministic startup bundle creates dozens of tabs, so "no overflow"
-            // must be reached by enlarging the viewport, not by assuming a small strip:
-            // size the window to fit every actual row (with headroom) and let layout
-            // settle before the asserting pass.
+            // The startup tab count is machine-dependent (TryRestoreStartupSession
+            // restores whatever the real saved-session file holds), so "no overflow"
+            // cannot be reached by assuming any fixed strip size: the test is robust
+            // because it sizes the window from the ACTUAL row count (with headroom)
+            // and lets layout settle before the asserting pass.
             var tabs = window.FindControl<TabControl>("Tabs")!;
             int rowCount = tabs.Items.Count;
             Assert.True(rowCount > 0);

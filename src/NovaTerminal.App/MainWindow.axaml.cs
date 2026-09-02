@@ -1803,7 +1803,8 @@ namespace NovaTerminal
         /// UpdateTabHeaderViewport), or selection shifts (SelectionChanged →
         /// UpdateTabHeaderViewport), all of which already re-run this. Colors are reapplied
         /// on every visible pass so a theme change takes effect without a tab/viewport
-        /// change (two small brush allocations, same precedent as UpdateTabVisuals).</summary>
+        /// change (two small brush allocations - pill background and pill text
+        /// foreground - same precedent as UpdateTabVisuals).</summary>
         private void UpdateTabOverflowPill(ScrollViewer scrollViewer)
         {
             var pill = FindTabTemplatePart<Button>("PART_TabOverflowPill");
@@ -1832,6 +1833,10 @@ namespace NovaTerminal
                 return;
             }
 
+            // Occlusion semantics: the pill overlays the bottom ~25px of the viewport,
+            // so the lowest strictly-fully-visible row may be counted hidden (an
+            // undercount of one at most) - the semantic is "row doesn't fully fit
+            // above the pill", an accepted approximation matching the title-bar badge.
             int hiddenCount = CountHiddenTabs(
                 scrollViewer.Bounds.Height,
                 tabs.Items.Cast<TabItem>().Select(t => t.Bounds.Height),
@@ -1844,10 +1849,10 @@ namespace NovaTerminal
 
             var theme = _settings.ActiveTheme;
             pill.Background = new SolidColorBrush(theme.Background.ToAvaloniaColor());
-            // Same luminance-contrast pick as UpdateTabVisuals' header text, so the pill
-            // reads on both light and dark theme backgrounds.
-            double luminance = (0.299 * theme.Background.R + 0.587 * theme.Background.G + 0.114 * theme.Background.B) / 255.0;
-            pillText.Foreground = luminance > 0.5 ? Brushes.Black : Brushes.White;
+            // Same luminance-contrast pick as UpdateTabVisuals' header text, via the
+            // shared GetContrastForeground helper, so the pill reads on both light
+            // and dark theme backgrounds.
+            pillText.Foreground = new SolidColorBrush(theme.GetContrastForeground().ToAvaloniaColor());
             pillText.Text = $"+{hiddenCount} more";
             pill.IsVisible = true;
         }
@@ -6430,8 +6435,8 @@ namespace NovaTerminal
             CommandRegistry.Register("Close Pane", "General", () => CloseActivePane(), GetEffectiveShortcutBinding("close_pane", "Ctrl+Shift+W"), "close_pane");
             CommandRegistry.Register("Tab: Next (MRU)", "General", () => SwitchTabByMru(reverse: false), GetEffectiveShortcutBinding("next_tab", "Ctrl+Tab"), "next_tab");
             CommandRegistry.Register("Tab: Previous (MRU)", "General", () => SwitchTabByMru(reverse: true), GetEffectiveShortcutBinding("prev_tab", "Ctrl+Shift+Tab"), "prev_tab");
-            CommandRegistry.Register("Tab: Move Up", "General", () => MoveSelectedTab(-1), GetEffectiveShortcutBinding("move_tab_prev", "Ctrl+Shift+PageUp"), "move_tab_prev");
-            CommandRegistry.Register("Tab: Move Down", "General", () => MoveSelectedTab(1), GetEffectiveShortcutBinding("move_tab_next", "Ctrl+Shift+PageDown"), "move_tab_next");
+            CommandRegistry.Register("Tab: Move Previous", "General", () => MoveSelectedTab(-1), GetEffectiveShortcutBinding("move_tab_prev", "Ctrl+Shift+PageUp"), "move_tab_prev");
+            CommandRegistry.Register("Tab: Move Next", "General", () => MoveSelectedTab(1), GetEffectiveShortcutBinding("move_tab_next", "Ctrl+Shift+PageDown"), "move_tab_next");
             CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), GetEffectiveShortcutBinding(TitleBarCatalog.OpenTabListId, "Ctrl+Shift+O"), TitleBarCatalog.OpenTabListId);
             CommandRegistry.Register("Tabs: Toggle Vertical Tab Sidebar", "General", () => ToggleTabOrientation(), GetEffectiveShortcutBinding("toggle_tab_orientation", "Ctrl+Shift+L"), "toggle_tab_orientation");
             CommandRegistry.Register("Tab: Rename Current", "General", () => _ = RenameSelectedTabAsync(), "");
