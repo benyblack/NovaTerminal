@@ -534,7 +534,7 @@ set -euo pipefail
 # test, which reads the same '-' the same way.
 print_debian_version() {
   local v="${1#v}"
-  printf '%s-1\n' "${v/-/~}"
+  printf '%s-1\n' "${v/-/\~}"
 }
 
 if [[ "${1:-}" == "--print-debian-version" ]]; then
@@ -725,7 +725,7 @@ docker run --rm -v "$PWD:/w" -w /w koalaman/shellcheck:stable \
   packaging/linux/build-deb.sh packaging/linux/test-build-deb.sh
 ```
 
-Fix anything at `warning` or above. Note `${v/-/~}` needs no escaping: tilde expansion does not apply inside a parameter-expansion replacement.
+Fix anything at `warning` or above. Note the tilde in `${v/-/\~}` MUST be escaped (or single-quoted): bash DOES apply tilde expansion to the replacement text of `${param/pattern/string}`, so a bare `~` becomes `$HOME` and the version turns into `0.5.0/rootbeta.1`. Verified on bash 5.1 and 5.2. (An earlier revision of this plan asserted the opposite and was wrong — the Task 2 test harness caught it on all three prerelease vectors.)
 
 - [ ] **Step 7: Commit**
 
