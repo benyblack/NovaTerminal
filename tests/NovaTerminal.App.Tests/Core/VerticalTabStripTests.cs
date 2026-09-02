@@ -440,14 +440,15 @@ public sealed class VerticalTabStripTests
                 KeyModifiers.None, MouseButton.Left));
     }
 
-    // Vertical strip with extra plain tabs to reorder. Plain TabItems bypass AddTab (which
-    // would spawn a real PTY per tab - same trick as AddWidePlainTabs above); re-applying
-    // the layout rebuilds every header through the wired factories, so the added tabs get
-    // drag-wired vertical header hosts.
-    private static NovaTerminal.MainWindow CreateShownVerticalWindowWithPlainTabs(int plainTabCount)
+    // Strip (either orientation) with extra plain tabs to reorder. Plain TabItems bypass
+    // AddTab (which would spawn a real PTY per tab - same trick as AddWidePlainTabs
+    // above); re-applying the layout rebuilds every header through the wired factories,
+    // so the added tabs get drag-wired header hosts (vertical rows or plain horizontal
+    // headers, per <paramref name="orientation"/>).
+    private static NovaTerminal.MainWindow CreateShownStripWindowWithPlainTabs(int plainTabCount, string orientation)
     {
         var window = CreateShownWindow();
-        GetSettings(window).TabStripOrientation = "Vertical";
+        GetSettings(window).TabStripOrientation = orientation;
         window.ApplyTabLayout();
         Dispatcher.UIThread.RunJobs();
 
@@ -466,6 +467,9 @@ public sealed class VerticalTabStripTests
         Dispatcher.UIThread.RunJobs();
         return window;
     }
+
+    private static NovaTerminal.MainWindow CreateShownVerticalWindowWithPlainTabs(int plainTabCount)
+        => CreateShownStripWindowWithPlainTabs(plainTabCount, "Vertical");
 
     private static Point HeaderCenterInWindow(Control headerHost, Window window)
     {
@@ -520,6 +524,48 @@ public sealed class VerticalTabStripTests
         // Pointer below tab 2's center -> insert index 3 -> dragged tab (from slot 0) lands
         // at index 2; anything below the drop point (startup-restore tabs included) keeps
         // its relative order.
+        var expected = new List<TabItem> { before[1], before[2], dragged };
+        expected.AddRange(before.Skip(3));
+        Assert.Equal(expected, after);
+        Assert.Same(dragged, tabs.SelectedItem);
+    }
+
+    // The drag math is axis-generic (TabDragModel has no orientation concept), but the
+    // commit path above only exercised it vertically. This mirrors it along X through a
+    // real horizontal strip (orientation via _settings.TabStripOrientation +
+    // ApplyTabLayout, headers rebuilt through the wired horizontal factory) so the
+    // horizontal wiring - X axis selection, Height-side indicator thickness - is pinned
+    // end-to-end too.
+    [AvaloniaFact]
+    public void DragReorder_Commit_HorizontalStrip_ReordersAlongX_AndRestoresSelection()
+    {
+        var window = CreateShownStripWindowWithPlainTabs(plainTabCount: 2, orientation: "Horizontal");
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var before = tabs.Items.Cast<TabItem>().ToList();
+        Assert.True(before.Count >= 3, "reorder needs at least three tabs");
+        var dragged = before[0];
+        var host0 = HeaderHostOf(dragged);
+        var host2 = HeaderHostOf(before[2]);
+
+        var driver = new PointerDriver();
+        var pressPos = HeaderCenterInWindow(host0, window);
+        driver.Press(host0, window, pressPos);
+
+        // Cross the start threshold (>= 5 DIP along the strip axis - X here), still over tab 0.
+        driver.Move(host0, window, new Point(pressPos.X + 6, pressPos.Y));
+        Assert.True(window.IsTabReorderDraggingForTest, "past-threshold move must begin the drag");
+        Assert.Equal(0.5, host0.Opacity, 5);
+
+        // Drop past tab 2's center: insert index = count, so the dragged tab lands last.
+        var pastTab2 = new Point(HeaderCenterInWindow(host2, window).X + 4, pressPos.Y);
+        driver.Move(host0, window, pastTab2);
+        driver.Release(host0, window, pastTab2);
+
+        Assert.False(window.IsTabReorderDraggingForTest);
+        Assert.Equal(1, host0.Opacity, 5);
+
+        var after = tabs.Items.Cast<TabItem>().ToList();
+        Assert.Equal(before.Count, after.Count);
         var expected = new List<TabItem> { before[1], before[2], dragged };
         expected.AddRange(before.Skip(3));
         Assert.Equal(expected, after);

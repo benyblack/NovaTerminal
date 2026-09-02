@@ -172,8 +172,9 @@ namespace NovaTerminal
         // microseconds before selection is restored - the SelectionChanged handler bails on
         // that transient promotion (see the guard at its top).
         private bool _isTabReorderCommitting;
-        // Hoisted like TabAttentionBrush: assigned on every drag start, not per-move.
-        private static readonly IBrush TabInsertIndicatorBrush = new SolidColorBrush(Color.Parse("#4FB0D4"));
+        // Single source of truth for the indicator's thickness (applied along Width in
+        // vertical mode, Height in horizontal - the XAML element deliberately sets no
+        // size). Brush/alignment live in the template XAML.
         private const double TabInsertIndicatorThickness = 2;
         private const double TabInsertIndicatorMinLength = 16;
 
@@ -866,6 +867,21 @@ namespace NovaTerminal
             if (_isTabReorderDragging)
             {
                 if (!ReferenceEquals(e.Pointer.Captured, headerHost)) return;
+
+                // Zombie-drag guard: the release event can be lost outright (quake-mode
+                // ToggleVisibility -> Hide() mid-drag), leaving capture set and the drag
+                // "alive" on the hidden window - the auto-scroll timer keeps ticking and,
+                // after re-show, buttonless hover moves keep driving the drag until some
+                // stray click commits an unintended reorder. A move with the button up
+                // means the gesture is physically over: cancel - never commit - through
+                // the same capture-releasing cleanup Escape uses. Mirrors the armed
+                // branch's staleness check below.
+                if (!e.GetCurrentPoint(headerHost).Properties.IsLeftButtonPressed)
+                {
+                    CancelTabReorderDrag();
+                    return;
+                }
+
                 UpdateTabDrag(e);
                 return;
             }
@@ -1008,14 +1024,13 @@ namespace NovaTerminal
             }
 
             // Length spans the dragged header's row/column (2px thick along the other axis),
-            // centered in the strip along the cross-axis.
+            // centered in the strip along the cross-axis. Background and alignment are
+            // constant, set once in the template XAML - only the per-drag values (thickness
+            // axis, length, margin, visibility) are assigned here.
             double crossLength = _isVerticalTabStrip
                 ? Math.Max(TabInsertIndicatorMinLength, _tabDragPressedHost?.Bounds.Height ?? 0)
                 : Math.Max(TabInsertIndicatorMinLength, _tabDragPressedHost?.Bounds.Width ?? 0);
 
-            indicator.Background = TabInsertIndicatorBrush;
-            indicator.HorizontalAlignment = HorizontalAlignment.Left;
-            indicator.VerticalAlignment = VerticalAlignment.Top;
             if (_isVerticalTabStrip)
             {
                 indicator.Width = TabInsertIndicatorThickness;
@@ -1061,21 +1076,33 @@ namespace NovaTerminal
                 ? scrollViewer.Extent.Height - scrollViewer.Viewport.Height
                 : scrollViewer.Extent.Width - scrollViewer.Viewport.Width;
             double next = Math.Clamp(offset + delta, 0, Math.Max(0, maxOffset));
-            scrollViewer.Offset = vertical
-                ? new Vector(scrollViewer.Offset.X, next)
-                : new Vector(next, scrollViewer.Offset.Y);
 
-            // Content scrolled under the parked pointer: its content-space position
-            // (viewport + offset) moved with it, so re-derive the insert index instead of
+            // Content scrolled under the parked pointer, so its content-space position
+            // (viewport + offset) moved with it: re-derive the insert index instead of
             // letting the drop gap lag behind the headers until the next pointer move.
+            //
+            // Ordering constraint: assigning Offset only invalidates arrange - the
+            // header bounds and the presenter->sidebar transform below still measure
+            // PRE-scroll geometry until the next layout pass. So everything here must
+            // derive from the PRE-scroll `offset`: pointer content-space =
+            // _tabDragPointerAxisPos + offset, the same frame GetTabHeaderBoundsInStrip
+            // reports. Mixing post-scroll pointer math (`+ next`) with pre-scroll bounds
+            // desynchronizes the indicator and drop index by up to one 12 DIP step, so a
+            // drop right after a scroll tick could pick the neighboring slot. Only move
+            // the Offset afterwards; layout catches up by the next tick (33ms), which
+            // then recomputes from the settled offset.
             var bounds = GetTabHeaderBoundsInStrip();
             if (bounds.Count > 0)
             {
                 _tabDragInsertIndex = TabDragModel.ComputeInsertIndex(
-                    HeaderCenters(bounds), _tabDragPointerAxisPos + next);
+                    HeaderCenters(bounds), _tabDragPointerAxisPos + offset);
             }
 
             PositionTabInsertIndicator(bounds);
+
+            scrollViewer.Offset = vertical
+                ? new Vector(scrollViewer.Offset.X, next)
+                : new Vector(next, scrollViewer.Offset.Y);
         }
 
         private void OnTabReorderPointerReleased(TabItem tab, Border headerHost, PointerReleasedEventArgs e)
@@ -3257,7 +3284,13 @@ namespace NovaTerminal
                 // An in-flight tab reorder drag owns the pointer; Escape aborts it before
                 // anything else - in particular before the broadcast-to-panes fallback at
                 // the bottom of this handler, which would otherwise also feed the raw ESC
-                // byte to the terminals while the user is only canceling a drag.
+                // byte to the terminals while the user is only canceling a drag. That
+                // priority holds only because this handler is registered with
+                // RoutingStrategies.Tunnel (the AddHandler call near the bottom of
+                // OnOpened): the tunneling window handler runs before the focused
+                // TerminalView's bubble-phase Escape handling (which sends "\x1b" to the
+                // PTY), so the drag is canceled and the event marked handled before the
+                // key could reach the pane.
                 if (_isTabReorderDragging && e.Key == Key.Escape)
                 {
                     CancelTabReorderDrag();
@@ -7481,6 +7514,9 @@ namespace NovaTerminal
             _recordingToastTimer.Stop();
             _updateCheckTimer.Stop();
             _tabStatusTimer?.Stop();
+            // A mid-drag close can beat the release/capture-lost cleanup, and a live
+            // DispatcherTimer would keep ticking (and rooting) the closed window.
+            _tabDragAutoScrollTimer?.Stop();
             _globalHotkey?.Dispose();
             // Dispose the snapshot scheduler before the agent-host teardown below: its Dispose
             // performs a best-effort final flush, which writes a snapshot, which logs — and the
