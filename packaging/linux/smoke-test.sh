@@ -134,7 +134,30 @@ echo "=== Container 2: GUI launch (xvfb permitted) ==="
 # launch below fails on a perfectly good AppImage - the same false-gate class the
 # dpkg-excludes fix in Container 1 exists to prevent. `apt-get install libfuse2`
 # alone only supplies the library, not the device or the privilege to use it.
-docker run --rm --device /dev/fuse --cap-add SYS_ADMIN -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
+#
+# --security-opt apparmor:unconfined: with `fuse` installed (setuid fusermount
+# present), /dev/fuse passed, and CAP_SYS_ADMIN granted - which is normally
+# sufficient for a FUSE mount - the FUSE-mounted launch on GitHub's runners still
+# failed with "fuse: mount failed: Permission denied" / "Cannot mount AppImage,
+# please check your FUSE setup." The remaining difference between GitHub's Ubuntu
+# runners and a plain container host is AppArmor: GitHub's runners have the
+# AppArmor kernel module enabled and Docker applies its `docker-default` profile,
+# which denies the `mount` syscall outright regardless of capabilities. That is
+# the documented cause of exactly this error when fusermount is otherwise working.
+# This flag disables the AppArmor confinement Docker would otherwise apply to
+# THIS container only - it is scoped to the smoke test's throwaway launch
+# container, confers nothing on the shipped .deb/AppImage artifact, and does not
+# touch Container 1 (which never mounts anything and must not gain it).
+#
+# THIS IS UNVERIFIED LOCALLY. Docker Desktop on this dev machine reports no
+# AppArmor module at all (`docker info` security options show only seccomp and
+# cgroupns), so the failure mode this flag targets cannot be reproduced or
+# exercised here - the flag is inert on this host by construction, not proven
+# effective. Confirm or refute via an actual CI run on GitHub's runners, not by
+# further local testing. If this does not fix it, that is a decision for a human
+# to make about the mounted-launch gate, not something to silently work around
+# here (e.g. by skipping or downgrading this assertion).
+docker run --rm --device /dev/fuse --cap-add SYS_ADMIN --security-opt apparmor:unconfined -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
   export DEBIAN_FRONTEND=noninteractive
 
   # Same dpkg excludes fix as Container 1 - see the comment there. Not load-bearing
