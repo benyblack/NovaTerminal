@@ -46,6 +46,17 @@ repo_root="$(cd "$here/../.." && pwd)"
 [[ -d "$publish_dir" ]] || { echo "publish dir not found: $publish_dir" >&2; exit 1; }
 [[ -f "$publish_dir/NovaTerminal" ]] || { echo "no NovaTerminal binary in $publish_dir" >&2; exit 1; }
 
+# Preflight the tools dependency derivation needs. Without this, a missing 'file' or
+# 'dpkg-query' does not fail the build - find/grep just match nothing, and
+# 2>/dev/null + `|| true` around dpkg-query swallow the rest - so the script exits 0
+# having shipped a .deb with an incomplete Depends: (missing libstdc++6, libssl3,
+# whatever libSkiaSharp.so really links), an install that succeeds and then fails at
+# load time on a clean machine with nothing in the build log to explain why. That is
+# exactly the failure mode the two-mechanism dependency design exists to prevent.
+for _tool in dpkg-deb dpkg-query file ldd; do
+  command -v "$_tool" >/dev/null 2>&1 || { echo "missing required tool: $_tool" >&2; exit 1; }
+done
+
 debver="$(print_debian_version "$version")"
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
@@ -134,15 +145,23 @@ chmod 0644 "$stage/usr/share/man/man1/nova.1.gz"
 # Derived at packaging time from the one committed PNG, which stays the single
 # cross-platform source of truth (same principle as packaging/macos/make-icns.sh).
 icon_src="$repo_root/src/NovaTerminal.App/Assets/nova_icon.png"
-if command -v magick >/dev/null 2>&1; then
-  resize() { magick "$1" -resize "$2x$2" "$3"; }        # ImageMagick 7
-elif command -v convert >/dev/null 2>&1; then
-  resize() { convert "$1" -resize "$2x$2" "$3"; }       # ImageMagick 6 (ubuntu-22.04)
-else
-  resize() { return 1; }
-fi
 
 if [[ -f "$icon_src" ]]; then
+  # A missing resize tool is fatal, not a warn-and-continue case like an individual
+  # failed resize below: with no tool at all, EVERY size would install the same
+  # unscaled source file unchanged into all six hicolor buckets - a broken icon theme
+  # (wrong sizes everywhere) shipped silently, which is exactly what the spec's
+  # app-menu-icon acceptance criterion exists to catch. A single size occasionally
+  # failing to scale is tolerable degradation; having no scaler at all is not.
+  if command -v magick >/dev/null 2>&1; then
+    resize() { magick "$1" -resize "$2x$2" "$3"; }        # ImageMagick 7
+  elif command -v convert >/dev/null 2>&1; then
+    resize() { convert "$1" -resize "$2x$2" "$3"; }       # ImageMagick 6 (ubuntu-22.04)
+  else
+    echo "error: no image resize tool found (need ImageMagick 'magick' or 'convert') - cannot build a valid hicolor icon theme" >&2
+    exit 1
+  fi
+
   for size in 16 32 48 64 128 256; do
     dir="$stage/usr/share/icons/hicolor/${size}x${size}/apps"
     install -d "$dir"
