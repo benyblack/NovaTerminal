@@ -80,6 +80,11 @@ runs:
           exit 1
         fi
 
+        # Every keychain reference below uses this explicit full path, never the bare
+        # name: `security` resolves bare names suffix-flexibly (name, name.keychain,
+        # name.keychain-db), but notarytool — and vpk's codesign call — take literal
+        # file paths and fail with "file doesn't exist" on the unresolved variant.
+        # Creating with an explicit path guarantees the exact file exists.
         keychain="$HOME/Library/Keychains/build.keychain"
         cert_dir=$(mktemp -d)
         cert_path="$cert_dir/cert.p12"
@@ -88,30 +93,36 @@ runs:
         trap 'rm -rf "$cert_dir"' EXIT
         printf '%s' "$CERT_P12_BASE64" | base64 --decode > "$cert_path"
 
-        security create-keychain -p "$CERT_PASSWORD" build.keychain
+        security create-keychain -p "$CERT_PASSWORD" "$keychain"
+        # Turn any future path mismatch into a named failure here, before notarytool
+        # or vpk surface it as a confusing "file doesn't exist".
+        if [[ ! -f "$keychain" ]]; then
+          echo "::error::security create-keychain did not produce '$keychain'." >&2
+          exit 1
+        fi
         # 6h autolock so the identity stays usable for the whole job, including vpk's
         # synchronous wait for Apple to finish notarizing.
-        security set-keychain-settings -lut 21600 build.keychain
-        security unlock-keychain -p "$CERT_PASSWORD" build.keychain
+        security set-keychain-settings -lut 21600 "$keychain"
+        security unlock-keychain -p "$CERT_PASSWORD" "$keychain"
         # -T names the binaries allowed to use the key without a prompt; productbuild
         # sits beside codesign because vpk signs the .pkg with it.
-        security import "$cert_path" -k build.keychain -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+        security import "$cert_path" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
         # openssl can only place one private key in a p12, so the no-Mac route carries
         # the Installer identity in a second file; the Mac Keychain Access single
         # export folds both into cert.p12 and never sets this input.
         if [[ -n "${INSTALLER_P12_BASE64:-}" ]]; then
           installer_path="$cert_dir/installer.p12"
           printf '%s' "$INSTALLER_P12_BASE64" | base64 --decode > "$installer_path"
-          security import "$installer_path" -k build.keychain -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+          security import "$installer_path" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
         fi
         # Non-interactive key access for those Apple-signed tools.
-        security set-key-partition-list -S apple-tool:,apple: -k "$CERT_PASSWORD" build.keychain
-        # build.keychain first in the search list: vpk passes --keychain to codesign
-        # explicitly, but productbuild and notarytool resolve identities and the stored
-        # profile through the user search list.
-        security list-keychain -d user -s build.keychain login
+        security set-key-partition-list -S apple-tool:,apple: -k "$CERT_PASSWORD" "$keychain"
+        # The build keychain first in the search list: vpk passes --keychain to
+        # codesign explicitly, but productbuild and notarytool resolve identities and
+        # the stored profile through the user search list.
+        security list-keychain -d user -s "$keychain" login
 
-        identities=$(security find-identity -v build.keychain)
+        identities=$(security find-identity -v "$keychain")
         echo "$identities"
         if [[ "$identities" != *"$SIGN_APP_IDENTITY"* ]]; then
           echo "::error::Developer ID Application identity '$SIGN_APP_IDENTITY' not found in the keychain imported from MAC_CERT_P12_BASE64." >&2
