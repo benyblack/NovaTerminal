@@ -54,14 +54,6 @@ public static class MarkdownRenderer
         .DisableHtml()
         .Build();
 
-    // Fixed fallback palette, matching the pane's other hand-styled surfaces.
-    private static readonly IBrush FallbackForeground = new SolidColorBrush(Color.FromRgb(0xF3, 0xF6, 0xFA));
-    private static readonly IBrush FallbackSecondary = new SolidColorBrush(Color.FromRgb(0x96, 0xA0, 0xAE));
-    private static readonly IBrush FallbackCodeBackground = new SolidColorBrush(Color.FromRgb(0x16, 0x18, 0x1C));
-    private static readonly IBrush FallbackPanel = new SolidColorBrush(Color.FromRgb(0x1B, 0x1D, 0x21));
-    private static readonly IBrush FallbackHairline = new SolidColorBrush(Color.FromRgb(0x2A, 0x2F, 0x35));
-    private static readonly IBrush FallbackAccent = new SolidColorBrush(Color.FromRgb(0x4C, 0x8B, 0xD8));
-
     /// <param name="markdown">The raw markdown source.</param>
     /// <param name="resourceAnchor">
     /// Element whose resource scope the <c>Nt*</c> brushes are resolved from (usually the panel).
@@ -75,7 +67,7 @@ public static class MarkdownRenderer
         Action<string>? onOpenLink = null)
     {
         MarkdownDocument document = Markdown.Parse(markdown ?? string.Empty, Pipeline);
-        var theme = Theme.Resolve(resourceAnchor);
+        var theme = MarkdownTheme.Resolve(resourceAnchor);
 
         var root = new StackPanel { Spacing = 2 };
         AppendBlocks(root.Children, document, theme, onCopyText, onOpenLink);
@@ -85,7 +77,7 @@ public static class MarkdownRenderer
     private static void AppendBlocks(
         IList<Control> target,
         IEnumerable<Block> blocks,
-        Theme theme,
+        MarkdownTheme theme,
         Action<string>? onCopyText,
         Action<string>? onOpenLink)
     {
@@ -136,7 +128,7 @@ public static class MarkdownRenderer
         }
     }
 
-    private static Control BuildHeading(HeadingBlock heading, Theme theme)
+    private static Control BuildHeading(HeadingBlock heading, MarkdownTheme theme)
     {
         double size = heading.Level switch
         {
@@ -161,7 +153,7 @@ public static class MarkdownRenderer
 
     private static Control BuildParagraph(
         ParagraphBlock paragraph,
-        Theme theme,
+        MarkdownTheme theme,
         Action<string>? onCopyText,
         Action<string>? onOpenLink)
     {
@@ -179,7 +171,7 @@ public static class MarkdownRenderer
     private static Control BuildCodeBlock(
         string code,
         string? language,
-        Theme theme,
+        MarkdownTheme theme,
         Action<string>? onCopyText)
     {
         var codeText = new SelectableTextBlock
@@ -245,7 +237,7 @@ public static class MarkdownRenderer
 
     private static Control BuildList(
         ListBlock list,
-        Theme theme,
+        MarkdownTheme theme,
         Action<string>? onCopyText,
         Action<string>? onOpenLink)
     {
@@ -291,7 +283,7 @@ public static class MarkdownRenderer
 
     private static Control BuildQuote(
         QuoteBlock quote,
-        Theme theme,
+        MarkdownTheme theme,
         Action<string>? onCopyText,
         Action<string>? onOpenLink)
     {
@@ -325,7 +317,7 @@ public static class MarkdownRenderer
 
     private static Control BuildTable(
         Table table,
-        Theme theme,
+        MarkdownTheme theme,
         Action<string>? onCopyText,
         Action<string>? onOpenLink)
     {
@@ -392,7 +384,7 @@ public static class MarkdownRenderer
     private static void AppendInlines(
         InlineCollection target,
         ContainerInline? container,
-        Theme theme,
+        MarkdownTheme theme,
         Action<string>? onCopyText,
         Action<string>? onOpenLink)
     {
@@ -475,7 +467,7 @@ public static class MarkdownRenderer
     private static void AppendEmphasis(
         InlineCollection target,
         EmphasisInline emphasis,
-        Theme theme,
+        MarkdownTheme theme,
         Action<string>? onCopyText,
         Action<string>? onOpenLink)
     {
@@ -504,7 +496,7 @@ public static class MarkdownRenderer
     private static void AppendLink(
         InlineCollection target,
         LinkInline link,
-        Theme theme,
+        MarkdownTheme theme,
         Action<string>? onOpenLink)
     {
         AppendLinkTarget(target, link.Url, GetLiteralText(link), theme, onOpenLink);
@@ -514,7 +506,7 @@ public static class MarkdownRenderer
         InlineCollection target,
         string url,
         string label,
-        Theme theme,
+        MarkdownTheme theme,
         Action<string>? onOpenLink)
     {
         var linkText = new TextBlock
@@ -640,36 +632,4 @@ public static class MarkdownRenderer
         }
     }
 
-    /// <summary>Resolved brush set for one render pass.</summary>
-    private sealed class Theme
-    {
-        internal required IBrush Foreground { get; init; }
-        internal required IBrush Secondary { get; init; }
-        internal required IBrush CodeBackground { get; init; }
-        internal required IBrush PanelBackground { get; init; }
-        internal required IBrush Hairline { get; init; }
-        internal required IBrush Accent { get; init; }
-
-        internal static Theme Resolve(StyledElement anchor)
-        {
-            return new Theme
-            {
-                Foreground = Find(anchor, "NtFg", FallbackForeground),
-                Secondary = Find(anchor, "NtFg3", FallbackSecondary),
-                CodeBackground = Find(anchor, "NtPanelAlt", FallbackCodeBackground),
-                PanelBackground = Find(anchor, "NtPanel", FallbackPanel),
-                Hairline = Find(anchor, "NtHairline", FallbackHairline),
-                Accent = Find(anchor, "NtBlue", FallbackAccent),
-            };
-        }
-
-        private static IBrush Find(StyledElement anchor, string key, IBrush fallback)
-        {
-            // Control themes put brushes in as object values; anything that is not a brush
-            // (an unexpected override) degrades to the fixed fallback rather than crashing.
-            return anchor.TryFindResource(key, out object? value) && value is IBrush brush
-                ? brush
-                : fallback;
-        }
-    }
 }
