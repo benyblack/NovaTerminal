@@ -1,5 +1,10 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
+using Avalonia.Controls.Primitives;
+using Avalonia.Interactivity;
 using NovaTerminal.AgentOutput;
 using Avalonia.Headless.XUnit;
 using Xunit;
@@ -111,5 +116,120 @@ public sealed class AgentOutputPanelTests
         // Agent output is untrusted: a crafted [label](target) must never name something the
         // shell handler would launch or hand to a protocol handler.
         Assert.False(AgentOutputPanel.IsSafeExternalUrl(url));
+    }
+
+    [AvaloniaFact]
+    public void SetViewModel_SyncsTheToggle_FromTheViewModel()
+    {
+        // Unreachable today (the view model always starts true), but a latent desync otherwise:
+        // the XAML pins IsChecked="True" and nothing reconciled it with an already-false flag.
+        var viewModel = new AgentOutputViewModel { RenderFencedMarkdown = false };
+        var panel = new AgentOutputPanel();
+
+        panel.SetViewModel(viewModel);
+
+        Assert.False(panel.FindControl<ToggleButton>("BtnRenderFences").IsChecked);
+    }
+
+    // ---------------------------------------------------------------- fence rendering switch
+
+    [AvaloniaFact]
+    public void FenceSwitch_IsHidden_WhenTheResponseHasNoMarkdownFence()
+    {
+        var panel = CreatePanel(out var viewModel);
+
+        viewModel.SetUpdate("# Just a heading\n\nno fences here\n", isStreaming: false);
+
+        Assert.False(panel.FindControl<ToggleButton>("BtnRenderFences").IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void FenceSwitch_IsVisible_WhenTheResponseHasAMarkdownFence()
+    {
+        var panel = CreatePanel(out var viewModel);
+
+        viewModel.SetUpdate("```markdown\n# Nested\n```\n", isStreaming: false);
+
+        Assert.True(panel.FindControl<ToggleButton>("BtnRenderFences").IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void FenceSwitch_UncheckedThenNewContent_KeepsRenderingSource()
+    {
+        var panel = CreatePanel(out var viewModel);
+        viewModel.SetUpdate("```markdown\n# First\n```\n", isStreaming: false);
+
+        ToggleButton toggle = panel.FindControl<ToggleButton>("BtnRenderFences");
+        toggle.IsChecked = false;
+        toggle.RaiseEvent(new RoutedEventArgs(ToggleButton.ClickEvent));
+
+        // The choice lives on the view model, so the next content update must not undo it - that is
+        // the whole reason the switch is panel-level rather than per-block.
+        viewModel.SetUpdate("```markdown\n# Second\n```\n", isStreaming: false);
+
+        Assert.False(viewModel.RenderFencedMarkdown);
+        Assert.Contains(
+            "# Second",
+            panel.FindControl<StackPanel>("MarkdownHost").Children
+                .OfType<Control>()
+                .SelectMany(TextOf),
+            StringComparer.Ordinal);
+    }
+
+    private static IEnumerable<string> TextOf(Control control)
+    {
+        // Markers set Text directly; paragraphs and fenced-source bodies carry Inlines instead
+        // (see MarkdownRendererTests.TextOf) - both must be checked or raw fence source (which
+        // goes through Inlines) is invisible to this helper.
+        if (control is TextBlock block)
+        {
+            if (block.Text is { Length: > 0 } text)
+            {
+                yield return text;
+            }
+            else if (block.Inlines is { Count: > 0 } inlines)
+            {
+                var builder = new System.Text.StringBuilder();
+                foreach (Inline inline in inlines)
+                {
+                    if (inline is Run run)
+                    {
+                        builder.Append(run.Text);
+                    }
+                }
+
+                if (builder.Length > 0)
+                {
+                    yield return builder.ToString();
+                }
+            }
+        }
+
+        if (control is Panel panel)
+        {
+            foreach (Control child in panel.Children)
+            {
+                foreach (string nested in TextOf(child))
+                {
+                    yield return nested;
+                }
+            }
+        }
+
+        if (control is Border { Child: Control inner })
+        {
+            foreach (string nested in TextOf(inner))
+            {
+                yield return nested;
+            }
+        }
+
+        if (control is ContentControl { Content: Control content })
+        {
+            foreach (string nested in TextOf(content))
+            {
+                yield return nested;
+            }
+        }
     }
 }
