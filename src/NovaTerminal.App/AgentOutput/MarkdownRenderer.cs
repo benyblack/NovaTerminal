@@ -14,13 +14,9 @@ using Markdig.Extensions.TaskLists;
 using Markdig.Helpers;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
-using NovaTerminal.AgentOutput.Fences;
 using MInline = Markdig.Syntax.Inlines.Inline;
 
 namespace NovaTerminal.AgentOutput;
-
-/// <summary>One render's output: the tree, and whether it contains a switch-governed block.</summary>
-public sealed record MarkdownRenderResult(Control Root, bool HasTransformBlock);
 
 /// <summary>
 /// Renders markdown text as an Avalonia control tree for the Agent Output panel.
@@ -51,24 +47,20 @@ public sealed record MarkdownRenderResult(Control Root, bool HasTransformBlock);
 /// </remarks>
 public static class MarkdownRenderer
 {
-    /// <summary>
-    /// The monospace stack every code-shaped body uses: the unhandled fence path here, and both
-    /// fence handlers in <c>AgentOutput/Fences/</c>. One constant so the switch-off source body
-    /// and the unhandled body stay visually identical by construction, not by two literals
-    /// happening to agree.
-    /// </summary>
-    internal const string MonospaceFontFamily = "Cascadia Mono PL, Consolas, Menlo, monospace";
-
-    /// <summary>
-    /// Deepest nesting a fence handler may render into. Agent output is untrusted and this tree
-    /// is rebuilt on the streaming debounce, so a fence inside a rendered fence stays source.
-    /// </summary>
-    internal const int MaxFenceDepth = 1;
+    private const string MonospaceFontFamily = "Cascadia Mono PL, Consolas, Menlo, monospace";
 
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
         .UseAdvancedExtensions()
         .DisableHtml()
         .Build();
+
+    // Fixed fallback palette, matching the pane's other hand-styled surfaces.
+    private static readonly IBrush FallbackForeground = new SolidColorBrush(Color.FromRgb(0xF3, 0xF6, 0xFA));
+    private static readonly IBrush FallbackSecondary = new SolidColorBrush(Color.FromRgb(0x96, 0xA0, 0xAE));
+    private static readonly IBrush FallbackCodeBackground = new SolidColorBrush(Color.FromRgb(0x16, 0x18, 0x1C));
+    private static readonly IBrush FallbackPanel = new SolidColorBrush(Color.FromRgb(0x1B, 0x1D, 0x21));
+    private static readonly IBrush FallbackHairline = new SolidColorBrush(Color.FromRgb(0x2A, 0x2F, 0x35));
+    private static readonly IBrush FallbackAccent = new SolidColorBrush(Color.FromRgb(0x4C, 0x8B, 0xD8));
 
     /// <param name="markdown">The raw markdown source.</param>
     /// <param name="resourceAnchor">
@@ -76,33 +68,26 @@ public static class MarkdownRenderer
     /// </param>
     /// <param name="onCopyText">Invoked when the user copies a code block or inline run.</param>
     /// <param name="onOpenLink">Invoked when the user clicks a link.</param>
-    /// <param name="renderFencedMarkdown">
-    /// The panel's fence-rendering switch; travels down the walk via <see cref="MarkdownRenderPass"/>.
-    /// </param>
-    public static MarkdownRenderResult Build(
+    public static Control Build(
         string markdown,
         StyledElement resourceAnchor,
         Action<string>? onCopyText = null,
-        Action<string>? onOpenLink = null,
-        bool renderFencedMarkdown = true)
+        Action<string>? onOpenLink = null)
     {
         MarkdownDocument document = Markdown.Parse(markdown ?? string.Empty, Pipeline);
-        var theme = MarkdownTheme.Resolve(resourceAnchor);
-        var pass = new MarkdownRenderPass { RenderFencedMarkdown = renderFencedMarkdown };
+        var theme = Theme.Resolve(resourceAnchor);
 
         var root = new StackPanel { Spacing = 2 };
-        AppendBlocks(root.Children, document, theme, onCopyText, onOpenLink, pass, depth: 0);
-        return new MarkdownRenderResult(root, pass.HasTransformBlock);
+        AppendBlocks(root.Children, document, theme, onCopyText, onOpenLink);
+        return root;
     }
 
     private static void AppendBlocks(
         IList<Control> target,
         IEnumerable<Block> blocks,
-        MarkdownTheme theme,
+        Theme theme,
         Action<string>? onCopyText,
-        Action<string>? onOpenLink,
-        MarkdownRenderPass pass,
-        int depth)
+        Action<string>? onOpenLink)
     {
         foreach (Block block in blocks)
         {
@@ -117,19 +102,19 @@ public static class MarkdownRenderer
                     break;
 
                 case FencedCodeBlock fenced:
-                    target.Add(BuildCodeBlock(GetLinesText(fenced), fenced.Info.ToString(), theme, onCopyText, onOpenLink, pass, depth));
+                    target.Add(BuildCodeBlock(GetLinesText(fenced), fenced.Info.ToString(), theme, onCopyText));
                     break;
 
                 case CodeBlock code:
-                    target.Add(BuildCodeBlock(GetLinesText(code), null, theme, onCopyText, onOpenLink, pass, depth));
+                    target.Add(BuildCodeBlock(GetLinesText(code), null, theme, onCopyText));
                     break;
 
                 case ListBlock list:
-                    target.Add(BuildList(list, theme, onCopyText, onOpenLink, pass, depth));
+                    target.Add(BuildList(list, theme, onCopyText, onOpenLink));
                     break;
 
                 case QuoteBlock quote:
-                    target.Add(BuildQuote(quote, theme, onCopyText, onOpenLink, pass, depth));
+                    target.Add(BuildQuote(quote, theme, onCopyText, onOpenLink));
                     break;
 
                 case ThematicBreakBlock:
@@ -142,7 +127,7 @@ public static class MarkdownRenderer
                     break;
 
                 case Table table:
-                    target.Add(BuildTable(table, theme, onCopyText, onOpenLink, pass, depth));
+                    target.Add(BuildTable(table, theme, onCopyText, onOpenLink));
                     break;
 
 
@@ -151,22 +136,7 @@ public static class MarkdownRenderer
         }
     }
 
-    /// <summary>Renders a fence's body as markdown, one level deeper in the same pass.</summary>
-    private static Control BuildNested(
-        string markdown,
-        MarkdownTheme theme,
-        Action<string>? onCopyText,
-        Action<string>? onOpenLink,
-        MarkdownRenderPass pass,
-        int depth)
-    {
-        MarkdownDocument document = Markdown.Parse(markdown ?? string.Empty, Pipeline);
-        var panel = new StackPanel { Spacing = 2 };
-        AppendBlocks(panel.Children, document, theme, onCopyText, onOpenLink, pass, depth);
-        return panel;
-    }
-
-    private static Control BuildHeading(HeadingBlock heading, MarkdownTheme theme)
+    private static Control BuildHeading(HeadingBlock heading, Theme theme)
     {
         double size = heading.Level switch
         {
@@ -191,7 +161,7 @@ public static class MarkdownRenderer
 
     private static Control BuildParagraph(
         ParagraphBlock paragraph,
-        MarkdownTheme theme,
+        Theme theme,
         Action<string>? onCopyText,
         Action<string>? onOpenLink)
     {
@@ -209,53 +179,17 @@ public static class MarkdownRenderer
     private static Control BuildCodeBlock(
         string code,
         string? language,
-        MarkdownTheme theme,
-        Action<string>? onCopyText,
-        Action<string>? onOpenLink,
-        MarkdownRenderPass pass,
-        int depth)
+        Theme theme,
+        Action<string>? onCopyText)
     {
-        // A whitespace-only body has nothing for a handler to transform, and the spec requires it to
-        // render as it always has. Resolving no handler is what delivers that: the unhandled path
-        // below is byte-identical to today, and HasTransformBlock stays false, so the panel does not
-        // offer a switch over a block that displays nothing. Reachable on every streaming tick where
-        // a fence opener has arrived before its body.
-        IFenceBody? handler = depth < MaxFenceDepth && !string.IsNullOrWhiteSpace(code)
-            ? FenceBodyResolver.Resolve(language)
-            : null;
-        Control body;
-        if (handler is null)
+        var codeText = new SelectableTextBlock
         {
-            var codeText = new SelectableTextBlock
-            {
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 12,
-                FontFamily = new FontFamily(MonospaceFontFamily),
-                Foreground = theme.Foreground,
-            };
-            codeText.Inlines?.Add(new Run { Text = code });
-            body = codeText;
-        }
-        else
-        {
-            if (handler.IsTransform)
-            {
-                pass.HasTransformBlock = true;
-            }
-
-            body = handler.Build(
-                code,
-                theme,
-                new FenceContext(
-                    depth,
-                    pass.RenderFencedMarkdown,
-                    // Clamped rather than forwarded verbatim: the depth cap must hold structurally,
-                    // not by convention. A handler that passed context.Depth instead of Depth + 1
-                    // would otherwise recurse without bound on attacker-influenceable text - this
-                    // seam enforces the bound so no handler can opt out of it.
-                    (nested, nestedDepth) => BuildNested(nested, theme, onCopyText, onOpenLink, pass, Math.Max(nestedDepth, depth + 1)),
-                    onCopyText));
-        }
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12,
+            FontFamily = new FontFamily(MonospaceFontFamily),
+            Foreground = theme.Foreground,
+        };
+        codeText.Inlines?.Add(new Run { Text = code });
 
         var header = new Grid { ColumnDefinitions = ColumnDefinitions.Parse("*,Auto") };
         if (!string.IsNullOrWhiteSpace(language))
@@ -302,7 +236,7 @@ public static class MarkdownRenderer
                     new Border
                     {
                         Padding = new Thickness(8, 6, 8, 8),
-                        Child = body,
+                        Child = codeText,
                     },
                 },
             },
@@ -311,11 +245,9 @@ public static class MarkdownRenderer
 
     private static Control BuildList(
         ListBlock list,
-        MarkdownTheme theme,
+        Theme theme,
         Action<string>? onCopyText,
-        Action<string>? onOpenLink,
-        MarkdownRenderPass pass,
-        int depth)
+        Action<string>? onOpenLink)
     {
         var panel = new StackPanel { Margin = new Thickness(0, 3, 0, 3) };
         int itemNumber = ParseOrderedStart(list);
@@ -347,7 +279,7 @@ public static class MarkdownRenderer
             row.Children.Add(markerText);
 
             var itemContent = new StackPanel { Spacing = 2 };
-            AppendBlocks(itemContent.Children, listItem, theme, onCopyText, onOpenLink, pass, depth);
+            AppendBlocks(itemContent.Children, listItem, theme, onCopyText, onOpenLink);
             Grid.SetColumn(itemContent, 1);
             row.Children.Add(itemContent);
 
@@ -359,14 +291,12 @@ public static class MarkdownRenderer
 
     private static Control BuildQuote(
         QuoteBlock quote,
-        MarkdownTheme theme,
+        Theme theme,
         Action<string>? onCopyText,
-        Action<string>? onOpenLink,
-        MarkdownRenderPass pass,
-        int depth)
+        Action<string>? onOpenLink)
     {
         var content = new StackPanel { Spacing = 2 };
-        AppendBlocks(content.Children, quote, theme, onCopyText, onOpenLink, pass, depth);
+        AppendBlocks(content.Children, quote, theme, onCopyText, onOpenLink);
 
         return new Border
         {
@@ -395,11 +325,9 @@ public static class MarkdownRenderer
 
     private static Control BuildTable(
         Table table,
-        MarkdownTheme theme,
+        Theme theme,
         Action<string>? onCopyText,
-        Action<string>? onOpenLink,
-        MarkdownRenderPass pass,
-        int depth)
+        Action<string>? onOpenLink)
     {
         int columnCount = Math.Max(table.ColumnDefinitions.Count, 1);
         var grid = new Grid { Margin = new Thickness(0, 6, 0, 6) };
@@ -427,7 +355,7 @@ public static class MarkdownRenderer
                 }
 
                 var cellContent = new StackPanel { Spacing = 2 };
-                AppendBlocks(cellContent.Children, cell, theme, onCopyText, onOpenLink, pass, depth);
+                AppendBlocks(cellContent.Children, cell, theme, onCopyText, onOpenLink);
 
                 if (row.IsHeader)
                 {
@@ -464,7 +392,7 @@ public static class MarkdownRenderer
     private static void AppendInlines(
         InlineCollection target,
         ContainerInline? container,
-        MarkdownTheme theme,
+        Theme theme,
         Action<string>? onCopyText,
         Action<string>? onOpenLink)
     {
@@ -547,7 +475,7 @@ public static class MarkdownRenderer
     private static void AppendEmphasis(
         InlineCollection target,
         EmphasisInline emphasis,
-        MarkdownTheme theme,
+        Theme theme,
         Action<string>? onCopyText,
         Action<string>? onOpenLink)
     {
@@ -576,7 +504,7 @@ public static class MarkdownRenderer
     private static void AppendLink(
         InlineCollection target,
         LinkInline link,
-        MarkdownTheme theme,
+        Theme theme,
         Action<string>? onOpenLink)
     {
         AppendLinkTarget(target, link.Url, GetLiteralText(link), theme, onOpenLink);
@@ -586,7 +514,7 @@ public static class MarkdownRenderer
         InlineCollection target,
         string url,
         string label,
-        MarkdownTheme theme,
+        Theme theme,
         Action<string>? onOpenLink)
     {
         var linkText = new TextBlock
@@ -712,4 +640,36 @@ public static class MarkdownRenderer
         }
     }
 
+    /// <summary>Resolved brush set for one render pass.</summary>
+    private sealed class Theme
+    {
+        internal required IBrush Foreground { get; init; }
+        internal required IBrush Secondary { get; init; }
+        internal required IBrush CodeBackground { get; init; }
+        internal required IBrush PanelBackground { get; init; }
+        internal required IBrush Hairline { get; init; }
+        internal required IBrush Accent { get; init; }
+
+        internal static Theme Resolve(StyledElement anchor)
+        {
+            return new Theme
+            {
+                Foreground = Find(anchor, "NtFg", FallbackForeground),
+                Secondary = Find(anchor, "NtFg3", FallbackSecondary),
+                CodeBackground = Find(anchor, "NtPanelAlt", FallbackCodeBackground),
+                PanelBackground = Find(anchor, "NtPanel", FallbackPanel),
+                Hairline = Find(anchor, "NtHairline", FallbackHairline),
+                Accent = Find(anchor, "NtBlue", FallbackAccent),
+            };
+        }
+
+        private static IBrush Find(StyledElement anchor, string key, IBrush fallback)
+        {
+            // Control themes put brushes in as object values; anything that is not a brush
+            // (an unexpected override) degrades to the fixed fallback rather than crashing.
+            return anchor.TryFindResource(key, out object? value) && value is IBrush brush
+                ? brush
+                : fallback;
+        }
+    }
 }

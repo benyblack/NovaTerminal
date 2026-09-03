@@ -138,24 +138,4 @@ public sealed class AgentOutputViewModelTests
         Assert.Contains(nameof(AgentOutputViewModel.HasContent), names);
         Assert.Equal(2, names.Count);
     }
-
-    [Fact]
-    public void RenderFencedMarkdown_DefaultsToTrue()
-    {
-        var vm = new AgentOutputViewModel();
-
-        Assert.True(vm.RenderFencedMarkdown);
-    }
-
-    [Fact]
-    public void RenderFencedMarkdown_RaisesPropertyChanged_OnlyWhenItChanges()
-    {
-        var vm = new AgentOutputViewModel();
-
-        var names = Changed(vm, () => vm.RenderFencedMarkdown = false);
-        Assert.Contains(nameof(AgentOutputViewModel.RenderFencedMarkdown), names);
-
-        var again = Changed(vm, () => vm.RenderFencedMarkdown = false);
-        Assert.DoesNotContain(nameof(AgentOutputViewModel.RenderFencedMarkdown), again);
-    }
 }

@@ -10,7 +10,7 @@
          column in TerminalPane stays Auto-sized. -->
     <Border Background="#1B1D21" BorderBrush="#31353A" BorderThickness="1,0,0,0">
         <Grid RowDefinitions="Auto,*">
-            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6" Margin="10,8,10,6">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6" Margin="10,8,10,6">
                 <StackPanel Spacing="1">
                     <TextBlock Text="Agent Output"
                                Foreground="#F3F6FA"
@@ -22,18 +22,8 @@
                                IsVisible="False"/>
                 </StackPanel>
 
-                <ToggleButton x:Name="BtnRenderFences"
-                              Grid.Column="1"
-                              Content="Render"
-                              FontSize="11"
-                              Padding="7,2"
-                              IsChecked="True"
-                              IsVisible="False"
-                              VerticalAlignment="Top"
-                              ToolTip.Tip="Render ```markdown blocks as formatted documents"
-                              Click="OnRenderFencesClick"/>
                 <Button x:Name="BtnCopyAll"
-                        Grid.Column="2"
+                        Grid.Column="1"
                         Content="Copy"
                         FontSize="11"
                         Padding="7,2"
@@ -41,7 +31,7 @@
                         ToolTip.Tip="Copy the raw markdown source"
                         Click="OnCopyAllClick"/>
                 <Button x:Name="BtnClose"
-                        Grid.Column="3"
+                        Grid.Column="2"
                         Content="✕"
                         FontSize="11"
                         Padding="6,2"
