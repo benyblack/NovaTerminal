@@ -121,11 +121,12 @@ NovaTerminal.McpServer  ── local IPC (named pipe / unix socket) ──▶  N
 | live indicators (pane status segment, tab marker, window light) | off | tied to observe / act; cannot be silenced separately |
 | send input, spawn/close sessions & panes | off | separate explicit opt-in, per-profile allowlist for SSH |
 | replay export | off | observe permission + explicit export action |
-| screenshot (render a pane to PNG) | off | observe permission + explicit screenshot opt-in |
+| screenshot (render a pane to PNG) | off | observe permission |
 
-Every acting tool call is journaled to a visible activity log in the UI, as is
-every screenshot: a picture of the user's screen is worth showing them even
-though it acts on nothing.
+Every acting tool call is journaled to a visible activity log in the UI. A
+screenshot is not: it acts on nothing, and the pane's own agent-access indicator
+(A5 follow-up, #339) lights when an agent captures it, which is the surface a
+user actually watches.
 Nothing is silent — same principle as the credential-consent rules.
 
 ---
@@ -209,10 +210,16 @@ Each milestone is independently shippable and announceable. Estimates assume
 ### A5 — Screenshots (see what the agent sees)
 
 **Deliverables**
-- [x] `novaterminal.capture_screen`: renders a pane to a PNG and returns its
+- [x] `novaterminal.capture_screen`: captures a pane as a PNG and returns its
       path, plus the image inline on request (size-capped, `maxWidth`
-      downscale). Gated by the default-off `AgentScreenshotEnabled` sub-toggle
-      on top of observe, and journaled like an acting call.
+      downscale). Rides the observe toggle like every other read; the pane
+      indicator is its visibility surface.
+- [x] Two modes, as the design doc specified: `render` (default, deterministic,
+      works on hidden panes) and `live` (WYSIWYG through the UI-thread bridge,
+      visible panes only, carries the background image and window opacity).
+- [x] Caller-named `scale` (1–3) so an agent can render text large enough to
+      read back out of the image. Named by the caller, never taken from the
+      monitor, so a capture stays reproducible. Unblocked by #346.
 - [x] The snapshot renderer (`TerminalSnapshotRenderer`) promoted out of test
       infrastructure into the App, so the golden-PNG baselines, the agent
       capture path, and any future CLI PNG output are one code path. Renders
@@ -221,12 +228,18 @@ Each milestone is independently shippable and announceable. Estimates assume
       nothing outside the pane can appear in the image.
 
 **Acceptance criteria**
-- [x] Two captures of an unchanged buffer are byte-identical (render fixed at
-      1:1 rather than the monitor's DPI, cursor follows the buffer's mode rather
-      than a blink phase, no selection or render HUD)
-- [x] Capture hard-fails with `captureDisabled` when only observe is granted,
-      and with `captureUnavailable` for a pane that has not been measured or
-      whose grid exceeds the pixel budget
+- [x] Two captures of an unchanged buffer are byte-identical at a given scale
+      (scale named by the caller rather than taken from the monitor, cursor
+      follows the buffer's mode rather than a blink phase, no selection or
+      render HUD)
+- [x] `render` mode hard-fails with `captureUnavailable` for a pane that has not
+      been measured, and for one whose grid exceeds the pixel budget *in device
+      pixels* — the budget is squared by scale, so a grid that fits at 1x can
+      miss at 3x
+- [x] `live` mode hard-fails with `captureUnavailable`, pointing back at
+      `render`, when there is no window or the pane is not on screen
+- [x] An unrecognized mode is a malformed request rather than being coerced to
+      the default
 
 ### Parallel track — Distribution
 

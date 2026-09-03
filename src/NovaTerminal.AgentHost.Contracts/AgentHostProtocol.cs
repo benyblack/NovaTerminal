@@ -64,6 +64,33 @@ public static class AgentHostProtocol
     /// </summary>
     public const int MaxInlineCaptureBytes = 3 * 1024 * 1024;
 
+    /// <summary>
+    /// Ceiling on <c>captureScreen</c>'s render scale. A pane renders at 1 device
+    /// pixel per DIP by default, which for a typical 8x16 cell puts an 80x24 grid
+    /// at 640x384 — legible, but thin for reading a TUI back out of the image. The
+    /// scale is named by the caller rather than taken from the monitor, so it stays
+    /// deterministic: the same buffer at the same scale is the same bytes.
+    /// </summary>
+    public const double MaxCaptureScale = 3.0;
+
+    /// <summary>Wire values for <c>captureScreen</c>'s capture mode.</summary>
+    public static class CaptureModes
+    {
+        /// <summary>
+        /// Headless re-render from the buffer (default). Deterministic, needs no
+        /// visual tree, and so works for a pane that is hidden, occluded, or in a
+        /// minimized window.
+        /// </summary>
+        public const string Render = "render";
+
+        /// <summary>
+        /// WYSIWYG capture of the on-screen control. Carries what the render path
+        /// cannot — the user's background image and window opacity — at the cost of
+        /// needing the pane laid out in a live window, and of not being reproducible.
+        /// </summary>
+        public const string Live = "live";
+    }
+
     /// <summary>Method names. Observe-only; later milestones append, they never repurpose.</summary>
     public static class Methods
     {
@@ -96,11 +123,10 @@ public static class AgentHostProtocol
         public const string CloseSession = "closeSession";
 
         /// <summary>
-        /// A5: renders a pane's visible grid to a PNG and returns its path (plus,
-        /// on request, the image inline). Additive in protocol version 1. Observe
-        /// tier — it mutates nothing — but gated by its own default-off
-        /// screenshot sub-toggle, because an image discloses more than the text
-        /// <c>readScreen</c> returns.
+        /// A5: captures a pane as a PNG and returns its path (plus, on request, the
+        /// image inline). Additive in protocol version 1. Observe tier, gated by the
+        /// observe toggle alone like every other read: the pane's own agent-access
+        /// indicator (#339) lights on a capture, which is where a user sees it.
         /// </summary>
         public const string CaptureScreen = "captureScreen";
     }
@@ -193,16 +219,12 @@ public static class AgentHostProtocol
         public const string SpawnFailed = "spawnFailed";
 
         /// <summary>
-        /// A5: <c>captureScreen</c> was called but the user has not enabled
-        /// "Agent screenshots" — the third default-off gate on top of observe, on
-        /// the same tier as <see cref="ExportDisabled"/>.
-        /// </summary>
-        public const string CaptureDisabled = "captureDisabled";
-
-        /// <summary>
-        /// A5: the session exists but cannot be rendered right now — the pane has
-        /// not been laid out and measured yet, is being torn down, or its grid
-        /// exceeds <see cref="MaxCapturePixels"/>. The message says which.
+        /// A5: the session exists but cannot be captured right now. In
+        /// <c>render</c> mode: the pane has not been laid out and measured yet, is
+        /// being torn down, or its grid exceeds <see cref="MaxCapturePixels"/> at
+        /// the requested scale. In <c>live</c> mode: the window is not up, or the
+        /// pane is not on screen to be photographed. The message says which, and
+        /// points a live-mode caller back at <c>render</c>.
         /// </summary>
         public const string CaptureUnavailable = "captureUnavailable";
     }

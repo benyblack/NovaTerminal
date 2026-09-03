@@ -4434,6 +4434,98 @@ namespace NovaTerminal.Controls
             }
         }
 
+        /// <summary>
+        /// Photographs this pane's live control for the agent-host <c>live</c>
+        /// capture mode (A5). UI thread only. Null when the pane has never been
+        /// laid out, or the image would exceed the per-capture pixel budget.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately the on-screen control rather than a buffer re-render: this
+        /// is the mode that exists to carry what the headless path structurally
+        /// cannot — the user's background image and window opacity, which the draw
+        /// operation never paints. It costs reproducibility (the same session
+        /// photographs differently as the window moves, resizes, or is covered) and
+        /// only works while the pane is on screen, which is why <c>render</c> stays
+        /// the default.
+        ///
+        /// <paramref name="scale"/> is applied as the render DPI, the same knob the
+        /// manual PNG export takes from <c>TopLevel.RenderScaling</c> — but named by
+        /// the caller here, so a live capture does not silently change resolution
+        /// when the window moves between monitors.
+        /// </remarks>
+        internal NovaTerminal.AgentHost.AgentLiveCapture? CaptureLiveForAgent(int maxWidth, double scale)
+        {
+            var view = TermView;
+            if (view == null) return null;
+
+            double width = view.Bounds.Width;
+            double height = view.Bounds.Height;
+            if (width <= 0 || height <= 0)
+            {
+                // Never laid out (a pane in a background tab that has not been
+                // shown yet), so there are no on-screen pixels to photograph.
+                return null;
+            }
+
+            double effectiveScale = scale <= 0
+                ? 1.0
+                : Math.Min(scale, NovaTerminal.AgentHost.Contracts.AgentHostProtocol.MaxCaptureScale);
+            var pixelSize = new PixelSize(
+                (int)Math.Ceiling(width * effectiveScale),
+                (int)Math.Ceiling(height * effectiveScale));
+            if (pixelSize.Width <= 0 || pixelSize.Height <= 0) return null;
+            if ((long)pixelSize.Width * pixelSize.Height > NovaTerminal.AgentHost.Contracts.AgentHostProtocol.MaxCapturePixels)
+            {
+                return null;
+            }
+
+            try
+            {
+                byte[] png;
+                using (var rtb = new Avalonia.Media.Imaging.RenderTargetBitmap(
+                    pixelSize, new Vector(96 * effectiveScale, 96 * effectiveScale)))
+                {
+                    rtb.Render(view);
+                    using var stream = new System.IO.MemoryStream();
+                    rtb.Save(stream);
+                    png = stream.ToArray();
+                }
+
+                if (maxWidth <= 0 || pixelSize.Width <= maxWidth)
+                {
+                    return new NovaTerminal.AgentHost.AgentLiveCapture(png, pixelSize.Width, pixelSize.Height, Downscaled: false);
+                }
+
+                // Round-tripping through Skia to resample: RenderTargetBitmap gives
+                // an Avalonia bitmap, and the one resampler in the product that is
+                // pinned to fixed sampling lives in TerminalSnapshotRenderer. A
+                // screenshot is rare enough that the extra decode is not worth a
+                // second scaling path.
+                using var decoded = SkiaSharp.SKBitmap.Decode(png);
+                if (decoded == null)
+                {
+                    return new NovaTerminal.AgentHost.AgentLiveCapture(png, pixelSize.Width, pixelSize.Height, Downscaled: false);
+                }
+                using var resized = NovaTerminal.Shell.TerminalSnapshotRenderer.DownscaleToWidth(decoded, maxWidth);
+                if (resized == null)
+                {
+                    return new NovaTerminal.AgentHost.AgentLiveCapture(png, pixelSize.Width, pixelSize.Height, Downscaled: false);
+                }
+                return new NovaTerminal.AgentHost.AgentLiveCapture(
+                    NovaTerminal.Shell.TerminalSnapshotRenderer.EncodePng(resized),
+                    resized.Width,
+                    resized.Height,
+                    Downscaled: true);
+            }
+            catch (Exception ex)
+            {
+                // A capture is a read: a failed one must never take down the pane
+                // or the endpoint.
+                System.Diagnostics.Debug.WriteLine($"[TerminalPane] live agent capture failed: {ex}");
+                return null;
+            }
+        }
+
         public async Task ExportSnapshotAsync(string format)
         {
             if (Buffer == null) return;

@@ -87,25 +87,6 @@ namespace NovaTerminal.AgentHost
             set => _replayExportEnabled = value;
         }
 
-        // A5 screenshot gate. Volatile for the same UI-writes/IPC-reads reason as
-        // the export gate above.
-        private volatile bool _screenshotEnabled;
-
-        /// <summary>
-        /// Third default-off gate, for <c>captureScreen</c> (A5): mirrors
-        /// <c>TerminalSettings.AgentScreenshotEnabled</c>, pushed by MainWindow
-        /// alongside <see cref="Apply"/>. Same tier as
-        /// <see cref="ReplayExportEnabled"/> — observe permission plus an explicit
-        /// opt-in — because a rendered image discloses more than the text
-        /// <c>readScreen</c> returns (inline images, theme, everything on the
-        /// grid), and it is worth its own decision.
-        /// </summary>
-        public bool ScreenshotEnabled
-        {
-            get => _screenshotEnabled;
-            set => _screenshotEnabled = value;
-        }
-
         // A3 act gate. Volatile for the same UI-writes/IPC-reads reason as the
         // export gate above.
         private volatile bool _actEnabled;
@@ -807,7 +788,7 @@ namespace NovaTerminal.AgentHost
                     AgentHostProtocol.Methods.GetSessionStatus => HandleGetSessionStatus(request),
                     AgentHostProtocol.Methods.WaitForEvents => await HandleWaitForEventsAsync(request, cancellationToken).ConfigureAwait(false),
                     AgentHostProtocol.Methods.ExportReplay => HandleExportReplay(request),
-                    AgentHostProtocol.Methods.CaptureScreen => HandleCaptureScreen(request),
+                    AgentHostProtocol.Methods.CaptureScreen => await HandleCaptureScreenAsync(request).ConfigureAwait(false),
                     AgentHostProtocol.Methods.SendInput => HandleSendInput(request),
                     AgentHostProtocol.Methods.SpawnSession => await HandleSpawnSessionAsync(request).ConfigureAwait(false),
                     AgentHostProtocol.Methods.CloseSession => await HandleCloseSessionAsync(request).ConfigureAwait(false),
@@ -972,12 +953,14 @@ namespace NovaTerminal.AgentHost
         }
 
         /// <summary>
-        /// A5: renders a pane to a PNG on this IPC thread (never the UI thread —
-        /// the snapshot renderer needs no visual tree, so a minimized or occluded
-        /// window captures exactly the same image) and writes it beside the
-        /// agent replay exports.
+        /// A5: captures a pane as a PNG and writes it beside the agent replay
+        /// exports. Mode 'render' (the default) re-renders from the buffer on this
+        /// IPC thread and needs no visual tree, so a hidden, occluded, or minimized
+        /// pane captures identically; mode 'live' photographs the on-screen control
+        /// through the UI-thread bridge, which carries the background image and
+        /// window opacity that the render path structurally cannot.
         /// </summary>
-        private AgentHostResponse HandleCaptureScreen(AgentHostRequest request)
+        private async Task<AgentHostResponse> HandleCaptureScreenAsync(AgentHostRequest request)
         {
             CaptureScreenParams? p;
             try
@@ -987,41 +970,119 @@ namespace NovaTerminal.AgentHost
             catch (JsonException)
             {
                 // A missing/mistyped paneId throws here rather than returning null.
-                // Journal it for the same reason the acting methods do: a malformed
-                // attempt is still an externally reachable attempt on the user's
-                // screen, and the journal is what makes it visible.
                 p = null;
             }
             if (p == null)
             {
-                return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, null, "screen",
-                    Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "captureScreen requires params with a paneId."));
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "captureScreen requires params with a paneId.");
             }
 
-            // Third default-off gate, on the same tier as replay export: observe
-            // got the caller this far, a picture of the screen needs its own opt-in.
-            if (!ScreenshotEnabled)
+            // An unknown mode is malformed rather than coerced to the default: a
+            // caller who asked for "wysiwyg" wants pixels off the screen, and
+            // quietly handing back a headless render would answer a question they
+            // did not ask.
+            string requestedMode = string.IsNullOrWhiteSpace(p.Mode)
+                ? AgentHostProtocol.CaptureModes.Render
+                : p.Mode!.Trim();
+            bool live;
+            if (string.Equals(requestedMode, AgentHostProtocol.CaptureModes.Render, StringComparison.OrdinalIgnoreCase))
             {
-                return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, p.PaneId, "screen",
-                    Error(request.Id, AgentHostProtocol.ErrorCodes.CaptureDisabled,
-                        "Agent screenshots are disabled. Enable Settings → Agent access (observe) → Agent screenshots in NovaTerminal, then retry."));
+                live = false;
             }
+            else if (string.Equals(requestedMode, AgentHostProtocol.CaptureModes.Live, StringComparison.OrdinalIgnoreCase))
+            {
+                live = true;
+            }
+            else
+            {
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest,
+                    $"Unknown capture mode '{p.Mode}'. Use '{AgentHostProtocol.CaptureModes.Render}' (the default) or '{AgentHostProtocol.CaptureModes.Live}'.");
+            }
+
+            double scale = p.Scale <= 0 ? 1.0 : Math.Min(p.Scale, AgentHostProtocol.MaxCaptureScale);
+            int maxWidth = Math.Max(0, p.MaxWidth);
 
             if (!_registry.TryGet(p.PaneId, out var registration))
             {
-                return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, p.PaneId, "screen",
-                    Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'."));
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'.");
             }
 
+            // Marks the pane's agent-access indicator (#339) for both modes. This
+            // is the visibility surface a capture has: it rides the observe toggle
+            // like every other read, so the indicator is what tells the user an
+            // agent looked.
             TryNoteRead(registration);
 
-            if (!registration.TryCapturePng(Math.Max(0, p.MaxWidth), out var capture, out var captureError))
+            byte[] png;
+            int imageWidth;
+            int imageHeight;
+            int cols;
+            int rows;
+            bool downscaled;
+
+            if (live)
             {
-                var message = captureError == AgentCaptureError.TooLarge
-                    ? $"This pane's grid would render larger than the {AgentHostProtocol.MaxCapturePixels:N0}-pixel per-capture budget. Make the window smaller (or the font larger) and retry."
-                    : "This session cannot be rendered right now (the pane has not been measured yet, or is being torn down). Retry shortly; novaterminal.read_screen works regardless.";
-                return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, p.PaneId, registration.ProfileName,
-                    Error(request.Id, AgentHostProtocol.ErrorCodes.CaptureUnavailable, message));
+                var executor = _actionExecutor;
+                if (executor == null)
+                {
+                    return Error(request.Id, AgentHostProtocol.ErrorCodes.CaptureUnavailable,
+                        "Live capture needs the app window, which is not available right now (starting up or shutting down). Retry, or use mode 'render', which does not need it.");
+                }
+
+                AgentLiveCapture? shot;
+                try
+                {
+                    shot = await executor.CaptureLiveAsync(p.PaneId, maxWidth, scale).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // The UI-thread hop can fault on a window tearing down. A read
+                    // must not surface that as Internal.
+                    Debug.WriteLine($"[AgentHost] live capture threw for {p.PaneId}: {ex}");
+                    shot = null;
+                }
+                if (shot is not { } liveShot)
+                {
+                    return Error(request.Id, AgentHostProtocol.ErrorCodes.CaptureUnavailable,
+                        "This pane cannot be photographed right now: it has no on-screen size (a tab that has never been shown), or the image would exceed the per-capture pixel budget. Use mode 'render' to capture it regardless of what is on screen.");
+                }
+
+                png = liveShot.Png;
+                imageWidth = liveShot.Width;
+                imageHeight = liveShot.Height;
+                downscaled = liveShot.Downscaled;
+
+                // A live capture is pixels, not a grid, so the grid dimensions come
+                // from the buffer - reported anyway so a caller can relate the image
+                // back to what read_screen would return.
+                var buffer = registration.Buffer;
+                buffer.Lock.EnterReadLock();
+                try
+                {
+                    cols = buffer.Cols;
+                    rows = buffer.Rows;
+                }
+                finally
+                {
+                    buffer.Lock.ExitReadLock();
+                }
+            }
+            else
+            {
+                if (!registration.TryCapturePng(maxWidth, scale, out var capture, out var captureError))
+                {
+                    var message = captureError == AgentCaptureError.TooLarge
+                        ? $"This pane would render larger than the {AgentHostProtocol.MaxCapturePixels:N0}-pixel per-capture budget at scale {scale:0.##}. Lower the scale, make the window smaller, or raise the font size."
+                        : "This session cannot be rendered right now (the pane has not been measured yet, or is being torn down). Retry shortly; novaterminal.read_screen works regardless.";
+                    return Error(request.Id, AgentHostProtocol.ErrorCodes.CaptureUnavailable, message);
+                }
+
+                png = capture.Png;
+                imageWidth = capture.Width;
+                imageHeight = capture.Height;
+                cols = capture.Cols;
+                rows = capture.Rows;
+                downscaled = capture.Downscaled;
             }
 
             string filePath;
@@ -1034,30 +1095,30 @@ namespace NovaTerminal.AgentHost
                 // has one-second resolution, and a second capture within that
                 // second must not overwrite the first.
                 filePath = Path.Combine(exportDir, BuildCaptureFileName(DateTime.Now, Guid.NewGuid().ToString("N")));
-                File.WriteAllBytes(filePath, capture.Png);
+                File.WriteAllBytes(filePath, png);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, p.PaneId, registration.ProfileName,
-                    Error(request.Id, AgentHostProtocol.ErrorCodes.CaptureUnavailable, $"The screenshot could not be written: {ex.Message}"));
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.CaptureUnavailable, $"The screenshot could not be written: {ex.Message}");
             }
 
             var inlineRequested = p.Inline;
-            var inlineFits = capture.Png.Length <= AgentHostProtocol.MaxInlineCaptureBytes;
+            var inlineFits = png.Length <= AgentHostProtocol.MaxInlineCaptureBytes;
             var result = new CaptureScreenResult
             {
                 FilePath = Path.GetFullPath(filePath),
-                Width = capture.Width,
-                Height = capture.Height,
-                Cols = capture.Cols,
-                Rows = capture.Rows,
-                ByteCount = capture.Png.Length,
-                Downscaled = capture.Downscaled,
-                PngBase64 = inlineRequested && inlineFits ? Convert.ToBase64String(capture.Png) : null,
+                Width = imageWidth,
+                Height = imageHeight,
+                Cols = cols,
+                Rows = rows,
+                ByteCount = png.Length,
+                Downscaled = downscaled,
+                Mode = live ? AgentHostProtocol.CaptureModes.Live : AgentHostProtocol.CaptureModes.Render,
+                Scale = scale,
+                PngBase64 = inlineRequested && inlineFits ? Convert.ToBase64String(png) : null,
                 InlineOmitted = inlineRequested && !inlineFits,
             };
-            return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, p.PaneId, registration.ProfileName,
-                Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.CaptureScreenResult)));
+            return Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.CaptureScreenResult));
         }
 
         internal static string BuildCaptureFileName(DateTime timestamp, string uniqueSuffix)

@@ -42,13 +42,12 @@ With **all** agent toggles off (fresh settings):
 
 Settings → the Agent access rows:
 
-- [ ] Verify four toggles exist: **Agent access (observe)**, **Agent replay
-  export** (indented), **Agent screenshots** (indented), **Agent access (act)**
-  (indented). Toggle observe on, others off; Save.
+- [ ] Verify three toggles exist: **Agent access (observe)**, **Agent replay
+  export** (indented), **Agent access (act)** (indented). Toggle observe on,
+  others off; Save. (Screenshots have no toggle of their own - they ride observe.)
 - [ ] Reopen Settings — observe still on. Check `%LOCALAPPDATA%\NovaTerminal\settings.json`:
   `AgentAccessObserveEnabled: true`, `AgentReplayExportEnabled: false`,
-  `AgentScreenshotEnabled: false`, `AgentAccessActEnabled: false`. Red flag: values
-  don't round-trip.
+  `AgentAccessActEnabled: false`. Red flag: values don't round-trip.
 - [ ] With observe now on, `agent-endpoint.json` appears next to settings.json.
 
 ## 3. Observe + status (A1/A2) — observe ON only
@@ -84,31 +83,39 @@ Have a couple of tabs open; run something interactive (e.g. `vim` or a `ping -t`
   screen for a session that clearly had output.
 - [ ] Turn "Agent replay export" **off**, retry `export_replay` → `exportDisabled`.
 
-## 4b. Screenshots (A5) — enable "Agent screenshots"
+## 4b. Screenshots (A5) - observe only, no extra toggle
 
-- [ ] With screenshots still **off**: `novaterminal.capture_screen <paneId>` →
-  **`captureDisabled`**, and nothing is written under `recordings\agent-exports\`.
-  Red flag: an image appears anyway.
-- [ ] Turn "Agent screenshots" on (Save), then `capture_screen <paneId>` → returns a
-  `nova_screen_*.png` path under
-  `%LOCALAPPDATA%\NovaTerminal\recordings\agent-exports\`, with the pane's grid size.
-  Open the file: it should look like that pane — same font, same theme, same text —
-  with no tab bar or other chrome. Red flag: transparent background, wrong font, or a
-  picture of a different pane.
-- [ ] Run something with colour and box drawing (e.g. `htop` in WSL, or any TUI) and
-  capture again: colours and borders should match the screen.
-- [ ] `capture_screen <paneId>` with `inline=true` → the image comes back in the tool
+- [ ] With only observe on, `capture_screen <paneId>` returns a `nova_screen_*.png`
+  path under `%LOCALAPPDATA%\NovaTerminal\recordings\agent-exports\`, with the
+  pane's grid size. Open it: it should look like that pane - same font, same theme,
+  same text - with no tab bar or other chrome. Red flag: `captureDisabled` (the
+  gate was supposed to be gone), transparent background, or the wrong pane.
+- [ ] Run something with colour and box drawing (e.g. `htop` in WSL, or any TUI)
+  and capture again: colours and borders should match the screen.
+- [ ] `capture_screen <paneId>` with `inline=true` returns the image in the tool
   result, not just a path.
-- [ ] `capture_screen <paneId>` with `maxWidth=400` → a smaller image; the result says
-  it was downscaled.
-- [ ] **Minimize the window** (or cover it completely) and capture again → the same
-  image as before, not a blank or clipped one. This is the offscreen-render guarantee.
-  Red flag: an empty/black image while minimized.
-- [ ] Capture the same idle pane twice and compare the two files byte-for-byte
-  (`fc /b` on Windows, `cmp` elsewhere) → identical. Red flag: differing bytes for an
-  unchanged screen (something non-deterministic leaked into the render).
-- [ ] New-tab menu (`+`) → **Agent Activity…** lists both the denied `captureDisabled`
-  attempt and the successful captures.
+- [ ] `capture_screen <paneId>` with `maxWidth=400` gives a smaller image; the
+  result says it was downscaled to fit maxWidth.
+- [ ] `capture_screen <paneId>` with `scale=3` gives an image three times the
+  width and height of the 1x capture, with legible text - and box-drawing borders
+  still drawn, which is the bug #346 fixed. `scale=99` clamps to 3 rather than
+  erroring.
+- [ ] **Minimize the window** (or cover it completely) and capture again with the
+  default mode: the same image as before, not a blank or clipped one. This is the
+  offscreen-render guarantee. Red flag: an empty or black image while minimized.
+- [ ] Capture the same idle pane twice and compare the files byte for byte
+  (`fc /b` on Windows, `cmp` elsewhere): identical. Red flag: differing bytes for
+  an unchanged screen.
+- [ ] `capture_screen <paneId>` with `mode=live` gives an image that includes your
+  background image and window opacity, which `render` omits. Then select a
+  **different tab** and repeat: `live` reports `captureUnavailable` and points at
+  `render`, while `render` still captures the hidden pane.
+- [ ] `capture_screen <paneId>` with `mode=wysiwyg` is a malformed request naming
+  the two valid modes, and writes no file.
+- [ ] The captured pane's **agent-access indicator** lights (the status-bar
+  reading segment, per #339). That, not the journal, is where a capture shows up.
+- [ ] The **Agent Activity** window does *not* list the captures: the journal is
+  the acting record, and a capture acts on nothing.
 
 ## 5. Act gating (A3) — the security-critical checks
 
@@ -163,6 +170,8 @@ Have a couple of tabs open; run something interactive (e.g. `vim` or a `ping -t`
 - These are the surfaces verified by build/logic tests but not visually in this
   cycle: the four toggles, the SSH allowlist checkbox, and the Agent Activity
   window. Steps 2, 5c, and 6 are the highest-value manual confirmations.
-- Step 4b's determinism and offscreen guarantees are covered headlessly by
-  `AgentHostCaptureProtocolTests`; what only a human can confirm is that the image
-  actually *looks like* the pane on screen (font, theme, box drawing).
+- Step 4b's determinism, scale, budget and mode-dispatch behaviour is covered
+  headlessly by `AgentHostCaptureProtocolTests`. What only a human can confirm is
+  that the image actually *looks like* the pane (font, theme, box drawing), and
+  that `mode=live` really does carry the background image - the live path needs a
+  real visual tree, so no headless test exercises its pixels.

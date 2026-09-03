@@ -11,9 +11,10 @@ using NovaTerminal.VT;
 namespace NovaTerminal.AppTests.AgentHost;
 
 /// <summary>
-/// Tests for the A5 <c>captureScreen</c> protocol surface: the observe endpoint
-/// must be running, <see cref="AgentHostService.ScreenshotEnabled"/> must be on,
-/// and the pane must have published render parameters. Renders go through the
+/// Tests for the A5 <c>captureScreen</c> protocol surface. Captures ride the
+/// observe toggle alone, like every other read, so what is left to gate is
+/// physical: the pane must have published render parameters, and the image must
+/// fit the per-capture pixel budget at the requested scale. Renders go through the
 /// production <see cref="TerminalSnapshotRenderer"/> — the same path the golden
 /// PNG baselines pin down — with no window or visual tree involved, which is why
 /// these run headless.
@@ -98,10 +99,16 @@ public class AgentHostCaptureProtocolTests : IDisposable
         return registration;
     }
 
-    private static string CaptureRequestLine(Guid paneId, long id = 1, bool inline = false, int maxWidth = 0)
+    private static string CaptureRequestLine(
+        Guid paneId,
+        long id = 1,
+        bool inline = false,
+        int maxWidth = 0,
+        double scale = 0,
+        string? mode = null)
     {
         var paramsJson = JsonSerializer.Serialize(
-            new CaptureScreenParams { PaneId = paneId, Inline = inline, MaxWidth = maxWidth },
+            new CaptureScreenParams { PaneId = paneId, Inline = inline, MaxWidth = maxWidth, Scale = scale, Mode = mode },
             AgentHostJsonContext.Default.CaptureScreenParams);
         return $"{{\"v\":{AgentHostProtocol.Version},\"id\":{id},\"method\":\"{AgentHostProtocol.Methods.CaptureScreen}\",\"params\":{paramsJson}}}";
     }
@@ -122,12 +129,11 @@ public class AgentHostCaptureProtocolTests : IDisposable
     private static readonly byte[] PngMagic = [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A];
 
     [Fact]
-    public void Capture_with_both_gates_on_writes_a_png_sized_to_the_grid()
+    public void Capture_writes_a_png_sized_to_the_grid()
     {
         var registry = new AgentSessionRegistry();
         var registration = Register(registry, "hello from the session\r\n");
         using var service = NewService(registry);
-        service.ScreenshotEnabled = true;
 
         var result = Result(Handle(service, CaptureRequestLine(registration.PaneId)));
 
@@ -159,7 +165,6 @@ public class AgentHostCaptureProtocolTests : IDisposable
         var registry = new AgentSessionRegistry();
         var registration = Register(registry, "deterministic [31mred[0m output\r\n");
         using var service = NewService(registry);
-        service.ScreenshotEnabled = true;
 
         var first = Result(Handle(service, CaptureRequestLine(registration.PaneId, id: 1)));
         var second = Result(Handle(service, CaptureRequestLine(registration.PaneId, id: 2)));
@@ -174,7 +179,6 @@ public class AgentHostCaptureProtocolTests : IDisposable
         var registry = new AgentSessionRegistry();
         var registration = Register(registry, "inline me");
         using var service = NewService(registry);
-        service.ScreenshotEnabled = true;
 
         var result = Result(Handle(service, CaptureRequestLine(registration.PaneId, inline: true)));
 
@@ -190,7 +194,6 @@ public class AgentHostCaptureProtocolTests : IDisposable
         var registry = new AgentSessionRegistry();
         var registration = Register(registry, "shrink me");
         using var service = NewService(registry);
-        service.ScreenshotEnabled = true;
 
         var result = Result(Handle(service, CaptureRequestLine(registration.PaneId, maxWidth: 160)));
 
@@ -207,7 +210,6 @@ public class AgentHostCaptureProtocolTests : IDisposable
         var registry = new AgentSessionRegistry();
         var registration = Register(registry);
         using var service = NewService(registry);
-        service.ScreenshotEnabled = true;
 
         var result = Result(Handle(service, CaptureRequestLine(registration.PaneId, maxWidth: 10_000)));
 
@@ -216,24 +218,9 @@ public class AgentHostCaptureProtocolTests : IDisposable
     }
 
     [Fact]
-    public void Capture_without_the_screenshot_setting_fails_with_captureDisabled_and_writes_nothing()
-    {
-        var registry = new AgentSessionRegistry();
-        var registration = Register(registry, "secret output");
-        using var service = NewService(registry);
-        service.ScreenshotEnabled = false; // observe on, screenshot sub-gate off
-
-        var response = Handle(service, CaptureRequestLine(registration.PaneId));
-
-        Assert.Equal(AgentHostProtocol.ErrorCodes.CaptureDisabled, response.Error?.Code);
-        Assert.False(Directory.Exists(_exportDir) && Directory.EnumerateFiles(_exportDir).Any());
-    }
-
-    [Fact]
     public void Capture_for_unknown_pane_reports_session_not_found()
     {
         using var service = NewService(new AgentSessionRegistry());
-        service.ScreenshotEnabled = true;
 
         var response = Handle(service, CaptureRequestLine(Guid.NewGuid()));
 
@@ -241,39 +228,44 @@ public class AgentHostCaptureProtocolTests : IDisposable
     }
 
     [Fact]
-    public void Capture_without_params_is_a_malformed_request_and_is_still_journaled()
+    public void Capture_without_params_is_a_malformed_request()
     {
-        // A malformed attempt is still an externally reachable attempt on the
-        // user's screen, so it belongs in the journal like the acting methods'.
-        var journal = new AgentActivityJournal();
-        using var service = NewService(new AgentSessionRegistry(), journal);
-        service.ScreenshotEnabled = true;
+        using var service = NewService(new AgentSessionRegistry());
 
         var line = $"{{\"v\":{AgentHostProtocol.Version},\"id\":7,\"method\":\"{AgentHostProtocol.Methods.CaptureScreen}\",\"params\":null}}";
         var response = Handle(service, line);
 
         Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, response.Error?.Code);
-        var entry = Assert.Single(journal.Snapshot());
-        Assert.Equal(AgentHostProtocol.Methods.CaptureScreen, entry.Method);
-        Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, entry.Outcome);
-        Assert.Null(entry.PaneId);
     }
 
     [Fact]
-    public void Capture_with_an_unparseable_paneId_is_malformed_and_journaled()
+    public void Capture_with_an_unparseable_paneId_is_malformed()
     {
         // `required Guid PaneId` throws JsonException rather than yielding null,
-        // which used to escape to the outer handler and skip the journal.
-        var journal = new AgentActivityJournal();
-        using var service = NewService(new AgentSessionRegistry(), journal);
-        service.ScreenshotEnabled = true;
+        // which must be caught here rather than escaping to the outer handler.
+        using var service = NewService(new AgentSessionRegistry());
 
         var line = $"{{\"v\":{AgentHostProtocol.Version},\"id\":8,\"method\":\"{AgentHostProtocol.Methods.CaptureScreen}\",\"params\":{{\"paneId\":\"not-a-guid\"}}}}";
         var response = Handle(service, line);
 
         Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, response.Error?.Code);
-        var entry = Assert.Single(journal.Snapshot());
-        Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, entry.Outcome);
+    }
+
+    [Fact]
+    public void Capture_is_not_journaled_because_it_is_an_observe_tier_read()
+    {
+        // The journal is the acting surface's record. A capture rides the observe
+        // toggle like readScreen, and its visibility surface is the pane's own
+        // agent-access indicator (#339), which TryNoteRead marks on every capture.
+        var journal = new AgentActivityJournal();
+        var registry = new AgentSessionRegistry();
+        var registration = Register(registry, "not journaled");
+        using var service = NewService(registry, journal);
+
+        var result = Result(Handle(service, CaptureRequestLine(registration.PaneId)));
+
+        Assert.True(File.Exists(result.FilePath));
+        Assert.Empty(journal.Snapshot());
     }
 
     [Fact]
@@ -284,7 +276,6 @@ public class AgentHostCaptureProtocolTests : IDisposable
         var registry = new AgentSessionRegistry();
         var registration = Register(registry, publishRenderParameters: false);
         using var service = NewService(registry);
-        service.ScreenshotEnabled = true;
 
         var response = Handle(service, CaptureRequestLine(registration.PaneId));
 
@@ -298,7 +289,6 @@ public class AgentHostCaptureProtocolTests : IDisposable
         var huge = new CellMetrics { CellWidth = 5000f, CellHeight = 5000f, Baseline = 4000f, Ascent = 4000f, Descent = 1000f, Leading = 0f };
         var registration = Register(registry, metrics: huge);
         using var service = NewService(registry);
-        service.ScreenshotEnabled = true;
 
         var response = Handle(service, CaptureRequestLine(registration.PaneId));
 
@@ -308,25 +298,154 @@ public class AgentHostCaptureProtocolTests : IDisposable
     }
 
     [Fact]
-    public void Every_capture_attempt_is_journaled_allowed_or_denied()
+    public void Scale_renders_more_device_pixels_for_the_same_grid()
     {
-        var journal = new AgentActivityJournal();
+        // What #346 unlocked: RenderScaling used to be passed to the draw operation
+        // with an unscaled canvas, so any value but 1.0 produced a wrong image. The
+        // renderer now scales the canvas and sizes the bitmap in device pixels.
         var registry = new AgentSessionRegistry();
-        var registration = Register(registry, "journal me");
-        using var service = NewService(registry, journal);
+        var registration = Register(registry, "scale me");
+        using var service = NewService(registry);
 
-        service.ScreenshotEnabled = false;
-        Handle(service, CaptureRequestLine(registration.PaneId, id: 1));
-        service.ScreenshotEnabled = true;
-        Handle(service, CaptureRequestLine(registration.PaneId, id: 2));
+        var oneX = Result(Handle(service, CaptureRequestLine(registration.PaneId, id: 1)));
+        var twoX = Result(Handle(service, CaptureRequestLine(registration.PaneId, id: 2, scale: 2)));
 
-        var entries = journal.Snapshot(); // newest first
-        Assert.Equal(2, entries.Count);
-        Assert.All(entries, e => Assert.Equal(AgentHostProtocol.Methods.CaptureScreen, e.Method));
-        Assert.All(entries, e => Assert.Equal(registration.PaneId, e.PaneId));
-        Assert.Equal("ok", entries[0].Outcome);
-        Assert.Equal(AgentHostProtocol.ErrorCodes.CaptureDisabled, entries[1].Outcome);
+        Assert.Equal(1.0, oneX.Scale);
+        Assert.Equal(80 * 8, oneX.Width);
+        Assert.Equal(2.0, twoX.Scale);
+        Assert.Equal(80 * 8 * 2, twoX.Width);
+        Assert.Equal(24 * 16 * 2, twoX.Height);
+
+        // The grid is unchanged - only the resolution it was drawn at.
+        Assert.Equal(80, twoX.Cols);
+        Assert.Equal(24, twoX.Rows);
+        Assert.Equal(AgentHostProtocol.CaptureModes.Render, twoX.Mode);
     }
+
+    [Fact]
+    public void Scale_is_clamped_to_the_protocol_ceiling()
+    {
+        var registry = new AgentSessionRegistry();
+        var registration = Register(registry);
+        using var service = NewService(registry);
+
+        var result = Result(Handle(service, CaptureRequestLine(registration.PaneId, scale: 99)));
+
+        Assert.Equal(AgentHostProtocol.MaxCaptureScale, result.Scale);
+    }
+
+    [Fact]
+    public void A_capture_is_still_byte_identical_at_a_given_scale()
+    {
+        var registry = new AgentSessionRegistry();
+        var registration = Register(registry, "deterministic at 2x");
+        using var service = NewService(registry);
+
+        var first = Result(Handle(service, CaptureRequestLine(registration.PaneId, id: 1, scale: 2)));
+        var second = Result(Handle(service, CaptureRequestLine(registration.PaneId, id: 2, scale: 2)));
+
+        Assert.Equal(File.ReadAllBytes(first.FilePath), File.ReadAllBytes(second.FilePath));
+    }
+
+    [Fact]
+    public void The_pixel_budget_is_measured_in_device_pixels_not_dips()
+    {
+        // A grid that fits at 1x can miss at 3x, because scale squares the pixel
+        // count. Checking DIPs would under-count by scale squared and let the
+        // capture allocate nine times the budget.
+        var registry = new AgentSessionRegistry();
+        var metrics = new CellMetrics { CellWidth = 40f, CellHeight = 40f, Baseline = 30f, Ascent = 30f, Descent = 10f, Leading = 0f };
+        var registration = Register(registry, metrics: metrics); // 80x24 grid => 3200x960 DIPs = 3.07M
+        using var service = NewService(registry);
+
+        var fits = Result(Handle(service, CaptureRequestLine(registration.PaneId, id: 1, scale: 2)));
+        Assert.Equal(6400, fits.Width); // 12.3M device pixels, inside the 16M budget
+
+        var response = Handle(service, CaptureRequestLine(registration.PaneId, id: 2, scale: 3));
+        Assert.Equal(AgentHostProtocol.ErrorCodes.CaptureUnavailable, response.Error?.Code); // 27.6M
+        Assert.Contains("per-capture budget at scale 3", response.Error!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Live_mode_without_a_window_reports_captureUnavailable_and_points_at_render()
+    {
+        var registry = new AgentSessionRegistry();
+        var registration = Register(registry);
+        using var service = NewService(registry); // no executor published
+
+        var response = Handle(service, CaptureRequestLine(registration.PaneId, mode: "live"));
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.CaptureUnavailable, response.Error?.Code);
+        Assert.Contains("mode 'render'", response.Error!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Live_mode_with_no_pane_on_screen_reports_captureUnavailable()
+    {
+        var registry = new AgentSessionRegistry();
+        var registration = Register(registry);
+        using var service = NewService(registry);
+        service.SetActionExecutor(new StubExecutor()); // returns null: nothing on screen
+
+        var response = Handle(service, CaptureRequestLine(registration.PaneId, mode: "live"));
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.CaptureUnavailable, response.Error?.Code);
+        Assert.Contains("no on-screen size", response.Error!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Live_mode_returns_the_bridge_image_and_the_buffers_grid()
+    {
+        // The bridge owns the pixels (it is the only thing that may touch the UI
+        // thread), so the endpoint's job is to pass the request through, write the
+        // file, and fill in cols/rows from the buffer.
+        var registry = new AgentSessionRegistry();
+        var registration = Register(registry);
+        using var service = NewService(registry);
+        var png = TinyPng();
+        var executor = new StubExecutor
+        {
+            OnCaptureLive = (_, _, _) => new AgentLiveCapture(png, 1234, 567, Downscaled: true),
+        };
+        service.SetActionExecutor(executor);
+
+        var result = Result(Handle(service, CaptureRequestLine(registration.PaneId, maxWidth: 400, scale: 2, mode: "live")));
+
+        Assert.Equal(AgentHostProtocol.CaptureModes.Live, result.Mode);
+        Assert.Equal(1234, result.Width);
+        Assert.Equal(567, result.Height);
+        Assert.True(result.Downscaled);
+        Assert.Equal(80, result.Cols);
+        Assert.Equal(24, result.Rows);
+        Assert.Equal(png, File.ReadAllBytes(result.FilePath));
+
+        // The knobs reach the bridge rather than being silently dropped.
+        Assert.Equal(registration.PaneId, executor.LastLiveCapturePane);
+        Assert.Equal(400, executor.LastLiveCaptureMaxWidth);
+        Assert.Equal(2.0, executor.LastLiveCaptureScale);
+    }
+
+    [Fact]
+    public void An_unknown_mode_is_malformed_rather_than_coerced_to_render()
+    {
+        var registry = new AgentSessionRegistry();
+        var registration = Register(registry);
+        using var service = NewService(registry);
+
+        var response = Handle(service, CaptureRequestLine(registration.PaneId, mode: "wysiwyg"));
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, response.Error?.Code);
+        Assert.False(Directory.Exists(_exportDir) && Directory.EnumerateFiles(_exportDir).Any());
+    }
+
+    /// <summary>Smallest valid PNG, for tests that only care that bytes round-trip.</summary>
+    private static byte[] TinyPng() =>
+    [
+        0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, (byte)'I', (byte)'H', (byte)'D', (byte)'R',
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00,
+        0x1F, 0x15, 0xC4, 0x89,
+    ];
 
     [Fact]
     public void Capture_file_names_are_unique_within_the_same_second()

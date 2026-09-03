@@ -62,7 +62,6 @@ public static class SettingsTools
         | `ExperimentalNativeSshEnabled` | bool | Default true. |
         | `AgentAccessObserveEnabled` | bool | Default false. Enables the local agent-host observe endpoint (read-only session access for AI agents). |
         | `AgentReplayExportEnabled` | bool | Default false. Sub-gate on top of the observe toggle: allows agents to export a session's recent output as a replay file (output + resizes only, never input). |
-        | `AgentScreenshotEnabled` | bool | Default false. Sub-gate on top of the observe toggle: allows agents to render a session to a PNG image (novaterminal.capture_screen). |
         | `AgentAccessActEnabled` | bool | Default false. Separate opt-in on top of observe: allows agents to type into, spawn, and close sessions. SSH sessions additionally require per-profile allowlisting. |
         | `LongCommandNotificationsEnabled` | bool | Default false. In-app toast when a command that ran ≥30s finishes in an unfocused pane. |
         | `AutomaticUpdateChecks` | bool | Default **true**. Background update check ~10s after launch, downloading quietly and applying on the next restart the user accepts. Off stops background traffic only — the palette's manual "Check for updates" still works. Ignored entirely unless the app was installed by the Velopack installer (portable zip, winget and dev runs have nothing to update). |
@@ -140,7 +139,6 @@ public static class SettingsTools
           "ExperimentalNativeSshEnabled": false,
           "AgentAccessObserveEnabled": false,
           "AgentReplayExportEnabled": false,
-          "AgentScreenshotEnabled": false,
           "AgentAccessActEnabled": false,
           "LongCommandNotificationsEnabled": false,
           "AutomaticUpdateChecks": true,
@@ -165,7 +163,7 @@ public static class SettingsTools
         "CommandAssistEnabled", "CommandAssistHistoryEnabled", "CommandAssistPassiveBubbleEnabled",
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
         "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "AgentReplayExportEnabled",
-        "AgentScreenshotEnabled", "AgentAccessActEnabled", "LongCommandNotificationsEnabled",
+        "AgentAccessActEnabled", "LongCommandNotificationsEnabled",
         "AutomaticUpdateChecks",
     };
 
@@ -193,7 +191,7 @@ public static class SettingsTools
         "CommandAssistMaxHistoryEntries", "CommandAssistPassiveBubbleEnabled",
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
         "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "AgentReplayExportEnabled",
-        "AgentScreenshotEnabled", "AgentAccessActEnabled", "LongCommandNotificationsEnabled",
+        "AgentAccessActEnabled", "LongCommandNotificationsEnabled",
         "AutomaticUpdateChecks",
         "Profiles", "DefaultProfileId", "TitleBarItems", "TitleBarOrder",
     };

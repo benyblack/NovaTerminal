@@ -23,9 +23,11 @@ are gated by explicit, default-off user opt-ins:
 - **Observe** (`list_sessions`, `read_screen`, `read_scrollback`, `get_session_status`,
   `wait_for_events`, `export_replay`, `capture_screen`) requires "Agent access (observe)".
   Read-only. `export_replay` additionally requires the "Agent replay export" sub-toggle and never
-  records typed input. `capture_screen` additionally requires the "Agent screenshots" sub-toggle and
-  is recorded in the activity journal: it renders the pane offscreen from its buffer (never a screen
-  grab), so the image contains that pane's grid and nothing else.
+  records typed input. `capture_screen` needs nothing beyond observe: its default `render` mode
+  re-renders the pane offscreen from its buffer (never a screen grab), so the image contains that
+  pane's grid and nothing else, and the pane's agent-access indicator lights when an agent captures
+  it. `mode=live` photographs the on-screen control instead, for the background image and window
+  opacity a buffer re-render cannot carry.
 - **Act** (`send_input`, `spawn_session`, `close_session`) requires a *separate* "Agent access
   (act)" opt-in on top of observe; SSH sessions additionally require a per-profile allowlist. Every
   acting call — allowed or denied — is recorded in an in-app activity journal. See the threat model

@@ -11,7 +11,8 @@ namespace NovaTerminal.AgentHost
         int Height,
         int Cols,
         int Rows,
-        bool Downscaled);
+        bool Downscaled,
+        double Scale);
 
     /// <summary>Why a capture could not be produced; mapped to a protocol error code by the endpoint.</summary>
     public enum AgentCaptureError
@@ -22,7 +23,11 @@ namespace NovaTerminal.AgentHost
         /// </summary>
         Unavailable,
 
-        /// <summary>The pane's grid would render larger than the per-capture pixel budget.</summary>
+        /// <summary>
+        /// The pane's grid would render larger than the per-capture pixel budget
+        /// at the requested scale. Scale squares the pixel count, so a grid that
+        /// fits at 1x can miss at 2x.
+        /// </summary>
         TooLarge,
     }
 
@@ -398,11 +403,13 @@ namespace NovaTerminal.AgentHost
         /// <summary>
         /// Renders the pane's visible grid to a PNG (A5), off the UI thread,
         /// through the same <see cref="TerminalSnapshotRenderer"/> the golden
-        /// render tests use. <paramref name="maxWidth"/> (0 = no cap) resamples
-        /// the result down afterwards; the render itself is always 1:1 so it
-        /// cannot vary with the user's monitor scaling.
+        /// render tests use. <paramref name="maxWidth"/> (0 = no cap) resamples the
+        /// result down afterwards; <paramref name="scale"/> sets how many device
+        /// pixels a DIP renders as, so it adds real detail rather than resampling.
+        /// Neither is taken from the user's monitor, so a capture cannot vary with
+        /// the machine it runs on.
         /// </summary>
-        public bool TryCapturePng(int maxWidth, out AgentCaptureInfo info, out AgentCaptureError error)
+        public bool TryCapturePng(int maxWidth, double scale, out AgentCaptureInfo info, out AgentCaptureError error)
         {
             info = default;
             error = AgentCaptureError.Unavailable;
@@ -446,7 +453,15 @@ namespace NovaTerminal.AgentHost
             {
                 return false;
             }
-            if ((long)width * height > Contracts.AgentHostProtocol.MaxCapturePixels)
+            // The budget guards the bitmap that actually gets allocated, so it has
+            // to be measured in device pixels. width/height above are DIPs, and the
+            // renderer multiplies both by the scale — so checking DIPs would
+            // under-count by scale squared and let a 3x capture allocate nine times
+            // the budget. Rounded the way the renderer rounds.
+            var effectiveScale = scale <= 0 ? 1.0 : Math.Min(scale, Contracts.AgentHostProtocol.MaxCaptureScale);
+            var deviceWidth = (long)Math.Round(width * effectiveScale, MidpointRounding.AwayFromZero);
+            var deviceHeight = (long)Math.Round(height * effectiveScale, MidpointRounding.AwayFromZero);
+            if (deviceWidth * deviceHeight > Contracts.AgentHostProtocol.MaxCapturePixels)
             {
                 error = AgentCaptureError.TooLarge;
                 return false;
@@ -469,6 +484,12 @@ namespace NovaTerminal.AgentHost
                 // phase or focus: a blinking cursor would make consecutive
                 // captures of an idle session disagree.
                 HideCursor = !cursorVisible,
+
+                // The caller's scale, not the monitor's. Worth stating plainly
+                // because passing anything but 1.0 here was broken until #346:
+                // the canvas is now scaled and the bitmap sized in device pixels,
+                // so a box-drawing stroke picked in whole device pixels survives.
+                RenderScaling = effectiveScale,
             };
 
             try
@@ -482,7 +503,8 @@ namespace NovaTerminal.AgentHost
                     final.Height,
                     cols,
                     rows,
-                    Downscaled: downscaled != null);
+                    Downscaled: downscaled != null,
+                    Scale: effectiveScale);
                 return true;
             }
             catch (Exception ex)

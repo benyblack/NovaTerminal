@@ -393,7 +393,9 @@ public class SessionToolsFormattingTests
             InlineOmitted = true,
         });
 
-        Assert.Contains("downscaled from the pane's native size", text, StringComparison.Ordinal);
+        // Wording changed with scale: "native size" stopped being meaningful once a
+        // capture can be rendered at 2x and then downscaled to fit maxWidth.
+        Assert.Contains("downscaled to fit maxWidth", text, StringComparison.Ordinal);
         Assert.Contains("inline image was omitted", text, StringComparison.Ordinal);
         Assert.Contains("smaller maxWidth", text, StringComparison.Ordinal);
     }
@@ -404,7 +406,7 @@ public class SessionToolsFormattingTests
         var client = new AgentHostClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nothing.json"));
 
         var blocks = await SessionTools.CaptureScreen(
-            client, Guid.NewGuid().ToString(), inline: false, maxWidth: -1, TestContext.Current.CancellationToken);
+            client, Guid.NewGuid().ToString(), inline: false, maxWidth: -1, cancellationToken: TestContext.Current.CancellationToken);
 
         var text = Assert.IsType<TextContentBlock>(Assert.Single(blocks)).Text;
         Assert.StartsWith("Error: maxWidth must be 0", text, StringComparison.Ordinal);
@@ -416,10 +418,57 @@ public class SessionToolsFormattingTests
         var client = new AgentHostClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nothing.json"));
 
         var blocks = await SessionTools.CaptureScreen(
-            client, "not-a-guid", inline: false, maxWidth: 0, TestContext.Current.CancellationToken);
+            client, "not-a-guid", inline: false, maxWidth: 0, cancellationToken: TestContext.Current.CancellationToken);
 
         var text = Assert.IsType<TextContentBlock>(Assert.Single(blocks)).Text;
         Assert.Contains("is not a valid pane id", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CaptureScreen_rejects_an_unknown_mode_before_any_ipc()
+    {
+        var client = new AgentHostClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nothing.json"));
+
+        var blocks = await SessionTools.CaptureScreen(
+            client, Guid.NewGuid().ToString(), inline: false, maxWidth: 0, scale: 1, mode: "wysiwyg",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var text = Assert.IsType<TextContentBlock>(Assert.Single(blocks)).Text;
+        Assert.Contains("unknown mode 'wysiwyg'", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormatCapture_names_the_mode_and_scale_it_got()
+    {
+        var render = SessionTools.FormatCapture(new CaptureScreenResult
+        {
+            FilePath = "/tmp/shot.png",
+            Width = 1280,
+            Height = 768,
+            Cols = 80,
+            Rows = 24,
+            ByteCount = 40_000,
+            Downscaled = false,
+            Mode = AgentHostProtocol.CaptureModes.Render,
+            Scale = 2,
+        });
+        Assert.Contains("at scale 2 (render mode)", render, StringComparison.Ordinal);
+        Assert.Contains("mode='live' captures those", render, StringComparison.Ordinal);
+
+        var live = SessionTools.FormatCapture(new CaptureScreenResult
+        {
+            FilePath = "/tmp/shot.png",
+            Width = 640,
+            Height = 384,
+            Cols = 80,
+            Rows = 24,
+            ByteCount = 40_000,
+            Downscaled = false,
+            Mode = AgentHostProtocol.CaptureModes.Live,
+            Scale = 1,
+        });
+        Assert.Contains("as drawn on screen", live, StringComparison.Ordinal);
+        Assert.Contains("not reproducible", live, StringComparison.Ordinal);
     }
 
     [Fact]

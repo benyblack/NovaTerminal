@@ -24,12 +24,12 @@ macOS/Linux). They are gated by opt-ins in the app's settings:
 - **Observe** (`list_sessions`, `read_screen`, `read_scrollback`, `get_session_status`,
   `wait_for_events`, `export_replay`, `capture_screen`) requires **Agent access (observe)**.
   Read-only. Replay export additionally requires the **Agent replay export** sub-toggle and **never
-  records typed input**. Screenshots additionally require the **Agent screenshots** sub-toggle: a
-  rendered image discloses strictly more than the text `read_screen` returns — inline images
-  (sixel), the theme, everything drawn on the grid — so it is its own decision rather than riding
-  the observe toggle, and every capture (allowed or denied) is recorded in the **activity journal**
-  alongside the acting calls. Captures render the pane's grid offscreen from its buffer: they are
-  not screen grabs, so no other window, pane, or piece of app chrome can appear in one.
+  records typed input**. `capture_screen` needs no permission beyond observe — it is a read like
+  any other, and the pane's own **agent-access indicator** lights when an agent captures it, which
+  is where a user sees it happen. Its default `render` mode re-renders the pane's grid offscrere
+  from the buffer: not a screen grab, so no other window, pane, or piece of app chrome can appear
+  in one. Its opt-in `mode=live` does photograph the on-screen control (background image and
+  window opacity included), and is therefore limited to panes that are actually visible.
 - **Act** (`send_input`, `spawn_session`, `close_session`) requires a **separate** **Agent access
   (act)** opt-in *on top of* observe. SSH targets additionally require a **per-profile allowlist**.
   Every acting call — allowed or denied — is recorded in an in-app **activity journal**.

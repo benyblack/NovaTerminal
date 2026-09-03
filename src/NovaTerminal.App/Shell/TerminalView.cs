@@ -679,7 +679,16 @@ namespace NovaTerminal.Shell
             }
         }
         // Keep primary font deterministic and monospace-first for box-drawing stability.
-        private static readonly string FontFamilyList = $"{BundledFontCatalog.DefaultTerminalFontFamily}, Cascadia Mono, JetBrains Mono, DejaVu Sans Mono, Consolas, MesloLGS NF, MesloLGM Nerd Font, Fira Code, Monospace";
+        // JetBrains Mono NL Nerd Font leads: preferred terminal face when installed,
+        // and being a Nerd Font it also carries the powerline and icon glyphs a
+        // prompt asks for. Both spellings are listed because the two Nerd Font
+        // installers register different family names - the Windows-compatible
+        // package as "JetBrainsMonoNL NFM", the full-name package as
+        // "JetBrainsMonoNL Nerd Font Mono" - and a name that is not installed
+        // resolves to nothing useful. Not bundled: the bundled guarantee stays
+        // Cascadia Mono PL, the .otf that actually ships in the binary, so these are
+        // preferences and the list falls through when they are absent.
+        private static readonly string FontFamilyList = $"JetBrainsMonoNL NFM, JetBrainsMonoNL Nerd Font Mono, {BundledFontCatalog.DefaultTerminalFontFamily}, Cascadia Mono, JetBrains Mono, DejaVu Sans Mono, Consolas, MesloLGS NF, MesloLGM Nerd Font, Fira Code, Monospace";
         private Typeface _typeface = new Typeface(FontFamilyList, FontStyle.Normal, FontWeight.Normal);
         private double _fontSize = 14;
         private CellMetrics _metrics;
@@ -699,11 +708,12 @@ namespace NovaTerminal.Shell
         private SharedSKFont? _skFont;
         private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
         private static readonly int[] BoxDrawingProbeCodePoints = { 0x2502, 0x2500, 0x250C, 0x2510, 0x2514, 0x2518, 0x253C };
-        private static readonly string[] PreferredMonospaceFonts = { BundledFontCatalog.DefaultTerminalFontFamily, "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
+        private static readonly string[] PreferredMonospaceFonts = { "JetBrainsMonoNL NFM", "JetBrainsMonoNL Nerd Font Mono", BundledFontCatalog.DefaultTerminalFontFamily, "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
 
         private static readonly string[] FallbackChainNames = {
             "Segoe UI Symbol", "Symbola",                              // Symbols
             "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", // Emojis
+            "JetBrainsMonoNL NFM", "JetBrainsMonoNL Nerd Font Mono", // Nerd Font: powerline + icon glyphs
             BundledFontCatalog.DefaultTerminalFontFamily, "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", // Monospace-first
             "Cascadia Code", "Fira Code", "MesloLGS NF",                        // Alternate symbol sources
             "Courier New", "Monospace"                                 // Last Resort
@@ -1239,7 +1249,19 @@ namespace NovaTerminal.Shell
             return true;
         }
 
-        private static SKTypeface? TryCreateTypeface(string family)
+        /// <summary>
+        /// Resolves <paramref name="family"/> to a Skia typeface, bundled fonts first.
+        /// </summary>
+        /// <param name="requireExactFamily">
+        /// When true, a typeface whose family name is not the one asked for is rejected
+        /// instead of returned. <see cref="SKTypeface.FromFamilyName"/> substitutes a
+        /// default face for a family that is not installed rather than failing, so
+        /// "resolved" is not the same as "present" - and a substituted face is usually
+        /// proportional, which is the worst possible outcome for a terminal grid. Off by
+        /// default so callers that probe a candidate list (and check box-drawing coverage
+        /// themselves) keep their existing behaviour.
+        /// </param>
+        private static SKTypeface? TryCreateTypeface(string family, bool requireExactFamily = false)
         {
             var bundled = BundledFontCatalog.TryCreateSkTypeface(family);
             if (bundled != null)
@@ -1250,6 +1272,11 @@ namespace NovaTerminal.Shell
             var tf = SKTypeface.FromFamilyName(family);
             if (tf == null) return null;
             if (string.IsNullOrWhiteSpace(tf.FamilyName))
+            {
+                tf.Dispose();
+                return null;
+            }
+            if (requireExactFamily && !string.Equals(tf.FamilyName, family, StringComparison.OrdinalIgnoreCase))
             {
                 tf.Dispose();
                 return null;
@@ -1267,13 +1294,17 @@ namespace NovaTerminal.Shell
         {
             usedFallback = false;
 
-            var configured = TryCreateTypeface(configuredFamily);
+            // Exact match required: without it, a configured font that is not
+            // installed comes back as whatever Skia substitutes - frequently a
+            // proportional face - and is used as though it were the real thing,
+            // silently. Falling through to the preferred list below is better: those
+            // candidates are probed for box-drawing coverage, and the caller gets
+            // usedFallback set so the mismatch is logged.
+            var configured = TryCreateTypeface(configuredFamily, requireExactFamily: true);
             if (configured != null)
             {
                 return configured;
             }
-
-            configured?.Dispose();
             foreach (string family in PreferredMonospaceFonts)
             {
                 var candidate = TryCreateTypeface(family);
