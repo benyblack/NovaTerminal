@@ -5,22 +5,14 @@ using NovaTerminal;
 // Global configuration for Avalonia Headless testing
 [assembly: AvaloniaTestApplication(typeof(NovaTerminal.Tests.TestAppBuilder))]
 
-// One Application for the whole assembly, set up once on HeadlessUnitTestSession's dispatch
-// thread and never torn down, instead of Avalonia's default PerTest isolation.
-//
-// PerTest wraps every [AvaloniaFact] in AvaloniaLocator.EnterScope() plus a
-// Dispatcher.ResetBeforeUnitTests()/ResetForUnitTests() cycle. That makes the platform's global
-// state - Application.Current, Dispatcher.UIThread, the locator root - flicker between "set up"
-// and "torn down" thousands of times per run, and anything that observes it from outside the
-// session's dispatch thread sees an arbitrary one of those states. Plain [Fact] classes that need
-// font resolution did exactly that (see SnapshotService.EnsureAvaloniaInitialized for the four
-// distinct failure modes it produced, all order-dependent and all green in isolation).
-//
-// PerAssembly collapses that to a single steady state on a single thread, which is the invariant
-// the whole suite was implicitly assuming. The trade-off is real and accepted: tests no longer get
-// a fresh Application, so state they leak on it now outlives them. Nothing in the suite depended
-// on the reset - only Infra/SnapshotService.cs so much as reads Application.Current.
-[assembly: AvaloniaTestIsolation(AvaloniaTestIsolationLevel.PerAssembly)]
+// Deliberately NOT AvaloniaTestIsolationLevel.PerAssembly, tempting though it looks: it would
+// give one application, set up once on the session's dispatch thread and never torn down, which
+// is exactly what the plain-[Fact] callers of SnapshotService.EnsureAvaloniaInitialized would
+// like. It also hangs the suite. Between tests the session thread is parked on its work queue and
+// never pumps the dispatcher, so any plain [Fact] that marshals onto Dispatcher.UIThread waits
+// forever - SshInteractionServiceTests hangs even when run alone. The default PerTest isolation
+// resets the dispatcher around every [AvaloniaFact], which is what lets those tests be their own
+// UI thread and run the marshalled work inline.
 
 namespace NovaTerminal.Tests
 {

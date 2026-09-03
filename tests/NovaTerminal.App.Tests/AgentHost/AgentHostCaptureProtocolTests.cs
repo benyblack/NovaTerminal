@@ -27,6 +27,7 @@ namespace NovaTerminal.AppTests.AgentHost;
 /// they want the font manager rather than a visual tree.
 /// </summary>
 [Collection("GoldenPng")]
+[Trait("Lane", "PlatformBoot")]
 public class AgentHostCaptureProtocolTests : IDisposable
 {
     private readonly string _tempDir;

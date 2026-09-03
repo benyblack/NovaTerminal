@@ -1,39 +1,46 @@
 using System.Threading;
-using Avalonia;
+using Avalonia.Headless.XUnit;
 using Xunit;
 
 namespace NovaTerminal.Tests.Infra;
 
 /// <summary>
-/// Pins the invariant that the Avalonia headless platform is only ever booted by
-/// <c>HeadlessUnitTestSession</c>, on its own dispatch thread — never on an xUnit worker thread
-/// by a plain <c>[Fact]</c> that wanted font resolution.
+/// In-process canary for the <c>PlatformBoot</c> lane split.
 ///
-/// Booting it constructs a <c>Compositor</c>, which resolves <c>MediaContext.Instance</c> and
-/// binds a <em>thread-affine</em> context into whichever locator is current. Do that from a worker
-/// thread and it lands in the process-global root, owned by the wrong thread; locator scopes fall
-/// through to their parent on a miss, so every later <c>[AvaloniaFact]</c> inherits it and never
-/// binds its own, and the first transition or animation it applies throws "The calling thread
-/// cannot access this object because a different thread owns it". That was 13 CI failures across
-/// four unrelated classes, order-dependent and green in isolation. Three other failure modes come
-/// out of the same collision — see <see cref="SnapshotService.EnsureAvaloniaInitialized"/>.
+/// <para>
+/// <see cref="SnapshotService.EnsureAvaloniaInitialized"/> boots the Avalonia headless platform
+/// from a plain <c>[Fact]</c>, which constructs a <c>Compositor</c>, which binds a
+/// <em>thread-affine</em> <c>MediaContext</c> into the process-global <c>AvaloniaLocator</c> root
+/// — owned by an xUnit worker thread, not <c>HeadlessUnitTestSession</c>'s dispatch thread.
+/// Locator scopes fall through to their parent on a miss, so every later <c>[AvaloniaFact]</c> in
+/// that process inherits it and throws "The calling thread cannot access this object because a
+/// different thread owns it" on the first transition it applies. That was 13 CI failures across
+/// four unrelated classes while the job reported success.
+/// </para>
 ///
-/// Deliberately a plain <c>[Fact]</c>, and in the serialized booter collection: under
-/// <c>[AvaloniaFact]</c> this would run *on* the dispatch thread, so the owner-thread assertion
-/// below would be comparing the session thread against itself and could never fail.
+/// <para>
+/// The fix is a process split: every booter carries <c>[Trait("Lane", "PlatformBoot")]</c> and CI
+/// runs that lane as its own <c>dotnet test</c> invocation, so no <c>[AvaloniaFact]</c> outside it
+/// ever shares a process with a boot. <c>AvaloniaTestSchedulingTests</c> guards the trait at the
+/// source level, which is the real protection. This test is the runtime half: it asserts that the
+/// <c>MediaContext</c> this process is using belongs to the session's dispatch thread, so a
+/// booter that leaked into the main lane shows up as a named failure here instead of as
+/// mystery cross-thread throws in whichever animation test happened to run next.
+/// </para>
+///
+/// <para>
+/// Honestly a canary, not a proof: it only catches a leak that happened <em>before</em> it runs,
+/// and test order is not fixed. It costs nothing and turns a confusing symptom into a clear one.
+/// </para>
 /// </summary>
-[Collection("GoldenPng")]
 public sealed class AvaloniaBootLocatorHygieneTests
 {
-    [Fact]
-    public void EnsuringAvaloniaIsUp_BootsItOnTheSessionThread_NotTheCallers()
+    [AvaloniaFact]
+    public void TheAmbientMediaContextBelongsToTheSessionDispatchThread()
     {
-        SnapshotService.EnsureAvaloniaInitialized();
-
-        Assert.NotNull(Application.Current);
-
         var owner = SnapshotService.AmbientMediaContextOwnerThreadForTest();
+
         Assert.NotNull(owner);
-        Assert.NotSame(Thread.CurrentThread, owner);
+        Assert.Same(Thread.CurrentThread, owner);
     }
 }

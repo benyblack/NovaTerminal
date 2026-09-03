@@ -33,6 +33,7 @@ namespace NovaTerminal.Tests.RenderTests
     /// </remarks>
     [Trait("Category", "GoldenSharedPng")]
     [Collection("GoldenPng")]
+    [Trait("Lane", "PlatformBoot")]
     public sealed class GoldenSharedPngTests
     {
         private static readonly CellMetrics Metrics = new()

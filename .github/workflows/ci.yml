@@ -318,9 +318,33 @@ jobs:
         shell: bash
         run: |
           dotnet test tests/NovaTerminal.App.Tests -c "$CONFIGURATION" --no-build --no-restore \
-            --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng" \
+            --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng&Lane!=PlatformBoot" \
             --blame-hang-timeout 5m --blame-hang-dump-type mini \
             --logger "trx;LogFileName=unit_app.trx"
+
+      # Lane!=PlatformBoot above, Lane=PlatformBoot here: these run in a SEPARATE PROCESS on
+      # purpose, and the split is the fix for a real bug rather than tidiness.
+      #
+      # SnapshotService.EnsureAvaloniaInitialized boots the Avalonia headless platform so the
+      # snapshot renderer can resolve fonts. Its callers are plain [Fact] tests, so the boot runs
+      # on an arbitrary xUnit thread, and it binds a thread-affine MediaContext into the
+      # process-global AvaloniaLocator root. Locator scopes fall through to their parent on a
+      # miss, so every later [AvaloniaFact] in the same process inherits a context owned by the
+      # wrong thread and throws "The calling thread cannot access this object because a different
+      # thread owns it" on the first transition it applies — 13 failures across four unrelated
+      # classes, order-dependent, green in isolation, and invisible because this job reported
+      # success. Two in-process fixes were tried and both swapped the failures for a hang; see
+      # SnapshotService.EnsureAvaloniaInitialized. Not sharing the process is what works.
+      - name: Test (headless App.Tests, PlatformBoot lane — NON-BLOCKING)
+        continue-on-error: true
+        env:
+          SKIP_RUST_NATIVE_BUILD: '1'
+        shell: bash
+        run: |
+          dotnet test tests/NovaTerminal.App.Tests -c "$CONFIGURATION" --no-build --no-restore \
+            --filter "Lane=PlatformBoot&Category!=GoldenSharedPng" \
+            --blame-hang-timeout 5m --blame-hang-dump-type mini \
+            --logger "trx;LogFileName=unit_app_platformboot.trx"
 
       # Gates the lane above on its own results: any failing test not named in
       # tests/app-tests-known-flaky.txt fails this job. A missing trx is the #81 hang and
@@ -333,9 +357,15 @@ jobs:
           # windows-latest ships python.exe; ubuntu ships python3. Pick whichever exists.
           py=python3
           command -v "$py" >/dev/null 2>&1 || py=python
-          "$py" scripts/check-app-tests-baseline.py \
-            tests/NovaTerminal.App.Tests/TestResults/unit_app.trx \
-            tests/app-tests-known-flaky.txt
+          status=0
+          for trx in unit_app unit_app_platformboot; do
+            echo "::group::$trx"
+            "$py" scripts/check-app-tests-baseline.py \
+              "tests/NovaTerminal.App.Tests/TestResults/$trx.trx" \
+              tests/app-tests-known-flaky.txt || status=1
+            echo "::endgroup::"
+          done
+          exit $status
 
       - name: Upload test results
         if: always()
