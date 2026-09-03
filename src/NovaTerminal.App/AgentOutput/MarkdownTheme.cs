@@ -18,6 +18,9 @@ internal sealed class MarkdownTheme
     private static readonly IBrush FallbackPanel = new SolidColorBrush(Color.FromRgb(0x1B, 0x1D, 0x21));
     private static readonly IBrush FallbackHairline = new SolidColorBrush(Color.FromRgb(0x2A, 0x2F, 0x35));
     private static readonly IBrush FallbackAccent = new SolidColorBrush(Color.FromRgb(0x4C, 0x8B, 0xD8));
+    private static readonly IBrush FallbackAdded = new SolidColorBrush(Color.FromRgb(0x6F, 0xBF, 0x73));
+    private static readonly IBrush FallbackRemoved = new SolidColorBrush(Color.FromRgb(0xD9, 0x6C, 0x6C));
+    private static readonly IBrush FallbackHunk = new SolidColorBrush(Color.FromRgb(0xD6, 0xB0, 0x5C));
 
     internal required IBrush Foreground { get; init; }
 
@@ -31,6 +34,15 @@ internal sealed class MarkdownTheme
 
     internal required IBrush Accent { get; init; }
 
+    /// <summary>Diff addition lines.</summary>
+    internal required IBrush Added { get; init; }
+
+    /// <summary>Diff removal lines.</summary>
+    internal required IBrush Removed { get; init; }
+
+    /// <summary>Diff hunk headers.</summary>
+    internal required IBrush Hunk { get; init; }
+
     internal static MarkdownTheme Resolve(StyledElement anchor)
     {
         return new MarkdownTheme
@@ -41,6 +53,9 @@ internal sealed class MarkdownTheme
             PanelBackground = Find(anchor, "NtPanel", FallbackPanel),
             Hairline = Find(anchor, "NtHairline", FallbackHairline),
             Accent = Find(anchor, "NtBlue", FallbackAccent),
+            Added = Find(anchor, "NtGreen", FallbackAdded),
+            Removed = Find(anchor, "NtRed", FallbackRemoved),
+            Hunk = Find(anchor, "NtYellow", FallbackHunk),
         };
     }
 

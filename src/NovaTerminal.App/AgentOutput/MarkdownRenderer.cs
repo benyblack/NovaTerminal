@@ -14,6 +14,7 @@ using Markdig.Extensions.TaskLists;
 using Markdig.Helpers;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
+using NovaTerminal.AgentOutput.Fences;
 using MInline = Markdig.Syntax.Inlines.Inline;
 
 namespace NovaTerminal.AgentOutput;
@@ -51,6 +52,12 @@ public sealed record MarkdownRenderResult(Control Root, bool HasTransformBlock);
 public static class MarkdownRenderer
 {
     private const string MonospaceFontFamily = "Cascadia Mono PL, Consolas, Menlo, monospace";
+
+    /// <summary>
+    /// Deepest nesting a fence handler may render into. Agent output is untrusted and this tree
+    /// is rebuilt on the streaming debounce, so a fence inside a rendered fence stays source.
+    /// </summary>
+    internal const int MaxFenceDepth = 1;
 
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
         .UseAdvancedExtensions()
@@ -104,11 +111,11 @@ public static class MarkdownRenderer
                     break;
 
                 case FencedCodeBlock fenced:
-                    target.Add(BuildCodeBlock(GetLinesText(fenced), fenced.Info.ToString(), theme, onCopyText, pass, depth));
+                    target.Add(BuildCodeBlock(GetLinesText(fenced), fenced.Info.ToString(), theme, onCopyText, onOpenLink, pass, depth));
                     break;
 
                 case CodeBlock code:
-                    target.Add(BuildCodeBlock(GetLinesText(code), null, theme, onCopyText, pass, depth));
+                    target.Add(BuildCodeBlock(GetLinesText(code), null, theme, onCopyText, onOpenLink, pass, depth));
                     break;
 
                 case ListBlock list:
@@ -136,6 +143,21 @@ public static class MarkdownRenderer
                     // YamlFrontMatter and anything else unrecognized: skip.
             }
         }
+    }
+
+    /// <summary>Renders a fence's body as markdown, one level deeper in the same pass.</summary>
+    private static Control BuildNested(
+        string markdown,
+        MarkdownTheme theme,
+        Action<string>? onCopyText,
+        Action<string>? onOpenLink,
+        MarkdownRenderPass pass,
+        int depth)
+    {
+        MarkdownDocument document = Markdown.Parse(markdown ?? string.Empty, Pipeline);
+        var panel = new StackPanel { Spacing = 2 };
+        AppendBlocks(panel.Children, document, theme, onCopyText, onOpenLink, pass, depth);
+        return panel;
     }
 
     private static Control BuildHeading(HeadingBlock heading, MarkdownTheme theme)
@@ -183,17 +205,40 @@ public static class MarkdownRenderer
         string? language,
         MarkdownTheme theme,
         Action<string>? onCopyText,
+        Action<string>? onOpenLink,
         MarkdownRenderPass pass,
         int depth)
     {
-        var codeText = new SelectableTextBlock
+        IFenceBody? handler = depth < MaxFenceDepth ? FenceBodyResolver.Resolve(language) : null;
+        Control body;
+        if (handler is null)
         {
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = 12,
-            FontFamily = new FontFamily(MonospaceFontFamily),
-            Foreground = theme.Foreground,
-        };
-        codeText.Inlines?.Add(new Run { Text = code });
+            var codeText = new SelectableTextBlock
+            {
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 12,
+                FontFamily = new FontFamily(MonospaceFontFamily),
+                Foreground = theme.Foreground,
+            };
+            codeText.Inlines?.Add(new Run { Text = code });
+            body = codeText;
+        }
+        else
+        {
+            if (handler.IsTransform)
+            {
+                pass.HasTransformBlock = true;
+            }
+
+            body = handler.Build(
+                code,
+                theme,
+                new FenceContext(
+                    depth,
+                    pass.RenderFencedMarkdown,
+                    (nested, nestedDepth) => BuildNested(nested, theme, onCopyText, onOpenLink, pass, nestedDepth),
+                    onCopyText));
+        }
 
         var header = new Grid { ColumnDefinitions = ColumnDefinitions.Parse("*,Auto") };
         if (!string.IsNullOrWhiteSpace(language))
@@ -240,7 +285,7 @@ public static class MarkdownRenderer
                     new Border
                     {
                         Padding = new Thickness(8, 6, 8, 8),
-                        Child = codeText,
+                        Child = body,
                     },
                 },
             },
