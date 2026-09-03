@@ -45,12 +45,22 @@ The solution keeps terminal semantics isolated behind small project boundaries s
 - **NovaTerminal.Rendering** owns Skia-based drawing from immutable buffer snapshots.
 - **NovaTerminal.Pty** owns OS/process and stream integration.
 - **NovaTerminal.Replay** owns recording and replay infrastructure.
+- **NovaTerminal.CommandAssist** owns the Command Assist domain, ranking, storage, and shell integration.
+- **NovaTerminal.Backup** owns `.novabackup` export/import and automatic snapshots.
+- **NovaTerminal.VtContract** owns the machine-readable VT capability catalogue.
+- **NovaTerminal.AgentHost.Contracts** owns the app-to-agent wire protocol.
+- **NovaTerminal.McpServer** owns the opt-in MCP surface agents connect to.
+- **NovaTerminal.Cli** and **NovaTerminal.Conformance** own the headless entry point and the conformance tool.
 
 Key constraints:
 
 - **NovaTerminal.VT** contains **no** Avalonia or SkiaSharp references.
 - **NovaTerminal.Rendering** contains **no** Avalonia references and does not fix semantic bugs.
 - **NovaTerminal.Pty** is strictly for stream/process management and binary interop.
+- **CommandAssist, Backup, VtContract and AgentHost.Contracts have zero project
+  references** and must keep it that way. That empty list is what lets the MCP
+  server share code with the app without acquiring a path into App, VT, Pty or
+  Rendering. The architecture tests assert it per assembly.
 - UI concerns stay out of the terminal core logic.
 
 ---
@@ -95,7 +105,9 @@ A change is acceptable only if:
 
 - `docs/ROADMAP.md` – test-gated product roadmap
 - `docs/MODULE_OWNERSHIP.md` – invariant ownership
-- `docs/IMPLEMENTATION_WORK_PLAN.md` – correctness-first execution plan
+- `docs/archive/IMPLEMENTATION_WORK_PLAN.md` – the original correctness-first execution plan (historical)
+- `CONTRIBUTING.md` – build/test commands, CI lanes, test categories
+- `CLAUDE.md` – why builds must go through `scripts/build.{ps1,sh}`
 
 ---
 

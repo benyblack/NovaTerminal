@@ -1,6 +1,6 @@
 # NovaTerminal – Product & Engineering Roadmap
 
-_Last reviewed: 2026-04-21._
+_Last reviewed: 2026-09-03._
 
 This roadmap is **authoritative** for NovaTerminal.
 
@@ -209,7 +209,7 @@ These constraints are enforced by tests.
 
 ### Deliverables
 - [x] Tab and pane restoration
-- [ ] Named workspaces
+- [x] Named workspaces (`Workspace: Save Current` / `Workspace: Load...`, plus templates and per-profile template rules)
 - [x] Optional startup restore
 
 ---
@@ -255,21 +255,26 @@ These constraints are enforced by tests.
 - [x] Jump host support
 - [x] Identity selection UI
 
-### Native SSH backend (experimental, opt-in)
+### Native SSH backend (default for new profiles since #337)
 
-A native Rust SSH crate ships alongside the default OpenSSH backend, gated by
-`TerminalSettings.ExperimentalNativeSshEnabled`. Status and scope are tracked
-in `docs/SSH_ROADMAP.md` and `docs/native-ssh/Native_SSH_Test_Matrix.md`.
+A native Rust SSH crate ships alongside OpenSSH and is now the **default backend
+for new profiles**: `TerminalSettings.ExperimentalNativeSshEnabled` defaults to
+`true`. Profiles created before the flip keep `OpenSsh`, and with the global
+toggle off new profiles default to `OpenSsh` too, so the default can never point
+at a backend that refuses to run. Jump chains of any length, ssh-agent auth, and
+local/remote/dynamic forwarding are all served natively. Status and scope are
+tracked in `docs/SSH_ROADMAP.md` and `docs/native-ssh/Native_SSH_Test_Matrix.md`.
 
 ---
 
 ## 2.2 Credential Provider Abstraction
 
 ### Deliverables
-- [x] Unified credential interface:
-  - [x] Windows: DPAPI
-  - [ ] macOS: Keychain
-  - [ ] Linux: Secret Service
+- [x] Unified credential interface (`ISecretStore`, selected by
+      `SecretStore.CreateDefault()`):
+  - [x] Windows: Credential Manager
+  - [x] macOS: Keychain Services (login keychain, per-user)
+  - [x] Linux: libsecret / Secret Service (GNOME Keyring, KWallet)
 - [x] Explicit user consent
 
 ---
@@ -339,21 +344,30 @@ in `docs/SSH_ROADMAP.md` and `docs/native-ssh/Native_SSH_Test_Matrix.md`.
 ## 4.1 Structured Command Blocks
 
 ### Deliverables
-- Command grouping
-- Exit status and duration
-- Copy/share per block
+- [x] Command grouping — OSC 133 marks delimit prompt/command/output regions
+- [x] Exit status and duration — captured per command (`CommandHistoryEntry.DurationMs`);
+      exit status is surfaced on tab headers and drives Command Assist's fix mode,
+      duration is recorded but not yet shown in the UI
+- [x] Copy/share per block — the Agent Output panel renders the current command's
+      output region as markdown beside the pane, and pane snapshot export covers
+      plain text / ANSI / PNG
 
 ---
 
 ## 4.2 Optional Command Intelligence
 
+Delivered by the Command Assist V2 program
+(`docs/plans/2026-08-01-command-assist-v2-plan.md`), offline by default.
+
 ### Deliverables
-- Explain commands
-- Rewrite commands
-- Generate snippets
+- [x] Explain commands — tldr-derived command knowledge catalogue
+- [x] Rewrite commands — fix mode proposes a correction from a failed command's own output
+- [x] Generate snippets — pin/unpin and snippet management, stored locally
+- [ ] Hosted model assistance — the AI content-provider seam exists with a
+      structural redaction guarantee, but no provider is wired
 
 ### Constraints
-- Offline mode supported
+- Offline mode supported — everything above works with no network
 - No silent data exfiltration
 
 ---

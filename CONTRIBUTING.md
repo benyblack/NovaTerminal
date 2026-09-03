@@ -100,11 +100,20 @@ semantics**.
 | `NovaTerminal.Pty` | Spawning the child process and delivering raw bytes. Does **not** parse VT. | Replay *(recording only)* |
 | `NovaTerminal.Rendering` | Skia draw path, glyph atlas and caches, render metrics. Does **not** interpret VT. | VT |
 | `NovaTerminal.Platform` | OS-specific plumbing: input routing, path mapping (WSL ↔ Windows), process abstraction, the whole SSH stack. | Pty |
+| `NovaTerminal.CommandAssist` | Command Assist domain, ranking, history/snippet storage, shell integration, view-models. Contains **no** Avalonia — the App owns only the views. | *(leaf)* |
+| `NovaTerminal.Backup` | `.novabackup` export/import, automatic snapshots, the category-to-path catalogue. Never touches secret storage. | *(leaf)* |
+| `NovaTerminal.VtContract` | The machine-readable VT capability catalogue (`vt-capabilities.json`) and its schema validation. | *(leaf)* |
 | `NovaTerminal.AgentHost.Contracts` | Wire contracts shared by the app and the MCP server. | *(leaf)* |
-| `NovaTerminal.McpServer` | The opt-in MCP server that agents connect to. | AgentHost.Contracts |
-| `NovaTerminal.App` | Avalonia UI — window, tabs, panes, settings, themes, command palette, Command Assist. Wires it all together. | Platform, VT, Rendering, Pty, Replay, AgentHost.Contracts |
+| `NovaTerminal.McpServer` | The opt-in MCP server that agents connect to. | AgentHost.Contracts, Backup, VtContract |
+| `NovaTerminal.App` | Avalonia UI — window, tabs, panes, settings, themes, command palette, Command Assist views, Agent Output panel. Wires it all together. | Platform, VT, Rendering, Pty, Replay, CommandAssist, Backup, AgentHost.Contracts |
 | `NovaTerminal.Cli` | Thin CLI entry point. | App |
-| `NovaTerminal.Conformance` | Validates `docs/vt_coverage_matrix.md` and generates the conformance report. | *(standalone)* |
+| `NovaTerminal.Conformance` | Validates `docs/vt_coverage_matrix.md` and generates the conformance report. | VtContract |
+
+`CommandAssist`, `Backup`, `VtContract` and `AgentHost.Contracts` are leaves with
+zero project references. That is deliberate rather than incidental: it is what
+lets `McpServer` share real code with the app while keeping its "does not
+reference App/VT/Pty/Rendering" invariant true by construction, and the
+architecture tests assert the empty reference list on each of them.
 
 Test projects mirror the source ones. Two things worth knowing before you go
 looking:
@@ -112,8 +121,10 @@ looking:
 - The **buffer, reflow and replay suites live in `tests/NovaTerminal.App.Tests/`**,
   not in `NovaTerminal.VT.Tests/` — historical, and the reason VT's measured
   coverage looks lower than it is.
-- **`tests/NovaTerminal.App.Tests` is non-blocking in CI** (see the CI section
-  below). Run it locally.
+- **`tests/NovaTerminal.App.Tests` failures are blocking in CI**, even though the
+  test step itself is `continue-on-error` — a separate allowlist gate reads the
+  results and reds the job. See the CI section below before you assume a red
+  App.Tests step is somebody else's flake.
 
 The layering rules above are enforced as [NetArchTest] facts in
 `tests/NovaTerminal.Architecture.Tests/` — if you cross a boundary, that suite
@@ -320,13 +331,30 @@ scripts/build.sh test --filter \
 | `ShellIntegration` | OSC 133 / OSC 7 shell markers. | Shell-integration changes. |
 | `Regression` | Previously-fixed bugs, pinned so they stay fixed. | You fix a bug — pin it here. |
 
-Two traps worth knowing:
+`Lane` is a second, separate trait, and today it has one value: `Lane=PlatformBoot`
+marks the App.Tests that boot the Avalonia headless platform themselves (via
+`SnapshotService.EnsureAvaloniaInitialized`). CI runs them in their own process,
+and that split is a bug fix rather than tidiness — the boot binds a thread-affine
+`MediaContext` into the process-global `AvaloniaLocator` root, so sharing a process
+makes every later `[AvaloniaFact]` throw "a different thread owns it". If you add
+a test that boots the platform, tag it `Lane=PlatformBoot`; if you run App.Tests
+locally, run the two filters the way CI does:
+
+```bash
+scripts/build.sh test tests/NovaTerminal.App.Tests --filter "Lane!=PlatformBoot"
+scripts/build.sh test tests/NovaTerminal.App.Tests --filter "Lane=PlatformBoot"
+```
+
+Three traps worth knowing:
 
 - **Real-shell PTY tests share one xUnit collection.** Adding a new one outside
   that collection reintroduces a thread-starvation hang. Follow the existing
   pattern.
 - **A build that fails reads as zero warnings.** Never take a diagnostic or
   coverage number from a red build.
+- **Run App.Tests with `--blame-hang-timeout 5m`**, and never two runs at once
+  against the same results directory — concurrent runs corrupt the totals, and
+  without the blame timeout an #81 teardown hang looks like an idle terminal.
 
 ### Changing VT Coverage
 
@@ -388,13 +416,23 @@ All PRs are automatically checked by CI:
   cheapest check to fail and the cheapest to fix: run `dotnet format whitespace`
   and commit the result.
 - unit tests (VT, Rendering, Architecture, Platform, McpServer — blocking)
-- headless App.Tests (currently non-blocking due to an upstream
-  Avalonia.Headless teardown deadlock, tracked in #81). Note: this is a
-  step-level `continue-on-error`, so a failure does NOT turn the check red —
-  it is only visible in the step log and uploaded artifacts. Reviewers must
-  open the Unit Tests job and check the App.Tests step explicitly.
+- headless App.Tests, in two lanes (`Lane!=PlatformBoot` and `Lane=PlatformBoot`)
+  — **failures are blocking**. Both test steps carry `continue-on-error`, but
+  that tolerates the *hang* only: an upstream Avalonia.Headless teardown
+  deadlock (AvaloniaUI/Avalonia#21467, tracked here as #81) hits roughly one run
+  in three, and making the step blocking would red that many PRs for reasons
+  unrelated to the change. The *results* are then gated by the following step,
+  **Check App.Tests failures against the flake allowlist**, which fails the job
+  for any failing test not named in `tests/app-tests-known-flaky.txt`. A missing
+  `.trx` is the hang and only warns, so the step also prints how many tests
+  executed — a truncated run is visible rather than silently green.
 - renderer metric thresholds (`tab_perf_smoke`)
 - golden shared PNG tests
+
+That gate exists because "non-blocking" quietly became "unread": the job
+reported success for weeks while 16 tests failed on Windows and 14 on Linux. If
+you genuinely hit a flake, add it to the allowlist in the same PR with a comment
+saying why — do not widen the filter.
 
 Replay and cross-platform parity suites run on every push to `main` and on
 the daily scheduled run (see `docs/plans/2026-04-22-ci-rebalance-and-release-publishing.md`);
@@ -402,8 +440,10 @@ a parity or replay break detected there must be fixed or reverted before the
 next release. Release tags additionally run the gating unit lane on all three
 OSes before any bundle is published.
 
-Failing blocking CI blocks merge. Do not rely on the non-blocking lanes to
-catch regressions for you — run the relevant categories locally.
+Failing blocking CI blocks merge. The only tolerated failure anywhere is the
+#81 hang, and the heavy categories (`Replay`, `RenderMetrics`, `PtySmoke`,
+`Stress`, `GoldenSharedPng`) run in their own jobs or on `main` rather than on
+every PR — run the ones your change touches locally.
 
 Maintainers may request:
 - additional replay fixtures
