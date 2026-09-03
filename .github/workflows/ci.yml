@@ -305,9 +305,12 @@ jobs:
       # in-repo config fixes it (collection serialization, maxParallelThreads:1, and
       # ThreadPool.SetMinThreads were all ruled out with dump evidence). Until an
       # upstream fix lands, run it as continue-on-error so the flake can't block PRs,
-      # while still executing it: a clean run reports real pass/fail, a genuine
-      # regression shows as a failed (non-blocking) check, and each hang writes a
-      # mini dump (uploaded below) for ongoing diagnosis.
+      # while still executing it: a clean run reports real pass/fail and each hang
+      # writes a mini dump (uploaded below) for ongoing diagnosis.
+      #
+      # continue-on-error covers the HANG, not the RESULTS. The results are gated by the
+      # step below, because "non-blocking" silently became "unread": this job reported
+      # success for weeks while 16 tests failed on Windows and 14 on ubuntu.
       - name: Test (headless App.Tests — NON-BLOCKING, see #81 / AvaloniaUI/Avalonia#21467)
         continue-on-error: true
         env:
@@ -318,6 +321,21 @@ jobs:
             --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng" \
             --blame-hang-timeout 5m --blame-hang-dump-type mini \
             --logger "trx;LogFileName=unit_app.trx"
+
+      # Gates the lane above on its own results: any failing test not named in
+      # tests/app-tests-known-flaky.txt fails this job. A missing trx is the #81 hang and
+      # only warns — there are no results to judge. Runs on failure too, so a non-zero
+      # `dotnet test` still gets its results read.
+      - name: Check App.Tests failures against the flake allowlist
+        if: always()
+        shell: bash
+        run: |
+          # windows-latest ships python.exe; ubuntu ships python3. Pick whichever exists.
+          py=python3
+          command -v "$py" >/dev/null 2>&1 || py=python
+          "$py" scripts/check-app-tests-baseline.py \
+            tests/NovaTerminal.App.Tests/TestResults/unit_app.trx \
+            tests/app-tests-known-flaky.txt
 
       - name: Upload test results
         if: always()
