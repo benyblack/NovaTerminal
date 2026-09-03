@@ -246,6 +246,13 @@ namespace NovaTerminal.Controls
         private IRemoteDirectoryBrowserService _remoteDirectoryBrowserService = new RemoteDirectoryBrowserService();
         private RemoteFilesSidebarViewModel? _remoteFilesSidebarViewModel;
         private RemoteFilesSidebar? _remoteFilesSidebarHost;
+
+        // Agent Output panel state, created in SetupCommon alongside the other pane-lifetime
+        // services. The tracker owns the debounced region reads; the view model owns visibility
+        // (user toggle minus alt-screen suppression); the host is the lazily-created view.
+        private AgentOutput.AgentOutputViewModel? _agentOutput;
+        private AgentOutput.AgentOutputRegionTracker? _agentOutputTracker;
+        private AgentOutput.AgentOutputPanel? _agentOutputPanelHost;
         private bool _isRemoteFilesSidebarTestServiceConfigured;
         private string? _currentRecordingFilePath;
         private int _clipboardWriteAttemptsForTest;
@@ -722,6 +729,47 @@ namespace NovaTerminal.Controls
             {
                 Buffer.OnScreenSwitched += OnBufferScreenSwitched;
             }
+
+            // Agent Output (markdown side panel). The tracker hangs off the same buffer-lifetime
+            // subscription point as OnScreenSwitched above; OnInvalidate fires on the parse thread
+            // and the tracker only re-arms a debounce timer there. Notification wiring into the
+            // parser lives in CaptureCommandOutputRegionStart (C) and the OnCommandFinished
+            // handler (D) - both already parse-thread, both already at the right instant.
+            _agentOutput = new AgentOutput.AgentOutputViewModel();
+            _agentOutputTracker = new AgentOutput.AgentOutputRegionTracker(
+                () => Buffer,
+                () => Buffer?.CommandOutputStartMark,
+                dispatch: action =>
+                {
+                    if (Dispatcher.UIThread.CheckAccess())
+                    {
+                        action();
+                    }
+                    else
+                    {
+                        Dispatcher.UIThread.Post(action);
+                    }
+                },
+                onUpdate: (text, streaming) => _agentOutput.SetUpdate(text, streaming),
+
+                // The MD toggle only exists when the recent on-screen output actually looks like
+                // markdown - detection runs on the tracker's lazy closed-panel cadence, and this
+                // callback fires on the UI thread only when the verdict changes.
+                markdownPresenceChanged: present => AgentOutputToggle.IsVisible = present);
+            if (Buffer != null)
+            {
+                Buffer.OnInvalidate += _agentOutputTracker.NotifyInvalidate;
+            }
+            // Property hook rather than Click: the panel's ✕ unchecks the toggle programmatically
+            // (host.CloseRequested), and that path must close the panel exactly like a user click.
+            AgentOutputToggle.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == ToggleButton.IsCheckedProperty)
+                {
+                    SetAgentOutputPanelOpen(AgentOutputToggle.IsChecked ?? false);
+                }
+            };
+            TermView.EnterObserved += OnAgentOutputEnterObserved;
 
             // Load Settings
             ApplySettings(initialSettings ?? TerminalSettings.Load());
@@ -2077,6 +2125,99 @@ namespace NovaTerminal.Controls
             _commandAssistController?.HandleAltScreenChanged(isAltScreen);
             UpdateRemoteFilesSidebarVisibility();
             UpdateRemoteFilesSidebarEntryPointState();
+            if (_agentOutput != null)
+            {
+                _agentOutput.IsAltScreenSuppressed = isAltScreen;
+                UpdateAgentOutputPanelVisibility();
+            }
+
+            // Showing the panel again is not enough on the way out: the final update for a
+            // command that finished under the full-screen program was refused while the
+            // alternate screen was up, so the tracker owes the panel a corrective read.
+            _agentOutputTracker?.NotifyAltScreenChanged(isAltScreen);
+        }
+
+        // ------------------------------------------------------------- Agent Output panel
+        //
+        // The markdown side panel: a per-pane, manually toggled view over the current command's
+        // output region. It reads the grid, it never writes it - the terminal core is untouched,
+        // and the whole feature turns off the moment the user closes the panel.
+
+        /// <summary>
+        /// The toggle flipped. Creates the panel view on first open; the tracker only reads the
+        /// grid while the panel is open.
+        /// </summary>
+        private void SetAgentOutputPanelOpen(bool open)
+        {
+            if (_agentOutput == null)
+            {
+                return;
+            }
+
+            _agentOutput.IsPanelOpen = open;
+            if (open)
+            {
+                EnsureAgentOutputPanelHost();
+                _agentOutputTracker?.SetEnabled(true);
+
+                // A command that finished while the panel was closed never delivered its final
+                // update (D skips the read for a hidden panel), so the reopened view model may
+                // still claim the old output is streaming. Clear that first; if a live region
+                // does exist, the flush below immediately re-marks it as streaming.
+                _agentOutput.ClearStreaming();
+
+                // Fallback on: nothing is tracked when the panel opens onto output that already
+                // finished (no live C mark, no Enter-time heuristic yet), and the panel should
+                // show that output as a recent-tail snapshot rather than an empty state.
+                _agentOutputTracker?.FlushNow(includeRecentTailFallback: true);
+            }
+            else
+            {
+                _agentOutputTracker?.SetEnabled(false);
+            }
+
+            UpdateAgentOutputPanelVisibility();
+        }
+
+        private void UpdateAgentOutputPanelVisibility()
+        {
+            if (_agentOutput != null)
+            {
+                AgentOutputPanelPresenter.IsVisible = _agentOutput.IsShown;
+            }
+        }
+
+        /// <summary>Lazily builds the panel view, mirroring EnsureRemoteFilesSidebarHost.</summary>
+        private void EnsureAgentOutputPanelHost()
+        {
+            if (_agentOutputPanelHost != null || _agentOutput == null)
+            {
+                return;
+            }
+
+            var host = new AgentOutput.AgentOutputPanel();
+            host.SetViewModel(_agentOutput);
+            host.CloseRequested += () => AgentOutputToggle.IsChecked = false;
+            AgentOutputPanelPresenter.Content = host;
+            _agentOutputPanelHost = host;
+        }
+
+        /// <summary>
+        /// Enter observed with shell integration inactive: pin the output-region start from the
+        /// cursor, the markless fallback. Without this, sessions without shell integration have
+        /// no region to track at all. Runs after <see cref="OnCommandAssistEnterObserved"/>,
+        /// synchronously on the UI thread, for the same narrow-window reason that method does.
+        /// </summary>
+        private void OnAgentOutputEnterObserved()
+        {
+            // Not gated on the panel being open: the row is only answerable at Enter, and a panel
+            // opened later needs it to bound the response instead of guessing at prompt shapes.
+            if (_isShellIntegrationActive)
+            {
+                return;
+            }
+
+            _agentOutputTracker?.CaptureHeuristicStart();
         }
 
         /// <remarks>
@@ -2983,6 +3124,13 @@ namespace NovaTerminal.Controls
             {
                 _agentRegistration?.StatusMachine.NotifyCommandFinished(exitCode);
 
+                // The Agent Output panel's final read must happen here, on the parse thread: D is
+                // the last instant the grid still holds the command's output, and a debounced
+                // background read would race the next prompt painting over the tail. Bounded by
+                // the same budget as every other read. OnCommandFinishedDetailed (below) clears
+                // the tracked marks after this.
+                _agentOutputTracker?.NotifyCommandFinished();
+
                 // Captured here, on the parse thread, and only for a failure. By the time the UI
                 // post below runs, the shell has painted the next prompt over the last rows of the
                 // output and may already be running the next command; D is the last instant at
@@ -3048,6 +3196,9 @@ namespace NovaTerminal.Controls
             _isShellIntegrationActive = false;
             _hasObservedShellIntegrationMark = false;
             _shellIntegrationEnvOverrides = null;
+            // The Agent Output tracker's heuristic region mark belongs to the shell that is going
+            // away; drop it with the rest of the per-session state.
+            _agentOutputTracker?.Reset();
             // A restart or a profile switch reaches here; the pending line belonged to the shell
             // that is going away.
             _marklessSubmission.Reset();
@@ -3970,7 +4121,13 @@ namespace NovaTerminal.Controls
             if (Buffer != null)
             {
                 Buffer.OnScreenSwitched -= OnBufferScreenSwitched;
+                if (_agentOutputTracker != null)
+                {
+                    Buffer.OnInvalidate -= _agentOutputTracker.NotifyInvalidate;
+                }
             }
+            _agentOutputTracker?.Dispose();
+            _agentOutputTracker = null;
             _statusTimer?.Stop();
             _statusTimer = null;
             SftpService.Instance.JobUpdated -= Sftp_JobUpdated;
@@ -4697,6 +4854,11 @@ namespace NovaTerminal.Controls
                 buffer, commandLineMark, out ShellIntegrationMark outputStart);
 
             buffer.CommandOutputStartMark = captured ? outputStart : null;
+
+            // The Agent Output tracker starts streaming here too: it resolves the region from the
+            // same buffer mark at read time, so this notification only flips it into streaming
+            // state and clears any markless heuristic start.
+            _agentOutputTracker?.NotifyCommandAccepted();
         }
 
         /// <summary>

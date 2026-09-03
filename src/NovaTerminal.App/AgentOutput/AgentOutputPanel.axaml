@@ -1,0 +1,72 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="380" d:DesignHeight="600"
+             x:Class="NovaTerminal.AgentOutput.AgentOutputPanel"
+             Width="380">
+    <!-- Chrome matches the pane's other hand-styled surfaces (RemoteFilesSidebar, the assist
+         overlay): fixed dark palette, hairline left edge. Width lives here so the presenter
+         column in TerminalPane stays Auto-sized. -->
+    <Border Background="#1B1D21" BorderBrush="#31353A" BorderThickness="1,0,0,0">
+        <Grid RowDefinitions="Auto,*">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6" Margin="10,8,10,6">
+                <StackPanel Spacing="1">
+                    <TextBlock Text="Agent Output"
+                               Foreground="#F3F6FA"
+                               FontSize="13"
+                               FontWeight="SemiBold"/>
+                    <TextBlock x:Name="StatusText"
+                               Foreground="#96A0AE"
+                               FontSize="10.5"
+                               IsVisible="False"/>
+                </StackPanel>
+
+                <Button x:Name="BtnCopyAll"
+                        Grid.Column="1"
+                        Content="Copy"
+                        FontSize="11"
+                        Padding="7,2"
+                        VerticalAlignment="Top"
+                        ToolTip.Tip="Copy the raw markdown source"
+                        Click="OnCopyAllClick"/>
+                <Button x:Name="BtnClose"
+                        Grid.Column="2"
+                        Content="✕"
+                        FontSize="11"
+                        Padding="6,2"
+                        VerticalAlignment="Top"
+                        ToolTip.Tip="Close the panel"
+                        Click="OnCloseClick"/>
+            </Grid>
+
+            <!-- Empty state and the rendered markdown occupy the same row; exactly one is visible.
+                 Rendered content is a StackPanel the code-behind rebuilds on each update - the
+                 markdown comes from the terminal grid as one text snapshot, so there is no
+                 incremental binding to a collection. -->
+            <StackPanel x:Name="EmptyState"
+                        Grid.Row="1"
+                        VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Margin="24,0">
+                <TextBlock Text="No output yet"
+                           Foreground="#96A0AE"
+                           FontSize="13"
+                           TextAlignment="Center"/>
+                <TextBlock Text="Run a command with this panel open — its output renders here as markdown."
+                           Foreground="#6B737F"
+                           FontSize="11"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           Margin="0,4,0,0"/>
+            </StackPanel>
+
+            <ScrollViewer x:Name="ContentScroll"
+                          Grid.Row="1"
+                          Padding="12,4,12,18"
+                          IsVisible="False">
+                <StackPanel x:Name="MarkdownHost"/>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</UserControl>

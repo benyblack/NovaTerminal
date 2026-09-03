@@ -26,6 +26,8 @@
     <PackageReference Include="SkiaSharp.HarfBuzz" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
+    <!-- Agent Output panel: markdown parsing for the rendered side panel. -->
+    <PackageReference Include="Markdig" />
     <!-- Windows installer + auto-update (#91). Version is pinned centrally in
          Directory.Packages.props and must match the vpk tool version in release.yml. -->
     <PackageReference Include="Velopack" />
