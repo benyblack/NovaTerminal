@@ -15,8 +15,6 @@ namespace NovaTerminal.Tests.AgentOutput;
 /// </summary>
 public sealed class FenceBodyTests
 {
-    private static readonly Border Anchor = new();
-
     [Theory]
     [InlineData("markdown")]
     [InlineData("md")]
@@ -60,6 +58,10 @@ public sealed class FenceBodyTests
     [InlineData("diff --git a/x b/x", "Secondary")]
     [InlineData("index 1234567..89abcde 100644", "Secondary")]
     [InlineData(" context line", "Foreground")]
+    [InlineData("+++counter;", "NtGreen")]
+    [InlineData("---x;", "NtRed")]
+    [InlineData("+++", "Secondary")]
+    [InlineData("---", "Secondary")]
     public void DiffHandler_ColorsLinesByMarker(string line, string expectedRole)
     {
         var theme = MarkdownThemeProbe.WithDistinctBrushes();

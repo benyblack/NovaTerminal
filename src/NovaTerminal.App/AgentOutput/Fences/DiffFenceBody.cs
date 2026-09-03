@@ -46,8 +46,8 @@ internal sealed class DiffFenceBody : IFenceBody
     /// </summary>
     private static IBrush BrushFor(string line, MarkdownTheme theme)
     {
-        if (line.StartsWith("+++", StringComparison.Ordinal) ||
-            line.StartsWith("---", StringComparison.Ordinal) ||
+        if (IsFileHeader(line, "+++") ||
+            IsFileHeader(line, "---") ||
             line.StartsWith("diff --git", StringComparison.Ordinal) ||
             line.StartsWith("index ", StringComparison.Ordinal))
         {
@@ -71,4 +71,13 @@ internal sealed class DiffFenceBody : IFenceBody
 
         return theme.Foreground;
     }
+
+    /// <summary>
+    /// A unified-diff file header: the three-character marker followed by a space, or the bare
+    /// marker alone. Requiring the space matters because an added line whose own text starts
+    /// with "++" produces "+++content" and is an addition, not a header.
+    /// </summary>
+    private static bool IsFileHeader(string line, string marker)
+        => line.StartsWith(marker + " ", StringComparison.Ordinal) ||
+           string.Equals(line, marker, StringComparison.Ordinal);
 }
