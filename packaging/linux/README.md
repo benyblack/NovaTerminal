@@ -90,7 +90,13 @@ version — see "Dry run without cutting a release" below.
 
   The AppImage and tarball use the tag untransformed — the `.deb` is the only
   asset where the filename must be looked up rather than constructed from the
-  tag.
+  tag. For a prerelease there's a second reason to look it up rather than
+  build it: GitHub replaces `~` with `.` in release asset names, so the built
+  file `novaterminal_0.5.0~beta.1-1_amd64.deb` reaches the releases page as
+  `novaterminal_0.5.0.beta.1-1_amd64.deb`. That's cosmetic, not a bug — dpkg
+  installs from the package's control file, not the filename, so the
+  `Version:` it records is still the `~` form — and stable tags have no `~`
+  to sanitize, so they're unaffected.
 - **Channels are `linux-x64` and `linux-arm64`, never the bare `linux`.** A Velopack
   feed is per-channel, not per-architecture, and both architectures publish into one
   GitHub release — a shared `linux` channel would offer arm64 clients an x64 package.

@@ -124,9 +124,14 @@ label into `~` — dpkg reads the *last* `-` in a version as the revision
 separator, so a prerelease left as `-beta.1` would parse as upstream `0.5.0`
 revision `beta.1` and sort *above* the eventual `0.5.0-1` final release; `~`
 sorts before everything, so `~beta.1-1` correctly sorts below it. `v0.5.3` ships
-as `novaterminal_0.5.3-1_amd64.deb`; `v0.5.0-beta.1` ships as
-`novaterminal_0.5.0~beta.1-1_amd64.deb`. Don't construct the filename yourself —
-copy it verbatim from the [releases page](https://github.com/benyblack/NovaTerminal/releases):
+as `novaterminal_0.5.3-1_amd64.deb`; `v0.5.0-beta.1` is built as
+`novaterminal_0.5.0~beta.1-1_amd64.deb`, but GitHub replaces `~` with `.` in
+release asset names, so the file you'll actually see on the releases page for a
+prerelease is named `novaterminal_0.5.0.beta.1-1_amd64.deb` — the package's
+internal `Version:` field (what dpkg reads) still carries the `~`, so
+installation works either way; stable tags have no `~` to sanitize, so this
+doesn't affect them. That's exactly why you shouldn't construct the filename
+yourself — copy it verbatim from the [releases page](https://github.com/benyblack/NovaTerminal/releases):
 
 ```sh
 curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/<exact .deb filename from the release page>

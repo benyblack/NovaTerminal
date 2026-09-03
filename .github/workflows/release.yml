@@ -190,31 +190,42 @@ jobs:
     # a warm, fully preinstalled runner image.
     timeout-minutes: 40
     needs: [release_metadata]
-    # ADVISORY ARM64 LEG - the upstream half of the pair. `fail-fast: false` below
-    # stops a red arm64 leg cancelling its x64 sibling, but it does NOT stop the leg
-    # failing the JOB, and the job failure is what propagates: release_tests
-    # `needs: build_native_linux`, and publish_aot `needs: release_tests`. So without
-    # this line a failing arm64 native build skips release_tests, skips publish_aot,
-    # and NO WINDOWS OR MACOS ASSETS PUBLISH AT ALL - the same outcome
-    # release_tests' own continue-on-error was added to prevent, one hop upstream
-    # where it was still wide open.
+    # ARM64 GATES LIKE EVERY OTHER PLATFORM NOW - no more `continue-on-error` here.
+    # `fail-fast: false` below still stops a red arm64 leg cancelling its x64
+    # sibling, but a JOB failure still propagates: release_tests `needs:
+    # build_native_linux`, and publish_aot `needs: release_tests`. So a genuine
+    # arm64 native-build failure once again skips release_tests, skips
+    # publish_aot, and withholds Windows and macOS assets along with Linux's -
+    # exactly like every other platform's leg, and exactly what the removed line
+    # used to prevent.
     #
-    # This is not a remote risk. This leg has never executed in any form: it
-    # bootstraps rustup via `curl | sh` inside a bare arm64 ubuntu:22.04 container and
-    # then runs two `cargo build --release` passes on aarch64, none of which has been
-    # exercised in CI or locally (no arm64 emulation on the development machine).
+    # THIS WAS TOLERATED, NOT PERMANENT. The line it replaced read: "once this leg
+    # has been green on a real tag, delete this line." v0.7.0-rc.1 (release run
+    # 33740981976) was that tag: every job in the arm64 chain - this one, Release
+    # Tests (ubuntu-24.04-arm), Publish Linux (linux-arm64), Release Linux
+    # (linux-arm64) - finished green, AND the arm64 assets genuinely published
+    # (NovaTerminal-linux-arm64-v0.7.0-rc.1.AppImage,
+    # novaterminal_0.7.0.rc.1-1_arm64.deb,
+    # NovaTerminalApp-0.7.0-rc.1-linux-arm64-full.nupkg,
+    # releases.linux-arm64.json), which is proof a merely-green-but-tolerant job
+    # cannot offer on its own. That answered every unknown this leg carried: vpk
+    # runs on linux-arm64, ubuntu-24.04-arm provides a docker daemon and a
+    # /dev/fuse node, and the arm64 NativeAOT publish works inside the
+    # ubuntu:22.04 container.
     #
-    # `continue-on-error` on a matrix leg is the documented exemption: the leg still
-    # runs, still reports, and still annotates the run when it fails, but it neither
-    # cancels its siblings nor fails the job.
+    # THIS IS NOW A DELIBERATE, ACCEPTED TRADE, not an oversight: a real Linux
+    # native failure can once again withhold Windows and macOS assets, which is
+    # the whole reason this line existed in the first place. The coupling itself
+    # (build_native_linux -> release_tests -> publish_aot) has not changed - only
+    # the tolerance for an unproven arm64 leg is gone.
     #
-    # WHAT THIS COSTS, plainly: a genuine arm64 native-build failure no longer blocks
-    # the run - it degrades to the accepted behaviour spelled out in the publish_linux
-    # comment below. Once this leg has been green on a real tag, DELETE THIS LINE and
-    # let arm64 gate like every other platform. Matches release_tests' line, which
-    # keys off `matrix.os` because that job has no `rid`; this job has both, and `rid`
-    # is the architecture, so it is the honest key here.
-    continue-on-error: ${{ matrix.rid == 'linux-arm64' }}
+    # RECOVERY if arm64 ever regresses badly enough to need decoupling again is
+    # NOT "re-run failed jobs": a GitHub re-run replays the workflow file as of
+    # the triggering ref, so an edit made on main afterward (re-adding
+    # `continue-on-error`, or removing arm64 from the matrix) has no effect on
+    # that run. It requires either a new tag cut from the fixed commit, or
+    # `workflow_dispatch` with `tag_name` set to the existing tag, which reads the
+    # workflow from the current default branch.
     strategy:
       fail-fast: false
       matrix:
@@ -227,9 +238,10 @@ jobs:
           # runner label. `ubuntu:22.04` is a multi-arch manifest, so this pulls the
           # arm64 variant here.
           #
-          # UNVERIFIED: no arm64 Linux build of this project has ever run, in CI or
-          # locally (the development machine has no arm64 emulation). This leg is
-          # built as designed rather than proven.
+          # PROVEN on v0.7.0-rc.1 (release run 33740981976): this leg built for
+          # real on aarch64 inside the ubuntu:22.04 container and its assets
+          # published. Before that tag it had never run anywhere - this repo's own
+          # development machine included, which has no arm64 emulation.
           - os: ubuntu-24.04-arm
             rid: linux-arm64
     steps:
@@ -375,26 +387,37 @@ jobs:
     # build_native_linux as well as build_native: the ubuntu legs' native-* artifacts
     # now come from that job, so needing only build_native would race the download.
     needs: [release_metadata, build_native, build_native_linux]
-    # ADVISORY ARM64 LEG. `fail-fast: true` below means a failing leg CANCELS its
-    # in-flight siblings, and every publish job needs this one - so without this line
-    # a red ubuntu-24.04-arm leg cancels the Windows and macOS legs mid-run, skips
-    # publish_aot, and NO WINDOWS OR MACOS ASSETS PUBLISH AT ALL. That is not a remote
-    # risk: this leg runs NovaTerminal.Rendering.Tests - the project with this repo's
-    # documented Linux font/Skia drift - on an architecture nobody has characterised.
-    # A Linux packaging change must not be able to withhold releases for two platforms
-    # that already ship and are not part of this change.
+    # ARM64 GATES LIKE EVERY OTHER PLATFORM NOW - no more `continue-on-error`
+    # here. `fail-fast: true` below still means a failing leg CANCELS its
+    # in-flight siblings, and every publish job needs this one - so a red
+    # ubuntu-24.04-arm leg once again cancels the Windows and macOS legs mid-run,
+    # skips publish_aot, and withholds Windows and macOS assets along with
+    # Linux's. This leg runs NovaTerminal.Rendering.Tests - the project with this
+    # repo's documented Linux font/Skia drift - so that risk is real, not
+    # theoretical; it is accepted now (see below), not gone.
     #
-    # `continue-on-error` on a matrix leg is the documented exemption from fail-fast:
-    # the leg still runs, still reports, and still annotates the run when it fails,
-    # but it neither cancels its siblings nor fails the job.
+    # THIS WAS TOLERATED, NOT PERMANENT. The line it replaced read: "once this leg
+    # has been green on a real tag, delete this line." v0.7.0-rc.1 (release run
+    # 33740981976) was that tag: this leg, and the whole arm64 chain around it
+    # (Build Native Linux (linux-arm64), Publish Linux (linux-arm64), Release
+    # Linux (linux-arm64)), finished green, and the arm64 release assets
+    # genuinely published - proof a merely-green-but-tolerant job cannot offer on
+    # its own.
     #
-    # WHAT THIS COSTS, plainly: while the expression matches, arm64 test results are
-    # ADVISORY - a genuine arm64 test failure will not block the arm64 bundle from
-    # publishing either. That is a real gap in #156's guarantee for arm64 only, and it
-    # is the deliberate price of not coupling two shipping platforms to an
-    # uncharacterised one. Once this leg has been green on a real tag, DELETE THIS LINE
-    # and let arm64 gate like every other platform. That is the whole intent.
-    continue-on-error: ${{ matrix.os == 'ubuntu-24.04-arm' }}
+    # THIS IS NOW A DELIBERATE, ACCEPTED TRADE, not an oversight: #156's test gate
+    # is once again a real gate for arm64, at the cost that an uncharacterised
+    # architecture's test failure can withhold two shipping platforms' assets.
+    # That is the same bargain every other platform's leg already makes, and it
+    # is only acceptable because the lane is now proven rather than merely
+    # designed.
+    #
+    # RECOVERY if arm64 ever regresses badly enough to need decoupling again is
+    # NOT "re-run failed jobs": a GitHub re-run replays the workflow file as of
+    # the triggering ref, so an edit made on main afterward (re-adding
+    # `continue-on-error`, or removing arm64 from the matrix) has no effect on
+    # that run. It requires either a new tag cut from the fixed commit, or
+    # `workflow_dispatch` with `tag_name` set to the existing tag, which reads the
+    # workflow from the current default branch.
     strategy:
       fail-fast: true
       matrix:
@@ -402,8 +425,8 @@ jobs:
         # ships an arm64 bundle, and #156 - the reason this job exists at all - was
         # precisely that releases published bundles no test had ever touched;
         # shipping a whole new architecture untested would reopen that hole for
-        # arm64. UNVERIFIED: this leg has never run - hence the continue-on-error
-        # above, and the instruction to remove it once it has.
+        # arm64. PROVEN on v0.7.0-rc.1 (release run 33740981976): this leg ran and
+        # went green for real, on a tag with published arm64 assets to show for it.
         os: [windows-latest, ubuntu-latest, macos-latest, ubuntu-24.04-arm]
 
     steps:
@@ -992,44 +1015,51 @@ jobs:
   # publish_aot, and publishes nothing for two platforms that ship today and are not
   # part of this change.
   #
-  # THE TWO `continue-on-error` LINES ARE WHAT DECOUPLE THEM, and they only work as a
-  # pair: one on build_native_linux (`matrix.rid == 'linux-arm64'`) and one on
-  # release_tests (`matrix.os == 'ubuntu-24.04-arm'`). Either one alone leaves the
-  # chain intact at the other hop. Delete neither in isolation.
+  # THE TWO `continue-on-error` LINES THAT USED TO DECOUPLE THEM ARE GONE - one on
+  # build_native_linux (`matrix.rid == 'linux-arm64'`), one on release_tests
+  # (`matrix.os == 'ubuntu-24.04-arm'`) - removed together once v0.7.0-rc.1
+  # (release run 33740981976) proved the whole arm64 chain green with real
+  # published assets. That was the documented condition for removing them, and it
+  # is now met.
   #
-  # DEGRADED BEHAVIOUR WHEN THE ARM64 NATIVE BUILD FAILS - this is the accepted
-  # outcome, not an oversight:
-  #   - build_native_linux's arm64 leg is red but advisory; the job does not fail.
-  #   - release_tests' arm64 leg is red but advisory too (it has no native-* artifact
-  #     to download, so it fails at that step); the job does not fail.
-  #   - publish_aot runs normally, so Windows and macOS publish as usual.
-  #   - publish_linux's arm64 leg fails - on its own `Download Native Artifact` step,
-  #     because nothing uploaded one.
-  #   - release_linux is therefore SKIPPED (it needs the whole publish_linux matrix),
-  #     so NO Linux assets reach the release at all - not even linux-x64's, which were
-  #     built and proven. That is the cross-architecture coupling above, and it is the
-  #     deliberate trade: no unverified Linux bundle ships, and no Linux failure can
-  #     withhold Windows or macOS.
+  # BEHAVIOUR NOW WHEN THE ARM64 NATIVE BUILD FAILS FOR REAL - this is the
+  # deliberate, accepted trade of having proven the lane, not an oversight:
+  #   - build_native_linux's arm64 leg fails the job outright (no more advisory
+  #     tolerance), even though `fail-fast: false` lets its linux-x64 sibling
+  #     finish.
+  #   - release_tests is SKIPPED (`needs: [..., build_native_linux]`).
+  #   - publish_aot is SKIPPED (`needs: [..., release_tests]`), so Windows and
+  #     macOS publish NOTHING - the exact outcome the two removed lines existed
+  #     to prevent while the lane was unproven.
+  #   - publish_linux is SKIPPED too (`needs: [..., build_native_linux,
+  #     release_tests]`), so release_linux is skipped and no Linux assets reach
+  #     the release either, not even linux-x64's, which may have built fine.
+  # In short: a Linux native failure now withholds every platform's assets again,
+  # the same as any other leg's failure would. That is accepted because the
+  # arm64 lane has demonstrated it works, not because the risk of a regression
+  # has gone away.
   #
   # RECOVERY, and read this before assuming a re-run fixes it. Two genuinely different
   # situations:
   #
   #   (a) A TRANSIENT arm64 failure. "Re-run failed jobs" is correct and sufficient:
-  #       it replays the same workflow file, publish_linux's linux-x64 artifacts are
-  #       still retained, and release_linux then uploads both architectures.
+  #       it replays the same workflow file, and a clean re-run publishes normally
+  #       for every platform.
   #
-  #   (b) The arm64 lane is BROKEN and must come out. Editing the matrix does NOT take
-  #       effect on a re-run: GitHub re-runs replay the workflow file AS OF THE
-  #       TRIGGERING REF, so a tag push replays the file at that tag no matter what
-  #       main now says. Removing the arm64 entries (build_native_linux,
-  #       release_tests, publish_linux, release_linux) therefore requires EITHER a new
-  #       tag on the fixed commit, OR `workflow_dispatch` with `tag_name` set to the
-  #       existing tag from an updated default branch - the dispatch path reads the
-  #       workflow from the default branch, which is what makes the edit apply. In the
-  #       meantime, linux-x64's artifacts remain downloadable from publish_linux for
-  #       triage or manual attachment.
+  #   (b) The arm64 lane is BROKEN and needs a real fix, or needs decoupling again
+  #       (for example by re-adding a `continue-on-error` line, or by removing the
+  #       arm64 entries from build_native_linux, release_tests, publish_linux, and
+  #       release_linux). Editing the workflow file does NOT take effect on a
+  #       re-run: GitHub re-runs replay the workflow file AS OF THE TRIGGERING
+  #       REF, so a tag push replays the file at that tag no matter what main now
+  #       says. Applying either fix therefore requires EITHER a new tag on the
+  #       fixed commit, OR `workflow_dispatch` with `tag_name` set to the existing
+  #       tag from an updated default branch - the dispatch path reads the
+  #       workflow from the default branch, which is what makes the edit apply.
+  #       Until one of those happens, nothing publishes for any platform.
   #
-  # Either way, NOT by making the smoke gate non-blocking.
+  # Either way, NOT by making the smoke gate - or the arm64 gate generally - non-blocking
+  # without a proven reason to.
   # ===========================================================================
   publish_linux:
     name: Publish Linux (${{ matrix.rid }})
