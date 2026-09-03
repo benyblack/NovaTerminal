@@ -319,9 +319,9 @@ fi
 # app-menu-icon acceptance criterion exists to catch. A single size occasionally
 # failing to scale is tolerable degradation; having no scaler at all is not.
 if command -v magick >/dev/null 2>&1; then
-  resize() { magick "$1" -resize "$2x$2" "$3"; }        # ImageMagick 7
+  resize() { local src="$1" size="$2" dest="$3"; magick "$src" -resize "${size}x${size}" "$dest"; }        # ImageMagick 7
 elif command -v convert >/dev/null 2>&1; then
-  resize() { convert "$1" -resize "$2x$2" "$3"; }       # ImageMagick 6 (ubuntu-22.04)
+  resize() { local src="$1" size="$2" dest="$3"; convert "$src" -resize "${size}x${size}" "$dest"; }       # ImageMagick 6 (ubuntu-22.04)
 else
   echo "error: no image resize tool found (need ImageMagick 'magick' or 'convert') - cannot build a valid hicolor icon theme" >&2
   exit 1

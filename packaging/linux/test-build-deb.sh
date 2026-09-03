@@ -21,16 +21,16 @@ here="$(cd "$(dirname "$0")" && pwd)"
 script="$here/build-deb.sh"
 fails=0
 
-fail() { echo "FAIL: $*"; fails=$((fails + 1)); }
-pass() { echo "ok: $*"; }
+fail() { echo "FAIL: $*"; fails=$((fails + 1)); return 0; }
+pass() { echo "ok: $*"; return 0; }
 
 # ---- version mapping ------------------------------------------------------
 # dpkg reads the LAST '-' as the revision separator, so a SemVer prerelease must
 # have its separator mapped to '~' or it sorts ABOVE the final release.
 check_version() {
-  local got
-  got="$("$script" --print-debian-version "$1")" || { fail "--print-debian-version $1 errored"; return; }
-  if [[ "$got" == "$2" ]]; then pass "version $1 -> $got"; else fail "version $1 -> $got (want $2)"; fi
+  local ver="$1" want="$2" got
+  got="$("$script" --print-debian-version "$ver")" || { fail "--print-debian-version $ver errored"; return; }
+  if [[ "$got" == "$want" ]]; then pass "version $ver -> $got"; else fail "version $ver -> $got (want $want)"; fi
 }
 check_version v0.4.0        "0.4.0-1"
 check_version 0.4.0         "0.4.0-1"
@@ -89,6 +89,15 @@ fi
 # setpriv before invoking build-deb.sh. Without this, the root/root assertion below
 # would pass even if --root-owner-group were silently removed from build-deb.sh,
 # since dpkg-deb invoked BY root stamps root:root regardless of that flag.
+#
+# SonarCloud shellcheck:S7682 ("add an explicit return statement") is deliberately
+# NOT applied here. This function's own exit status IS build-deb.sh's exit status -
+# it's the last command in both branches (setpriv ... "$script" "$@" / "$script"
+# "$@"), and the caller below ("if ! run_script ...") consumes that status to detect
+# a failed build. Adding `return 0` would make that condition never fire, silently
+# defeating the harness's ability to detect a failing build - the same defect class
+# (an assertion that can never fail) this branch has already had to fix seven times.
+# Do not "fix" this on a linter's advice.
 run_script() {
   if [[ "$(id -u)" -eq 0 ]] && command -v setpriv >/dev/null 2>&1; then
     chown -R nobody:nogroup "$work"
