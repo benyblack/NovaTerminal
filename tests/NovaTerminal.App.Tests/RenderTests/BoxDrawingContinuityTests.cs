@@ -27,6 +27,7 @@ namespace NovaTerminal.Tests.RenderTests
     /// capture without a cache therefore renders font glyphs no matter what the primitive flag says.
     /// </remarks>
     [Collection("GoldenPng")]
+    [Trait("Lane", "PlatformBoot")]
     public sealed class BoxDrawingContinuityTests
     {
         private static readonly CellMetrics Metrics = new()

@@ -24,6 +24,7 @@ namespace NovaTerminal.Tests.RenderTests
     /// hard-coded pixel offsets, so they do not encode the pixel grid's origin inset.
     /// </remarks>
     [Collection("GoldenPng")]
+    [Trait("Lane", "PlatformBoot")]
     public sealed class RoundedBoxCornerTests
     {
         // A cell about the size of a 14pt terminal font at 150% scaling: big enough that a

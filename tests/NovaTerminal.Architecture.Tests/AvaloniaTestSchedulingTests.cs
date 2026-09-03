@@ -5,22 +5,39 @@ using System.IO;
 namespace NovaTerminal.Architecture.Tests;
 
 /// <summary>
-/// #317: the Avalonia headless platform can only be booted once, by one thread, and whichever
-/// thread boots it owns the dispatcher from then on. A test class that boots it from a plain
-/// <c>[Fact]</c> constructor — on whatever thread xUnit happened to pick — therefore races the
-/// test framework's own initialisation, and the loser throws "The calling thread cannot access
-/// this object because a different thread owns it". That is not hypothetical: it made
-/// <c>AgentHostCaptureProtocolTests</c> fail in any sweep that also ran other Avalonia tests,
-/// which in turn made every broad <c>--filter</c> run unreliable.
+/// Source-scan guards over how the test suite is allowed to touch Avalonia's process-global,
+/// thread-affine platform state.
 ///
-/// The rule that fixes it is a scheduling one: everything that boots the platform lives in the
-/// single non-parallel "GoldenPng" collection, so those classes can never run alongside each
-/// other. A source scan rather than a runtime check, because by the time the race has happened
-/// the damage is a confusing failure in an unrelated test.
+/// <para>
+/// Booting the headless platform constructs a <c>Compositor</c>, which resolves
+/// <c>MediaContext.Instance</c>. That lazily binds a thread-affine <c>MediaContext</c> — its
+/// <c>Dispatcher.CheckAccess()</c> is a bare <c>Thread.CurrentThread == _thread</c> — into
+/// <c>AvaloniaLocator.CurrentMutable</c>, and locator child scopes fall through to their parent on
+/// a lookup miss. Boot from a plain <c>[Fact]</c>, which runs on an arbitrary xUnit thread outside
+/// the per-test scope, and the binding lands in the process root owned by the wrong thread; every
+/// later <c>[AvaloniaFact]</c> then inherits it, never binds its own, and throws on the first
+/// transition it applies.
+/// </para>
 ///
-/// Note the rule is about the *collection*, not about using <c>[AvaloniaFact]</c>: moving
-/// pipe-I/O tests onto the framework's dispatcher thread stalled whole sweeps, so
-/// <c>AgentHostCaptureProtocolTests</c> deliberately stays on <c>[Fact]</c>.
+/// <para>
+/// #317 saw one face of this and read it as a race, mitigating it by serializing the booters into
+/// one non-parallel collection. That was the wrong diagnosis: the boot is a <em>lasting</em>
+/// global side effect, so serialization changes nothing and only test <em>order</em> ever
+/// mattered — which is why that guard stayed green through 13 CI failures across four unrelated
+/// classes. Nor is it fixable in-process: deleting the stray root binding after the boot trades
+/// the failures for a hang in <c>VerticalTabStripTests</c>, and assembly-wide isolation
+/// (<c>PerAssembly</c>), which would let the booters borrow a session-owned application, deadlocks
+/// every plain <c>[Fact]</c> that marshals onto <c>Dispatcher.UIThread</c>. Both were tried.
+/// </para>
+///
+/// <para>
+/// What does work is not sharing the process: every booter carries
+/// <c>[Trait("Lane", "PlatformBoot")]</c> and CI runs that lane as its own <c>dotnet test</c>
+/// invocation. The rules below enforce that exactly one place boots the platform and that every
+/// test reaching it is in the lane. The GoldenPng collection rule stays too, because those
+/// classes still share the snapshot render path. Source scans rather than runtime checks, because
+/// by the time the damage shows up it is a confusing failure in an unrelated test.
+/// </para>
 /// </summary>
 public class AvaloniaTestSchedulingTests
 {
@@ -28,6 +45,28 @@ public class AvaloniaTestSchedulingTests
     // and a guard that flags itself is worse than no guard.
     private const string Booter = "SnapshotService.EnsureAvaloniaInitialized(";
     private const string RequiredCollection = "[Collection(\"GoldenPng\")]";
+
+    /// <summary>The single file allowed to boot the platform.</summary>
+    private const string BootOwner = "SnapshotService.cs";
+
+    /// <summary>
+    /// The lane every booter must sit in. CI runs it as its own `dotnet test` invocation, so a
+    /// boot never shares a process with an [AvaloniaFact] that is not in the lane.
+    /// </summary>
+    private const string RequiredLane = "[Trait(\"Lane\", \"PlatformBoot\")]";
+
+    /// <summary>
+    /// Ways to boot the Avalonia platform. <c>SetupWithoutStarting</c> is the one
+    /// <c>SnapshotService</c> uses; the others are the neighbouring doors into the same global
+    /// state, listed so a future "just call Setup instead" cannot walk around the guard.
+    /// </summary>
+    private static readonly string[] PlatformBootCalls =
+    [
+        ".SetupWithoutStarting(",
+        ".SetupUnsafe(",
+        ".SetupWithLifetime(",
+        ".StartWithClassicDesktopLifetime(",
+    ];
 
     private static string RepoRoot()
     {
@@ -43,47 +82,134 @@ public class AvaloniaTestSchedulingTests
         throw new DirectoryNotFoundException("Could not locate repository root from test output path.");
     }
 
-    [Fact]
-    public void EveryTestThatBootsAvaloniaIsInTheSerializedCollection()
+    /// <summary>Test sources, excluding build output, which can carry copies under some SDKs.</summary>
+    private static IEnumerable<(string Relative, string Text)> TestSources()
     {
-        string tests = Path.Combine(RepoRoot(), "tests");
-        var offenders = new List<string>();
-
-        foreach (string file in Directory.EnumerateFiles(tests, "*.cs", SearchOption.AllDirectories))
+        string root = RepoRoot();
+        foreach (string file in Directory.EnumerateFiles(Path.Combine(root, "tests"), "*.cs", SearchOption.AllDirectories))
         {
-            // Skip build output: bin/obj carry copies of sources under some SDK versions.
-            string relative = Path.GetRelativePath(RepoRoot(), file).Replace('\\', '/');
+            string relative = Path.GetRelativePath(root, file).Replace('\\', '/');
             if (relative.Contains("/bin/", StringComparison.Ordinal)
                 || relative.Contains("/obj/", StringComparison.Ordinal))
             {
                 continue;
             }
 
-            string text = File.ReadAllText(file);
+            yield return (relative, File.ReadAllText(file));
+        }
+    }
+
+    /// <summary>
+    /// One place boots the platform, so there is one place that documents the lane requirement
+    /// and one place to change if Avalonia ever makes this safe. A second booter elsewhere would
+    /// escape the lane guard below.
+    /// </summary>
+    [Fact]
+    public void OnlySnapshotServiceBootsAvalonia()
+    {
+        var offenders = new List<string>();
+        var owner = default((string Relative, string Text)?);
+
+        foreach ((string relative, string text) in TestSources())
+        {
+            string name = Path.GetFileName(relative);
+
+            // This guard names the calls in its own PlatformBootCalls table and prose.
+            if (name == "AvaloniaTestSchedulingTests.cs")
+            {
+                continue;
+            }
+
+            bool boots = false;
+            foreach (string call in PlatformBootCalls)
+            {
+                if (text.Contains(call, StringComparison.Ordinal))
+                {
+                    boots = true;
+                    if (name != BootOwner)
+                    {
+                        offenders.Add($"{relative} ({call.Trim('.', '(')})");
+                    }
+                }
+            }
+
+            if (boots && name == BootOwner)
+            {
+                owner = (relative, text);
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            $"Only {BootOwner} may boot the Avalonia platform. It is thread-affine and booting it "
+            + "leaves a MediaContext bound in the process-global locator root, which every later "
+            + "[AvaloniaFact] inherits and throws on. Call "
+            + "SnapshotService.EnsureAvaloniaInitialized() instead, and put the test in the "
+            + "PlatformBoot lane. Offenders: " + string.Join(", ", offenders));
+
+        Assert.True(
+            owner is not null,
+            $"No file boots the Avalonia platform any more. If that move was deliberate, this "
+            + $"guard and the PlatformBoot lane it enforces need rewriting rather than deleting — "
+            + $"plain [Fact] tests still need a font manager from somewhere.");
+
+    }
+
+    /// <summary>
+    /// Every test that boots the platform must be in the PlatformBoot lane, which CI runs in its
+    /// own process, and in the serialized GoldenPng collection.
+    /// </summary>
+    /// <remarks>
+    /// The lane is the load-bearing half: booting leaves a thread-affine MediaContext in the
+    /// process-global locator root, so the only reliable containment is not sharing the process
+    /// with the [AvaloniaFact] tests that would inherit it. The collection remains because these
+    /// classes also share the snapshot render path (#317).
+    /// </remarks>
+    [Fact]
+    public void EveryTestThatBootsAvaloniaIsInThePlatformBootLaneAndSerializedCollection()
+    {
+        var missingLane = new List<string>();
+        var missingCollection = new List<string>();
+
+        foreach ((string relative, string text) in TestSources())
+        {
             if (!text.Contains(Booter, StringComparison.Ordinal))
             {
                 continue;
             }
 
             // Two files mention the call without making it: the helper that declares it, and
-            // this guard, whose needle and prose both contain it. A scan that flags its own
-            // source is a guard nobody can keep green.
-            string name = Path.GetFileName(file);
-            if (name == "SnapshotService.cs" || name == "AvaloniaTestSchedulingTests.cs")
+            // this guard, whose needle and prose both contain it.
+            string name = Path.GetFileName(relative);
+            if (name is "SnapshotService.cs" or "AvaloniaTestSchedulingTests.cs")
             {
                 continue;
             }
 
+            if (!text.Contains(RequiredLane, StringComparison.Ordinal))
+            {
+                missingLane.Add(relative);
+            }
+
             if (!text.Contains(RequiredCollection, StringComparison.Ordinal))
             {
-                offenders.Add(relative);
+                missingCollection.Add(relative);
             }
         }
 
         Assert.True(
-            offenders.Count == 0,
-            "These test files boot the Avalonia headless platform but are not in the serialized "
-            + "\"GoldenPng\" collection, so they can race another Avalonia test's initialisation (#317): "
-            + string.Join(", ", offenders));
+            missingLane.Count == 0,
+            "These test files boot the Avalonia headless platform but are not in the PlatformBoot "
+            + "lane, so they share a process with [AvaloniaFact] tests. Booting binds a "
+            + "thread-affine MediaContext into the process-global AvaloniaLocator root, which "
+            + "every later [AvaloniaFact] inherits and throws on. Add "
+            + "[Trait(\"Lane\", \"PlatformBoot\")] and check ci.yml runs them: "
+            + string.Join(", ", missingLane));
+
+        Assert.True(
+            missingCollection.Count == 0,
+            "These test files render through the shared snapshot path but are not in the "
+            + "serialized \"GoldenPng\" collection, so they can run alongside each other (#317): "
+            + string.Join(", ", missingCollection));
     }
 }

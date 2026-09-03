@@ -1,0 +1,22 @@
+# Tests in the non-blocking headless App.Tests lane that are allowed to fail without
+# failing the job. Enforced by scripts/check-app-tests-baseline.py; anything failing that
+# is NOT listed here fails the "Unit Tests" job.
+#
+# This file exists because the lane runs continue-on-error (the Avalonia.Headless.XUnit
+# teardown hang, #81, must not block PRs) and that made every result invisible: the job was
+# green for weeks while 16 tests failed on Windows and 14 on ubuntu. Naming each accepted
+# failure forces the choice to be deliberate.
+#
+# Rules for adding a line:
+#   - Only genuine non-determinism (timing, ordering, environment). A test that is simply
+#     broken belongs fixed, not listed.
+#   - Say what makes it flaky and what would make it deterministic.
+#   - Matching is by substring, so a name without theory arguments covers every case.
+#   - Removing a line is always in scope. Growing the list is a decision, not a chore.
+
+# 250ms preview-throttle window. The test sleeps 300ms to clear the throttle armed by
+# window startup, then asserts that the deferred UpdateTabVisuals pass has consumed the
+# dirty flag after one RunJobs(). On a loaded runner the deferred pass has not always been
+# queued yet, so the flag is still set. Deterministic fix is a seam that reports when the
+# pass has run, instead of a sleep plus a RunJobs() and a hope.
+NovaTerminal.Tests.Core.VerticalTabStripTests.ApplyTabLayout_ModeSwitch_MarksPreviewDirty_SoFirstPassRepopulatesIt

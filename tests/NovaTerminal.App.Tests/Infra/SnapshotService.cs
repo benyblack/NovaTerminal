@@ -6,7 +6,9 @@ using NovaTerminal.Rendering;
 using SkiaSharp;
 using System;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Xunit.Sdk;
 
 namespace NovaTerminal.Tests.Infra
@@ -317,10 +319,61 @@ namespace NovaTerminal.Tests.Infra
             => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestOutput");
 
         /// <summary>
-        /// Boots enough of Avalonia for font resolution. Public because callers
-        /// that use <see cref="TerminalSnapshotRenderer"/> directly (rather than
-        /// through <see cref="Capture"/>) still need the font manager up.
+        /// Boots enough of Avalonia for font resolution. Public because callers that use
+        /// <see cref="TerminalSnapshotRenderer"/> directly (rather than through
+        /// <see cref="Capture"/>) still need the font manager up.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <strong>Every caller must sit in the <c>PlatformBoot</c> lane</strong>
+        /// (<c>[Trait("Lane", "PlatformBoot")]</c>), which CI runs as its own
+        /// <c>dotnet test</c> process. <c>AvaloniaTestSchedulingTests</c> enforces that. The
+        /// reason is that this call is fundamentally incompatible with
+        /// <c>Avalonia.Headless.XUnit</c> inside one process, and the incompatibility is not
+        /// fixable from here:
+        /// </para>
+        /// <para>
+        /// <c>AvaloniaHeadlessPlatform.Initialize</c> constructs a <c>Compositor</c>, whose
+        /// constructor reads <c>MediaContext.Instance</c>. That lazily creates
+        /// <c>new MediaContext(Dispatcher.UIThread, …)</c> and binds it into
+        /// <c>AvaloniaLocator.CurrentMutable</c>. Callers are plain <c>[Fact]</c> tests, so this
+        /// runs on whichever thread xUnit picked and outside the per-test
+        /// <c>AvaloniaLocator.EnterScope()</c> — the binding lands in the process-global ROOT and
+        /// the dispatcher it captured belongs to an xUnit worker thread. <c>MediaContext</c> is
+        /// thread-affine (<c>Dispatcher.CheckAccess()</c> is a bare
+        /// <c>Thread.CurrentThread == _thread</c>) and locator scopes fall through to their
+        /// parent on a lookup miss, so every later <c>[AvaloniaFact]</c> in the process inherits
+        /// it, never binds its own, and throws "The calling thread cannot access this object
+        /// because a different thread owns it" on the first transition or animation it applies.
+        /// That was 13 CI failures across four unrelated classes plus three downstream layout
+        /// assertions, order-dependent, green in isolation, and invisible because the job
+        /// reported success.
+        /// </para>
+        /// <para>
+        /// Two in-process fixes were tried and both traded the failures for a hang, which is why
+        /// the lane split is the answer rather than a code change here:
+        /// </para>
+        /// <list type="bullet">
+        /// <item><description>
+        /// Deleting the root <c>MediaContext</c> binding right after the boot fixes the
+        /// cross-thread throws, but the platform's other leftovers (the static
+        /// <c>AvaloniaHeadlessPlatform.Compositor</c> and render timer built against the removed
+        /// context) then hang <c>VerticalTabStripTests</c>.
+        /// </description></item>
+        /// <item><description>
+        /// <c>AvaloniaTestIsolationLevel.PerAssembly</c> keeps one session-owned application
+        /// alive so this method could just borrow it — and deadlocks every plain <c>[Fact]</c>
+        /// that marshals onto <c>Dispatcher.UIThread</c>, because between tests the session
+        /// thread is parked on its work queue and never pumps the dispatcher.
+        /// <c>SshInteractionServiceTests</c> hangs even when run alone. See <c>TestAppBuilder</c>.
+        /// </description></item>
+        /// </list>
+        /// <para>
+        /// Note that serializing the callers into one non-parallel collection (the #317
+        /// mitigation) never addressed any of this: the damage is lasting global state, not a
+        /// race, so only test order mattered — which is why that guard stayed green throughout.
+        /// </para>
+        /// </remarks>
         public static void EnsureAvaloniaInitialized()
         {
             if (Application.Current != null)
@@ -338,6 +391,58 @@ namespace NovaTerminal.Tests.Infra
                 NovaTerminal.Tests.TestAppBuilder.BuildAvaloniaApp().SetupWithoutStarting();
             }
         }
+
+        /// <summary>
+        /// The thread that owns the ambient <c>MediaContext</c>, or <c>null</c> when none is
+        /// bound. Test seam for <c>AvaloniaBootLocatorHygieneTests</c>: read from an
+        /// <c>[AvaloniaFact]</c>, this must be the calling thread, because anything else means a
+        /// <c>PlatformBoot</c>-lane test leaked into this process and poisoned the locator root.
+        /// See <see cref="EnsureAvaloniaInitialized"/>.
+        /// </summary>
+        /// <remarks>
+        /// Reflection throughout, because <c>AvaloniaLocator.Current</c> and <c>MediaContext</c>
+        /// are internal in the shipped Avalonia assemblies. It throws rather than returning
+        /// <c>null</c> when a member is missing: a seam that silently reports "nothing bound"
+        /// after an Avalonia upgrade would leave the check permanently, invisibly green.
+        /// </remarks>
+        internal static Thread? AmbientMediaContextOwnerThreadForTest()
+        {
+            const BindingFlags StaticMembers =
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+            const BindingFlags InstanceMembers = BindingFlags.Instance | BindingFlags.NonPublic;
+
+            var locatorType = typeof(AvaloniaLocator);
+            var current = locatorType.GetProperty("Current", StaticMembers)?.GetValue(null)
+                ?? throw new InvalidOperationException(
+                    "AvaloniaLocator.Current is gone; re-port AmbientMediaContextOwnerThreadForTest.");
+
+            var mediaContextType = typeof(AvaloniaObject).Assembly.GetType("Avalonia.Media.MediaContext")
+                ?? throw new InvalidOperationException(
+                    "Avalonia.Media.MediaContext is gone; re-port AmbientMediaContextOwnerThreadForTest.");
+
+            var getService = current.GetType().GetMethod("GetService", new[] { typeof(Type) })
+                ?? throw new InvalidOperationException(
+                    "IAvaloniaDependencyResolver.GetService is gone; re-port AmbientMediaContextOwnerThreadForTest.");
+
+            var mediaContext = getService.Invoke(current, new object[] { mediaContextType });
+            if (mediaContext is null)
+            {
+                return null;
+            }
+
+            var dispatcherField = mediaContextType.GetField("_dispatcher", InstanceMembers)
+                ?? throw new InvalidOperationException(
+                    "MediaContext._dispatcher is gone; re-port AmbientMediaContextOwnerThreadForTest.");
+            var dispatcher = dispatcherField.GetValue(mediaContext)
+                ?? throw new InvalidOperationException("MediaContext._dispatcher was null.");
+
+            var threadField = dispatcher.GetType().GetField("_thread", InstanceMembers)
+                ?? throw new InvalidOperationException(
+                    "Dispatcher._thread is gone; re-port AmbientMediaContextOwnerThreadForTest.");
+
+            return threadField.GetValue(dispatcher) as Thread;
+        }
+
 
         // Use a heuristic to find the repo root so we write baselines into the source tree.
         private static string GetRepoTestRoot()

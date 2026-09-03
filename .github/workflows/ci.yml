@@ -298,26 +298,91 @@ jobs:
             echo "::endgroup::"
           done
 
-      # NON-BLOCKING lane: the Avalonia-headless suite (NovaTerminal.App.Tests).
+      # The Avalonia-headless suite (NovaTerminal.App.Tests). continue-on-error here tolerates
+      # the HANG only; test failures are blocking, via the allowlist gate below.
       # It intermittently deadlocks on a testhost teardown hang — a dump-confirmed
       # framework deadlock in Avalonia.Headless.XUnit 12.0.4 (the latest release),
       # reported upstream as AvaloniaUI/Avalonia#21467 and tracked here as #81. No
       # in-repo config fixes it (collection serialization, maxParallelThreads:1, and
       # ThreadPool.SetMinThreads were all ruled out with dump evidence). Until an
       # upstream fix lands, run it as continue-on-error so the flake can't block PRs,
-      # while still executing it: a clean run reports real pass/fail, a genuine
-      # regression shows as a failed (non-blocking) check, and each hang writes a
-      # mini dump (uploaded below) for ongoing diagnosis.
-      - name: Test (headless App.Tests — NON-BLOCKING, see #81 / AvaloniaUI/Avalonia#21467)
+      # while still executing it: a clean run reports real pass/fail and each hang
+      # writes a mini dump (uploaded below) for ongoing diagnosis.
+      #
+      # continue-on-error covers the HANG, not the RESULTS. The results are gated by the
+      # step below, because "non-blocking" silently became "unread": this job reported
+      # success for weeks while 16 tests failed on Windows and 14 on ubuntu.
+      #
+      # Why the hang still needs tolerating even though those failures are fixed: the hang is a
+      # separate, upstream defect (AvaloniaUI/Avalonia#21467) and it is frequent. Six of the last
+      # twenty Unit Tests job-runs on main uploaded a hang dump, so making this step blocking
+      # would red roughly one PR run in three for a reason unrelated to the change under review.
+      # Revisit when that upstream issue is fixed: at that point drop continue-on-error from both
+      # test steps and delete the hang-dump branch in check-app-tests-baseline.py.
+      - name: Test (headless App.Tests — hang-tolerant, failures gated below; #81 / AvaloniaUI/Avalonia#21467)
         continue-on-error: true
         env:
           SKIP_RUST_NATIVE_BUILD: '1'
         shell: bash
         run: |
           dotnet test tests/NovaTerminal.App.Tests -c "$CONFIGURATION" --no-build --no-restore \
-            --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng" \
+            --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng&Lane!=PlatformBoot" \
             --blame-hang-timeout 5m --blame-hang-dump-type mini \
+            --results-directory tests/NovaTerminal.App.Tests/TestResults/main \
             --logger "trx;LogFileName=unit_app.trx"
+
+      # Lane!=PlatformBoot above, Lane=PlatformBoot here: these run in a SEPARATE PROCESS on
+      # purpose, and the split is the fix for a real bug rather than tidiness.
+      #
+      # SnapshotService.EnsureAvaloniaInitialized boots the Avalonia headless platform so the
+      # snapshot renderer can resolve fonts. Its callers are plain [Fact] tests, so the boot runs
+      # on an arbitrary xUnit thread, and it binds a thread-affine MediaContext into the
+      # process-global AvaloniaLocator root. Locator scopes fall through to their parent on a
+      # miss, so every later [AvaloniaFact] in the same process inherits a context owned by the
+      # wrong thread and throws "The calling thread cannot access this object because a different
+      # thread owns it" on the first transition it applies — 13 failures across four unrelated
+      # classes, order-dependent, green in isolation, and invisible because this job reported
+      # success. Two in-process fixes were tried and both swapped the failures for a hang; see
+      # SnapshotService.EnsureAvaloniaInitialized. Not sharing the process is what works.
+      - name: Test (headless App.Tests, PlatformBoot lane — hang-tolerant, failures gated below)
+        continue-on-error: true
+        env:
+          SKIP_RUST_NATIVE_BUILD: '1'
+        shell: bash
+        run: |
+          dotnet test tests/NovaTerminal.App.Tests -c "$CONFIGURATION" --no-build --no-restore \
+            --filter "Lane=PlatformBoot&Category!=GoldenSharedPng" \
+            --blame-hang-timeout 5m --blame-hang-dump-type mini \
+            --results-directory tests/NovaTerminal.App.Tests/TestResults/platformboot \
+            --logger "trx;LogFileName=unit_app_platformboot.trx"
+
+      # Gates the lane above on its own results: any failing test not named in
+      # tests/app-tests-known-flaky.txt fails this job. A missing trx is the #81 hang and
+      # only warns — there are no results to judge. Runs on failure too, so a non-zero
+      # `dotnet test` still gets its results read.
+      - name: Check App.Tests failures against the flake allowlist
+        if: always()
+        shell: bash
+        run: |
+          # windows-latest ships python.exe; ubuntu ships python3. Pick whichever exists.
+          py=python3
+          command -v "$py" >/dev/null 2>&1 || py=python
+          # Each lane has its own results directory, and that is load-bearing rather than tidy:
+          # the gate tells "hung" from "crashed" by whether a hang dump sits beside the trx, so
+          # with one shared TestResults/ each lane would see the other's dump. That reported the
+          # PlatformBoot lane as truncated when it had finished cleanly, and would have let a
+          # leftover dump excuse a genuine crash in the other lane.
+          status=0
+          for lane in main:unit_app platformboot:unit_app_platformboot; do
+            dir="${lane%%:*}"
+            trx="${lane##*:}"
+            echo "::group::$trx"
+            "$py" scripts/check-app-tests-baseline.py \
+              "tests/NovaTerminal.App.Tests/TestResults/$dir/$trx.trx" \
+              tests/app-tests-known-flaky.txt || status=1
+            echo "::endgroup::"
+          done
+          exit $status
 
       - name: Upload test results
         if: always()
