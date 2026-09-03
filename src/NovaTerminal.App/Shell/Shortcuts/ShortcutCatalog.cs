@@ -16,6 +16,8 @@ public static class ShortcutCatalog
         new("close_tab", "Close Tab", "General", ShortcutScope.App, "Ctrl+W"),
         new("next_tab", "Tab: Next (MRU)", "General", ShortcutScope.App, "Ctrl+Tab"),
         new("prev_tab", "Tab: Previous (MRU)", "General", ShortcutScope.App, "Ctrl+Shift+Tab"),
+        new("move_tab_prev", "Tab: Move Previous", "General", ShortcutScope.App, "Ctrl+Shift+PageUp"),
+        new("move_tab_next", "Tab: Move Next", "General", ShortcutScope.App, "Ctrl+Shift+PageDown"),
         new(TitleBarCatalog.OpenTabListId, "Tab: Open Tab List", "General", ShortcutScope.App, "Ctrl+Shift+O"),
         new("font_increase", "Font: Increase", "View", ShortcutScope.App, "Ctrl+OemPlus"),
         new("font_increase_alt", "Font: Increase (Alt)", "View", ShortcutScope.App, "Ctrl+Add"),

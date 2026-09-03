@@ -99,6 +99,12 @@ namespace NovaTerminal
         // overflow button already owns a different MenuFlyout for its own menu, and the
         // TitleBarItemsHost StackPanel fallback has no Flyout property to hold one at all.
         private MenuFlyout? _tabListFallbackFlyout;
+        // Dedicated flyout for the vertical overflow pill (PART_TabOverflowPill): same
+        // keep-alive rationale as _tabListFallbackFlyout - the pill is a Button that must
+        // NOT carry this as its own Flyout (Button auto-opens an empty flyout on click
+        // before the lazy populate could fill it), so MainWindow owns the instance and
+        // PopulateTabListMenu(anchorOverride: pill) fills + shows it on demand.
+        private MenuFlyout? _tabOverflowPillFlyout;
         private bool _closePaneInProgress;
         private bool _closeTabInProgress;
         private readonly SshConnectionService _sshConnectionService;
@@ -126,6 +132,17 @@ namespace NovaTerminal
         // Hoisted out of UpdateVerticalTabExtras: that method runs per tab per visual-refresh
         // pass, and allocating a new SolidColorBrush per tab per pass adds up.
         private static readonly IBrush TabAttentionBrush = new SolidColorBrush(Color.Parse("#FFD25A"));
+
+        // Agent-aware tab status colors (dot + marker chips). They intentionally match the
+        // in-pane agent segment (TerminalPane.ApplyAgentAttention: dot #E8A33D/#4FB0D4, text
+        // #F0C07A/#7FC3DC) and the existing tab attention constant above, so the same tier
+        // reads as one color everywhere it appears.
+        private static readonly IBrush TabAgentWroteDotBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0xE8, 0xA3, 0x3D));
+        private static readonly IBrush TabAgentWatchedDotBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0x4F, 0xB0, 0xD4));
+        private static readonly IBrush TabBellChipBrush = TabAttentionBrush; // #FFD25A
+        private static readonly IBrush TabActivityChipBrush = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF));
+        private static readonly IBrush TabAgentWroteChipBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0xF0, 0xC0, 0x7A));
+        private static readonly IBrush TabAgentWatchedChipBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0x7F, 0xC3, 0xDC));
         private bool _isVerticalTabStrip;
         internal bool IsVerticalTabStripActive => _isVerticalTabStrip;
 
@@ -143,6 +160,57 @@ namespace NovaTerminal
             get => _isTabStripGripDragging;
             set => _isTabStripGripDragging = value;
         }
+
+        // ---- Tab drag-to-reorder state (handlers near OnTabHeaderPointerPressed) ----
+        // A left press on a header host only ARMS a reorder; the drag begins once
+        // TabDragModel.ShouldStartDrag sees >= 5 DIP of movement along the strip axis, so a
+        // plain click keeps its select-on-press behavior. From that point the pressed header
+        // host holds pointer capture and is dimmed, PART_TabInsertIndicator marks the drop
+        // gap, and an auto-scroll DispatcherTimer runs near the viewport edges. The reorder
+        // itself only moves entries inside Tabs.Items - the same TabItem instances and pane
+        // content are reused (ApplyTabLayout's PART_SelectedContentHost ownership contract).
+        private bool _isTabReorderDragging;
+        private bool _isTabHeaderLeftPressPending;
+        private Border? _tabDragPressedHost;
+        private IPointer? _tabDragPointer;
+        private TabControl? _tabDragTabs;
+        private double _tabDragPressAxisPos;
+        // Pointer position along the strip axis in the header ScrollViewer's VIEWPORT
+        // coordinate space - kept fresh on every move so the auto-scroll tick can evaluate
+        // the edge zones without waiting for another pointer event. Viewport space (unlike
+        // the ItemsPresenter's content space, which the insert-index math uses) is what
+        // stays constant while the pointer parks in an edge zone and only the strip
+        // scrolls underneath. NaN = "no position yet"; TabDragModel treats that as no-op.
+        private double _tabDragPointerAxisPos = double.NaN;
+        private int _tabDragInsertIndex;
+        private DispatcherTimer? _tabDragAutoScrollTimer;
+        // True only inside the RemoveAt/Insert window of CommitTabReorder. TabControl is
+        // AlwaysSelected, so removing the (selected) dragged tab promotes index 0 for the
+        // microseconds before selection is restored - the SelectionChanged handler bails on
+        // that transient promotion (see the guard at its top).
+        private bool _isTabReorderCommitting;
+        // Single source of truth for the indicator's thickness (applied along Width in
+        // vertical mode, Height in horizontal - the XAML element deliberately sets no
+        // size). Brush/alignment live in the template XAML.
+        private const double TabInsertIndicatorThickness = 2;
+        // Estimated height of one vertical tab row: the fallback CountHiddenTabs uses for
+        // headers not yet measured (Bounds.Height 0 before the first layout pass) when the
+        // vertical overflow pill counts hidden rows. Matches the vertical TabItem MinHeight
+        // set in MainWindow.axaml's styles.
+        private const double DefaultVerticalTabRowHeight = 44;
+        private const double TabInsertIndicatorMinLength = 16;
+        // Tag marking a template part whose one-time wiring has already happened (resize
+        // grip, overflow pill), so repeated ApplyTabLayout passes cannot double-subscribe.
+        private const string TemplatePartWiredTag = "wired";
+        // Command ids for the keyboard move-tab actions (ShortcutCatalog keys + command
+        // palette ids + usage recording must all agree).
+        private const string MoveTabPrevCommandId = "move_tab_prev";
+        private const string MoveTabNextCommandId = "move_tab_next";
+
+        /// <summary>Test-only seam: exposes the mid-reorder-drag state (same pattern as
+        /// <see cref="IsTabStripGripDraggingForTest"/>).</summary>
+        internal bool IsTabReorderDraggingForTest => _isTabReorderDragging;
+
         private bool _isDraggingTransferOverlay;
         private Point _transferOverlayDragStart;
         private Point _transferOverlayOffsetStart;
@@ -190,6 +258,13 @@ namespace NovaTerminal
             public AgentHost.AgentAttentionTier AgentTier { get; set; }
             public TabStatusTracker Status { get; } = new();
             public TabTrackerStatus RenderedStatus { get; set; }
+
+            /// <summary>True while any pane in this tab has a command running — the agent-session
+            /// status machine's precise per-session state (see <see cref="RefreshTabStatuses"/>),
+            /// which survives silent stretches that decay the output-burst heuristic. Feeds
+            /// <see cref="TabStatusPresentation.ResolveTabDot"/> via
+            /// <see cref="UpdateVerticalTabExtras"/>; vertical mode only.</summary>
+            public bool HasRunningCommand { get; set; }
             public TabPreviewTracker Preview { get; } = new();
             public bool PreviewDirty { get; set; }
             public DateTime LastPreviewUpdateUtc { get; set; }
@@ -463,17 +538,60 @@ namespace NovaTerminal
 
         internal TabStatusTracker GetTabStatusTracker(TabItem tab) => GetOrCreateTabState(tab).Status;
 
+        /// <summary>Test-only seam: reads the precise running-command flag
+        /// <see cref="RefreshTabStatuses"/> populates from agent-session registrations (same
+        /// pattern as <see cref="GetTabStatusTracker"/>).</summary>
+        internal bool IsTabRunningCommandForTest(TabItem tab) => GetOrCreateTabState(tab).HasRunningCommand;
+
+        /// <summary>Test-only seam: reads the last status the 1 Hz pass rendered (the heuristic
+        /// input ResolveTabDot pairs with <see cref="IsTabRunningCommandForTest"/>).</summary>
+        internal TabTrackerStatus GetTabRenderedStatusForTest(TabItem tab) => GetOrCreateTabState(tab).RenderedStatus;
+
         internal bool GetTabPreviewDirtyForTest(TabItem tab) => GetOrCreateTabState(tab).PreviewDirty;
 
         internal void SetTabPreviewDirtyForTest(TabItem tab, bool dirty) => GetOrCreateTabState(tab).PreviewDirty = dirty;
 
-        /// <summary>Timer-driven decay pass: re-evaluates every tab's heuristic status and queues a
-        /// visual refresh only for tabs whose rendered status changed. Vertical mode only.</summary>
+        /// <summary>Test-only seam: sets the marker inputs UpdateVerticalTabExtras resolves
+        /// the chip visibilities and dot color from (same pattern as
+        /// <see cref="SetTabPreviewDirtyForTest"/>), since driving real bell/agent events in
+        /// the headless test host is impractical.</summary>
+        internal void SetTabMarkerStateForTest(TabItem tab, bool hasBell, bool hasActivity, AgentHost.AgentAttentionTier agentTier)
+        {
+            var state = GetOrCreateTabState(tab);
+            state.HasBell = hasBell;
+            state.HasActivity = hasActivity;
+            state.AgentTier = agentTier;
+        }
+
+        /// <summary>Timer-driven decay pass: re-evaluates every tab's heuristic status and
+        /// precise running-command flag (agent-session registry), queueing a visual refresh
+        /// only for tabs where either changed. Vertical mode only.</summary>
         internal void RefreshTabStatuses()
         {
             if (!_isVerticalTabStrip) return;
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs == null) return;
+
+            // Precise running state, one pass over the registry snapshot before the per-tab
+            // loop: any tab owning a pane whose agent-session status machine reports Running
+            // has a command in flight. The output-burst heuristic below (Status.Evaluate in
+            // the per-tab loop) decays after 2 quiet seconds, so a silently-thinking agent
+            // CLI (60s between tokens is normal) would
+            // flip its dot back to idle; the per-session status machine knows better. Same
+            // registration→tab mapping as RefreshTabAgentAttention (TabId vs the persistent
+            // tab id). Snapshot() is thread-safe; GetRegistrations() hands back a point-in-time
+            // array, so no registry lock is held. 1 Hz over at most dozens of registrations:
+            // one HashSet per tick is the whole allocation cost.
+            var runningTabIds = new HashSet<Guid>();
+            foreach (var registration in AgentHost.AgentSessionRegistry.Instance.GetRegistrations())
+            {
+                var tabId = registration.TabId;
+                if (tabId.HasValue
+                    && registration.StatusMachine.Snapshot().Kind == AgentHost.AgentSessionStatusKind.Running)
+                {
+                    runningTabIds.Add(tabId.Value);
+                }
+            }
 
             var now = DateTime.UtcNow;
             foreach (TabItem tab in tabs.Items.Cast<TabItem>())
@@ -483,6 +601,20 @@ namespace NovaTerminal
                 if (status != state.RenderedStatus)
                 {
                     state.RenderedStatus = status;
+                    QueueTabVisualRefresh(tab);
+                }
+
+                // Same change-driven queueing as RenderedStatus: the flag feeds
+                // ResolveTabDot via UpdateVerticalTabExtras, which only runs in vertical
+                // mode (horizontal headers never read it - stale-but-unread there, cost
+                // zero, which is why this whole method is vertical-only). One benign
+                // transient: flipping horizontal→vertical re-enters with up to 1s of
+                // stale dot state until the first tick resyncs - self-correcting and
+                // cosmetic, so it needs no mode-flip hook here.
+                bool running = runningTabIds.Contains(GetPersistentTabId(tab));
+                if (running != state.HasRunningCommand)
+                {
+                    state.HasRunningCommand = running;
                     QueueTabVisualRefresh(tab);
                 }
             }
@@ -671,6 +803,7 @@ namespace NovaTerminal
 
             headerHost.ContextFlyout = new MenuFlyout();
             headerHost.PointerPressed += (_, e) => OnTabHeaderPointerPressed(tab, e);
+            WireTabHeaderReorderDrag(tab, headerHost);
             ToolTip.SetTip(headerHost, text);
             return headerHost;
         }
@@ -700,33 +833,76 @@ namespace NovaTerminal
             {
                 Name = "TabPreviewLine",
                 Text = string.Empty,
-                Foreground = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)),
+                Foreground = TabActivityChipBrush,
                 FontSize = 10,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 2, 0, 0)
             };
 
-            // Title BEFORE preview: FindTabHeaderTextBlock takes the first TextBlock as the
-            // title, and UpdateTabVisuals rewrites that one with the display label.
+            // Title BEFORE preview (and before the chips): FindTabHeaderTextBlock takes the
+            // first TextBlock as the title, and UpdateTabVisuals rewrites that one with the
+            // display label.
             var textColumn = new StackPanel { Orientation = Avalonia.Layout.Orientation.Vertical };
             textColumn.Children.Add(headerText);
             textColumn.Children.Add(previewText);
 
-            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+            // Trailing status chips: the compact replacements for the attention-marker
+            // suffixes that used to live inside the truncated title text (bell/activity/
+            // agent glyphs). Hidden until UpdateVerticalTabExtras turns the tab's marker
+            // set back on; not hit-testable so pointer presses stay on the header host
+            // (select + context menu + drag-reorder), which also means no per-chip
+            // tooltips (a hit-test-invisible control never sees pointer-enter). Chip
+            // colors match the in-pane agent segment and the existing tab attention
+            // constant (see the Tab*ChipBrush declarations above).
+            TextBlock Chip(string name, string glyph, IBrush foreground)
+            {
+                var chip = new TextBlock
+                {
+                    Name = name,
+                    Text = glyph,
+                    Foreground = foreground,
+                    FontSize = 10,
+                    IsVisible = false,
+                    IsHitTestVisible = false,
+                };
+                return chip;
+            }
+
+            var bellChip = Chip("TabBellChip", "🔔", TabBellChipBrush);
+            var activityChip = Chip("TabActivityChip", "•", TabActivityChipBrush);
+            var agentWroteChip = Chip("TabAgentWroteChip", AgentWroteGlyph, TabAgentWroteChipBrush);
+            var agentWatchedChip = Chip("TabAgentWatchedChip", AgentWatchedGlyph, TabAgentWatchedChipBrush);
+
+            var chipsColumn = new StackPanel
+            {
+                Orientation = Avalonia.Layout.Orientation.Horizontal,
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            chipsColumn.Children.Add(bellChip);
+            chipsColumn.Children.Add(activityChip);
+            chipsColumn.Children.Add(agentWroteChip);
+            chipsColumn.Children.Add(agentWatchedChip);
+
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
             Grid.SetColumn(statusDot, 0);
             Grid.SetColumn(textColumn, 1);
+            Grid.SetColumn(chipsColumn, 2);
             row.Children.Add(statusDot);
             row.Children.Add(textColumn);
+            row.Children.Add(chipsColumn);
 
             var headerHost = new Border
             {
                 Background = Brushes.Transparent,
-                Padding = new Thickness(10, 6),
+                // Right padding keeps the chips clear of the header's trailing edge.
+                Padding = new Thickness(10, 6, 8, 6),
                 Child = row
             };
 
             headerHost.ContextFlyout = new MenuFlyout();
             headerHost.PointerPressed += (_, e) => OnTabHeaderPointerPressed(tab, e);
+            WireTabHeaderReorderDrag(tab, headerHost);
             ToolTip.SetTip(headerHost, text);
             return headerHost;
         }
@@ -780,6 +956,427 @@ namespace NovaTerminal
                     e.Handled = true;
                     ShowTabContextMenu(tab, headerHost, flyout, ShouldDeferTabContextMenuOpen(wasSelected));
                 }
+            }
+        }
+
+        // ---- Tab drag-to-reorder (pure math lives in Shell/TabDragModel.cs) ----
+        //
+        // Subscribed by both header factories, so the behavior is axis-generic: which
+        // coordinate feeds TabDragModel is decided by _isVerticalTabStrip, and header bounds
+        // and pointer positions are both measured in the ItemsPresenter's (content)
+        // coordinate space so scrolling is accounted for. The reorder only moves entries
+        // inside Tabs.Items - TabItem instances and their pane content are never recreated
+        // (ApplyTabLayout's ownership contract for PART_SelectedContentHost).
+        private void WireTabHeaderReorderDrag(TabItem tab, Border headerHost)
+        {
+            headerHost.PointerPressed += (_, e) => OnTabReorderPointerPressed(headerHost, e);
+            headerHost.PointerMoved += (_, e) => OnTabReorderPointerMoved(headerHost, e);
+            headerHost.PointerReleased += (_, e) => OnTabReorderPointerReleased(tab, headerHost, e);
+            // Involuntary capture loss (another control steals it, window deactivates
+            // mid-drag) must abort without committing - the same non-committing-cleanup
+            // contract the sidebar grip's PointerCaptureLost follows.
+            headerHost.PointerCaptureLost += (_, _) => EndTabReorderDrag();
+        }
+
+        private void OnTabReorderPointerPressed(Border headerHost, PointerPressedEventArgs e)
+        {
+            // Middle/right presses have already been claimed (handled) by
+            // OnTabHeaderPointerPressed for select/close/context-menu; only an unhandled
+            // left press can become a reorder drag.
+            if (e.Handled || !e.GetCurrentPoint(headerHost).Properties.IsLeftButtonPressed)
+            {
+                _isTabHeaderLeftPressPending = false;
+                return;
+            }
+
+            // Arm, don't capture (yet): a plain click must keep its existing behavior, and a
+            // capture here would break hover on the other headers before any drag starts.
+            _isTabHeaderLeftPressPending = true;
+            _tabDragPressedHost = headerHost;
+            _tabDragTabs = this.FindControl<TabControl>("Tabs");
+            _tabDragPressAxisPos = GetTabStripAxisPosition(e);
+        }
+
+        private void OnTabReorderPointerMoved(Border headerHost, PointerEventArgs e)
+        {
+            if (_isTabReorderDragging)
+            {
+                if (!ReferenceEquals(e.Pointer.Captured, headerHost)) return;
+
+                // Zombie-drag guard: the release event can be lost outright (quake-mode
+                // ToggleVisibility -> Hide() mid-drag), leaving capture set and the drag
+                // "alive" on the hidden window - the auto-scroll timer keeps ticking and,
+                // after re-show, buttonless hover moves keep driving the drag until some
+                // stray click commits an unintended reorder. A move with the button up
+                // means the gesture is physically over: cancel - never commit - through
+                // the same capture-releasing cleanup Escape uses. Mirrors the armed
+                // branch's staleness check below.
+                if (!e.GetCurrentPoint(headerHost).Properties.IsLeftButtonPressed)
+                {
+                    CancelTabReorderDrag();
+                    return;
+                }
+
+                UpdateTabDrag(e);
+                return;
+            }
+
+            if (!_isTabHeaderLeftPressPending || !ReferenceEquals(_tabDragPressedHost, headerHost)) return;
+
+            // The button coming up outside this host (nothing captured yet) leaves the armed
+            // press stale; the next buttonless move over the host must not graduate it.
+            if (!e.GetCurrentPoint(headerHost).Properties.IsLeftButtonPressed)
+            {
+                _isTabHeaderLeftPressPending = false;
+                return;
+            }
+
+            // The grip owns the pointer for the duration of a sidebar resize; a header move
+            // arriving then is a stray cross-route event, not a reorder gesture. Likewise a
+            // single-tab strip can never reorder.
+            if (_isTabStripGripDragging || _tabDragTabs == null || _tabDragTabs.Items.Count < 2)
+            {
+                _isTabHeaderLeftPressPending = false;
+                return;
+            }
+
+            var axisPos = GetTabStripAxisPosition(e);
+            if (!TabDragModel.ShouldStartDrag(_tabDragPressAxisPos, axisPos)) return;
+
+            BeginTabReorderDrag(headerHost, e);
+        }
+
+        private void BeginTabReorderDrag(Border headerHost, PointerEventArgs e)
+        {
+            _isTabHeaderLeftPressPending = false;
+            _isTabReorderDragging = true;
+            _tabDragPointer = e.Pointer;
+            e.Pointer.Capture(headerHost);
+            headerHost.Opacity = 0.5;
+
+            UpdateTabDrag(e);
+
+            // Auto-scroll near the viewport edges runs on a timer rather than only on moves:
+            // once the pointer parks inside an edge zone, it stops generating PointerMoved
+            // events but the strip must keep scrolling.
+            _tabDragAutoScrollTimer ??= CreateTabDragAutoScrollTimer();
+            _tabDragAutoScrollTimer.Start();
+        }
+
+        private DispatcherTimer CreateTabDragAutoScrollTimer()
+        {
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
+            timer.Tick += (_, _) => AutoScrollTabDrag();
+            return timer;
+        }
+
+        private void UpdateTabDrag(PointerEventArgs e)
+        {
+            var axisPos = GetTabStripAxisPosition(e);
+            if (!double.IsFinite(axisPos)) return;
+
+            // Viewport-space pointer position for the auto-scroll tick: content-space minus
+            // the current scroll offset (content = viewport + offset).
+            var scrollViewer = FindTabHeaderScrollViewer();
+            double offset = 0;
+            if (scrollViewer != null)
+            {
+                offset = _isVerticalTabStrip ? scrollViewer.Offset.Y : scrollViewer.Offset.X;
+            }
+
+            _tabDragPointerAxisPos = axisPos - offset;
+
+            var bounds = GetTabHeaderBoundsInStrip();
+            if (bounds.Count == 0) return;
+
+            _tabDragInsertIndex = TabDragModel.ComputeInsertIndex(HeaderCenters(bounds), axisPos);
+            PositionTabInsertIndicator(bounds);
+        }
+
+        private static List<double> HeaderCenters(List<(double Start, double End)> bounds)
+        {
+            var centers = new List<double>(bounds.Count);
+            foreach (var extent in bounds)
+            {
+                centers.Add((extent.Start + extent.End) / 2);
+            }
+
+            return centers;
+        }
+
+        /// <summary>Pointer position along the strip axis in the ItemsPresenter's (content)
+        /// coordinate space - the same space <see cref="GetTabHeaderBoundsInStrip"/> reports,
+        /// so scrolling never desynchronizes the two. Non-finite when the presenter or the
+        /// position transform is unavailable; TabDragModel's guards treat that as
+        /// "no drag start / insert index 0".</summary>
+        private double GetTabStripAxisPosition(PointerEventArgs e)
+        {
+            var presenter = FindTabItemsPresenter();
+            if (presenter == null) return double.NaN;
+            var position = e.GetPosition(presenter);
+            return _isVerticalTabStrip ? position.Y : position.X;
+        }
+
+        /// <summary>Along-axis extent of every tab's header container (the TabItem itself, a
+        /// realized child of the items panel) in the ItemsPresenter's coordinate space, in
+        /// visual (= Items) order. The dragged tab keeps its original slot until commit, so
+        /// the list always reflects the pre-reorder order ComputeInsertIndex expects.</summary>
+        private List<(double Start, double End)> GetTabHeaderBoundsInStrip()
+        {
+            var bounds = new List<(double Start, double End)>();
+            var presenter = FindTabItemsPresenter();
+            var tabs = _tabDragTabs ?? this.FindControl<TabControl>("Tabs");
+            if (presenter == null || tabs == null) return bounds;
+
+            foreach (var tab in tabs.Items.Cast<TabItem>())
+            {
+                var topLeft = tab.TranslatePoint(new Point(0, 0), presenter);
+                if (topLeft == null) continue;
+                bounds.Add(_isVerticalTabStrip
+                    ? (topLeft.Value.Y, topLeft.Value.Y + tab.Bounds.Height)
+                    : (topLeft.Value.X, topLeft.Value.X + tab.Bounds.Width));
+            }
+
+            return bounds;
+        }
+
+        private void PositionTabInsertIndicator(List<(double Start, double End)> bounds)
+        {
+            var indicator = FindTabTemplatePart<Border>("PART_TabInsertIndicator");
+            var sidebar = FindTabTemplatePart<Grid>("PART_TabSidebar");
+            if (indicator == null || sidebar == null || bounds.Count == 0) return;
+
+            // Gap along the axis: the near edge of the header currently at the insert index,
+            // or the far edge of the last header when dropping at the very end.
+            var index = Math.Clamp(_tabDragInsertIndex, 0, bounds.Count);
+            double edge = index < bounds.Count ? bounds[index].Start : bounds[bounds.Count - 1].End;
+
+            // Translate the content-space edge into the sidebar Grid's space (the indicator's
+            // parent), so auto-scrolling mid-drag keeps the line glued to the on-screen gap.
+            var gapInContent = _isVerticalTabStrip ? new Point(0, edge) : new Point(edge, 0);
+            var gapInSidebar = FindTabItemsPresenter()?.TranslatePoint(gapInContent, sidebar);
+            if (gapInSidebar == null)
+            {
+                indicator.IsVisible = false;
+                return;
+            }
+
+            // The bar spans the drop gap like a divider between adjacent tabs: its length
+            // runs along the CROSS axis (the dragged header's row width in vertical mode,
+            // its column height in horizontal mode) and the 2-DIP thickness runs along the
+            // drag axis, straddling the gap edge. Background and alignment are constant,
+            // set once in the template XAML - only the per-drag values (thickness axis,
+            // length, margin, visibility) are assigned here.
+            double crossLength = _isVerticalTabStrip
+                ? Math.Max(TabInsertIndicatorMinLength, _tabDragPressedHost?.Bounds.Width ?? 0)
+                : Math.Max(TabInsertIndicatorMinLength, _tabDragPressedHost?.Bounds.Height ?? 0);
+
+            if (_isVerticalTabStrip)
+            {
+                indicator.Height = TabInsertIndicatorThickness;
+                indicator.Width = crossLength;
+                indicator.Margin = new Thickness(
+                    0, gapInSidebar.Value.Y - TabInsertIndicatorThickness / 2, 0, 0);
+            }
+            else
+            {
+                indicator.Width = TabInsertIndicatorThickness;
+                indicator.Height = crossLength;
+                indicator.Margin = new Thickness(
+                    gapInSidebar.Value.X - TabInsertIndicatorThickness / 2,
+                    Math.Max(0, (sidebar.Bounds.Height - crossLength) / 2), 0, 0);
+            }
+
+            indicator.IsVisible = true;
+        }
+
+        private void AutoScrollTabDrag()
+        {
+            if (!_isTabReorderDragging)
+            {
+                _tabDragAutoScrollTimer?.Stop();
+                return;
+            }
+
+            var scrollViewer = FindTabHeaderScrollViewer();
+            if (scrollViewer == null) return;
+
+            // _tabDragPointerAxisPos is already viewport-space (where the edge zones live),
+            // and it stays constant while the pointer parks and the strip scrolls - so the
+            // tick keeps scrolling until the extent clamp stops it, rather than the pointer
+            // "drifting" out of the zone it is physically still in.
+            bool vertical = _isVerticalTabStrip;
+            double viewportLength = vertical ? scrollViewer.Viewport.Height : scrollViewer.Viewport.Width;
+            double delta = TabDragModel.ComputeAutoScrollDelta(0, viewportLength, _tabDragPointerAxisPos);
+            if (delta == 0) return;
+
+            // Clamp to the scrollable extent (Extent - Viewport), mirroring what the
+            // ScrollViewer itself would do with an out-of-range Offset assignment.
+            double offset = vertical ? scrollViewer.Offset.Y : scrollViewer.Offset.X;
+            double maxOffset = vertical
+                ? scrollViewer.Extent.Height - scrollViewer.Viewport.Height
+                : scrollViewer.Extent.Width - scrollViewer.Viewport.Width;
+            double next = Math.Clamp(offset + delta, 0, Math.Max(0, maxOffset));
+
+            // Content scrolled under the parked pointer, so its content-space position
+            // (viewport + offset) moved with it: re-derive the insert index instead of
+            // letting the drop gap lag behind the headers until the next pointer move.
+            //
+            // Ordering constraint: assigning Offset only invalidates arrange - the
+            // header bounds and the presenter->sidebar transform below still measure
+            // PRE-scroll geometry until the next layout pass. So everything here must
+            // derive from the PRE-scroll `offset`: pointer content-space =
+            // _tabDragPointerAxisPos + offset, the same frame GetTabHeaderBoundsInStrip
+            // reports. Mixing post-scroll pointer math (`+ next`) with pre-scroll bounds
+            // desynchronizes the indicator and drop index by up to one 12 DIP step, so a
+            // drop right after a scroll tick could pick the neighboring slot. Only move
+            // the Offset afterwards; layout catches up by the next tick (33ms), which
+            // then recomputes from the settled offset.
+            var bounds = GetTabHeaderBoundsInStrip();
+            if (bounds.Count > 0)
+            {
+                _tabDragInsertIndex = TabDragModel.ComputeInsertIndex(
+                    HeaderCenters(bounds), _tabDragPointerAxisPos + offset);
+            }
+
+            PositionTabInsertIndicator(bounds);
+
+            scrollViewer.Offset = vertical
+                ? new Vector(scrollViewer.Offset.X, next)
+                : new Vector(next, scrollViewer.Offset.Y);
+        }
+
+        private void OnTabReorderPointerReleased(TabItem tab, Border headerHost, PointerReleasedEventArgs e)
+        {
+            if (_isTabReorderDragging && ReferenceEquals(e.Pointer.Captured, headerHost))
+            {
+                // Releasing capture synchronously raises PointerCaptureLost, which runs the
+                // shared non-committing cleanup; commit afterwards, ordered by the final
+                // insert index.
+                e.Pointer.Capture(null);
+                CommitTabReorder(tab);
+                return;
+            }
+
+            // An armed press that never crossed the drag threshold ends here (a plain
+            // click): disarm without touching anything.
+            if (_isTabHeaderLeftPressPending && ReferenceEquals(_tabDragPressedHost, headerHost))
+            {
+                _isTabHeaderLeftPressPending = false;
+            }
+        }
+
+        private void CommitTabReorder(TabItem draggedTab)
+        {
+            var tabs = _tabDragTabs ?? this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            int oldIndex = tabs.Items.IndexOf(draggedTab);
+            if (oldIndex < 0) return;
+
+            // ComputeInsertIndex ran over the pre-reorder order (the dragged header never
+            // leaves its slot during the drag), so a target past the dragged tab collapses by
+            // one once the dragged tab is removed from Items.
+            int insertIndex = Math.Clamp(_tabDragInsertIndex, 0, tabs.Items.Count);
+            int newIndex = insertIndex > oldIndex ? insertIndex - 1 : insertIndex;
+
+            ReorderTabInItems(tabs, draggedTab, newIndex);
+        }
+
+        /// <summary>The single reorder primitive, shared by the drag commit
+        /// (<see cref="CommitTabReorder"/>) and <see cref="MoveSelectedTab"/>: reinserts
+        /// the tab at <paramref name="newIndex"/> inside the guarded
+        /// <see cref="_isTabReorderCommitting"/> window (TabControl's AlwaysSelected mode
+        /// promotes index 0 to SelectedItem for the microseconds before the restore below -
+        /// the SelectionChanged handler skips that transient promotion: no MRU touch, no
+        /// attention clear, no focus steal on a tab the user never actually viewed), then
+        /// restores the moved tab as the selection, which re-runs the full select path with
+        /// the final Items order. The mutation itself is the same
+        /// remove-from-live-ItemCollection pattern CloseTab uses: the TabItem and its pane
+        /// content are reused, never recreated (ApplyTabLayout's ownership contract).</summary>
+        private void ReorderTabInItems(TabControl tabs, TabItem movedTab, int newIndex)
+        {
+            int oldIndex = tabs.Items.IndexOf(movedTab);
+            if (oldIndex < 0) return;
+
+            if (newIndex != oldIndex)
+            {
+                _isTabReorderCommitting = true;
+                try
+                {
+                    tabs.Items.RemoveAt(oldIndex);
+                    tabs.Items.Insert(newIndex, movedTab);
+                }
+                finally
+                {
+                    _isTabReorderCommitting = false;
+                }
+            }
+
+            tabs.SelectedItem = movedTab;
+        }
+
+        /// <summary>Moves the selected tab one slot along the strip (delta -1/+1), clamped
+        /// at the ends - the keyboard counterpart of drag-to-reorder, committing through the
+        /// same <see cref="ReorderTabInItems"/> semantics (pinned/protected tabs move
+        /// freely, consistent with the drag path). Internal for headless tests.</summary>
+        internal void MoveSelectedTab(int delta)
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs?.SelectedItem is not TabItem selected) return;
+
+            int currentIndex = tabs.Items.IndexOf(selected);
+            int newIndex = ComputeMoveTabIndex(currentIndex, tabs.Items.Count, delta);
+            if (newIndex < 0 || newIndex == currentIndex) return;
+
+            ReorderTabInItems(tabs, selected, newIndex);
+        }
+
+        /// <summary>Pure move-tab index math: the clamped target for moving the tab at
+        /// <paramref name="currentIndex"/> by <paramref name="delta"/> slots. Returns -1
+        /// when no move is expressible (no tabs, a single tab, or an out-of-range current
+        /// index); a clamp back onto <paramref name="currentIndex"/> is a caller no-op.</summary>
+        internal static int ComputeMoveTabIndex(int currentIndex, int count, int delta)
+        {
+            if (count <= 1 || currentIndex < 0 || currentIndex >= count) return -1;
+            return Math.Clamp(currentIndex + delta, 0, count - 1);
+        }
+
+        /// <summary>Shared non-committing cleanup for drag end, Escape and involuntary
+        /// capture loss alike: hide the indicator, restore the dimmed header, stop the
+        /// auto-scroll timer. Does not reset <c>_tabDragInsertIndex</c> - the release
+        /// handler still needs it for its commit after capture release runs this first.</summary>
+        private void EndTabReorderDrag()
+        {
+            _isTabReorderDragging = false;
+            _isTabHeaderLeftPressPending = false;
+            if (_tabDragPressedHost != null)
+            {
+                _tabDragPressedHost.Opacity = 1;
+            }
+
+            _tabDragPressedHost = null;
+            _tabDragPointer = null;
+            _tabDragTabs = null;
+            _tabDragAutoScrollTimer?.Stop();
+            if (FindTabTemplatePart<Border>("PART_TabInsertIndicator") is { } indicator)
+            {
+                indicator.IsVisible = false;
+            }
+        }
+
+        /// <summary>Aborts an in-flight reorder drag without committing (Escape). Dropping
+        /// capture raises PointerCaptureLost on the header host, running the shared
+        /// <see cref="EndTabReorderDrag"/> cleanup - the same contract as a capture steal.</summary>
+        private void CancelTabReorderDrag()
+        {
+            if (_tabDragPointer?.Captured != null)
+            {
+                _tabDragPointer.Capture(null);
+            }
+            else
+            {
+                EndTabReorderDrag();
             }
         }
 
@@ -971,6 +1568,7 @@ namespace NovaTerminal
             Dispatcher.UIThread.Post(() =>
             {
                 WireTabStripResizeGrip();
+                WireTabOverflowPill();
                 UpdateTabVisuals();
             }, DispatcherPriority.Background);
         }
@@ -1004,8 +1602,8 @@ namespace NovaTerminal
             var grip = this.GetVisualDescendants().OfType<Border>()
                 .FirstOrDefault(b => b.Name == "PART_TabStripResizeGrip");
             var scrollViewer = FindTabHeaderScrollViewer();
-            if (grip == null || scrollViewer == null || Equals(grip.Tag, "wired")) return;
-            grip.Tag = "wired";
+            if (grip == null || scrollViewer == null || Equals(grip.Tag, TemplatePartWiredTag)) return;
+            grip.Tag = TemplatePartWiredTag;
 
             double startWidth = 0;
             double startX = 0;
@@ -1086,6 +1684,11 @@ namespace NovaTerminal
                 // the 1s tab-status timer) must not reset it back to the stale persisted value,
                 // or the in-progress drag is silently discarded (visible snap-back, and a
                 // release without another move would persist the reverted width).
+                //
+                // A reorder drag needs no analogous guard: it owns neither Width, Height nor
+                // Offset - only the insert indicator (positioned in PART_TabSidebar space) and
+                // the dragged header's opacity, none of which this method resets. Rewriting the
+                // identical sizing values below is a no-op for an in-flight reorder.
                 if (!_isTabStripGripDragging)
                 {
                     scrollViewer.Width = TabStripLayout.ClampSidebarWidth(_settings.VerticalTabStripWidth);
@@ -1098,6 +1701,7 @@ namespace NovaTerminal
                 // UpdateTabOverflowIndicator's own vertical guard so the reset logic (badge,
                 // tab-list button tooltip/foreground) lives in one place.
                 UpdateTabOverflowIndicator();
+                UpdateTabOverflowPill(scrollViewer);
                 return;
             }
 
@@ -1119,6 +1723,7 @@ namespace NovaTerminal
             scrollViewer.ClipToBounds = true;
 
             UpdateTabOverflowIndicator();
+            UpdateTabOverflowPill(scrollViewer);
         }
 
         private void UpdateTabOverflowIndicator()
@@ -1203,6 +1808,92 @@ namespace NovaTerminal
             return hiddenCount;
         }
 
+        /// <summary>Drives the vertical-mode overflow pill (PART_TabOverflowPill): visible
+        /// with "+N more" when tab rows run past the sidebar viewport, hidden otherwise -
+        /// including every horizontal pass, where the title-bar TabOverflowBadge owns the
+        /// affordance instead (UpdateTabOverflowIndicator, deliberately untouched here).
+        /// CountHiddenTabs is axis-generic 1D packing math, so the vertical pass simply
+        /// feeds it the viewport height and the header heights.
+        ///
+        /// Called only from UpdateTabHeaderViewport - deliberately NOT from the
+        /// RefreshTabStatuses 1 Hz tick: the hidden count can only change when tabs are
+        /// added/removed (AddTab/CloseTab both route through UpdateTabVisuals →
+        /// UpdateTabHeaderViewport), the viewport resizes (window/title-bar SizeChanged →
+        /// UpdateTabHeaderViewport), or selection shifts (SelectionChanged →
+        /// UpdateTabHeaderViewport), all of which already re-run this. Colors are reapplied
+        /// on every visible pass so a theme change takes effect without a tab/viewport
+        /// change (two small brush allocations - pill background and pill text
+        /// foreground - same precedent as UpdateTabVisuals).</summary>
+        private void UpdateTabOverflowPill(ScrollViewer scrollViewer)
+        {
+            var pill = FindTabTemplatePart<Button>("PART_TabOverflowPill");
+            if (pill == null) return;
+
+            // The text part is the pill's XAML Content, read straight off the property
+            // rather than via a visual-tree lookup: a hidden control is never measured,
+            // so while the pill is IsVisible=False its own template (and with it the
+            // TextBlock's visual-tree presence) has never been applied - a visual lookup
+            // would come back empty and the pill could never become visible at all.
+            // Content still holds the TextBlock instance, and setting its text/foreground
+            // works pre-materialization: the ContentPresenter shows it with these values
+            // on the first pass after visibility turns on.
+            if (pill.Content is not TextBlock pillText) return;
+
+            if (!_isVerticalTabStrip)
+            {
+                pill.IsVisible = false;
+                return;
+            }
+
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null)
+            {
+                pill.IsVisible = false;
+                return;
+            }
+
+            // Occlusion semantics: the pill overlays the bottom ~25px of the viewport,
+            // so the lowest strictly-fully-visible row may be counted hidden (an
+            // undercount of one at most) - the semantic is "row doesn't fully fit
+            // above the pill", an accepted approximation matching the title-bar badge.
+            int hiddenCount = CountHiddenTabs(
+                scrollViewer.Bounds.Height,
+                tabs.Items.Cast<TabItem>().Select(t => t.Bounds.Height),
+                fallbackTabWidth: DefaultVerticalTabRowHeight);
+            if (hiddenCount <= 0)
+            {
+                pill.IsVisible = false;
+                return;
+            }
+
+            var theme = _settings.ActiveTheme;
+            pill.Background = new SolidColorBrush(theme.Background.ToAvaloniaColor());
+            // Same luminance-contrast pick as UpdateTabVisuals' header text, via the
+            // shared GetContrastForeground helper, so the pill reads on both light
+            // and dark theme backgrounds.
+            pillText.Foreground = new SolidColorBrush(theme.GetContrastForeground().ToAvaloniaColor());
+            pillText.Text = $"+{hiddenCount} more";
+            pill.IsVisible = true;
+        }
+
+        /// <summary>Wires the vertical overflow pill (PART_TabOverflowPill) click: opens the
+        /// tab-list menu anchored at the pill (PopulateTabListMenu's anchorOverride path),
+        /// the same lazy-populate-flyout-on-demand pattern the tab headers' ContextFlyout
+        /// uses. The pill is a permanent part of the single inline template (like the resize
+        /// grip, see ApplyTabLayout's remarks), so wiring happens once per window instance
+        /// (guarded Tag) and survives every mode flip; a hidden pill in horizontal mode is
+        /// not hit-tested, so the handler is inert there.</summary>
+        private void WireTabOverflowPill()
+        {
+            var pill = FindTabTemplatePart<Button>("PART_TabOverflowPill");
+            if (pill == null || Equals(pill.Tag, TemplatePartWiredTag)) return;
+            pill.Tag = TemplatePartWiredTag;
+
+            // Focusable=False (XAML) keeps the click from moving keyboard focus off the
+            // terminal; the open flyout takes focus only while open, like any menu.
+            pill.Click += (_, _) => PopulateTabListMenu(showFlyout: true, anchorOverride: pill);
+        }
+
         private void EnsureSelectedTabHeaderVisible()
         {
             if (_isVerticalTabStrip)
@@ -1241,10 +1932,21 @@ namespace NovaTerminal
             }
         }
 
-        private void PopulateTabListMenu(bool showFlyout = false)
+        /// <summary>Resolves where the tab-list menu anchors and which flyout to populate:
+        /// an explicit override (the vertical overflow pill), else the pinned Tab List
+        /// button (its flyout created and attached on first use), else the "..." overflow
+        /// button or the title-bar host panel as a fallback anchor with a dedicated
+        /// long-lived flyout. Null when no anchor exists at all.</summary>
+        private (Control Anchor, MenuFlyout Flyout)? ResolveTabListMenuHost(Control? anchorOverride)
         {
-            var tabs = this.FindControl<TabControl>("Tabs");
-            if (tabs == null) return;
+            if (anchorOverride is not null)
+            {
+                // Vertical overflow pill path: anchor the menu at the pill instead of the
+                // title bar, into the pill-dedicated flyout (see _tabOverflowPillFlyout for
+                // why it cannot ride the pill's own Flyout property). The item-building and
+                // show logic in PopulateTabListMenu is shared verbatim with the title-bar paths.
+                return (anchorOverride, _tabOverflowPillFlyout ??= new MenuFlyout());
+            }
 
             // "open_tab_list" may legitimately be Overflow or Hidden per the user's title bar
             // layout, in which case FindTitleBarButton returns null for its dedicated button - but
@@ -1259,18 +1961,17 @@ namespace NovaTerminal
             var host = this.FindControl<StackPanel>("TitleBarItemsHost");
             var overflowButton = host?.Children.OfType<Button>()
                 .FirstOrDefault(b => b.Name == TitleBarViewFactory.OverflowButtonName);
-            Control? anchor = (Control?)button ?? (Control?)overflowButton ?? host;
-            if (anchor == null) return;
+            var anchor = (Control?)button ?? (Control?)overflowButton ?? host;
+            if (anchor == null) return null;
 
-            // A pinned item's own button starts out with no popup menu attached, so this method is
+            // A pinned item's own button starts out with no popup menu attached, so this is
             // where one gets created and attached, the first time it is needed. The overflow ("...")
             // button is different: it already carries its own popup, prebuilt to list whichever
             // actions do not have a dedicated icon right now, and grabbing hold of that same popup
             // here would silently replace those contents the next time someone opens the "..." menu.
             // The panel hosting the title bar buttons cannot carry a popup at all. So whenever the
-            // anchor is not a pinned item's own button, this method falls back to one dedicated menu
-            // kept alive across calls purely to support that case.
-            MenuFlyout flyout;
+            // anchor is not a pinned item's own button, fall back to one dedicated menu kept alive
+            // across calls purely to support that case.
             if (button is not null)
             {
                 if (button.Flyout is not MenuFlyout existing)
@@ -1278,12 +1979,21 @@ namespace NovaTerminal
                     existing = new MenuFlyout();
                     button.Flyout = existing;
                 }
-                flyout = existing;
+
+                return (anchor, existing);
             }
-            else
-            {
-                flyout = _tabListFallbackFlyout ??= new MenuFlyout();
-            }
+
+            return (anchor, _tabListFallbackFlyout ??= new MenuFlyout());
+        }
+
+        private void PopulateTabListMenu(bool showFlyout = false, Control? anchorOverride = null)
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            var resolved = ResolveTabListMenuHost(anchorOverride);
+            if (resolved == null) return;
+            var (anchor, flyout) = resolved.Value;
 
             flyout.Items.Clear();
             int index = 1;
@@ -1529,11 +2239,43 @@ namespace NovaTerminal
         /// <see cref="TruncateTabLabelWithSuffix"/>'s degenerate-case branch
         /// returns the front of the combined suffix, and the marker occupies
         /// the front.
+        ///
+        /// <paramref name="includeMarkers"/> false is the vertical-header mode:
+        /// attention renders as trailing chips there (UpdateVerticalTabExtras),
+        /// so the marker suffix is neither appended nor reserved during
+        /// truncation — the prefixes (pinned/protected/forwarding) live in the
+        /// base label and stay in both modes. The tooltip
+        /// (<see cref="BuildFullTabLabel"/>), tab-list flyout
+        /// (<see cref="GetTabMenuLabel"/>) and automation labels keep their
+        /// markers regardless of mode.
         /// </summary>
-        private Dictionary<TabItem, string> BuildTabDisplayLabels(IReadOnlyList<TabItem> tabs, int maxLength)
+        private Dictionary<TabItem, string> BuildTabDisplayLabels(IReadOnlyList<TabItem> tabs, int maxLength, bool includeMarkers = true)
+            => ResolveTabDisplayLabels(
+                tabs,
+                t => BuildBaseTabLabel(t),
+                t => GetAttentionMarkerSuffix(GetOrCreateTabState(t)),
+                t => "~" + GetTabId(t).ToString("N").Substring(0, 4),
+                maxLength,
+                includeMarkers);
+
+        /// <summary>
+        /// Pure core of <see cref="BuildTabDisplayLabels"/>: same truncation, marker
+        /// reservation, and collision-disambiguation behavior, with the per-tab string
+        /// sources injected so tests can drive it as plain facts without a window (the
+        /// instance method only contributes state-derived strings).
+        /// </summary>
+        internal static Dictionary<TTab, string> ResolveTabDisplayLabels<TTab>(
+            IReadOnlyList<TTab> tabs,
+            Func<TTab, string> baseLabelOf,
+            Func<TTab, string> markerSuffixOf,
+            Func<TTab, string> collisionHintOf,
+            int maxLength,
+            bool includeMarkers)
         {
-            var baseLabels = tabs.ToDictionary(t => t, BuildBaseTabLabel);
-            var markers = tabs.ToDictionary(t => t, t => GetAttentionMarkerSuffix(GetOrCreateTabState(t)));
+            var baseLabels = tabs.ToDictionary(t => t, baseLabelOf);
+            var markers = includeMarkers
+                ? tabs.ToDictionary(t => t, markerSuffixOf)
+                : tabs.ToDictionary(t => t, static _ => string.Empty);
             var truncated = tabs.ToDictionary(t => t, t => TruncateTabLabelWithSuffix(baseLabels[t], maxLength, markers[t]));
 
             var collisions = tabs
@@ -1544,8 +2286,7 @@ namespace NovaTerminal
             {
                 foreach (var tab in group)
                 {
-                    string hint = "~" + GetTabId(tab).ToString("N").Substring(0, 4);
-                    truncated[tab] = TruncateTabLabelWithSuffix(baseLabels[tab], maxLength, markers[tab] + hint);
+                    truncated[tab] = TruncateTabLabelWithSuffix(baseLabels[tab], maxLength, markers[tab] + collisionHintOf(tab));
                 }
             }
 
@@ -2700,6 +3441,15 @@ namespace NovaTerminal
             {
                 tabs.SelectionChanged += (s, e) =>
                 {
+                    // A reorder commit removes the selected (dragged) tab from Items and
+                    // reinserts it at the drop index; TabControl's AlwaysSelected mode
+                    // promotes index 0 to SelectedItem for the duration of that window (see
+                    // CommitTabReorder). That promotion is an implementation artifact, not a
+                    // user selection: skip it entirely (MRU touch, attention clear, focus
+                    // handoff) - the restore of the dragged tab right after re-enters here
+                    // with the true final selection and runs the full path.
+                    if (_isTabReorderCommitting) return;
+
                     var sw = System.Diagnostics.Stopwatch.StartNew();
                     bool updatedSpecific = false;
                     foreach (var removed in e.RemovedItems.OfType<TabItem>())
@@ -2853,6 +3603,23 @@ namespace NovaTerminal
             // Keyboard Shortcuts
             this.AddHandler(KeyDownEvent, (s, e) =>
             {
+                // An in-flight tab reorder drag owns the pointer; Escape aborts it before
+                // anything else - in particular before the broadcast-to-panes fallback at
+                // the bottom of this handler, which would otherwise also feed the raw ESC
+                // byte to the terminals while the user is only canceling a drag. That
+                // priority holds only because this handler is registered with
+                // RoutingStrategies.Tunnel (the AddHandler call near the bottom of
+                // OnOpened): the tunneling window handler runs before the focused
+                // TerminalView's bubble-phase Escape handling (which sends "\x1b" to the
+                // PTY), so the drag is canceled and the event marked handled before the
+                // key could reach the pane.
+                if (_isTabReorderDragging && e.Key == Key.Escape)
+                {
+                    CancelTabReorderDrag();
+                    e.Handled = true;
+                    return;
+                }
+
                 var modifiers = e.KeyModifiers;
                 bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
                 bool isShift = (modifiers & KeyModifiers.Shift) != 0;
@@ -3045,6 +3812,23 @@ namespace NovaTerminal
                         e.Handled = true;
                         return;
                     }
+                }
+                bool moveTabPrevShortcut = IsShortcut(e, MoveTabPrevCommandId, "Ctrl+Shift+PageUp");
+                bool moveTabNextShortcut = IsShortcut(e, MoveTabNextCommandId, "Ctrl+Shift+PageDown");
+                if (moveTabPrevShortcut || moveTabNextShortcut)
+                {
+                    // Keyboard move is meaningless mid-drag; swallowing the shortcut keeps
+                    // reorder mutations single-threaded through the drag path (cf. the
+                    // Escape guard above).
+                    if (_isTabReorderDragging)
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+                    RecordCommandUsage(moveTabPrevShortcut ? MoveTabPrevCommandId : MoveTabNextCommandId);
+                    MoveSelectedTab(moveTabPrevShortcut ? -1 : 1);
+                    e.Handled = true;
+                    return;
                 }
                 if (IsShortcut(e, TitleBarCatalog.OpenTabListId, "Ctrl+Shift+O"))
                 {
@@ -5198,11 +5982,33 @@ namespace NovaTerminal
             var contrastForeground = luminance > 0.5 ? Brushes.Black : Brushes.White;
 
             var tabItems = tabs.Items.Cast<TabItem>().ToList();
-            var labels = BuildTabDisplayLabels(tabItems, 44);
+            // Vertical headers show attention as trailing chips (UpdateVerticalTabExtras),
+            // so their title text omits the marker suffix; horizontal headers keep the
+            // suffix inside the title as before.
+            var labels = BuildTabDisplayLabels(tabItems, 44, includeMarkers: !_isVerticalTabStrip);
 
             foreach (TabItem ti in tabItems)
             {
                 ti.BorderBrush = ti.IsSelected ? borderBrush : Brushes.Transparent;
+
+                // Vertical: a constant 3px left thickness on EVERY tab, selected or not, so
+                // the BorderBrush line above paints the selected tab a 3px accent bar —
+                // constant (rather than only-when-selected) because toggling thickness on
+                // selection would shift the title 3px every time. (The selected tab's
+                // PART_Border needs the companion re-assert style in MainWindow.axaml's
+                // Window.Styles: App.axaml's selected underline setter outranks the template
+                // binding.) Horizontal: ClearValue rather than a local Thickness(0), so no
+                // leftover local value competes with the App.axaml selected style
+                // ("TabItem:selected /template/Border#PART_Border", BorderThickness 0 0 0 2),
+                // which keeps driving the underline — hence the asymmetry.
+                if (_isVerticalTabStrip)
+                {
+                    ti.BorderThickness = new Thickness(3, 0, 0, 0);
+                }
+                else
+                {
+                    ti.ClearValue(TabItem.BorderThicknessProperty);
+                }
 
                 if (FindTabHeaderTextBlock(ti.Header) is TextBlock tb)
                 {
@@ -5230,15 +6036,29 @@ namespace NovaTerminal
 
         private void UpdateVerticalTabExtras(TabItem tab, TabRuntimeState state, IBrush workingBrush)
         {
+            // One pure resolve per tab per pass drives both the dot and the marker chips —
+            // the vertical replacement for the title-suffix attention markers (which the
+            // display-label builder no longer appends in vertical mode).
+            var markers = TabStatusPresentation.ResolveTabMarkers(
+                state.HasBell, state.HasActivity, state.AgentTier, _settings.AgentIndicatorTabRollup);
+            var dotVisual = TabStatusPresentation.ResolveTabDot(state.RenderedStatus, markers, state.HasRunningCommand);
+
             if (FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot") is { } dot)
             {
-                dot.Fill = state.RenderedStatus switch
+                dot.Fill = dotVisual switch
                 {
-                    TabTrackerStatus.Working => workingBrush,
-                    TabTrackerStatus.Attention => TabAttentionBrush,
+                    TabDotVisual.Working => workingBrush,
+                    TabDotVisual.Attention => TabAttentionBrush,
+                    TabDotVisual.AgentWrote => TabAgentWroteDotBrush,
+                    TabDotVisual.AgentWatched => TabAgentWatchedDotBrush,
                     _ => Brushes.Transparent,
                 };
             }
+
+            SetChipVisibility(tab, "TabBellChip", markers.Bell);
+            SetChipVisibility(tab, "TabActivityChip", markers.Activity);
+            SetChipVisibility(tab, "TabAgentWroteChip", markers.AgentWrote);
+            SetChipVisibility(tab, "TabAgentWatchedChip", markers.AgentWatched);
 
             // Preview recompute is gated behind a dirty flag + throttle: with several streaming
             // tabs, this visual-refresh pass can run many times a second, and each recompute is
@@ -5263,6 +6083,17 @@ namespace NovaTerminal
                     // later pass picks it up.
                 }
                 // else: nothing new since the last recompute - leave the existing text alone.
+            }
+        }
+
+        /// <summary>Flips one named marker chip's visibility in a vertical header. No-op when
+        /// the chip is absent (e.g. the header was built by the horizontal factory), which
+        /// keeps callers uniform across both header kinds.</summary>
+        private static void SetChipVisibility(TabItem tab, string chipName, bool visible)
+        {
+            if (FindTabHeaderDescendant<TextBlock>(tab.Header, chipName) is { } chip)
+            {
+                chip.IsVisible = visible;
             }
         }
 
@@ -5668,6 +6499,8 @@ namespace NovaTerminal
             CommandRegistry.Register("Close Pane", "General", () => CloseActivePane(), GetEffectiveShortcutBinding("close_pane", "Ctrl+Shift+W"), "close_pane");
             CommandRegistry.Register("Tab: Next (MRU)", "General", () => SwitchTabByMru(reverse: false), GetEffectiveShortcutBinding("next_tab", "Ctrl+Tab"), "next_tab");
             CommandRegistry.Register("Tab: Previous (MRU)", "General", () => SwitchTabByMru(reverse: true), GetEffectiveShortcutBinding("prev_tab", "Ctrl+Shift+Tab"), "prev_tab");
+            CommandRegistry.Register("Tab: Move Previous", "General", () => MoveSelectedTab(-1), GetEffectiveShortcutBinding(MoveTabPrevCommandId, "Ctrl+Shift+PageUp"), MoveTabPrevCommandId);
+            CommandRegistry.Register("Tab: Move Next", "General", () => MoveSelectedTab(1), GetEffectiveShortcutBinding(MoveTabNextCommandId, "Ctrl+Shift+PageDown"), MoveTabNextCommandId);
             CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), GetEffectiveShortcutBinding(TitleBarCatalog.OpenTabListId, "Ctrl+Shift+O"), TitleBarCatalog.OpenTabListId);
             CommandRegistry.Register("Tabs: Toggle Vertical Tab Sidebar", "General", () => ToggleTabOrientation(), GetEffectiveShortcutBinding("toggle_tab_orientation", "Ctrl+Shift+L"), "toggle_tab_orientation");
             CommandRegistry.Register("Tab: Rename Current", "General", () => _ = RenameSelectedTabAsync(), "");
@@ -7100,6 +7933,9 @@ namespace NovaTerminal
             _recordingToastTimer.Stop();
             _updateCheckTimer.Stop();
             _tabStatusTimer?.Stop();
+            // A mid-drag close can beat the release/capture-lost cleanup, and a live
+            // DispatcherTimer would keep ticking (and rooting) the closed window.
+            _tabDragAutoScrollTimer?.Stop();
             _globalHotkey?.Dispose();
             // Dispose the snapshot scheduler before the agent-host teardown below: its Dispose
             // performs a best-effort final flush, which writes a snapshot, which logs — and the

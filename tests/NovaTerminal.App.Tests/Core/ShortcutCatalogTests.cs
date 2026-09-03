@@ -25,4 +25,24 @@ public sealed class ShortcutCatalogTests
         Assert.Equal("General", settingsEntry.Category);
         Assert.Equal("Ctrl+,", settingsEntry.DefaultBinding);
     }
+
+    [Fact]
+    public void GetEntries_IncludesMoveTabShortcuts_WithPageKeyDefaults()
+    {
+        ShortcutCatalogEntry prev = Assert.Single(
+            ShortcutCatalog.GetEntries(),
+            entry => entry.CommandId == "move_tab_prev");
+        ShortcutCatalogEntry next = Assert.Single(
+            ShortcutCatalog.GetEntries(),
+            entry => entry.CommandId == "move_tab_next");
+
+        Assert.Equal("Tab: Move Previous", prev.Title);
+        Assert.Equal("Tab: Move Next", next.Title);
+        Assert.Equal("General", prev.Category);
+        Assert.Equal("General", next.Category);
+        Assert.Equal(ShortcutScope.App, prev.Scope);
+        Assert.Equal(ShortcutScope.App, next.Scope);
+        Assert.Equal("Ctrl+Shift+PageUp", prev.DefaultBinding);
+        Assert.Equal("Ctrl+Shift+PageDown", next.DefaultBinding);
+    }
 }

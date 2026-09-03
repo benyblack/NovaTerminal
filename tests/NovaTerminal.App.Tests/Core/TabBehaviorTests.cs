@@ -80,6 +80,28 @@ public sealed class TabBehaviorTests
         Assert.Equal(1, hidden);
     }
 
+    [Theory]
+    [InlineData(0, 3, -1, 0)]    // clamped at the top edge: target collapses to a no-op
+    [InlineData(0, 3, 1, 1)]
+    [InlineData(1, 3, 1, 2)]
+    [InlineData(2, 3, 1, 2)]     // clamped at the bottom edge
+    [InlineData(2, 3, -1, 1)]
+    [InlineData(1, 3, -5, 0)]    // oversized delta clamps, never wraps
+    [InlineData(1, 3, 5, 2)]
+    [InlineData(0, 1, 1, -1)]    // single tab: nothing to move
+    [InlineData(0, 0, 1, -1)]    // empty strip
+    [InlineData(-1, 3, 1, -1)]   // out-of-range current index
+    [InlineData(3, 3, -1, -1)]
+    public void ComputeMoveTabIndex_ClampsTargetOrRejects(
+        int currentIndex,
+        int count,
+        int delta,
+        int expected)
+    {
+        int target = NovaTerminal.MainWindow.ComputeMoveTabIndex(currentIndex, count, delta);
+        Assert.Equal(expected, target);
+    }
+
     [Fact]
     public void GetTabHeaderViewportMargin_NonMac_UsesOnlyRightReservation()
     {
