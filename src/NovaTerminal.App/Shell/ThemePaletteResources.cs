@@ -83,24 +83,29 @@ internal static class ThemePaletteResources
 
     private static (double H, double S, double L) ToHsl(Color c)
     {
+        // Achromatic and channel-dominance comparisons run on the source bytes: they are exact
+        // integer checks, immune to the float-equality warning the scaled doubles would raise.
+        byte maxByte = Math.Max(c.R, Math.Max(c.G, c.B));
+        byte minByte = Math.Min(c.R, Math.Min(c.G, c.B));
+
         double r = c.R / 255.0, g = c.G / 255.0, b = c.B / 255.0;
-        double max = Math.Max(r, Math.Max(g, b));
-        double min = Math.Min(r, Math.Min(g, b));
+        double max = maxByte / 255.0, min = minByte / 255.0;
         double l = (max + min) / 2.0;
 
-        if (max == min)
+        if (maxByte == minByte)
         {
+            // Achromatic: saturation is zero by definition.
             return (0.0, 0.0, l);
         }
 
         double d = max - min;
         double s = l > 0.5 ? d / (2.0 - max - min) : d / (max + min);
         double h;
-        if (max == r)
+        if (maxByte == c.R)
         {
             h = (g - b) / d + (g < b ? 6.0 : 0.0);
         }
-        else if (max == g)
+        else if (maxByte == c.G)
         {
             h = (b - r) / d + 2.0;
         }

@@ -91,17 +91,17 @@ namespace NovaTerminal.Tests.BufferTests
                 }
             }
 
-                // Whole-frame dominant colors, for diagnosing "nothing rendered" failures.
-                var frameCounts = new System.Collections.Generic.Dictionary<string, int>();
-                for (int y = 0; y < bitmap.Height; y += 3)
+            // Whole-frame dominant colors, for diagnosing "nothing rendered" failures.
+            var frameCounts = new System.Collections.Generic.Dictionary<string, int>();
+            for (int y = 0; y < bitmap.Height; y += 3)
+            {
+                for (int x = 0; x < bitmap.Width; x += 3)
                 {
-                    for (int x = 0; x < bitmap.Width; x += 3)
-                    {
-                        var p = bitmap.GetPixel(x, y);
-                        string key = $"{p.Red:X2}{p.Green:X2}{p.Blue:X2}{p.Alpha:X2}";
-                        frameCounts[key] = frameCounts.GetValueOrDefault(key) + 1;
-                    }
+                    var p = bitmap.GetPixel(x, y);
+                    string key = $"{p.Red:X2}{p.Green:X2}{p.Blue:X2}{p.Alpha:X2}";
+                    frameCounts[key] = frameCounts.GetValueOrDefault(key) + 1;
                 }
+            }
 
             diagnostics = "frame colors: " + string.Join(", ", frameCounts
                 .OrderByDescending(kvp => kvp.Value)
