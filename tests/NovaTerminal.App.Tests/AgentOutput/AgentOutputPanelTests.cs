@@ -118,6 +118,19 @@ public sealed class AgentOutputPanelTests
         Assert.False(AgentOutputPanel.IsSafeExternalUrl(url));
     }
 
+    [AvaloniaFact]
+    public void SetViewModel_SyncsTheToggle_FromTheViewModel()
+    {
+        // Unreachable today (the view model always starts true), but a latent desync otherwise:
+        // the XAML pins IsChecked="True" and nothing reconciled it with an already-false flag.
+        var viewModel = new AgentOutputViewModel { RenderFencedMarkdown = false };
+        var panel = new AgentOutputPanel();
+
+        panel.SetViewModel(viewModel);
+
+        Assert.False(panel.FindControl<ToggleButton>("BtnRenderFences").IsChecked);
+    }
+
     // ---------------------------------------------------------------- fence rendering switch
 
     [AvaloniaFact]

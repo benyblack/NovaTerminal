@@ -12,8 +12,6 @@ namespace NovaTerminal.AgentOutput.Fences;
 /// </remarks>
 internal sealed class DiffFenceBody : IFenceBody
 {
-    private const string MonospaceFontFamily = "Cascadia Mono PL, Consolas, Menlo, monospace";
-
     public bool IsTransform => false;
 
     public Control Build(string code, MarkdownTheme theme, FenceContext context)
@@ -22,7 +20,7 @@ internal sealed class DiffFenceBody : IFenceBody
         {
             TextWrapping = TextWrapping.Wrap,
             FontSize = 12,
-            FontFamily = new FontFamily(MonospaceFontFamily),
+            FontFamily = new FontFamily(MarkdownRenderer.MonospaceFontFamily),
             Foreground = theme.Foreground,
         };
 

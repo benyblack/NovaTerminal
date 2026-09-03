@@ -24,7 +24,7 @@
 
                 <ToggleButton x:Name="BtnRenderFences"
                               Grid.Column="1"
-                              Content="md"
+                              Content="Render"
                               FontSize="11"
                               Padding="7,2"
                               IsChecked="True"

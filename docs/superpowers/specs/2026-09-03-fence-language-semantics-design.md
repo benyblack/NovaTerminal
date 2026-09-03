@@ -162,7 +162,10 @@ A switch that is usually a no-op is clutter, so it appears only when the current
 produced a transform block. `Build` therefore returns a small result instead of a bare
 `Control`:
 
-    internal sealed record MarkdownRenderResult(Control Root, bool HasTransformBlock);
+    public sealed record MarkdownRenderResult(Control Root, bool HasTransformBlock);
+
+Public, not `internal`: `MarkdownRenderer.Build` is itself public, and C# forbids a public
+method returning a less-accessible type (CS0050).
 
 `AgentOutputPanel` binds the switch's visibility to `HasTransformBlock`. There is exactly one
 caller of `Build`, so this is a contained change.
@@ -246,6 +249,14 @@ guard that an unrecognized language is untouched.
 - `IsTransform` exists so the switch can be gated, which means a future handler that transforms
   content inherits the switch whether or not that is the right affordance for it. Revisit when a
   third transform handler appears, not before.
+- The depth cap gates *every* handler, not only the recursing one, so a ` ```diff ` fence nested
+  inside a rendered ` ```markdown ` fence loses its colouring and renders as source. Guarding at
+  the lookup is the safer construction, so this is accepted rather than worked around.
+- `IsFileHeader` requires a trailing space, which fixes `+++counter;` but still mis-colours a
+  removed line whose own text begins with `-- ` (deleting a SQL or Lua comment `-- note` yields
+  the diff line `--- note`, coloured as a file header). Distinguishing these needs positional
+  context — headers only after `diff --git`/`index `, or as a `---`/`+++` pair — which is out of
+  scope here.
 
 ## Sequencing
 

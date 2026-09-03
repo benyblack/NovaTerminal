@@ -66,6 +66,7 @@ public partial class AgentOutputPanel : UserControl
 
         _viewModel = viewModel;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        BtnRenderFences.IsChecked = viewModel.RenderFencedMarkdown;
         Render();
     }
 
@@ -159,7 +160,6 @@ public partial class AgentOutputPanel : UserControl
         }
 
         _viewModel.RenderFencedMarkdown = BtnRenderFences.IsChecked ?? true;
-        Render();
     }
 
     // Task-returning rather than async void (SonarCloud S3168): both are fire-and-forget UI

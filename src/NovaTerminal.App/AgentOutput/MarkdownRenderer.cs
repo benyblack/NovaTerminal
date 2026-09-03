@@ -51,7 +51,13 @@ public sealed record MarkdownRenderResult(Control Root, bool HasTransformBlock);
 /// </remarks>
 public static class MarkdownRenderer
 {
-    private const string MonospaceFontFamily = "Cascadia Mono PL, Consolas, Menlo, monospace";
+    /// <summary>
+    /// The monospace stack every code-shaped body uses: the unhandled fence path here, and both
+    /// fence handlers in <c>AgentOutput/Fences/</c>. One constant so the switch-off source body
+    /// and the unhandled body stay visually identical by construction, not by two literals
+    /// happening to agree.
+    /// </summary>
+    internal const string MonospaceFontFamily = "Cascadia Mono PL, Consolas, Menlo, monospace";
 
     /// <summary>
     /// Deepest nesting a fence handler may render into. Agent output is untrusted and this tree
@@ -209,7 +215,14 @@ public static class MarkdownRenderer
         MarkdownRenderPass pass,
         int depth)
     {
-        IFenceBody? handler = depth < MaxFenceDepth ? FenceBodyResolver.Resolve(language) : null;
+        // A whitespace-only body has nothing for a handler to transform, and the spec requires it to
+        // render as it always has. Resolving no handler is what delivers that: the unhandled path
+        // below is byte-identical to today, and HasTransformBlock stays false, so the panel does not
+        // offer a switch over a block that displays nothing. Reachable on every streaming tick where
+        // a fence opener has arrived before its body.
+        IFenceBody? handler = depth < MaxFenceDepth && !string.IsNullOrWhiteSpace(code)
+            ? FenceBodyResolver.Resolve(language)
+            : null;
         Control body;
         if (handler is null)
         {
@@ -236,7 +249,11 @@ public static class MarkdownRenderer
                 new FenceContext(
                     depth,
                     pass.RenderFencedMarkdown,
-                    (nested, nestedDepth) => BuildNested(nested, theme, onCopyText, onOpenLink, pass, nestedDepth),
+                    // Clamped rather than forwarded verbatim: the depth cap must hold structurally,
+                    // not by convention. A handler that passed context.Depth instead of Depth + 1
+                    // would otherwise recurse without bound on attacker-influenceable text - this
+                    // seam enforces the bound so no handler can opt out of it.
+                    (nested, nestedDepth) => BuildNested(nested, theme, onCopyText, onOpenLink, pass, Math.Max(nestedDepth, depth + 1)),
                     onCopyText));
         }
 
