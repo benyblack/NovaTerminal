@@ -18,6 +18,9 @@ using MInline = Markdig.Syntax.Inlines.Inline;
 
 namespace NovaTerminal.AgentOutput;
 
+/// <summary>One render's output: the tree, and whether it contains a switch-governed block.</summary>
+public sealed record MarkdownRenderResult(Control Root, bool HasTransformBlock);
+
 /// <summary>
 /// Renders markdown text as an Avalonia control tree for the Agent Output panel.
 /// </summary>
@@ -60,18 +63,23 @@ public static class MarkdownRenderer
     /// </param>
     /// <param name="onCopyText">Invoked when the user copies a code block or inline run.</param>
     /// <param name="onOpenLink">Invoked when the user clicks a link.</param>
-    public static Control Build(
+    /// <param name="renderFencedMarkdown">
+    /// The panel's fence-rendering switch; travels down the walk via <see cref="MarkdownRenderPass"/>.
+    /// </param>
+    public static MarkdownRenderResult Build(
         string markdown,
         StyledElement resourceAnchor,
         Action<string>? onCopyText = null,
-        Action<string>? onOpenLink = null)
+        Action<string>? onOpenLink = null,
+        bool renderFencedMarkdown = true)
     {
         MarkdownDocument document = Markdown.Parse(markdown ?? string.Empty, Pipeline);
         var theme = MarkdownTheme.Resolve(resourceAnchor);
+        var pass = new MarkdownRenderPass { RenderFencedMarkdown = renderFencedMarkdown };
 
         var root = new StackPanel { Spacing = 2 };
-        AppendBlocks(root.Children, document, theme, onCopyText, onOpenLink);
-        return root;
+        AppendBlocks(root.Children, document, theme, onCopyText, onOpenLink, pass, depth: 0);
+        return new MarkdownRenderResult(root, pass.HasTransformBlock);
     }
 
     private static void AppendBlocks(
@@ -79,7 +87,9 @@ public static class MarkdownRenderer
         IEnumerable<Block> blocks,
         MarkdownTheme theme,
         Action<string>? onCopyText,
-        Action<string>? onOpenLink)
+        Action<string>? onOpenLink,
+        MarkdownRenderPass pass,
+        int depth)
     {
         foreach (Block block in blocks)
         {
@@ -94,19 +104,19 @@ public static class MarkdownRenderer
                     break;
 
                 case FencedCodeBlock fenced:
-                    target.Add(BuildCodeBlock(GetLinesText(fenced), fenced.Info.ToString(), theme, onCopyText));
+                    target.Add(BuildCodeBlock(GetLinesText(fenced), fenced.Info.ToString(), theme, onCopyText, pass, depth));
                     break;
 
                 case CodeBlock code:
-                    target.Add(BuildCodeBlock(GetLinesText(code), null, theme, onCopyText));
+                    target.Add(BuildCodeBlock(GetLinesText(code), null, theme, onCopyText, pass, depth));
                     break;
 
                 case ListBlock list:
-                    target.Add(BuildList(list, theme, onCopyText, onOpenLink));
+                    target.Add(BuildList(list, theme, onCopyText, onOpenLink, pass, depth));
                     break;
 
                 case QuoteBlock quote:
-                    target.Add(BuildQuote(quote, theme, onCopyText, onOpenLink));
+                    target.Add(BuildQuote(quote, theme, onCopyText, onOpenLink, pass, depth));
                     break;
 
                 case ThematicBreakBlock:
@@ -119,7 +129,7 @@ public static class MarkdownRenderer
                     break;
 
                 case Table table:
-                    target.Add(BuildTable(table, theme, onCopyText, onOpenLink));
+                    target.Add(BuildTable(table, theme, onCopyText, onOpenLink, pass, depth));
                     break;
 
 
@@ -172,7 +182,9 @@ public static class MarkdownRenderer
         string code,
         string? language,
         MarkdownTheme theme,
-        Action<string>? onCopyText)
+        Action<string>? onCopyText,
+        MarkdownRenderPass pass,
+        int depth)
     {
         var codeText = new SelectableTextBlock
         {
@@ -239,7 +251,9 @@ public static class MarkdownRenderer
         ListBlock list,
         MarkdownTheme theme,
         Action<string>? onCopyText,
-        Action<string>? onOpenLink)
+        Action<string>? onOpenLink,
+        MarkdownRenderPass pass,
+        int depth)
     {
         var panel = new StackPanel { Margin = new Thickness(0, 3, 0, 3) };
         int itemNumber = ParseOrderedStart(list);
@@ -271,7 +285,7 @@ public static class MarkdownRenderer
             row.Children.Add(markerText);
 
             var itemContent = new StackPanel { Spacing = 2 };
-            AppendBlocks(itemContent.Children, listItem, theme, onCopyText, onOpenLink);
+            AppendBlocks(itemContent.Children, listItem, theme, onCopyText, onOpenLink, pass, depth);
             Grid.SetColumn(itemContent, 1);
             row.Children.Add(itemContent);
 
@@ -285,10 +299,12 @@ public static class MarkdownRenderer
         QuoteBlock quote,
         MarkdownTheme theme,
         Action<string>? onCopyText,
-        Action<string>? onOpenLink)
+        Action<string>? onOpenLink,
+        MarkdownRenderPass pass,
+        int depth)
     {
         var content = new StackPanel { Spacing = 2 };
-        AppendBlocks(content.Children, quote, theme, onCopyText, onOpenLink);
+        AppendBlocks(content.Children, quote, theme, onCopyText, onOpenLink, pass, depth);
 
         return new Border
         {
@@ -319,7 +335,9 @@ public static class MarkdownRenderer
         Table table,
         MarkdownTheme theme,
         Action<string>? onCopyText,
-        Action<string>? onOpenLink)
+        Action<string>? onOpenLink,
+        MarkdownRenderPass pass,
+        int depth)
     {
         int columnCount = Math.Max(table.ColumnDefinitions.Count, 1);
         var grid = new Grid { Margin = new Thickness(0, 6, 0, 6) };
@@ -347,7 +365,7 @@ public static class MarkdownRenderer
                 }
 
                 var cellContent = new StackPanel { Spacing = 2 };
-                AppendBlocks(cellContent.Children, cell, theme, onCopyText, onOpenLink);
+                AppendBlocks(cellContent.Children, cell, theme, onCopyText, onOpenLink, pass, depth);
 
                 if (row.IsHeader)
                 {

@@ -102,12 +102,12 @@ public partial class AgentOutputPanel : UserControl
         bool isStreaming = _viewModel?.IsStreaming ?? false;
 
         MarkdownHost.Children.Clear();
-        Control rendered = MarkdownRenderer.Build(
+        MarkdownRenderResult rendered = MarkdownRenderer.Build(
             markdown,
             this,
             onCopyText: text => _ = CopyToClipboardAsync(text),
             onOpenLink: url => _ = OpenLinkAsync(url));
-        MarkdownHost.Children.Add(rendered);
+        MarkdownHost.Children.Add(rendered.Root);
 
         if (wasPinned && isStreaming)
         {

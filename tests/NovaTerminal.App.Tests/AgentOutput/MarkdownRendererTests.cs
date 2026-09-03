@@ -89,7 +89,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void Heading_BecomesBoldText_SizedByLevel()
     {
-        var root = (StackPanel)MarkdownRenderer.Build("# Title\n\n### Sub", Anchor);
+        var root = (StackPanel)MarkdownRenderer.Build("# Title\n\n### Sub", Anchor).Root;
 
         var headings = TextBlocks(root).ToList();
         Assert.Equal("Title", TextOf((TextBlock)root.Children[0]));
@@ -101,7 +101,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void Paragraph_WithBoldAndItalic_ProducesStyledRuns()
     {
-        var root = (StackPanel)MarkdownRenderer.Build("plain **bold** and *slant* text", Anchor);
+        var root = (StackPanel)MarkdownRenderer.Build("plain **bold** and *slant* text", Anchor).Root;
 
         var paragraph = (SelectableTextBlock)root.Children[0];
         var runs = paragraph.Inlines!.OfType<Span>().SelectMany(s => s.Inlines!.OfType<Run>()).ToList();
@@ -117,7 +117,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void FencedCodeBlock_RendersItsText_WithACopyButton()
     {
-        var root = (StackPanel)MarkdownRenderer.Build("```csharp\nvar x = 1;\n```\n", Anchor);
+        var root = (StackPanel)MarkdownRenderer.Build("```csharp\nvar x = 1;\n```\n", Anchor).Root;
 
         Control? copyButton = Descendants(root).FirstOrDefault(c => c is Button { Content: "Copy" });
         Assert.NotNull(copyButton);
@@ -129,7 +129,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void InlineCode_RendersAsAChip()
     {
-        var root = (StackPanel)MarkdownRenderer.Build("run `npm test` now", Anchor);
+        var root = (StackPanel)MarkdownRenderer.Build("run `npm test` now", Anchor).Root;
 
         var paragraph = (SelectableTextBlock)root.Children[0];
         bool hasChip = paragraph.Inlines!.OfType<InlineUIContainer>()
@@ -140,7 +140,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void Lists_RenderTheirItems_AndOrdering()
     {
-        var root = (StackPanel)MarkdownRenderer.Build("1. first\n2. second\n\n- bullet\n", Anchor);
+        var root = (StackPanel)MarkdownRenderer.Build("1. first\n2. second\n\n- bullet\n", Anchor).Root;
 
         var markers = TextBlocks(root)
             .Select(TextOf)
@@ -153,7 +153,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void TaskListItem_RendersACheckboxGlyph()
     {
-        var root = (StackPanel)MarkdownRenderer.Build("- [x] done\n- [ ] pending\n", Anchor);
+        var root = (StackPanel)MarkdownRenderer.Build("- [x] done\n- [ ] pending\n", Anchor).Root;
 
         string all = string.Concat(TextBlocks(root).Select(TextOf));
         Assert.Contains("\u2611", all, StringComparison.Ordinal);
@@ -163,7 +163,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void Table_RendersHeaderAndRows()
     {
-        var root = (StackPanel)MarkdownRenderer.Build("| a | b |\n|---|---|\n| 1 | 2 |\n", Anchor);
+        var root = (StackPanel)MarkdownRenderer.Build("| a | b |\n|---|---|\n| 1 | 2 |\n", Anchor).Root;
 
         Grid? grid = Descendants(root).OfType<Grid>()
             .FirstOrDefault(g => g.RowDefinitions.Count > 0);
@@ -180,7 +180,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void BlockQuote_RendersItsParagraphs()
     {
-        var root = (StackPanel)MarkdownRenderer.Build("> quoted wisdom\n", Anchor);
+        var root = (StackPanel)MarkdownRenderer.Build("> quoted wisdom\n", Anchor).Root;
 
         Assert.Contains("quoted wisdom", TextBlocks(root).Select(TextOf), StringComparer.Ordinal);
     }
@@ -188,7 +188,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void Link_RendersItsLabel_ForClicking()
     {
-        var root = (StackPanel)MarkdownRenderer.Build("see [the docs](https://example.com) here", Anchor);
+        var root = (StackPanel)MarkdownRenderer.Build("see [the docs](https://example.com) here", Anchor).Root;
 
         // The link renders as a TextBlock inside an InlineUIContainer of the paragraph, which
         // the Panel/Border walker does not cross - collect inline-hosted blocks explicitly.
@@ -208,7 +208,7 @@ public sealed class MarkdownRendererTests
         // DisableHtml keeps the tags from becoming structure. Whatever leaks through as literal
         // text is inert: the panel renders Avalonia text, never evaluates markup, so a stray
         // <script> in agent output is characters on screen and nothing else.
-        var root = (StackPanel)MarkdownRenderer.Build("before\n\n<script>alert(1)</script>\n\nafter", Anchor);
+        var root = (StackPanel)MarkdownRenderer.Build("before\n\n<script>alert(1)</script>\n\nafter", Anchor).Root;
 
         string all = string.Concat(TextBlocks(root).Select(TextOf));
         Assert.Contains("before", all, StringComparison.Ordinal);
@@ -218,7 +218,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void UnrecognizedFrontMatter_IsSkipped_WithoutCrashing()
     {
-        var root = (StackPanel)MarkdownRenderer.Build("---\ntitle: something\n---\n\nbody text", Anchor);
+        var root = (StackPanel)MarkdownRenderer.Build("---\ntitle: something\n---\n\nbody text", Anchor).Root;
 
         string all = string.Concat(TextBlocks(root).Select(TextOf));
         Assert.Contains("body text", all, StringComparison.Ordinal);
@@ -229,7 +229,7 @@ public sealed class MarkdownRendererTests
     {
         // The grid reader hands the renderer already-joined logical lines; a very long paragraph
         // must flow through the text wrapper, not be re-broken by the renderer.
-        var root = (StackPanel)MarkdownRenderer.Build(new string('x', 500), Anchor);
+        var root = (StackPanel)MarkdownRenderer.Build(new string('x', 500), Anchor).Root;
 
         var paragraph = (SelectableTextBlock)root.Children[0];
         Assert.Equal(500, TextOf(paragraph).Length);
@@ -242,11 +242,20 @@ public sealed class MarkdownRendererTests
         var root = (StackPanel)MarkdownRenderer.Build(
             "```\nsome code\n```\n",
             Anchor,
-            onCopyText: text => copied = text);
+            onCopyText: text => copied = text).Root;
 
         var button = (Button)Descendants(root).First(c => c is Button);
         button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
         Assert.Equal("some code", copied);
+    }
+
+    [Fact]
+    public void Build_ReportsNoTransformBlock_ForOrdinaryMarkdown()
+    {
+        MarkdownRenderResult result = MarkdownRenderer.Build("# Title\n\nbody\n", Anchor);
+
+        Assert.IsType<StackPanel>(result.Root);
+        Assert.False(result.HasTransformBlock);
     }
 }
