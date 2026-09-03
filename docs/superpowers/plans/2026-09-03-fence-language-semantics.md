@@ -682,6 +682,8 @@ In `MarkdownRenderer.cs`, add the depth constant beside `MonospaceFontFamily`:
     internal const int MaxFenceDepth = 1;
 ```
 
+First, `BuildCodeBlock` gains an `Action<string>? onOpenLink` parameter — place it immediately after `onCopyText`, and pass `onOpenLink` at both `BuildCodeBlock` call sites in `AppendBlocks`. Without it a link inside a rendered markdown fence is inert, and spec §3 requires links to work there.
+
 Then, inside `BuildCodeBlock`, replace the single-`Run` body construction with a resolver lookup. The chrome below it is untouched:
 
 ```csharp
@@ -712,7 +714,7 @@ Then, inside `BuildCodeBlock`, replace the single-`Run` body construction with a
             new FenceContext(
                 depth,
                 pass.RenderFencedMarkdown,
-                (nested, nestedDepth) => BuildNested(nested, theme, onCopyText, pass, nestedDepth),
+                (nested, nestedDepth) => BuildNested(nested, theme, onCopyText, onOpenLink, pass, nestedDepth),
                 onCopyText));
     }
 ```
@@ -727,12 +729,13 @@ Add the nested-render helper next to `AppendBlocks`:
         string markdown,
         MarkdownTheme theme,
         Action<string>? onCopyText,
+        Action<string>? onOpenLink,
         MarkdownRenderPass pass,
         int depth)
     {
         MarkdownDocument document = Markdown.Parse(markdown ?? string.Empty, Pipeline);
         var panel = new StackPanel { Spacing = 2 };
-        AppendBlocks(panel.Children, document, theme, onCopyText, onOpenLink: null, pass, depth);
+        AppendBlocks(panel.Children, document, theme, onCopyText, onOpenLink, pass, depth);
         return panel;
     }
 ```
@@ -841,7 +844,10 @@ public void MarkdownFence_KeepsCopyYieldingRawSource()
     Button copy = Descendants((StackPanel)result.Root).OfType<Button>().First(b => b.Content as string == "Copy");
     copy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
-    Assert.Equal("# Nested Title\n", copied);
+    // Contains, not Equal: whether GetLinesText keeps a trailing newline is not this test's
+    // subject. The surviving hash is what proves Copy yielded source rather than rendered text.
+    Assert.NotNull(copied);
+    Assert.Contains("# Nested Title", copied!, StringComparison.Ordinal);
 }
 ```
 
@@ -1153,6 +1159,17 @@ In `AgentOutputPanel.axaml.cs`, pass the flag and gate the toggle's visibility o
         // A switch that governs nothing is clutter, so it appears only for a response that
         // actually contains a block it governs.
         BtnRenderFences.IsVisible = rendered.HasTransformBlock;
+```
+
+`Render()` has a no-content early return (`if (!hasContent) { MarkdownHost.Children.Clear(); return; }`). Reset the switch there too, or it keeps the previous response's visibility while the panel shows its empty state:
+
+```csharp
+        if (!hasContent)
+        {
+            MarkdownHost.Children.Clear();
+            BtnRenderFences.IsVisible = false;
+            return;
+        }
 ```
 
 Add the click handler beside `OnCopyAllClick`:
