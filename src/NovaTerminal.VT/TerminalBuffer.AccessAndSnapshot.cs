@@ -294,6 +294,33 @@ namespace NovaTerminal.VT
             IsHidden = false;
         }
 
+        /// <summary>
+        /// Reinitializes a saved cursor/style slot (DECSC bank or per-screen state) to the
+        /// terminal's initial state. RIS has to do this to every slot: leaving one populated
+        /// lets a later DECRC or alt-screen exit hand pre-RIS style back, which also re-pins
+        /// the live state to explicit colors that no longer follow theme switches.
+        /// </summary>
+        private void ResetSavedCursorStateToDefaultsNoLock(CursorState state)
+        {
+            state.Row = 0;
+            state.Col = 0;
+            state.Foreground = Theme.Foreground;
+            state.Background = Theme.Background;
+            state.FgIndex = -1;
+            state.BgIndex = -1;
+            state.IsDefaultForeground = true;
+            state.IsDefaultBackground = true;
+            state.IsInverse = false;
+            state.IsBold = false;
+            state.IsFaint = false;
+            state.IsItalic = false;
+            state.IsUnderline = false;
+            state.IsBlink = false;
+            state.IsStrikethrough = false;
+            state.IsHidden = false;
+            state.IsPendingWrap = false;
+        }
+
         private void SyncThemeDefaultsInCursorStateNoLock(CursorState state)
         {
             if (state.IsDefaultForeground)

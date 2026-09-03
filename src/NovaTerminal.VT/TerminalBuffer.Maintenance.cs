@@ -308,14 +308,6 @@ namespace NovaTerminal.VT
                 Modes.IsAutoWrapMode = true;
                 Modes.IsApplicationCursorKeys = false;
 
-                // Reset SGR
-                IsInverse = false;
-                IsBold = false;
-                SyncDefaultForegroundToTheme();
-                SyncDefaultBackgroundToTheme();
-                CurrentFgIndex = -1;
-                CurrentBgIndex = -1;
-
                 // Reset Mouse Modes
                 Modes.MouseModeX10 = false;
                 Modes.MouseModeButtonEvent = false;
@@ -324,6 +316,20 @@ namespace NovaTerminal.VT
 
                 _restoreMainCursorOnAltExit = false;
                 SwitchToMainScreen(restoreSavedCursorIfArmed: false);
+
+                // The SGR/cursor reset runs AFTER the screen switch on purpose. Leaving the alt
+                // screen restores the main screen's saved style, which is whatever was live when
+                // the program entered the alt screen - usually an explicit SGR color. Resetting
+                // before the switch let that restore undo RIS, and the resurrected explicit
+                // state then made every later theme switch skip the text written after it.
+                ResetCursorStateToDefaultsNoLock();
+
+                // Same reason, one step removed: RIS reinitializes the saved slots too, or a
+                // later DECRC (ESC 8) or alt-screen exit hands the pre-RIS style straight back.
+                ResetSavedCursorStateToDefaultsNoLock(_savedCursors.Main);
+                ResetSavedCursorStateToDefaultsNoLock(_savedCursors.Alt);
+                ResetSavedCursorStateToDefaultsNoLock(_screenCursorStates.Main);
+                ResetSavedCursorStateToDefaultsNoLock(_screenCursorStates.Alt);
 
                 // Kitty keyboard protocol: RIS clears both per-screen flag stacks so the
                 // terminal comes back up in legacy key encoding.

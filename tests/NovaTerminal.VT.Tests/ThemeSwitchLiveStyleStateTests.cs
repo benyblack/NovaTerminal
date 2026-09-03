@@ -89,4 +89,38 @@ public class ThemeSwitchLiveStyleStateTests
         Assert.True(cell.IsDefaultForeground);
         Assert.True(cell.IsDefaultBackground);
     }
+
+    [Fact]
+    public void FullResetOnAltScreen_KeepsLiveSgrStateDefault()
+    {
+        var buffer = new TerminalBuffer(20, 4) { Theme = MakeTheme("A", 0x10, 0x20) };
+        var parser = new AnsiParser(buffer);
+
+        // Explicit color on the main screen, enter the alt screen, then RIS. Leaving the alt
+        // screen restores the main screen's saved style, so RIS must not reset SGR before the
+        // switch or that restore hands the explicit color straight back.
+        parser.Process(Esc + "[31m" + Esc + "[?1049h" + Esc + "c");
+
+        Assert.True(buffer.IsDefaultForeground, "RIS from the alt screen must leave the foreground following the theme");
+        Assert.True(buffer.IsDefaultBackground, "RIS from the alt screen must leave the background following the theme");
+
+        parser.Process("after");
+        var cell = buffer.ViewportRows[0].Cells[0];
+        Assert.True(cell.IsDefaultForeground);
+        Assert.True(cell.IsDefaultBackground);
+    }
+
+    [Fact]
+    public void DecrcAfterFullReset_DoesNotResurrectPreResetStyle()
+    {
+        var buffer = new TerminalBuffer(20, 4) { Theme = MakeTheme("A", 0x10, 0x20) };
+        var parser = new AnsiParser(buffer);
+
+        // DECSC banks an explicit color, RIS reinitializes, then DECRC. RIS reinitializes the
+        // saved slots too, so the restore must not bring the pre-RIS style back.
+        parser.Process(Esc + "[31m" + Esc + "7" + Esc + "c" + Esc + "8");
+
+        Assert.True(buffer.IsDefaultForeground, "RIS must reinitialize the saved cursor style");
+        Assert.True(buffer.IsDefaultBackground, "RIS must reinitialize the saved cursor style");
+    }
 }
