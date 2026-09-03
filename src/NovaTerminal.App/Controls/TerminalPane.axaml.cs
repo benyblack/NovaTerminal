@@ -2130,6 +2130,11 @@ namespace NovaTerminal.Controls
                 _agentOutput.IsAltScreenSuppressed = isAltScreen;
                 UpdateAgentOutputPanelVisibility();
             }
+
+            // Showing the panel again is not enough on the way out: the final update for a
+            // command that finished under the full-screen program was refused while the
+            // alternate screen was up, so the tracker owes the panel a corrective read.
+            _agentOutputTracker?.NotifyAltScreenChanged(isAltScreen);
         }
 
         // ------------------------------------------------------------- Agent Output panel

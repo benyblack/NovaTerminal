@@ -78,6 +78,7 @@ public sealed class AgentOutputRegionTracker : IDisposable
     private ShellIntegrationMark? _heuristicStart;
     private int _lastPostedHash;
     private int _lastPostedStreaming;
+    private int _dedupeStale;
     private int _recentTailFallback;
     private int _generation;
     private int _lastPresence = -1;
@@ -194,6 +195,26 @@ public sealed class AgentOutputRegionTracker : IDisposable
         else
         {
             _debounceTimer.Change(PresenceDebounceDelay, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    /// <summary>
+    /// The pane switched between the primary and alternate screen.
+    /// </summary>
+    /// <remarks>
+    /// Entering needs nothing: the panel is hidden, and every read already refuses while the
+    /// alternate screen is active. Leaving is the load-bearing half. A command that finished
+    /// under a full-screen program had its final read refused for exactly that reason, so
+    /// "streaming" is the last thing the panel heard about output that is long done - and
+    /// restoring visibility alone would put that stale status back on screen. The corrective
+    /// read carries the recent-tail fallback because D cleared the region on its way past,
+    /// leaving no edges to resolve; that path posts as finished, which is the status being fixed.
+    /// </remarks>
+    public void NotifyAltScreenChanged(bool isAltScreenActive)
+    {
+        if (!isAltScreenActive)
+        {
+            FlushNow(includeRecentTailFallback: true);
         }
     }
 
@@ -433,8 +454,14 @@ public sealed class AgentOutputRegionTracker : IDisposable
             // panel's status line must still get the "streaming ended" update.
             int hash = text.GetHashCode();
             int streamingFlag = streaming ? 1 : 0;
-            if (Interlocked.Exchange(ref _lastPostedHash, hash) == hash &&
-                Volatile.Read(ref _lastPostedStreaming) == streamingFlag)
+
+            // Both reads happen before the decision so the hash is committed either way: a
+            // delivery forced through by stale dedupe state still has to leave the posted pair
+            // describing what the panel now shows.
+            bool sameText = Interlocked.Exchange(ref _lastPostedHash, hash) == hash;
+            bool sameStreaming = Volatile.Read(ref _lastPostedStreaming) == streamingFlag;
+            bool stale = Interlocked.Exchange(ref _dedupeStale, 0) == 1;
+            if (!stale && sameText && sameStreaming)
             {
                 return;
             }
@@ -444,5 +471,23 @@ public sealed class AgentOutputRegionTracker : IDisposable
         });
     }
 
-    private void AdvanceGeneration() => Interlocked.Increment(ref _generation);
+    /// <summary>
+    /// Supersedes every in-flight read, and marks the dedupe state as belonging to a generation
+    /// that is now gone.
+    /// </summary>
+    /// <remarks>
+    /// Staling the dedupe is what makes the next delivery unconditional. The posted hash and
+    /// streaming flag only answer "did the panel already hear this <i>within</i> one generation";
+    /// across a transition (C, D, reset, panel close) the panel's state can have moved on its
+    /// own, so the same pair no longer means the panel is up to date. The concrete leak without
+    /// this: reopening the panel on a still-running command whose output has not changed clears
+    /// the streaming status, then has its restoring flush dropped as a duplicate - the running
+    /// command reads as finished until it next prints. Transitions are rare and meaningful, so
+    /// the cost is at most one redundant update each.
+    /// </remarks>
+    private void AdvanceGeneration()
+    {
+        Interlocked.Increment(ref _generation);
+        Volatile.Write(ref _dedupeStale, 1);
+    }
 }

@@ -448,6 +448,30 @@ public sealed class AgentOutputRegionTrackerTests
     }
 
     [Fact]
+    public async Task PanelReopenedOnAnUnchangedRunningCommand_RestoresTheStreamingUpdate()
+    {
+        using var h = new Harness()
+            .Accept("agent --task")
+            .Output("stable output");
+
+        h.Tracker.NotifyInvalidate();
+        await WaitForAsync(() => h.UpdateCount > 0);
+        int afterFirst = h.UpdateCount;
+
+        // Close and reopen the panel while the command is still running and its output has not
+        // changed. The pane clears the view model's streaming status on open and depends on this
+        // flush to restore it, so an update deduplicated against what the pre-close generation
+        // posted would leave a running command displayed as finished.
+        h.Tracker.SetEnabled(false);
+        h.Tracker.SetEnabled(true);
+        h.Tracker.FlushNow(includeRecentTailFallback: true);
+        await WaitForAsync(() => h.UpdateCount > afterFirst);
+
+        Assert.Contains("stable output", h.LastText, StringComparison.Ordinal);
+        Assert.True(h.LastStreaming);
+    }
+
+    [Fact]
     public void InvalidationsBeforeTheDebounceWindow_PostNothing()
     {
         using var h = new Harness()
@@ -482,6 +506,46 @@ public sealed class AgentOutputRegionTrackerTests
 
         h.Write("\x1b[?1049h"); // a full-screen program takes over the grid
         h.Tracker.NotifyInvalidate();
+        await Task.Delay(PastDebounceMs);
+
+        Assert.Equal(0, h.UpdateCount);
+    }
+
+    [Fact]
+    public async Task LeavingAltScreenAfterTheCommandFinished_CorrectsTheStreamingStatus()
+    {
+        using var h = new Harness()
+            .Accept("agent --task")
+            .Output("## Result", "the answer");
+
+        h.Tracker.NotifyInvalidate();
+        await WaitForAsync(() => h.UpdateCount > 0);
+        Assert.True(h.LastStreaming);
+
+        // A full-screen program takes the grid, and the command finishes underneath it. D's read
+        // refuses on an active alt screen, so "streaming" is the last thing the panel heard.
+        h.Write("[?1049h");
+        h.Finish();
+        Assert.True(h.LastStreaming);
+
+        // Back on the primary screen the panel is shown again, and it must not still present the
+        // finished command as streaming.
+        h.Write("[?1049l");
+        h.Tracker.NotifyAltScreenChanged(false);
+        await WaitForAsync(() => !h.LastStreaming);
+
+        Assert.False(h.LastStreaming);
+    }
+
+    [Fact]
+    public async Task EnteringAltScreen_PostsNothing()
+    {
+        using var h = new Harness()
+            .Accept("agent --task")
+            .Output("some output");
+
+        h.Write("[?1049h");
+        h.Tracker.NotifyAltScreenChanged(true);
         await Task.Delay(PastDebounceMs);
 
         Assert.Equal(0, h.UpdateCount);
