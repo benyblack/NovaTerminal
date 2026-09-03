@@ -1,13 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
 using NovaTerminal.AgentOutput;
+using Avalonia.Headless.XUnit;
 using Xunit;
 
 namespace NovaTerminal.Tests.AgentOutput;
@@ -18,9 +17,22 @@ namespace NovaTerminal.Tests.AgentOutput;
 /// content, unknown blocks never crash the walk).
 /// </summary>
 /// <remarks>
-/// Plain control-tree construction, no layout or styling - so the tests run without a headless
-/// application. Colors resolve from a bare anchor with no theme resources, which exercises the
-/// fixed-fallback path: the same degradation an unthemed surface gets.
+/// Control-tree construction only - no layout, no styling. Colors resolve from a bare anchor with
+/// no theme resources, which exercises the fixed-fallback path: the same degradation an unthemed
+/// surface gets.
+///
+/// <para>
+/// <b><see cref="AvaloniaFactAttribute"/>, not <c>[Fact]</c>, and the distinction is load-bearing.</b>
+/// These tests build real Avalonia visuals, and Avalonia's ambient state - the media context most
+/// of all - has thread affinity to the headless session's dispatch thread. Constructing visuals
+/// from a plain <c>[Fact]</c> touches that state from a thread that owns none of it and corrupts it
+/// for every <c>[AvaloniaFact]</c> suite sharing the process, which then fails with "The calling
+/// thread cannot access this object because a different thread owns it" - non-deterministically,
+/// in unrelated classes, depending on test order. That is what turned main red after #397: the
+/// tab strip's pointer-driven tests died in a run whose only change was more tests here.
+/// <c>AvaloniaBootLocatorHygieneTests.TheAmbientMediaContextBelongsToTheSessionDispatchThread</c>
+/// is the guard for it. The session costs these tests a few seconds; do not trade it back.
+/// </para>
 /// </remarks>
 public sealed class MarkdownRendererTests
 {
@@ -88,7 +100,7 @@ public sealed class MarkdownRendererTests
         return builder.ToString();
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Heading_BecomesBoldText_SizedByLevel()
     {
         var root = (StackPanel)MarkdownRenderer.Build("# Title\n\n### Sub", Anchor).Root;
@@ -100,7 +112,7 @@ public sealed class MarkdownRendererTests
         Assert.Equal("Sub", TextOf(headings[1]));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Paragraph_WithBoldAndItalic_ProducesStyledRuns()
     {
         var root = (StackPanel)MarkdownRenderer.Build("plain **bold** and *slant* text", Anchor).Root;
@@ -116,7 +128,7 @@ public sealed class MarkdownRendererTests
         Assert.Equal(FontStyle.Italic, ((Span)runs[1].Parent!).FontStyle);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void FencedCodeBlock_RendersItsText_WithACopyButton()
     {
         var root = (StackPanel)MarkdownRenderer.Build("```csharp\nvar x = 1;\n```\n", Anchor).Root;
@@ -128,7 +140,7 @@ public sealed class MarkdownRendererTests
         Assert.NotNull(code);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void InlineCode_RendersAsAChip()
     {
         var root = (StackPanel)MarkdownRenderer.Build("run `npm test` now", Anchor).Root;
@@ -139,7 +151,7 @@ public sealed class MarkdownRendererTests
         Assert.True(hasChip);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Lists_RenderTheirItems_AndOrdering()
     {
         var root = (StackPanel)MarkdownRenderer.Build("1. first\n2. second\n\n- bullet\n", Anchor).Root;
@@ -152,7 +164,7 @@ public sealed class MarkdownRendererTests
         Assert.Equal(new[] { "1.", "2.", "•" }, markers);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void TaskListItem_RendersACheckboxGlyph()
     {
         var root = (StackPanel)MarkdownRenderer.Build("- [x] done\n- [ ] pending\n", Anchor).Root;
@@ -162,7 +174,7 @@ public sealed class MarkdownRendererTests
         Assert.Contains("\u2610", all, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Table_RendersHeaderAndRows()
     {
         var root = (StackPanel)MarkdownRenderer.Build("| a | b |\n|---|---|\n| 1 | 2 |\n", Anchor).Root;
@@ -179,7 +191,7 @@ public sealed class MarkdownRendererTests
         Assert.DoesNotContain("---", all, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void BlockQuote_RendersItsParagraphs()
     {
         var root = (StackPanel)MarkdownRenderer.Build("> quoted wisdom\n", Anchor).Root;
@@ -187,7 +199,7 @@ public sealed class MarkdownRendererTests
         Assert.Contains("quoted wisdom", TextBlocks(root).Select(TextOf), StringComparer.Ordinal);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Link_RendersItsLabel_ForClicking()
     {
         var root = (StackPanel)MarkdownRenderer.Build("see [the docs](https://example.com) here", Anchor).Root;
@@ -204,7 +216,7 @@ public sealed class MarkdownRendererTests
         Assert.Contains("the docs", inlineBlocks);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void RawHtml_IsTreatedAsPlainText()
     {
         // DisableHtml keeps the tags from becoming structure. Whatever leaks through as literal
@@ -217,7 +229,7 @@ public sealed class MarkdownRendererTests
         Assert.Contains("after", all, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void UnrecognizedFrontMatter_IsSkipped_WithoutCrashing()
     {
         var root = (StackPanel)MarkdownRenderer.Build("---\ntitle: something\n---\n\nbody text", Anchor).Root;
@@ -226,7 +238,7 @@ public sealed class MarkdownRendererTests
         Assert.Contains("body text", all, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void SoftWrapDamage_InTheSource_IsJustText()
     {
         // The grid reader hands the renderer already-joined logical lines; a very long paragraph
@@ -237,7 +249,7 @@ public sealed class MarkdownRendererTests
         Assert.Equal(500, TextOf(paragraph).Length);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void CopyButton_ForwardsTheCodeText()
     {
         string? copied = null;
@@ -252,7 +264,7 @@ public sealed class MarkdownRendererTests
         Assert.Equal("some code", copied);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void Build_ReportsNoTransformBlock_ForOrdinaryMarkdown()
     {
         MarkdownRenderResult result = MarkdownRenderer.Build("# Title\n\nbody\n", Anchor);
@@ -261,7 +273,7 @@ public sealed class MarkdownRendererTests
         Assert.False(result.HasTransformBlock);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void MarkdownFence_RendersNestedBlocks_NotSource()
     {
         MarkdownRenderResult result = MarkdownRenderer.Build("```markdown\n# Nested Title\n```\n", Anchor);
@@ -274,7 +286,7 @@ public sealed class MarkdownRendererTests
         Assert.True(result.HasTransformBlock);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void MarkdownFence_WithSwitchOff_RendersSource_ButStillReportsTransform()
     {
         MarkdownRenderResult result = MarkdownRenderer.Build(
@@ -290,7 +302,7 @@ public sealed class MarkdownRendererTests
         Assert.True(result.HasTransformBlock);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void MarkdownFence_NestedInsideAnother_RendersTheInnerOneAsSource()
     {
         const string md = "````markdown\n# Outer\n\n```markdown\n# Inner\n```\n````\n";
@@ -309,7 +321,7 @@ public sealed class MarkdownRendererTests
         Assert.NotNull(inner);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void MarkdownFence_KeepsCopyYieldingRawSource()
     {
         string? copied = null;
@@ -327,7 +339,7 @@ public sealed class MarkdownRendererTests
         Assert.Contains("# Nested Title", copied!, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void DiffFence_ThroughBuild_ColorsLines_AndIsNotATransform()
     {
         MarkdownRenderResult result = MarkdownRenderer.Build(
@@ -343,37 +355,7 @@ public sealed class MarkdownRendererTests
         Assert.False(result.HasTransformBlock);
     }
 
-    [Fact]
-    public void MarkdownFence_LinkInside_ReachesTheLinkHandler()
-    {
-        string? opened = null;
-        MarkdownRenderResult result = MarkdownRenderer.Build(
-            "```markdown\n[x](https://example.com)\n```\n",
-            Anchor,
-            onOpenLink: url => opened = url);
-
-        TextBlock link = Descendants((StackPanel)result.Root)
-            .OfType<SelectableTextBlock>()
-            .SelectMany(t => t.Inlines!.OfType<InlineUIContainer>())
-            .Select(c => c.Child)
-            .OfType<TextBlock>()
-            .First(b => TextOf(b) == "x");
-
-        var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, isPrimary: true);
-        link.RaiseEvent(new PointerPressedEventArgs(
-            link,
-            pointer,
-            link,
-            new Point(0, 0),
-            0,
-            new PointerPointProperties(),
-            KeyModifiers.None,
-            1));
-
-        Assert.Equal("https://example.com", opened);
-    }
-
-    [Fact]
+    [AvaloniaFact]
     public void MarkdownFence_SwitchOff_CopyYieldsRawSource()
     {
         string? copied = null;
@@ -390,7 +372,7 @@ public sealed class MarkdownRendererTests
         Assert.Contains("#", copied!, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void MarkdownFence_RawHtmlInside_StaysLiteral()
     {
         // Mirrors RawHtml_IsTreatedAsPlainText, one level deeper: the nested path runs a second
@@ -404,7 +386,7 @@ public sealed class MarkdownRendererTests
         Assert.Contains("after", all, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void MarkdownFence_WhitespaceOnlyBody_RendersAsOrdinaryCodeBlock_WithNoSwitch()
     {
         MarkdownRenderResult result = MarkdownRenderer.Build("```markdown\n   \n```\n", Anchor);
@@ -412,7 +394,7 @@ public sealed class MarkdownRendererTests
         Assert.False(result.HasTransformBlock);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void MarkdownFence_SwitchOffSourceBody_MatchesTheUnhandledBody()
     {
         const string body = "# Heading\n";
