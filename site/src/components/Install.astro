@@ -35,14 +35,14 @@ const releases = [
     installer: 'NovaTerminal-linux-x64-<tag>.AppImage',
     installerLabel: 'AppImage — recommended',
     installerNote:
-      'Self-updating, like the Windows and macOS installers. Needs glibc 2.35+ (Ubuntu 22.04+, Debian 12+, Fedora 36+); arm64 builds on the same release page.',
-    asset: 'novaterminal_0.7.0-1_amd64.deb',
+      'Self-updating, like the Windows and macOS installers. Needs glibc 2.35+ (Ubuntu 22.04+, Debian 12+, Fedora 36+); arm64 builds are on the same release page. Ubuntu 22.04+/Debian 12 ship no FUSE 2 — install it (sudo apt install fuse) or launch with --appimage-extract-and-run.',
+    asset: 'novaterminal_<version>-1_<amd64|arm64>.deb',
     assetLabel: 'Or the .deb — system integration',
     cmd:
-      'sudo apt install ./novaterminal_0.7.0-1_amd64.deb\n' +
-      'nova',
+      'chmod +x NovaTerminal-linux-x64-<tag>.AppImage\n' +
+      './NovaTerminal-linux-x64-<tag>.AppImage',
     extraNote:
-      'The .deb adds a desktop entry, icons, `nova` on your PATH, and `man nova`, and updates via your package manager. Copy its exact filename from the release page. A portable .tar.gz is there too.',
+      'The .deb adds a desktop entry, icons, the nova command on your PATH, and a man page, and updates via your package manager: sudo apt install ./novaterminal_0.7.0-1_amd64.deb. Its filename changes every release and the suffix must match your machine — copy the exact one for your architecture (amd64 or arm64) from the release page. A portable .tar.gz is there too.',
   },
 ];
 
