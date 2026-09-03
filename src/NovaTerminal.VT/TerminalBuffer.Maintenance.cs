@@ -358,11 +358,15 @@ namespace NovaTerminal.VT
                 SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Main);
                 SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Alt);
 
-                // NOTE: deliberately no value-based adoption here. Rewriting cells whose color
-                // happens to equal the old default would also capture explicitly-requested
-                // truecolors (programs query OSC 11 and paint to match the terminal), silently
-                // converting them to theme-following defaults. Explicit stays explicit; only
-                // flagged default cells migrate.
+                // Materialized/paint-to-match adoption: shells and CLIs query OSC 11 and then
+                // explicitly paint their prompt/status regions with the ANSWERED terminal
+                // background. Those cells carry a truecolor equal to the old default with the
+                // default flag cleared, so flag-based migration skips them and they render as
+                // old-theme boxes after a switch. A program that painted to match the old
+                // terminal wants to keep matching the terminal - adopt it into the new default.
+                uint oldForegroundUint = oldTheme.Foreground.ToUint();
+                uint oldBackgroundUint = oldTheme.Background.ToUint();
+
                 void UpdateCell(ref TerminalCell cell)
                 {
                     // Preserve palette/default flags across theme switches.
@@ -383,6 +387,11 @@ namespace NovaTerminal.VT
                         cell.IsDefaultForeground = true;
                         cell.Fg = Theme.Foreground.ToUint();
                     }
+                    else if (fgIdx < 0 && cell.Fg == oldForegroundUint)
+                    {
+                        cell.IsDefaultForeground = true;
+                        cell.Fg = Theme.Foreground.ToUint();
+                    }
 
                     if (bgIdx >= 0 && bgIdx <= 15)
                     {
@@ -393,6 +402,11 @@ namespace NovaTerminal.VT
                     else if (cell.IsDefaultBackground)
                     {
                         cell.IsPaletteBackground = false;
+                        cell.IsDefaultBackground = true;
+                        cell.Bg = Theme.Background.ToUint();
+                    }
+                    else if (bgIdx < 0 && cell.Bg == oldBackgroundUint)
+                    {
                         cell.IsDefaultBackground = true;
                         cell.Bg = Theme.Background.ToUint();
                     }

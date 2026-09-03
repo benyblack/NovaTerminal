@@ -133,12 +133,14 @@ namespace NovaTerminal.Tests.BufferTests
         }
 
         [Fact]
-        public void ScrollbackRow_ExplicitTruecolorEqualToOldDefault_IsLeftAlone()
+        public void ScrollbackRow_ExplicitTruecolorEqualToOldDefault_FollowsTheNewTheme()
         {
-            // Greptile P1 on the materialized-default adoption experiment: a program may
-            // explicitly request a truecolor that happens to equal the active theme's default
-            // (e.g. after an OSC 11 query). Explicit colors must stay explicit across theme
-            // switches - only flagged default cells migrate.
+            // Paint-to-match adoption: shells and CLIs query OSC 11 and then explicitly paint
+            // their prompt/status regions with the answered terminal background. Those cells
+            // store a truecolor equal to the old default with the default flags cleared, and
+            // after a theme switch they must keep matching the terminal (adopted into the new
+            // default) instead of rendering as old-theme boxes. Reviewed in PR #388: value
+            // matching is intentional here - see the OSC 11 note in UpdateThemeColors.
             var pool = new NovaTerminal.VT.Storage.TerminalPagePool();
             int cols = 10;
             var scrollback = new NovaTerminal.VT.Storage.ScrollbackPages(cols, pool, maxScrollbackBytes: 16L * 1024 * 1024);
@@ -158,26 +160,60 @@ namespace NovaTerminal.Tests.BufferTests
             scrollback.UpdateThemeDefaults(oldTheme, newTheme);
 
             var updated = scrollback.GetRow(0);
-            Assert.False(updated[0].IsDefaultForeground);
-            Assert.False(updated[0].IsDefaultBackground);
-            Assert.Equal(oldTheme.Foreground.ToUint(), updated[0].Fg);
-            Assert.Equal(oldTheme.Background.ToUint(), updated[0].Bg);
+            Assert.True(updated[0].IsDefaultForeground);
+            Assert.True(updated[0].IsDefaultBackground);
+            Assert.Equal(newTheme.Foreground.ToUint(), updated[0].Fg);
+            Assert.Equal(newTheme.Background.ToUint(), updated[0].Bg);
 
             pool.Clear();
         }
 
         [Fact]
-        public void ViewportRow_ExplicitTruecolorEqualToOldDefault_IsLeftAloneAfterSwitch()
+        public void ScrollbackRow_ExplicitTruecolorDifferentFromOldDefault_IsLeftAlone()
         {
-            // Same contract through the parser: SGR 48;2 with the Solarized background is an
-            // explicit color and must survive a theme switch exactly as emitted.
+            // The adoption must stay value-anchored to the OLD default: genuinely distinct
+            // explicit colors keep their exact color across theme switches.
+            var pool = new NovaTerminal.VT.Storage.TerminalPagePool();
+            int cols = 10;
+            var scrollback = new NovaTerminal.VT.Storage.ScrollbackPages(cols, pool, maxScrollbackBytes: 16L * 1024 * 1024);
+
+            var oldTheme = LoadTheme("SolarizedDark");
+            var newTheme = LoadTheme("GitHubLight");
+
+            var row = new TerminalCell[cols];
+            for (int i = 0; i < cols; i++)
+            {
+                row[i] = new TerminalCell(
+                    'x', TermColor.FromRgb(12, 34, 56), TermColor.FromRgb(200, 100, 50),
+                    isDefaultFg: false, isDefaultBg: false);
+            }
+
+            scrollback.AppendRow(row.AsSpan());
+            scrollback.UpdateThemeDefaults(oldTheme, newTheme);
+
+            var updated = scrollback.GetRow(0);
+            Assert.False(updated[0].IsDefaultForeground);
+            Assert.False(updated[0].IsDefaultBackground);
+            Assert.Equal(TermColor.FromRgb(12, 34, 56).ToUint(), updated[0].Fg);
+            Assert.Equal(TermColor.FromRgb(200, 100, 50).ToUint(), updated[0].Bg);
+
+            pool.Clear();
+        }
+
+        [Fact]
+        public void ViewportRow_PaintToMatchPrompt_FollowsTheNewThemeAfterSwitch()
+        {
+            // The user-reported shape: a PowerShell prompt region painted by the shell with the
+            // OSC 11 answered background (equal to the old theme's default). After a dark →
+            // light switch the region must adopt the new theme's default instead of rendering
+            // as a dark box.
             var oldTheme = LoadTheme("SolarizedDark");
             var newTheme = LoadTheme("GitHubLight");
             var buffer = new TerminalBuffer(80, 6) { Theme = oldTheme };
             var parser = new AnsiParser(buffer);
 
-            // #002b36 == Solarized Dark's background, requested explicitly.
-            parser.Process("\x1b[48;2;0;43;54mexplicit truecolor block\x1b[0m");
+            // #002b36 == Solarized Dark's background, painted explicitly (OSC 11 match).
+            parser.Process("\x1b[48;2;0;43;54mPS C:\\Users\\behna>\x1b[0m");
 
             buffer.Theme = newTheme;
             buffer.UpdateThemeColors(oldTheme);
@@ -189,9 +225,9 @@ namespace NovaTerminal.Tests.BufferTests
                 ScrollOffset = 0
             }, out _);
 
-            var cells = FindRowCells(after, 'e', 'x');
-            Assert.False(cells[0].IsDefaultBackground);
-            Assert.Equal(TermColor.FromRgb(0, 43, 54), cells[0].Background);
+            var cells = FindRowCells(after, 'P', 'S');
+            Assert.True(cells[0].IsDefaultBackground, "paint-to-match cells must be adopted as default background");
+            Assert.Equal(newTheme.Background, cells[0].Background);
         }
 
         [Fact]

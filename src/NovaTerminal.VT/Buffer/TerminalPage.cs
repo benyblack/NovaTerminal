@@ -215,21 +215,26 @@ namespace NovaTerminal.VT.Storage
 
         /// <summary>
         /// Updates cells that rely on default foreground or background colors to a new theme.
-        /// Explicit colors are left untouched, even when they equal the old default. This is an
-        /// O(n) operation over all used cells, invoked rarely during a theme change.
+        /// Also adopts cells whose stored color equals the OLD theme's default but which lack
+        /// the default flag - shells and CLIs paint prompt/status regions with the OSC 11
+        /// answered background, and after a theme switch those regions must keep matching the
+        /// terminal rather than render as old-theme boxes. This is an O(n) operation over all
+        /// used cells, invoked rarely during a theme change.
         /// </summary>
-        public void UpdateThemeDefaults(uint newFg, uint newBg)
+        public void UpdateThemeDefaults(uint newFg, uint newBg, uint oldFg = 0xFFFFFFFF, uint oldBg = 0xFFFFFFFF)
         {
             var span = Cells.AsSpan(0, UsedRows * Cols);
             for (int i = 0; i < span.Length; i++)
             {
-                if (span[i].IsDefaultForeground)
+                if (span[i].IsDefaultForeground || span[i].Fg == oldFg)
                 {
                     span[i].Fg = newFg;
+                    span[i].IsDefaultForeground = true;
                 }
-                if (span[i].IsDefaultBackground)
+                if (span[i].IsDefaultBackground || span[i].Bg == oldBg)
                 {
                     span[i].Bg = newBg;
+                    span[i].IsDefaultBackground = true;
                 }
             }
         }
