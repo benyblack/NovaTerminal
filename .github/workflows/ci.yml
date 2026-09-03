@@ -298,7 +298,8 @@ jobs:
             echo "::endgroup::"
           done
 
-      # NON-BLOCKING lane: the Avalonia-headless suite (NovaTerminal.App.Tests).
+      # The Avalonia-headless suite (NovaTerminal.App.Tests). continue-on-error here tolerates
+      # the HANG only; test failures are blocking, via the allowlist gate below.
       # It intermittently deadlocks on a testhost teardown hang — a dump-confirmed
       # framework deadlock in Avalonia.Headless.XUnit 12.0.4 (the latest release),
       # reported upstream as AvaloniaUI/Avalonia#21467 and tracked here as #81. No
@@ -311,7 +312,14 @@ jobs:
       # continue-on-error covers the HANG, not the RESULTS. The results are gated by the
       # step below, because "non-blocking" silently became "unread": this job reported
       # success for weeks while 16 tests failed on Windows and 14 on ubuntu.
-      - name: Test (headless App.Tests — NON-BLOCKING, see #81 / AvaloniaUI/Avalonia#21467)
+      #
+      # Why the hang still needs tolerating even though those failures are fixed: the hang is a
+      # separate, upstream defect (AvaloniaUI/Avalonia#21467) and it is frequent. Six of the last
+      # twenty Unit Tests job-runs on main uploaded a hang dump, so making this step blocking
+      # would red roughly one PR run in three for a reason unrelated to the change under review.
+      # Revisit when that upstream issue is fixed: at that point drop continue-on-error from both
+      # test steps and delete the hang-dump branch in check-app-tests-baseline.py.
+      - name: Test (headless App.Tests — hang-tolerant, failures gated below; #81 / AvaloniaUI/Avalonia#21467)
         continue-on-error: true
         env:
           SKIP_RUST_NATIVE_BUILD: '1'
@@ -335,7 +343,7 @@ jobs:
       # classes, order-dependent, green in isolation, and invisible because this job reported
       # success. Two in-process fixes were tried and both swapped the failures for a hang; see
       # SnapshotService.EnsureAvaloniaInitialized. Not sharing the process is what works.
-      - name: Test (headless App.Tests, PlatformBoot lane — NON-BLOCKING)
+      - name: Test (headless App.Tests, PlatformBoot lane — hang-tolerant, failures gated below)
         continue-on-error: true
         env:
           SKIP_RUST_NATIVE_BUILD: '1'
