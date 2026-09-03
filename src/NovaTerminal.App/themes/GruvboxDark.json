@@ -1,0 +1,22 @@
+{
+  "Name": "Gruvbox Dark",
+  "Foreground": "#ebdbb2",
+  "Background": "#282828",
+  "CursorColor": "#ebdbb2",
+  "Black": "#3c3836",
+  "Red": "#cc241d",
+  "Green": "#98971a",
+  "Yellow": "#d79921",
+  "Blue": "#458588",
+  "Magenta": "#b16286",
+  "Cyan": "#689d6a",
+  "White": "#a89984",
+  "BrightBlack": "#928374",
+  "BrightRed": "#fb4934",
+  "BrightGreen": "#b8bb26",
+  "BrightYellow": "#fabd2f",
+  "BrightBlue": "#83a598",
+  "BrightMagenta": "#d3869b",
+  "BrightCyan": "#8ec07c",
+  "BrightWhite": "#fbf1c7"
+}

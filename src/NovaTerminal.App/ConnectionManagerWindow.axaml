@@ -1,0 +1,15 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:NovaTerminal.Controls"
+        x:Class="NovaTerminal.ConnectionManagerWindow"
+        Title="Connection Manager"
+        Width="1080" Height="720"
+        MinWidth="920" MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        Background="#16181d"
+        Foreground="#e6e8ec"
+        FontFamily="Inter, Segoe UI, system-ui, sans-serif">
+
+    <!-- Same manager surface the old in-window ConnectionOverlay hosted. -->
+    <controls:ConnectionManager x:Name="ManagerControl"/>
+</Window>

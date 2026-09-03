@@ -362,6 +362,8 @@ namespace NovaTerminal.VT.Storage
         /// <summary>
         /// Updates the default foreground and background colors for all cells currently retained.
         /// This is allowed to be a slower full-scan because theme changes are infrequent.
+        /// Explicit colors (including truecolors that happen to equal the old default) are left
+        /// alone - only flagged default cells migrate.
         /// </summary>
         public void UpdateThemeDefaults(TerminalTheme oldTheme, TerminalTheme newTheme)
         {

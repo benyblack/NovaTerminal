@@ -1,0 +1,45 @@
+name: macOS signing smoke
+
+# Fast credential check for the macOS signing setup: runs exactly the keychain
+# import + notarytool profile store the release and dry-run lanes perform, but
+# without building or packing. Dispatch this after touching any MAC_* secret;
+# it reaches the verdict in under a minute and fails naming the offending
+# secret, instead of burning a full CI run to reach the keychain step.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keychain:
+    name: Import signing keychain
+    runs-on: macos-latest
+    timeout-minutes: 5
+    # Same gate shape as the job-level env in ci.yml / release.yml: the secrets
+    # context is not allowed in step-level `if`.
+    env:
+      MAC_SIGNING_ENABLED: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up macOS signing keychain
+        if: env.MAC_SIGNING_ENABLED == 'true'
+        uses: ./.github/actions/setup-mac-signing
+        with:
+          cert-p12-base64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          installer-p12-base64: ${{ secrets.MAC_INSTALLER_CERT_P12_BASE64 }}
+          cert-password: ${{ secrets.MAC_CERT_PASSWORD }}
+          sign-app-identity: ${{ secrets.MAC_SIGN_APP_IDENTITY }}
+          sign-install-identity: ${{ secrets.MAC_SIGN_INSTALL_IDENTITY }}
+          notary-profile: ${{ secrets.MAC_NOTARY_PROFILE }}
+          apple-id: ${{ secrets.MAC_APPLE_ID }}
+          team-id: ${{ secrets.MAC_TEAM_ID }}
+          app-specific-password: ${{ secrets.MAC_APP_SPECIFIC_PASSWORD }}
+
+      - name: Fail loudly when signing is not configured
+        if: env.MAC_SIGNING_ENABLED != 'true'
+        run: |
+          echo "::error::MAC_CERT_P12_BASE64 is not set. This smoke exists to validate the signing secrets, so an unset gate is a failure here, not a skip." >&2
+          exit 1

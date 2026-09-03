@@ -62,4 +62,57 @@ public sealed class DefaultProfileAvailabilityTests
         Assert.DoesNotContain("PowerShell", probed);
         Assert.All(probed, c => Assert.False(string.IsNullOrWhiteSpace(c)));
     }
+
+    // --- The Unix candidates: the login shell leads, and must not duplicate the trio. ---
+
+    [Fact]
+    public void UnixCandidates_LeadWithTheLoginShell_WhenItIsNotOneOfTheFixedEntries()
+    {
+        List<TerminalProfile> profiles = TerminalSettings.GetDefaultProfiles(
+            TerminalSettings.UnixProfileCandidates("/usr/bin/fish"),
+            commandExists: _ => true);
+
+        // DefaultProfileId is Profiles[0].Id, so leading with the login shell is what makes
+        // first run open the shell the user actually uses.
+        Assert.Equal("Default Shell", profiles[0].Name);
+        Assert.Equal("/usr/bin/fish", profiles[0].Command);
+        Assert.Equal(4, profiles.Count);
+        Assert.Equal(4, profiles.Select(p => p.Command).Distinct().Count());
+    }
+
+    [Fact]
+    public void UnixCandidates_LoginShellAmongTheFixedEntries_IsNotDuplicated()
+    {
+        List<TerminalProfile> profiles = TerminalSettings.GetDefaultProfiles(
+            TerminalSettings.UnixProfileCandidates("/bin/bash"),
+            commandExists: _ => true);
+
+        Assert.Equal("Default Shell", profiles[0].Name);
+        Assert.Single(profiles, p => p.Command == "/bin/bash");
+        Assert.Equal(3, profiles.Count);
+    }
+
+    [Fact]
+    public void UnixCandidates_ExistenceFilterStillApplies()
+    {
+        List<TerminalProfile> profiles = TerminalSettings.GetDefaultProfiles(
+            TerminalSettings.UnixProfileCandidates("/usr/bin/fish"),
+            commandExists: command => command != "/bin/zsh");
+
+        Assert.DoesNotContain(profiles, p => p.Command == "/bin/zsh");
+        Assert.Equal(3, profiles.Count);
+    }
+
+    [Fact]
+    public void UnixCandidates_NothingInstalled_FallsToTheGuaranteedFloor()
+    {
+        List<TerminalProfile> profiles = TerminalSettings.GetDefaultProfiles(
+            TerminalSettings.UnixProfileCandidates("/usr/bin/fish"),
+            commandExists: _ => false);
+
+        // The floor is platform-shaped: /bin/sh on Unix, cmd.exe where this test runs.
+        string floor = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh";
+        Assert.Single(profiles);
+        Assert.Equal(floor, profiles[0].Command);
+    }
 }

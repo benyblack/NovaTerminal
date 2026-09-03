@@ -50,6 +50,18 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         </Style>
 
+        <!-- Vertical mode replaces the horizontal selected-tab underline (App.axaml's
+             "TabItem:selected /template/Border#PART_Border" sets BorderThickness 0 0 0 2,
+             which outranks the template's BorderThickness binding) with a 3px LEFT accent
+             bar: UpdateTabVisuals keeps a constant 3,0,0,0 thickness on every TabItem and
+             paints only the selected one's BorderBrush. Re-asserting the thickness here
+             (window styles apply after the App ones) lets that value reach the template
+             border on the selected tab; unselected tabs get it via the plain template
+             binding. -->
+        <Style Selector="TabControl.vertical-tabs TabItem:selected /template/ Border#PART_Border">
+            <Setter Property="BorderThickness" Value="3 0 0 0"/>
+        </Style>
+
         <!-- GridSplitter Custom Template for thinner lines with larger hit area -->
         <Style Selector="GridSplitter">
             <Setter Property="Background" Value="#2D2D2D"/>
@@ -116,6 +128,57 @@
                                             Background="Transparent"
                                             Cursor="SizeWestEast"
                                             IsVisible="False" />
+                                    <!-- Drag-to-reorder insert indicator: an accent line at the
+                                         current drop gap. It lives in this Grid (ZIndex keeps it above
+                                         the headers) so it can span the strip in either orientation.
+                                         The static look (brush, corner radius, top-left alignment) is
+                                         set here once; MainWindow's drag wiring owns thickness, length,
+                                         position and visibility - the thickness runs along Width in
+                                         vertical mode and along Height in horizontal, sourced solely
+                                         from TabInsertIndicatorThickness in code, so no Width/Height
+                                         is set here on purpose. -->
+                                    <Border Name="PART_TabInsertIndicator"
+                                            Background="#4FB0D4"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Top"
+                                            CornerRadius="1"
+                                            ZIndex="10"
+                                            IsVisible="False"
+                                            IsHitTestVisible="False" />
+                                    <!-- Vertical-mode overflow pill: a bottom-pinned affordance
+                                         over the scrolling headers when rows run past the sidebar
+                                         viewport (horizontal mode keeps the title-bar
+                                         TabOverflowBadge instead). Inert by default exactly like
+                                         PART_TabInsertIndicator above - IsVisible=False and colors
+                                         unset here; UpdateTabOverflowPill (from
+                                         UpdateTabHeaderViewport) owns visibility, text and
+                                         Background/Foreground. The code-set background is opaque so
+                                         rows scroll under it, and this fixed top hairline separates
+                                         it from the last visible row. Focusable=False keeps clicks
+                                         from stealing keyboard focus from the terminal (same rule
+                                         as BtnNewTab). The right margin keeps the pill clear of
+                                         PART_TabStripResizeGrip (right-edge, 5px wide, full
+                                         height): without it the pill would cover the grip's
+                                         bottom-right corner and make the strip un-resizable while
+                                         tabs overflow. -->
+                                    <Button Name="PART_TabOverflowPill"
+                                            Focusable="False"
+                                            Cursor="Hand"
+                                            Padding="0,6"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Bottom"
+                                            Margin="0,0,10,0"
+                                            ZIndex="5"
+                                            IsVisible="False"
+                                            BorderThickness="0,1,0,0"
+                                            BorderBrush="#28FFFFFF">
+                                        <Button.Content>
+                                            <TextBlock Name="PART_TabOverflowPillText"
+                                                       FontSize="10"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
+                                        </Button.Content>
+                                    </Button>
                                 </Grid>
                                 <ContentPresenter Name="PART_SelectedContentHost"
                                                 Margin="0"
@@ -340,23 +403,6 @@
                 <Button Name="SearchPrev" Grid.Column="4" Content="▲" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
                 <Button Name="SearchNext" Grid.Column="5" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
                 <Button Name="SearchClose" Grid.Column="6" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
-            </Grid>
-        </Border>
-
-        <!-- Connection Manager Overlay -->
-        <Border Name="ConnectionOverlay" IsVisible="False"
-            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-            Margin="24,56,24,24"
-            MaxWidth="1080" MaxHeight="720"
-            Background="#16181d"
-            BorderBrush="#2a2f38" BorderThickness="1" CornerRadius="8"
-            ZIndex="500">
-            <Grid RowDefinitions="Auto, *">
-                <Grid Name="ConnectionTitleBar" Background="#2D2D2D" Height="40">
-                    <TextBlock Name="ConnectionTitleText" Text="Connection Manager" VerticalAlignment="Center" Margin="15,0" FontWeight="Bold"/>
-                    <Button Name="BtnCloseConnections" Content="✕" HorizontalAlignment="Right" Width="40" Background="Transparent" BorderThickness="0"/>
-                </Grid>
-                <ContentControl Name="ConnectionManagerHost" Grid.Row="1"/>
             </Grid>
         </Border>
 

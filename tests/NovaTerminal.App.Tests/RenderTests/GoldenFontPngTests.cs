@@ -16,6 +16,7 @@ namespace NovaTerminal.Tests.RenderTests
     /// </summary>
     [Trait("Category", "GoldenFontPng")]
     [Collection("GoldenPng")]
+    [Trait("Lane", "PlatformBoot")]
     public sealed class GoldenFontPngTests
     {
         private static readonly CellMetrics Metrics = new()

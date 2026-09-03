@@ -298,26 +298,91 @@ jobs:
             echo "::endgroup::"
           done
 
-      # NON-BLOCKING lane: the Avalonia-headless suite (NovaTerminal.App.Tests).
+      # The Avalonia-headless suite (NovaTerminal.App.Tests). continue-on-error here tolerates
+      # the HANG only; test failures are blocking, via the allowlist gate below.
       # It intermittently deadlocks on a testhost teardown hang — a dump-confirmed
       # framework deadlock in Avalonia.Headless.XUnit 12.0.4 (the latest release),
       # reported upstream as AvaloniaUI/Avalonia#21467 and tracked here as #81. No
       # in-repo config fixes it (collection serialization, maxParallelThreads:1, and
       # ThreadPool.SetMinThreads were all ruled out with dump evidence). Until an
       # upstream fix lands, run it as continue-on-error so the flake can't block PRs,
-      # while still executing it: a clean run reports real pass/fail, a genuine
-      # regression shows as a failed (non-blocking) check, and each hang writes a
-      # mini dump (uploaded below) for ongoing diagnosis.
-      - name: Test (headless App.Tests — NON-BLOCKING, see #81 / AvaloniaUI/Avalonia#21467)
+      # while still executing it: a clean run reports real pass/fail and each hang
+      # writes a mini dump (uploaded below) for ongoing diagnosis.
+      #
+      # continue-on-error covers the HANG, not the RESULTS. The results are gated by the
+      # step below, because "non-blocking" silently became "unread": this job reported
+      # success for weeks while 16 tests failed on Windows and 14 on ubuntu.
+      #
+      # Why the hang still needs tolerating even though those failures are fixed: the hang is a
+      # separate, upstream defect (AvaloniaUI/Avalonia#21467) and it is frequent. Six of the last
+      # twenty Unit Tests job-runs on main uploaded a hang dump, so making this step blocking
+      # would red roughly one PR run in three for a reason unrelated to the change under review.
+      # Revisit when that upstream issue is fixed: at that point drop continue-on-error from both
+      # test steps and delete the hang-dump branch in check-app-tests-baseline.py.
+      - name: Test (headless App.Tests — hang-tolerant, failures gated below; #81 / AvaloniaUI/Avalonia#21467)
         continue-on-error: true
         env:
           SKIP_RUST_NATIVE_BUILD: '1'
         shell: bash
         run: |
           dotnet test tests/NovaTerminal.App.Tests -c "$CONFIGURATION" --no-build --no-restore \
-            --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng" \
+            --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng&Lane!=PlatformBoot" \
             --blame-hang-timeout 5m --blame-hang-dump-type mini \
+            --results-directory tests/NovaTerminal.App.Tests/TestResults/main \
             --logger "trx;LogFileName=unit_app.trx"
+
+      # Lane!=PlatformBoot above, Lane=PlatformBoot here: these run in a SEPARATE PROCESS on
+      # purpose, and the split is the fix for a real bug rather than tidiness.
+      #
+      # SnapshotService.EnsureAvaloniaInitialized boots the Avalonia headless platform so the
+      # snapshot renderer can resolve fonts. Its callers are plain [Fact] tests, so the boot runs
+      # on an arbitrary xUnit thread, and it binds a thread-affine MediaContext into the
+      # process-global AvaloniaLocator root. Locator scopes fall through to their parent on a
+      # miss, so every later [AvaloniaFact] in the same process inherits a context owned by the
+      # wrong thread and throws "The calling thread cannot access this object because a different
+      # thread owns it" on the first transition it applies — 13 failures across four unrelated
+      # classes, order-dependent, green in isolation, and invisible because this job reported
+      # success. Two in-process fixes were tried and both swapped the failures for a hang; see
+      # SnapshotService.EnsureAvaloniaInitialized. Not sharing the process is what works.
+      - name: Test (headless App.Tests, PlatformBoot lane — hang-tolerant, failures gated below)
+        continue-on-error: true
+        env:
+          SKIP_RUST_NATIVE_BUILD: '1'
+        shell: bash
+        run: |
+          dotnet test tests/NovaTerminal.App.Tests -c "$CONFIGURATION" --no-build --no-restore \
+            --filter "Lane=PlatformBoot&Category!=GoldenSharedPng" \
+            --blame-hang-timeout 5m --blame-hang-dump-type mini \
+            --results-directory tests/NovaTerminal.App.Tests/TestResults/platformboot \
+            --logger "trx;LogFileName=unit_app_platformboot.trx"
+
+      # Gates the lane above on its own results: any failing test not named in
+      # tests/app-tests-known-flaky.txt fails this job. A missing trx is the #81 hang and
+      # only warns — there are no results to judge. Runs on failure too, so a non-zero
+      # `dotnet test` still gets its results read.
+      - name: Check App.Tests failures against the flake allowlist
+        if: always()
+        shell: bash
+        run: |
+          # windows-latest ships python.exe; ubuntu ships python3. Pick whichever exists.
+          py=python3
+          command -v "$py" >/dev/null 2>&1 || py=python
+          # Each lane has its own results directory, and that is load-bearing rather than tidy:
+          # the gate tells "hung" from "crashed" by whether a hang dump sits beside the trx, so
+          # with one shared TestResults/ each lane would see the other's dump. That reported the
+          # PlatformBoot lane as truncated when it had finished cleanly, and would have let a
+          # leftover dump excuse a genuine crash in the other lane.
+          status=0
+          for lane in main:unit_app platformboot:unit_app_platformboot; do
+            dir="${lane%%:*}"
+            trx="${lane##*:}"
+            echo "::group::$trx"
+            "$py" scripts/check-app-tests-baseline.py \
+              "tests/NovaTerminal.App.Tests/TestResults/$dir/$trx.trx" \
+              tests/app-tests-known-flaky.txt || status=1
+            echo "::endgroup::"
+          done
+          exit $status
 
       - name: Upload test results
         if: always()
@@ -985,7 +1050,10 @@ jobs:
     name: AOT Publish (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'workflow_dispatch'
-    timeout-minutes: 40
+    # 90 rather than 40: the signed mac lane waits synchronously on Apple's
+    # notarization queue inside vpk pack, which alone can run 10-30+ minutes on a
+    # slow day — 40 was cutting the job down mid-wait.
+    timeout-minutes: 90
     needs: [build]
     strategy:
       fail-fast: false
@@ -997,6 +1065,12 @@ jobs:
             rid: linux-x64
           - os: macos-latest
             rid: osx-arm64
+
+    # The secrets context is not allowed in step-level `if` (the workflow fails to
+    # parse), so the signing gate is materialized here as an env boolean the macOS
+    # keychain step can test. Mirrors release.yml's publish_aot.
+    env:
+      MAC_SIGNING_ENABLED: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -1055,6 +1129,26 @@ jobs:
         if: matrix.rid == 'osx-arm64'
         run: packaging/macos/make-icns.sh src/NovaTerminal.App/Assets/nova_icon.png artifacts/icon/nova_icon.icns
 
+      # Same secret-gated signing setup as release.yml's osx-arm64 lane (same action,
+      # same gate), so this dispatch lane is also the pre-tag validation of the whole
+      # codesign/notarize/staple path — not just of the unsigned packaging. When
+      # MAC_CERT_P12_BASE64 is unset the step (and the flags below) is skipped and the
+      # dry run packs unsigned, as it always did. See packaging/macos/README.md.
+      - name: Set up macOS signing keychain
+        id: mac_signing
+        if: matrix.rid == 'osx-arm64' && env.MAC_SIGNING_ENABLED == 'true'
+        uses: ./.github/actions/setup-mac-signing
+        with:
+          cert-p12-base64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          installer-p12-base64: ${{ secrets.MAC_INSTALLER_CERT_P12_BASE64 }}
+          cert-password: ${{ secrets.MAC_CERT_PASSWORD }}
+          sign-app-identity: ${{ secrets.MAC_SIGN_APP_IDENTITY }}
+          sign-install-identity: ${{ secrets.MAC_SIGN_INSTALL_IDENTITY }}
+          notary-profile: ${{ secrets.MAC_NOTARY_PROFILE }}
+          apple-id: ${{ secrets.MAC_APPLE_ID }}
+          team-id: ${{ secrets.MAC_TEAM_ID }}
+          app-specific-password: ${{ secrets.MAC_APP_SPECIFIC_PASSWORD }}
+
       # 0.0.1-ci: a dry-run version that can never collide with a real release's feed
       # (vpk rejects anything below 0.0.1, so 0.0.0-ci is not an option here).
       # Assertions mirror what release.yml asserts post-pack, so a silent vpk change
@@ -1062,6 +1156,14 @@ jobs:
       - name: Pack macOS bundle (Velopack dry run)
         if: matrix.rid == 'osx-arm64'
         shell: bash
+        env:
+          # Signing reaches the script through env, never interpolated into its source;
+          # when the keychain step was skipped these are empty and vpk stays unsigned.
+          MAC_SIGNING: ${{ steps.mac_signing.outputs.imported }}
+          MAC_SIGN_KEYCHAIN: ${{ steps.mac_signing.outputs.keychain }}
+          MAC_SIGN_APP_IDENTITY: ${{ secrets.MAC_SIGN_APP_IDENTITY }}
+          MAC_SIGN_INSTALL_IDENTITY: ${{ secrets.MAC_SIGN_INSTALL_IDENTITY }}
+          MAC_NOTARY_PROFILE: ${{ secrets.MAC_NOTARY_PROFILE }}
         run: |
           set -euo pipefail
           # StripSymbols=true leaves a ~94 MB NovaTerminal.dSYM beside the binary (3x the
@@ -1071,6 +1173,17 @@ jobs:
           # consumes the symbols - the raw publish-dir zip this dSYM used to ship in no
           # longer exists for macOS.
           rm -rf artifacts/publish/osx-arm64/NovaTerminal.dSYM
+          # Same secret-gated signing flags as release.yml (see its comments there);
+          # the +guard keeps an empty array valid under set -u on bash 3.2.
+          sign_args=()
+          if [[ "${MAC_SIGNING:-}" == "1" ]]; then
+            sign_args+=(
+              --signAppIdentity "$MAC_SIGN_APP_IDENTITY"
+              --signInstallIdentity "$MAC_SIGN_INSTALL_IDENTITY"
+              --notaryProfile "$MAC_NOTARY_PROFILE"
+              --keychain "$MAC_SIGN_KEYCHAIN"
+            )
+          fi
           vpk pack \
             --packId NovaTerminalApp \
             --packVersion 0.0.1-ci \
@@ -1081,7 +1194,8 @@ jobs:
             --bundleId com.benyblack.NovaTerminal \
             --icon artifacts/icon/nova_icon.icns \
             --exclude 'NovaTerminal\.dSYM' \
-            --outputDir artifacts/velopack-dryrun
+            --outputDir artifacts/velopack-dryrun \
+            ${sign_args[@]+"${sign_args[@]}"}
 
           echo "Velopack dry-run output:"
           ls -l artifacts/velopack-dryrun
@@ -1113,3 +1227,565 @@ jobs:
           name: aot-${{ matrix.rid }}
           retention-days: 7
           path: artifacts/publish/${{ matrix.rid }}
+
+  # ===========================================================================
+  # Linux packaging: dry run + smoke gate (#91 Linux leg). Two callers of the same
+  # scripts release.yml uses, so packaging breaks land on a PR rather than on a tag.
+  #
+  # THREE jobs, not one, and the split is load-bearing - read this before merging
+  # them back together.
+  #
+  # 1. `linux_packaging_detect` (runner, no container): the change-detection gate.
+  #    Cheap, needs `git` + full history, and its output gates the other two.
+  # 2. `linux_packaging_build` (runner + `container: ubuntu:22.04`): everything that
+  #    produces artifacts - cargo, AOT publish, build-deb.sh, vpk pack, assertions.
+  # 3. `linux_packaging_smoke` (runner, no container): the docker-based gates -
+  #    test-build-deb.sh and smoke-test.sh - consuming job 2's artifacts.
+  #
+  # WHY A CONTAINER AT ALL. NativeAOT links against the build machine's glibc with
+  # no runtime fallback, so whatever builds the binary IS the minimum supported
+  # distro. This lane used `runs-on: ubuntu-22.04` to pin that floor at glibc 2.35
+  # (Ubuntu 22.04+, Debian 12+, Fedora 36+). But actions/runner-images#14254
+  # deprecates the ubuntu-22.04 image starting 2026-09-17 (fully unsupported
+  # 2027-04-17), which would have retired our glibc floor on GitHub's schedule
+  # rather than ours. `runs-on: ubuntu-latest` + `container: ubuntu:22.04` pins the
+  # floor to an image tag we control, permanently and independently of the runner
+  # lifecycle. Bumping the floor is now a deliberate one-line edit here.
+  #
+  # WHY THE SMOKE GATE CANNOT BE IN THE CONTAINER. smoke-test.sh and
+  # test-build-deb.sh both `docker run` bare containers themselves - that is the
+  # entire design premise of the smoke test (a pristine machine that installs
+  # nothing but the .deb). A `container:` job has no docker daemon and no socket, so
+  # docker-in-docker is not available; mounting the host socket would be a
+  # privilege escalation and would also break the `-v "$PWD:..."` mounts, because
+  # paths inside the job container do not exist on the daemon's host. So the smoke
+  # gate stays on the runner, where a daemon exists, and receives the artifacts via
+  # upload/download-artifact. The gate is NOT dropped or weakened - it runs exactly
+  # the same two scripts against exactly the artifacts job 2 produced.
+  #
+  # Artifact permissions are not preserved by upload/download-artifact. That is
+  # harmless here: the .deb carries its own internal modes in its data tarball, and
+  # smoke-test.sh already does `cp "$img" /tmp/nova.AppImage && chmod +x` before
+  # launching an AppImage.
+  #
+  # x64 only: this lane exists to catch asset-naming and layout mistakes, which are
+  # architecture-independent. release.yml covers arm64.
+  # ===========================================================================
+  #
+  # This lane is deliberately NOT gated by a workflow-level `paths:` filter - that
+  # would gate every other job in this file, and the `pull_request` trigger above
+  # only has `paths-ignore`. Instead this job's `if:` stays event-based (always
+  # eligible to run) and publishes a `run` output that gates the two expensive jobs:
+  # workflow_dispatch is always a full dry run, push (to main, per the trigger above
+  # - i.e. a post-merge run, not every commit) always runs fully too as a cheap
+  # post-merge canary, and pull_request only runs fully when the diff against the
+  # PR's merge base touches packaging/linux/** or a workflow file - otherwise the
+  # ~40-minute AOT/build/smoke work never starts.
+  #
+  # This job replaces the per-step `if: steps.detect.outputs.run == 'true'` guards
+  # the single-job version used. A job output is the only way to share the decision
+  # across jobs, and it gives a truer run summary too: the expensive jobs now show
+  # as "skipped" rather than as a green job of skipped steps. A failure INSIDE this
+  # job still reds the workflow, same as the old failing detect step did.
+  linux_packaging_detect:
+    name: Linux Packaging (detect)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request'
+    outputs:
+      run: ${{ steps.detect.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history, not the default shallow (depth-1) checkout: the change-
+          # detection step below needs `git diff` against the PR's merge base, and
+          # for a pull_request event the default checkout is the merge commit with
+          # no parents fetched. A shallow checkout would make that diff wrong or
+          # empty - silently disabling the PR gate this job exists to provide.
+          fetch-depth: 0
+
+      # Dependency-free path filter (no third-party action - this repo uses none
+      # for path filtering elsewhere). workflow_dispatch and push always run the
+      # full job; pull_request only runs it when the diff against the PR's merge
+      # base touches packaging/linux/**, a workflow file, or one of the two other
+      # inputs build-deb.sh reads directly (LICENSE, the app icon) - a change to
+      # either would otherwise land invisibly, since neither lives under
+      # packaging/linux/.
+      - name: Detect packaging changes
+        id: detect
+        # Both values reach the script through env, never through `${{ }}` inside the
+        # `run` block. Neither is attacker-controlled (github.event_name is a fixed
+        # vocabulary, and base.sha is a 40-char hex the forge computes), so this is not
+        # closing a live injection - it is the env-only rule release.yml already
+        # documents and enforces for `run` inputs, applied here so the newest job is
+        # not the one exception someone later cites as precedent.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "$EVENT_NAME: always runs the full job."
+            exit 0
+          fi
+          base="$BASE_SHA"
+          echo "Diffing against PR merge base: $base"
+          changed="$(git diff --name-only "$base"...HEAD)"
+          echo "Changed files vs merge base:"
+          echo "$changed"
+          # <<< the here-string, not `echo ... | grep`: under pipefail, a changed-file
+          # list exceeding the pipe buffer would make `echo` take SIGPIPE, the
+          # pipeline non-zero, this `if` false, and the job skip itself SILENTLY -
+          # the exact failure class this gate exists to prevent. smoke-test.sh and
+          # build-deb.sh both avoid the same construct for the same reason.
+          if grep -qE '^(packaging/linux/|\.github/workflows/[^/]+\.ya?ml$|LICENSE$|src/NovaTerminal\.App/Assets/nova_icon\.png$)' <<<"$changed"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Packaging or workflow files changed - running the full job."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No packaging/linux or workflow changes detected - skipping the packaging build."
+          fi
+
+  linux_packaging_build:
+    name: Linux Packaging (dry run)
+    needs: linux_packaging_detect
+    if: needs.linux_packaging_detect.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    # The glibc floor. See the block comment above - this tag, not the runner
+    # image, is what defines the minimum distro NovaTerminal's Linux build
+    # supports. Do not bump it without deciding to drop a distro.
+    container:
+      image: ubuntu:22.04
+    # THE FIX for the first real CI failure of this lane: inside a `container:`
+    # job GitHub does NOT default the shell to bash the way it does on a plain
+    # runner - it invokes the inline `run:` blocks under `sh`, which on this
+    # image is dash. Every step below opens with `set -euo pipefail`, and dash
+    # has no `pipefail` option at all ("set: Illegal option -o pipefail"), so
+    # the very first step failed on line 1 before anything else ran. Every local
+    # verification of this recipe used `docker run ... bash -c '...'` explicitly,
+    # so this gap was invisible until GitHub picked the shell itself. Declaring
+    # the job-level default is the systemic fix - it also covers the `<<<`
+    # here-strings and other bash-only constructs used later in this job's
+    # `run:` blocks, none of which dash supports either.
+    defaults:
+      run:
+        shell: bash
+    # 40 -> 60: uncached cargo (two crates) + full NuGet restore + AOT publish +
+    # vpk pack, cold, plus - new with the container - an SDK download and an
+    # apt-install of the entire toolchain on every run that misses the caches.
+    # aot_publish needed the same kind of bump (40 -> 90) for a lighter workload.
+    # This is a capacity estimate for a cold job, not a flake being papered over -
+    # if it ever flakes AFTER caching, that is a hypothesis to investigate, not a
+    # number to bump again.
+    timeout-minutes: 60
+    steps:
+      # MUST be the first step, before actions/checkout: a bare ubuntu:22.04 has
+      # no git, and actions/checkout silently falls back to a tarball download via
+      # the REST API when git is absent - which produces no `.git` at all, so
+      # `fetch-depth` and anything git-shaped downstream would be meaningless.
+      #
+      # Everything the pipeline needs is installed explicitly. A bare image has
+      # almost nothing, and this job's standing philosophy ("relying on image
+      # contents is what breaks when the image rolls") is now not a philosophy but
+      # a hard requirement:
+      #   ca-certificates curl  - the SDK/rustup downloads, TLS for both
+      #   git                   - actions/checkout (see above)
+      #   jq                    - reads sdk.version out of global.json for the
+      #                           checksum-verified SDK install below. Parsing it
+      #                           with sed would have to skip global.json's two "//"
+      #                           comment keys, whose values mention version numbers
+      #                           of their own; jq cannot confuse a comment for the
+      #                           pin. release.yml's equivalent job already installs
+      #                           it for its prior-release query.
+      #   unzip                 - the nupkg .dbg leak assertion below
+      #   zstd, tar, gzip       - actions/cache's archive backends (tar/gzip are in
+      #                           the base image; zstd is not, and cache silently
+      #                           degrades to gzip without it)
+      #   clang zlib1g-dev      - the NativeAOT link step (documented prerequisites)
+      #   binutils              - `strip`, which build-deb.sh preflights and fails
+      #                           loudly without
+      #   file                  - build-deb.sh's ELF discovery for Depends: walking
+      #   imagemagick           - `convert`, for the hicolor icon set
+      #   squashfs-tools        - `mksquashfs`. vpk pack builds a type-2 AppImage
+      #                           and CANNOT produce one without it; a bare
+      #                           ubuntu:22.04 does not ship it, and the local
+      #                           end-to-end only ever produced an AppImage once it
+      #                           was installed. Not optional.
+      #   fontconfig libfreetype6 x11-utils
+      #                         - build-deb.sh's Depends: derivation walks ldd
+      #                           against whatever is ALREADY resolvable on this
+      #                           machine, so leaving these implicit makes the
+      #                           derived set a function of imagemagick's own
+      #                           dependency graph on whichever apt snapshot is
+      #                           current - which is exactly how a 24.04 run and a
+      #                           22.04 run produced two different transitive sets
+      #                           from identical binaries. Declaring them makes it a
+      #                           function of this list instead.
+      #   libicu70 libssl3      - the .NET SDK's own runtime prerequisites on 22.04
+      - name: Install container toolchain
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y \
+            ca-certificates curl git unzip zstd jq \
+            clang zlib1g-dev binutils file imagemagick squashfs-tools \
+            fontconfig libfreetype6 x11-utils \
+            libicu70 libssl3
+          echo "--- container identity (the glibc floor this lane pins) ---"
+          # Read the file directly / capture-then-select-one-line, not `| head`:
+          # `head` closes its end of the pipe once it has read enough, so the
+          # writer (cat, or here ldd's own multi-echo version script) can take
+          # SIGPIPE and turn this purely-informational step red under
+          # `pipefail` - exactly what happened in CI run 33669171961. `head -2
+          # /etc/os-release` reads the file directly, no pipe at all. `ldd
+          # --version` has no file to read from, so its output is captured
+          # first and `sed` selects line 1 from the already-complete string -
+          # sed here never has an upstream process to starve.
+          head -2 /etc/os-release
+          sed -n '1p' <<<"$(ldd --version)"
+
+      - uses: actions/checkout@v4
+
+      # Cache the SDK payload itself, keyed on global.json: the SDK tarball is a
+      # ~220 MB download on every cold run, and unlike the runner image the
+      # container has no preinstalled SDK to fall back on. The install step below
+      # skips the download when $HOME/.dotnet/sdk/<version> is already there, so a
+      # cache hit costs nothing.
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-container-ubuntu2204-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-container-ubuntu2204-
+
+      # actions/setup-dotnet is deliberately NOT used here. It is a node action
+      # that shells out to dotnet-install.sh, so it would add a layer whose
+      # behaviour inside a bare container is unproven, to gain only the
+      # `cache: true` NuGet cache - which is one actions/cache block below.
+      #
+      # dotnet-install.sh is not used either, and that IS a change: this step used
+      # to `curl` it from the dot.net redirector and execute it. Transport was
+      # hardened (`--proto '=https' --tlsv1.2`) but the content never was - so this
+      # lane executed mutable remote script content before compiling the artifacts
+      # users install, which is precisely the property the pinned+checksummed rustup
+      # bootstrap below was changed to remove. Doing it here too: fetch the SDK
+      # tarball and its published .sha512 sidecar, verify, then extract. Nothing
+      # downloaded is executed before it has been verified.
+      #
+      # The version is READ OUT OF global.json (jq), never a literal, so this cannot
+      # drift from the pin the win/osx jobs get via setup-dotnet's global-json-file
+      # input - that was the whole reason the old code passed `--jsonfile global.json`.
+      # Behaviour difference worth stating: dotnet-install.sh --jsonfile honoured
+      # `rollForward: latestPatch` and could therefore install a NEWER 10.0.4xx patch
+      # than the pin names, while this installs exactly `sdk.version`. That is
+      # strictly more reproducible, matches the actions/cache key (which is
+      # hashFiles('global.json')), and global.json's rollForward still governs which
+      # installed SDK `dotnet build` selects.
+      #
+      # Per-arch by `uname -m`, so this runs unchanged on an arm64 leg. An
+      # unrecognised architecture is a hard error, not a silent fallthrough.
+      - name: Install .NET SDK (version pinned by global.json)
+        run: |
+          set -euo pipefail
+          sdk_version="$(jq -re '.sdk.version' global.json)"
+          case "$(uname -m)" in
+            x86_64)  sdk_rid=linux-x64 ;;
+            aarch64) sdk_rid=linux-arm64 ;;
+            *) echo "no pinned .NET SDK download for architecture $(uname -m)" >&2; exit 1 ;;
+          esac
+          tarball="dotnet-sdk-${sdk_version}-${sdk_rid}.tar.gz"
+          base_url="https://builds.dotnet.microsoft.com/dotnet/Sdk/${sdk_version}"
+          if [[ -d "$HOME/.dotnet/sdk/$sdk_version" ]]; then
+            # actions/cache above restored it; the old script self-no-opped here.
+            echo "SDK $sdk_version already present in \$HOME/.dotnet (cache hit); skipping download"
+          else
+            curl --proto '=https' --tlsv1.2 -sSfL -o "/tmp/$tarball"        "$base_url/$tarball"
+            curl --proto '=https' --tlsv1.2 -sSfL -o "/tmp/$tarball.sha512" "$base_url/$tarball.sha512"
+            # NOT `sha512sum -c`: the sidecar's shape is not contractual across
+            # .NET's download hosts. builds.dotnet.microsoft.com currently serves the
+            # two-column "<hash>  <filename>" form, but the older dotnetcli.* CDN
+            # sidecars are a BARE hash with no filename, which `sha512sum -c` rejects
+            # outright ("no properly formatted checksum lines found"). Taking field 1
+            # of line 1 reads both shapes; the hex-digest assertion is what stops it
+            # from quietly accepting an error page, a truncated body or an empty file
+            # instead - without it, a garbage sidecar would compare unequal for the
+            # wrong reason, or (if empty) not compare at all.
+            expected="$(awk 'NR==1 { print tolower($1) }' "/tmp/$tarball.sha512")"
+            [[ "$expected" =~ ^[0-9a-f]{128}$ ]] \
+              || { echo "::error::$tarball.sha512 is not a SHA-512 hex digest (got '${expected:0:80}') - refusing to install an unverified SDK" >&2; exit 1; }
+            actual="$(sha512sum "/tmp/$tarball" | awk '{ print tolower($1) }')"
+            if [[ "$expected" != "$actual" ]]; then
+              echo "::error::sha512 mismatch for $tarball" >&2
+              echo "  expected: $expected" >&2
+              echo "  actual:   $actual" >&2
+              exit 1
+            fi
+            echo "sha512 verified for $tarball: $actual"
+            mkdir -p "$HOME/.dotnet"
+            tar -xzf "/tmp/$tarball" -C "$HOME/.dotnet"
+            # A verified tarball of the wrong SHAPE would otherwise leave a $HOME
+            # /.dotnet that PATH points at and nothing in it, failing later with a
+            # confusing "dotnet: not found" instead of here.
+            [[ -x "$HOME/.dotnet/dotnet" && -d "$HOME/.dotnet/sdk/$sdk_version" ]] \
+              || { echo "::error::extracted SDK has no dotnet/sdk/$sdk_version - wrong payload shape" >&2; exit 1; }
+          fi
+          # Both entries: `dotnet` itself, and the global-tool shim dir that
+          # `dotnet tool install -g vpk` writes into. Neither is on PATH in a
+          # container, unlike on the hosted runner image.
+          echo "$HOME/.dotnet" >> "$GITHUB_PATH"
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+          echo "DOTNET_ROOT=$HOME/.dotnet" >> "$GITHUB_ENV"
+
+      - name: Verify dotnet is on PATH
+        run: |
+          set -euo pipefail
+          command -v dotnet
+          dotnet --version
+
+      # setup-dotnet's `cache: true` (used by the other jobs in this file) is not
+      # available without setup-dotnet, so the NuGet package cache is declared
+      # directly with the same dependency path it would have used.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-container-ubuntu2204-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-container-ubuntu2204-
+
+      # dtolnay/rust-toolchain@stable is not used here: it drives an EXISTING
+      # rustup, which the hosted runner image preinstalls and a bare
+      # ubuntu:22.04 does not. Same intent, via the upstream installer.
+      #
+      # The upstream installer is NOT invoked as `curl https://sh.rustup.rs | sh`,
+      # though: this pipeline produces artifacts end users install, and a release
+      # pipeline should not execute an unverified script fetched through a
+      # redirector. Instead: download a version-pinned rustup-init for this
+      # container's own architecture, verify it against rustup's published
+      # SHA256 before executing anything, then run the verified binary.
+      # RUSTUP_VERSION is pinned in a variable (not buried in a URL) so the pin
+      # is visible and trivial to bump. `uname -m` maps directly onto the
+      # "<arch>-unknown-linux-gnu" triple name for both x86_64 and aarch64, so
+      # no per-arch branch is needed - this runs unchanged on the
+      # ubuntu-24.04-arm leg.
+      - name: Install Rust
+        run: |
+          set -euo pipefail
+          RUSTUP_VERSION=1.29.1
+          triple="$(uname -m)-unknown-linux-gnu"
+          base_url="https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${triple}"
+          curl --proto '=https' --tlsv1.2 -sSf -o /tmp/rustup-init "${base_url}/rustup-init"
+          curl --proto '=https' --tlsv1.2 -sSf -o /tmp/rustup-init.sha256 "${base_url}/rustup-init.sha256"
+          (cd /tmp && sha256sum -c rustup-init.sha256)
+          chmod +x /tmp/rustup-init
+          /tmp/rustup-init -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Verify cargo is on PATH
+        run: |
+          set -euo pipefail
+          command -v cargo
+          cargo --version
+          rustc --version
+
+      # Kept as-is: a node action, so it runs in the container, and it only needs
+      # cargo on PATH - which the step above put there via $GITHUB_PATH.
+      - name: Rust incremental build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src/NovaTerminal.App/native
+
+      - name: Build Rust native
+        run: |
+          cd src/NovaTerminal.App/native
+          cargo build --release --locked
+          mkdir -p target_linux/release
+          cp target/release/librusty_pty.so target_linux/release/
+          cd rusty_ssh && cargo build --release --locked
+
+      - name: Restore
+        run: dotnet restore
+
+      # -p:SkipCliShim=true for the same reason as release.yml's Publish AOT: the
+      # shim needs a RID-less framework-dependent build, and the AOT binary
+      # dispatches the CLI modes itself.
+      - name: Publish AOT (linux-x64)
+        env:
+          SKIP_RUST_NATIVE_BUILD: "1"
+        run: >-
+          dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj
+          -c ${{ env.CONFIGURATION }} -r linux-x64 --self-contained true
+          -p:PublishAot=true -p:SkipCliShim=true
+          -p:Version=0.0.1-ci -p:InformationalVersion=0.0.1-ci
+          -o artifacts/publish/linux-x64
+
+      - name: Build .deb
+        run: |
+          chmod +x packaging/linux/*.sh
+          packaging/linux/build-deb.sh artifacts/publish/linux-x64 0.0.1-ci amd64 artifacts/linux
+
+      # Recorded, not asserted: the derived Depends: is a function of what is
+      # installed on the machine doing the packaging (see the toolchain step's
+      # note on fontconfig), so printing it makes an image-driven change visible
+      # in the log instead of only showing up as a smoke-test failure.
+      - name: Show derived Depends
+        run: dpkg-deb -f artifacts/linux/novaterminal_0.0.1~ci-1_amd64.deb Depends
+
+      # vpk pinned to 1.2.0, in lockstep with Directory.Packages.props and the two
+      # other install sites in these workflows.
+      - name: Install vpk
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      # --channel linux-x64, NOT the platform default 'linux'. Linux publishes two
+      # architectures into one GitHub release, and a Velopack feed is per-channel,
+      # not per-architecture, so a shared 'linux' channel would offer an arm64
+      # client an x64 package. Must match VelopackUpdateService.ResolveExplicitChannel.
+      #
+      # 0.0.1-ci because vpk rejects anything below 0.0.1. No --delta concerns here:
+      # there is no prior release in this scratch output directory, so a full-only
+      # pack is expected and correct for a dry run.
+      # StripSymbols=true (NovaTerminal.App.csproj) emits a ~79 MB NovaTerminal.dbg
+      # beside the AOT binary on Linux - the same class of leak the macOS lane
+      # already guards against for its dSYM (delete at the source AND --exclude in
+      # the pack, see that job's comments). build-deb.sh already deletes *.dbg
+      # before staging the .deb, so only this AppImage/nupkg path was exposed:
+      # every full-nupkg download was roughly tripling, silently, and Task 5 was
+      # about to copy this exact invocation into the real release lane.
+      #
+      # One --exclude, not two: `vpk pack --help` documents it as a single REGEX
+      # value ("[default: .*\.pdb]"), so both patterns are combined into one
+      # alternation rather than passed twice (unverified whether a second
+      # occurrence would error or silently overwrite the first - not worth finding
+      # out on the release-lane-adjacent invocation).
+      #
+      # mksquashfs (squashfs-tools, installed above) is a hard prerequisite of this
+      # step - a type-2 AppImage IS a squashfs image.
+      - name: Pack AppImage (Velopack)
+        run: |
+          rm -f artifacts/publish/linux-x64/*.pdb artifacts/publish/linux-x64/*.dbg
+          vpk pack \
+            --packId NovaTerminalApp \
+            --packVersion 0.0.1-ci \
+            --packDir artifacts/publish/linux-x64 \
+            --mainExe NovaTerminal \
+            --packTitle NovaTerminal \
+            --packAuthors benyblack \
+            --channel linux-x64 \
+            --icon src/NovaTerminal.App/Assets/nova_icon.png \
+            --exclude '.*\.pdb|NovaTerminal\.dbg' \
+            --outputDir artifacts/linux
+
+      # Mirrors release.yml's post-pack assertions, so a silent vpk behaviour change
+      # surfaces here instead of on a tag. The `~` in the .deb filename is the
+      # prerelease mapping from build-deb.sh - asserting it here pins that behaviour.
+      - name: Assert expected assets
+        run: |
+          # set -euo pipefail is not the default here: GitHub runs `bash -e {0}`, with
+          # neither `pipefail` nor `nounset`. Without pipefail a failing left-hand side
+          # of the `unzip | grep` below was invisible - see the leak assertion's own
+          # comment at the bottom of this step.
+          set -euo pipefail
+          cd artifacts/linux
+          ls -la
+          test -n "$(ls ./*.AppImage 2>/dev/null)" || { echo "vpk pack produced no .AppImage" >&2; exit 1; }
+          test -f novaterminal_0.0.1~ci-1_amd64.deb || { echo "no .deb (or wrong prerelease version mapping)" >&2; exit 1; }
+          test -f NovaTerminalApp-0.0.1-ci-linux-x64-full.nupkg || { echo "no linux-x64 full nupkg" >&2; exit 1; }
+          test -f releases.linux-x64.json || { echo "no releases.linux-x64.json" >&2; exit 1; }
+          dpkg-deb --contents novaterminal_0.0.1~ci-1_amd64.deb
+          # StripSymbols leaves NovaTerminal.dbg beside the binary; the rm + --exclude
+          # in the Pack step above keep it out of what users/updaters download. Pin
+          # that here too: no .dbg entry may appear in the full nupkg at all - a
+          # .nupkg is a plain zip, so this mirrors the macOS lane's dSYM leak
+          # assertion against its Portable.zip exactly.
+          #
+          # THIS CHECK USED TO BE ABLE TO PASS WITHOUT CHECKING ANYTHING, and the shape
+          # it used is the reason - do not revert to it. It was
+          #   if unzip -l <nupkg> | grep -q '\.dbg'; then ... fi
+          # and GitHub's default shell is `bash -e {0}` with NO pipefail. So with `unzip`
+          # absent - one edit to the apt list above away - the pipeline's status is
+          # `grep`'s, which is 1 on empty input; a non-zero status in an `if` CONDITION
+          # does not trip `set -e`; the `if` simply went false and the step passed green
+          # having inspected nothing. Three things now make that impossible:
+          #   1. `set -euo pipefail` at the top of the step,
+          #   2. an explicit `command -v unzip` preflight (pipefail alone is NOT enough -
+          #      a non-zero pipeline inside an `if` condition is still just "false"),
+          #   3. running unzip in a command substitution FIRST, where `set -e` does see
+          #      its failure, and grepping the captured listing via a here-string (also
+          #      avoiding the SIGPIPE-on-large-output hazard documented in
+          #      linux_packaging_detect).
+          command -v unzip >/dev/null \
+            || { echo "unzip is not installed, so the .dbg leak assertion cannot run. Add it back to the container toolchain step - do not let this check silently no-op." >&2; exit 1; }
+          nupkg_listing="$(unzip -l NovaTerminalApp-0.0.1-ci-linux-x64-full.nupkg)"
+          if grep -q '\.dbg' <<<"$nupkg_listing"; then
+            echo "NovaTerminal.dbg leaked into the linux-x64 full nupkg" >&2
+            exit 1
+          fi
+
+      # if: always() so a failure in the assertions above still leaves the produced
+      # artifacts downloadable for triage. This upload is also the ONLY channel by
+      # which the smoke job below receives them, so its name and the download step's
+      # name must stay in sync.
+      - name: Upload dry-run artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packaging-dryrun
+          retention-days: 5
+          path: |
+            artifacts/linux/*.AppImage
+            artifacts/linux/*.deb
+            artifacts/linux/*.nupkg
+            artifacts/linux/releases.*.json
+
+  # The docker half. Runs on the runner, NOT in a container, because both scripts
+  # below start their own bare containers - see the block comment at the top of
+  # this lane for why docker-in-docker is not an option. This is the release gate:
+  # if it is ever skipped or made non-blocking, the lane has lost its point.
+  linux_packaging_smoke:
+    name: Linux Packaging (smoke)
+    needs: [linux_packaging_detect, linux_packaging_build]
+    if: >-
+      needs.linux_packaging_detect.outputs.run == 'true' &&
+      needs.linux_packaging_build.result == 'success'
+    runs-on: ubuntu-latest
+    # Two cold smoke containers that each apt-install their own tooling, plus the
+    # test-build-deb.sh harness container. No compilation happens here.
+    timeout-minutes: 30
+    steps:
+      # The scripts live in the repo, the artifacts come from the build job.
+      - uses: actions/checkout@v4
+
+      - name: Download dry-run artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-packaging-dryrun
+          path: artifacts/linux
+
+      - name: Show downloaded artifacts
+        run: ls -la artifacts/linux
+
+      # fontconfig + x11-utils: test-build-deb.sh's own header comment documents
+      # these as the donor-ELF providers (fc-match, xdpyinfo) its dedupe check
+      # needs to be non-vacuous. Without them here, fc-match/xdpyinfo are absent
+      # too, and the harness's donor search falls back to whatever imagemagick
+      # happened to pull in transitively - which is exactly the "only
+      # libfontconfig1 is discriminating" gap this list closes. binutils: strip's
+      # preflight in build-deb.sh fails loudly without it.
+      #
+      # ubuntu:22.04 here, matching the build job's container: this harness runs
+      # build-deb.sh, so it must see the same distro the real .deb was built on.
+      - name: Test build-deb.sh
+        run: |
+          chmod +x packaging/linux/*.sh
+          docker run --rm -v "$PWD:/w:ro" -w /w ubuntu:22.04 bash -c \
+            'apt-get update -qq && apt-get install -y -qq file imagemagick fontconfig x11-utils binutils >/dev/null &&
+             packaging/linux/test-build-deb.sh'
+
+      - name: Smoke test (bare containers)
+        run: |
+          chmod +x packaging/linux/*.sh
+          packaging/linux/smoke-test.sh artifacts/linux

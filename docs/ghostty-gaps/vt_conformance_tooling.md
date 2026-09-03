@@ -65,11 +65,36 @@ Warnings:
 
 Warnings are included in the report but do not fail CI.
 
+## Capability Contract
+
+`src/NovaTerminal.VtContract/vt-capabilities.json` is the machine-readable source
+of truth for sequences promoted into the capability contract. Each supported
+entry names:
+
+- the CSI key and mnemonic exposed to consumers
+- the exact coverage-matrix feature row
+- a repository evidence path
+- an executable contract-case identifier
+
+`tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs` maps those case
+identifiers to parser assertions. A supported entry without an executable case
+fails the VT test suite. The conformance tool independently rejects missing or
+duplicated matrix rows, status mismatches, missing evidence files, and matrix
+rows that do not link the declared evidence. MCP VT explanations read the same
+catalog, so documentation, tooling, and tested parser behavior share one claim.
+
+Keep the catalog deliberately narrow: add a sequence only when its behavior is
+covered across relevant defaults, bounds, invalid forms, and split-input parser
+boundaries. The broader matrix remains the inventory for capabilities that have
+not yet been promoted into this executable contract.
+
 ## CI
 
 `.github/workflows/vt-conformance.yml` runs the validator on:
 
 - `docs/vt_coverage_matrix.md`
+- `src/NovaTerminal.VtContract/vt-capabilities.json`
+- `tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs`
 - conformance tooling source changes
 - workflow/doc updates for this tooling
 
@@ -131,6 +156,6 @@ Implementation note:
 ## Intentional Limitations
 
 - The parser only reads markdown tables that include both `Status` and `Evidence` columns.
-- The tool does not infer support from source code; the matrix remains the canonical input.
+- The tool does not infer support from source code; catalog-owned claims are validated against executable evidence, while the matrix remains the broader inventory.
 - Ownership paths are reported verbatim and are not path-validated.
 - Generic evidence text such as `Replay` or `Unit/Replay` is accepted for `✅ Supported` rows, but reported as a warning until concrete links are added.

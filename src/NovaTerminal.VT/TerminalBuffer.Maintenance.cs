@@ -308,16 +308,6 @@ namespace NovaTerminal.VT
                 Modes.IsAutoWrapMode = true;
                 Modes.IsApplicationCursorKeys = false;
 
-                // Reset SGR
-                IsInverse = false;
-                IsBold = false;
-                IsDefaultForeground = true;
-                IsDefaultBackground = true;
-                CurrentForeground = Theme.Foreground;
-                CurrentBackground = Theme.Background;
-                CurrentFgIndex = -1;
-                CurrentBgIndex = -1;
-
                 // Reset Mouse Modes
                 Modes.MouseModeX10 = false;
                 Modes.MouseModeButtonEvent = false;
@@ -326,6 +316,20 @@ namespace NovaTerminal.VT
 
                 _restoreMainCursorOnAltExit = false;
                 SwitchToMainScreen(restoreSavedCursorIfArmed: false);
+
+                // The SGR/cursor reset runs AFTER the screen switch on purpose. Leaving the alt
+                // screen restores the main screen's saved style, which is whatever was live when
+                // the program entered the alt screen - usually an explicit SGR color. Resetting
+                // before the switch let that restore undo RIS, and the resurrected explicit
+                // state then made every later theme switch skip the text written after it.
+                ResetCursorStateToDefaultsNoLock();
+
+                // Same reason, one step removed: RIS reinitializes the saved slots too, or a
+                // later DECRC (ESC 8) or alt-screen exit hands the pre-RIS style straight back.
+                ResetSavedCursorStateToDefaultsNoLock(_savedCursors.Main);
+                ResetSavedCursorStateToDefaultsNoLock(_savedCursors.Alt);
+                ResetSavedCursorStateToDefaultsNoLock(_screenCursorStates.Main);
+                ResetSavedCursorStateToDefaultsNoLock(_screenCursorStates.Alt);
 
                 // Kitty keyboard protocol: RIS clears both per-screen flag stacks so the
                 // terminal comes back up in legacy key encoding.
@@ -345,14 +349,28 @@ namespace NovaTerminal.VT
             Lock.EnterWriteLock();
             try
             {
-                // Sync current buffer defaults to new theme
-                if (IsDefaultForeground) CurrentForeground = Theme.Foreground;
-                if (IsDefaultBackground) CurrentBackground = Theme.Background;
+                // Invalidate render-side caches keyed by the theme epoch (paged-scrollback
+                // snapshots and everything derived from them). Must happen under the write lock
+                // so a snapshot captured after this call always observes the new epoch.
+                _renderThemeEpoch++;
+
+                // Sync current buffer defaults to new theme. SyncDefault*ToTheme keeps the
+                // default flag - a bare CurrentForeground assignment would clear the very flag
+                // the guard just tested, turning the live SGR state explicit and freezing every
+                // subsequent write into this theme's colors (and the guard would then be false
+                // on the next switch, so the state would stay pinned to the old theme forever).
+                if (IsDefaultForeground) SyncDefaultForegroundToTheme();
+                if (IsDefaultBackground) SyncDefaultBackgroundToTheme();
                 SyncThemeDefaultsInCursorStateNoLock(_savedCursors.Main);
                 SyncThemeDefaultsInCursorStateNoLock(_savedCursors.Alt);
                 SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Main);
                 SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Alt);
 
+                // NOTE: deliberately no value-based adoption here. Rewriting cells whose color
+                // happens to equal the old default would also capture explicitly-requested
+                // truecolors (programs query OSC 11 and paint to match the terminal), silently
+                // converting them to theme-following defaults. Explicit stays explicit; only
+                // flagged default cells migrate.
                 void UpdateCell(ref TerminalCell cell)
                 {
                     // Preserve palette/default flags across theme switches.

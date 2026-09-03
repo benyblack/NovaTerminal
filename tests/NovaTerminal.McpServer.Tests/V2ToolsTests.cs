@@ -1,4 +1,5 @@
 using NovaTerminal.McpServer.Tools;
+using NovaTerminal.VtContract;
 
 namespace NovaTerminal.McpServer.Tests;
 
@@ -34,12 +35,75 @@ public class ExplainEscapeSequenceTests
     }
 
     [Theory]
-    [InlineData("CSI E")] // CNL — not in HandleCsi
-    [InlineData("CSI F")] // CPL — not in HandleCsi
     [InlineData("CSI b")] // REP — no handler
     public void UnhandledCsiSequences_AreMarkedUnsupported(string seq)
     {
         Assert.Contains("NOT currently handled", VtTools.ExplainEscapeSequence(seq), System.StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("CSI E", "CNL")]
+    [InlineData("CSI F", "CPL")]
+    [InlineData("CSI G", "CHA")]
+    public void SupportedCursorCapabilities_AreReportedFromContract(string sequence, string mnemonic)
+    {
+        string result = VtTools.ExplainEscapeSequence(sequence);
+
+        Assert.Contains(mnemonic, result, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("NOT currently handled", result, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("unsupported", result, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("CSI ?2E", "CNL")]
+    [InlineData("CSI ?2F", "CPL")]
+    [InlineData("CSI 2$E", "CNL")]
+    [InlineData("CSI 2$F", "CPL")]
+    public void QualifiedContractForms_AreNotReportedAsTheSupportedBareCapability(string sequence, string mnemonic)
+    {
+        string result = VtTools.ExplainEscapeSequence(sequence);
+
+        Assert.DoesNotContain(mnemonic, result, System.StringComparison.Ordinal);
+        Assert.Contains("not in the curated table", result, System.StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("CSI 2;3E", "CNL")]
+    [InlineData("CSI 2;3F", "CPL")]
+    [InlineData("CSI 2;3G", "CHA")]
+    [InlineData("CSI 2:3E", "CNL")]
+    [InlineData("CSI 2:3F", "CPL")]
+    [InlineData("CSI 2:3G", "CHA")]
+    public void ParameterLists_ReportTheCapabilityAcceptedByTheParser(string sequence, string mnemonic)
+    {
+        Assert.Contains(mnemonic, VtTools.ExplainEscapeSequence(sequence), System.StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("CSI ?2G")]
+    [InlineData("CSI 2$G")]
+    public void QualifiedChaForms_ReportCurrentParserBehavior(string sequence)
+    {
+        string result = VtTools.ExplainEscapeSequence(sequence);
+
+        Assert.Contains("CHA", result, System.StringComparison.Ordinal);
+        Assert.Contains("qualified form", result, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CatalogCapabilities_AgreeWithExplainerSupportClaims()
+    {
+        foreach (VtCapability capability in VtCapabilityCatalog.All)
+        {
+            string result = VtTools.ExplainEscapeSequence(capability.Key.Replace(':', ' '));
+
+            Assert.Contains(capability.Mnemonic, result, System.StringComparison.Ordinal);
+            if (capability.Support == VtSupport.Supported)
+            {
+                Assert.DoesNotContain("NOT currently handled", result, System.StringComparison.Ordinal);
+                Assert.DoesNotContain("unsupported", result, System.StringComparison.OrdinalIgnoreCase);
+            }
+        }
     }
 
     [Fact]

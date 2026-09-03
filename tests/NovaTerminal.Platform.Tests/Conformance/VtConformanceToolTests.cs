@@ -191,6 +191,144 @@ public sealed class VtConformanceToolTests
         Assert.NotEmpty(report.Rows);
     }
 
+    [Fact]
+    public void Generate_ReportsErrorWhenCapabilityMatrixFeatureIsMissing()
+    {
+        using var repo = new TemporaryRepo();
+        repo.WriteFile("tests/CursorContractTests.cs", "// evidence");
+        repo.WriteFile("docs/vt_coverage_matrix.md", MatrixRow("CHA (G)", "✅ Supported", "tests/CursorContractTests.cs"));
+        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+            CapabilityEntry("CSI:E", "CNL", "supported", "CNL (E)", "tests/CursorContractTests.cs", "cursor-next-line")));
+
+        VtConformanceReport report = VtConformanceReportTool.Generate(
+            repo.RootPath,
+            Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
+
+        Assert.Contains(report.Errors, issue => issue.Code == "capability-matrix-feature-missing" && issue.Feature == "CNL (E)");
+    }
+
+    [Fact]
+    public void Generate_ReportsErrorWhenCapabilityStatusDisagreesWithMatrix()
+    {
+        using var repo = new TemporaryRepo();
+        repo.WriteFile("tests/CursorContractTests.cs", "// evidence");
+        repo.WriteFile("docs/vt_coverage_matrix.md", MatrixRow("CNL (E)", "⚠ Partial", "tests/CursorContractTests.cs"));
+        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+            CapabilityEntry("CSI:E", "CNL", "supported", "CNL (E)", "tests/CursorContractTests.cs", "cursor-next-line")));
+
+        VtConformanceReport report = VtConformanceReportTool.Generate(
+            repo.RootPath,
+            Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
+
+        Assert.Contains(report.Errors, issue => issue.Code == "capability-status-mismatch" && issue.Feature == "CNL (E)");
+    }
+
+    [Fact]
+    public void Generate_ReportsErrorWhenCapabilitiesShareMatrixFeature()
+    {
+        using var repo = new TemporaryRepo();
+        repo.WriteFile("tests/CursorContractTests.cs", "// evidence");
+        repo.WriteFile("docs/vt_coverage_matrix.md", MatrixRow("CNL/CPL (E/F)", "✅ Supported", "tests/CursorContractTests.cs"));
+        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+            CapabilityEntry("CSI:E", "CNL", "supported", "CNL/CPL (E/F)", "tests/CursorContractTests.cs", "cursor-next-line"),
+            CapabilityEntry("CSI:F", "CPL", "supported", "CNL/CPL (E/F)", "tests/CursorContractTests.cs", "cursor-previous-line")));
+
+        VtConformanceReport report = VtConformanceReportTool.Generate(
+            repo.RootPath,
+            Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
+
+        Assert.Contains(report.Errors, issue => issue.Code == "capability-matrix-feature-duplicate" && issue.Feature == "CNL/CPL (E/F)");
+    }
+
+    [Fact]
+    public void Generate_ReportsErrorWhenCapabilityEvidencePathIsMissing()
+    {
+        using var repo = new TemporaryRepo();
+        repo.WriteFile("docs/vt_coverage_matrix.md", MatrixRow("CNL (E)", "✅ Supported", "tests/MissingContractTests.cs"));
+        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+            CapabilityEntry("CSI:E", "CNL", "supported", "CNL (E)", "tests/MissingContractTests.cs", "cursor-next-line")));
+
+        VtConformanceReport report = VtConformanceReportTool.Generate(
+            repo.RootPath,
+            Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
+
+        Assert.Contains(report.Errors, issue => issue.Code == "capability-evidence-path-not-found" && issue.Feature == "CNL (E)");
+    }
+
+    [Fact]
+    public void Generate_ReportsErrorInsteadOfThrowingWhenCapabilityMatrixRowIsDuplicated()
+    {
+        using var repo = new TemporaryRepo();
+        const string featureRow = "| CNL (E) | Cursor contract | ✅ Supported | Unit: `tests/CursorContractTests.cs` | Parser+Buffer | |";
+        string matrix = MatrixRow("CNL (E)", "✅ Supported", "tests/CursorContractTests.cs")
+            .Replace(featureRow, $"{featureRow}\n{featureRow}", StringComparison.Ordinal);
+        repo.WriteFile("tests/CursorContractTests.cs", "// evidence");
+        repo.WriteFile("docs/vt_coverage_matrix.md", matrix);
+        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+            CapabilityEntry("CSI:E", "CNL", "supported", "CNL (E)", "tests/CursorContractTests.cs", "cursor-next-line")));
+
+        VtConformanceReport report = VtConformanceReportTool.Generate(
+            repo.RootPath,
+            Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
+
+        Assert.Contains(report.Errors, issue => issue.Code == "capability-matrix-row-duplicate" && issue.Feature == "CNL (E)");
+    }
+
+    [Fact]
+    public void Generate_RejectsCapabilityEvidenceOutsideRepository()
+    {
+        using var repo = new TemporaryRepo();
+        repo.WriteFile("docs/vt_coverage_matrix.md", MatrixRow("CNL (E)", "✅ Supported", "../outside.cs"));
+        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+            CapabilityEntry("CSI:E", "CNL", "supported", "CNL (E)", "../outside.cs", "cursor-next-line")));
+
+        VtConformanceReport report = VtConformanceReportTool.Generate(
+            repo.RootPath,
+            Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
+
+        Assert.Contains(report.Errors, issue => issue.Code == "capability-evidence-path-outside-repo" && issue.Feature == "CNL (E)");
+    }
+
+    private static string MatrixRow(string feature, string status, string evidencePath)
+        => $$"""
+        # VT Conformance Matrix
+
+        ## Cursor movement
+
+        | Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
+        |---|---|---:|---|---|---|
+        | {{feature}} | Cursor contract | {{status}} | Unit: `{{evidencePath}}` | Parser+Buffer | |
+        """;
+
+    private static string CapabilityManifest(params string[] entries)
+        => $$"""
+        {
+          "schemaVersion": 1,
+          "capabilities": [
+            {{string.Join(",\n", entries)}}
+          ]
+        }
+        """;
+
+    private static string CapabilityEntry(
+        string key,
+        string mnemonic,
+        string support,
+        string matrixFeature,
+        string evidencePath,
+        string contractCase)
+        => $$"""
+            {
+              "key": "{{key}}",
+              "mnemonic": "{{mnemonic}}",
+              "support": "{{support}}",
+              "description": "{{mnemonic}} description",
+              "matrixFeature": "{{matrixFeature}}",
+              "evidencePath": "{{evidencePath}}",
+              "contractCase": "{{contractCase}}"
+            }
+        """;
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);

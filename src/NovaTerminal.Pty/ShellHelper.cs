@@ -1,11 +1,18 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace NovaTerminal.Pty
 {
     public static class ShellHelper
     {
+        /// <summary>
+        /// This platform's shell for every "the user did not name one" path: new profiles,
+        /// blank configured commands, session restore of a command written for another OS.
+        /// On Unix that is the user's actual login shell — environment first, then the passwd
+        /// database — not a preference order between whichever shells happen to be installed.
+        /// </summary>
         public static string GetDefaultShell()
         {
             if (OperatingSystem.IsWindows())
@@ -17,15 +24,154 @@ namespace NovaTerminal.Pty
                 }
                 return "cmd.exe";
             }
-            else
+
+            return GetUnixDefaultShell(
+                Environment.GetEnvironmentVariable,
+                IsLaunchableShell,
+                ReadLoginShellFromPasswd);
+        }
+
+        /// <summary>
+        /// The Unix half of <see cref="GetDefaultShell"/>, as a resolution chain: $SHELL,
+        /// then the passwd entry for the current user, then the old existence probe as the
+        /// floor. The delegates exist so the chain is testable from any platform; production
+        /// passes the real environment, filesystem and passwd reader.
+        /// </summary>
+        /// <remarks>
+        /// $SHELL leads because it is what launchd sets from the login shell for GUI
+        /// applications on macOS and what the desktop session sets on most Linux distros —
+        /// the one place the login shell is already answered without re-deriving it. The
+        /// passwd lookup covers the sessions that never got a $SHELL; macOS GUI users are
+        /// absent from /etc/passwd (Directory Services owns them), so in practice that step
+        /// mostly answers Linux. The old zsh/bash/sh probe stays as the floor so a machine
+        /// where neither source answers behaves exactly as before.
+        ///
+        /// Every answer is probed with <paramref name="isLaunchable"/> before being trusted: a
+        /// $SHELL left pointing at a since-uninstalled shell (brew remove, chsh followed by
+        /// deletion) must fall through, not be handed to CreateProcess as a guaranteed
+        /// launch, and neither may a file this account cannot actually execute (see
+        /// <see cref="IsLaunchableShell"/>). It is the same conservatism as
+        /// <see cref="ResolveExecutableOrDefault"/>: a shell we resolve is a shell we vouch for.
+        ///
+        /// The passwd step is a plain /etc/passwd read, so accounts served only through NSS
+        /// (SSSD, LDAP, Active Directory) are invisible to it. Those sessions normally carry
+        /// $SHELL from the login environment; when they do not, the floor below degrades to
+        /// exactly the pre-login-shell behaviour rather than to something new. Deriving the
+        /// answer through getpwuid instead would need a libc P/Invoke, which this cold a
+        /// path is deliberately not paying for.
+        /// </remarks>
+        internal static string GetUnixDefaultShell(
+            Func<string, string?> getEnvironmentVariable,
+            Func<string, bool> isLaunchable,
+            Func<string?> readLoginShellFromPasswd)
+        {
+            string? fromEnvironment = getEnvironmentVariable("SHELL");
+            if (!string.IsNullOrWhiteSpace(fromEnvironment) && isLaunchable(fromEnvironment))
             {
-                string[] shells = { "/bin/zsh", "/bin/bash", "/bin/sh" };
-                foreach (var shell in shells)
-                {
-                    if (File.Exists(shell)) return shell;
-                }
-                return "/bin/sh";
+                return fromEnvironment;
             }
+
+            string? fromPasswd = readLoginShellFromPasswd();
+            if (!string.IsNullOrWhiteSpace(fromPasswd) && isLaunchable(fromPasswd))
+            {
+                return fromPasswd;
+            }
+
+            string[] shells = { "/bin/zsh", "/bin/bash", "/bin/sh" };
+            foreach (var shell in shells)
+            {
+                if (isLaunchable(shell)) return shell;
+            }
+            return "/bin/sh";
+        }
+
+        /// <summary>
+        /// True when <paramref name="path"/> exists and this account can execute it.
+        /// </summary>
+        /// <remarks>
+        /// File.Exists alone accepts a file whose mode has no x bit at all, and even an
+        /// execute-bit check accepts a bit from a permission class that does not apply to
+        /// this process - owner-only exec on a file the account does not own fails with
+        /// EACCES all the same. So on Unix the verdict is <c>access(X_OK)</c>, which asks
+        /// exactly the kernel's question for this uid and gid. That call is the primary
+        /// probe, not the only tier: libc missing or unanswerable degrades to the mode
+        /// heuristic, and unreadable mode metadata degrades further to the existence
+        /// verdict. The PTY spawn remains the final arbiter either way.
+        /// </remarks>
+        internal static bool IsLaunchableShell(string path)
+            => IsLaunchableShell(path, ExecProbeAnswersExecutable);
+
+        internal static bool IsLaunchableShell(string path, Func<string, bool> execProbe)
+        {
+            if (!File.Exists(path)) return false;
+            if (OperatingSystem.IsWindows()) return true;
+
+            try
+            {
+                return execProbe(path);
+            }
+            catch
+            {
+                // The native probe cannot answer on this platform. Fall back to the mode
+                // heuristic; if even the mode is unreadable, trust the existence verdict.
+                try { return HasAnyExecuteBit(File.GetUnixFileMode(path)); }
+                catch { return true; }
+            }
+        }
+
+        /// <summary>A mode heuristic, used only when <c>access</c> cannot answer.</summary>
+        internal static bool HasAnyExecuteBit(UnixFileMode mode)
+            => mode.HasFlag(UnixFileMode.UserExecute)
+                || mode.HasFlag(UnixFileMode.GroupExecute)
+                || mode.HasFlag(UnixFileMode.OtherExecute);
+
+        private static bool ExecProbeAnswersExecutable(string path)
+            => access(path, X_OK) == 0;
+
+        private const int X_OK = 1;
+
+        [DllImport("libc")]
+        private static extern int access([MarshalAs(UnmanagedType.LPUTF8Str)] string pathname, int mode);
+
+        private static string? ReadLoginShellFromPasswd()
+        {
+            try
+            {
+                return ParseLoginShellFromPasswd(File.ReadAllLines("/etc/passwd"), Environment.UserName);
+            }
+            catch
+            {
+                // Unreadable is an expected shape, not a failure: macOS keeps its users in
+                // Directory Services, and there is nothing to answer with. The floor probe
+                // in GetUnixDefaultShell takes it from here.
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The login shell (the seventh passwd field) for <paramref name="username"/>, or
+        /// null when the file has no usable entry for that user.
+        /// </summary>
+        /// <remarks>
+        /// Matched on the user name rather than the uid: the uid would need a getpwuid
+        /// P/Invoke, and .NET already resolved <see cref="Environment.UserName"/> from the
+        /// same account database the passwd file was generated from.
+        /// </remarks>
+        internal static string? ParseLoginShellFromPasswd(string[] lines, string? username)
+        {
+            if (string.IsNullOrWhiteSpace(username)) return null;
+
+            foreach (string line in lines)
+            {
+                string[] fields = line.Split(':');
+                if (fields.Length >= 7 &&
+                    string.Equals(fields[0], username, StringComparison.Ordinal))
+                {
+                    return fields[6];
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

@@ -27,6 +27,27 @@ namespace NovaTerminal.VT
             _isStyleDirty = false;
         }
 
+        /// <summary>
+        /// Points the live foreground at the theme's default <em>without</em> losing the default
+        /// flag. The <see cref="CurrentForeground"/> setter clears <see cref="IsDefaultForeground"/>
+        /// on purpose (assigning a color means "an SGR asked for this exact color"), so every path
+        /// that re-syncs defaults to a theme has to restore the flag afterwards. Miss it and the
+        /// live SGR state silently turns explicit: cells written from then on store a literal
+        /// resolved color and stop following later theme switches.
+        /// </summary>
+        private void SyncDefaultForegroundToTheme()
+        {
+            CurrentForeground = Theme.Foreground;
+            IsDefaultForeground = true;
+        }
+
+        /// <inheritdoc cref="SyncDefaultForegroundToTheme"/>
+        private void SyncDefaultBackgroundToTheme()
+        {
+            CurrentBackground = Theme.Background;
+            IsDefaultBackground = true;
+        }
+
         public TermColor CurrentForeground { get => _currentForeground; set { _currentForeground = value; _isStyleDirty = true; _isDefaultForeground = false; } }
 
         public TermColor CurrentBackground { get => _currentBackground; set { _currentBackground = value; _isStyleDirty = true; _isDefaultBackground = false; } }

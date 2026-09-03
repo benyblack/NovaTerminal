@@ -363,6 +363,14 @@ namespace NovaTerminal
                             }
                         }
 
+                        // OnThemeChanged refreshes the host window, but nothing above re-applies
+                        // the palette to THIS window when the saved theme was already the selected
+                        // one (editing colors of the active theme) - the selection change is a
+                        // no-op, so SelectionChanged never fires and the editor's new background,
+                        // sidebar, and card colors only showed up after closing and reopening
+                        // Settings (or restarting). Re-apply here so the edit lands live.
+                        ApplyTheme();
+
                         if (themeEditorStatus != null) themeEditorStatus.Text = "Saved!";
                         DispatcherTimer.RunOnce(() => { if (themeEditorStatus != null) themeEditorStatus.Text = ""; }, TimeSpan.FromSeconds(2));
                     }
@@ -450,6 +458,13 @@ namespace NovaTerminal
             LoadTitleBarDraft();
             RebuildTitleBarRows();
             ApplyTheme();
+
+            // LoadCurrentSettings' theme selection usually initializes the preview via
+            // SelectionChanged, but only when an item actually matches _settings.ThemeName - a
+            // saved name the manager normalizes (legacy "Default (Dark)") or a since-deleted
+            // theme leaves the combo empty and the preview stuck on its hardcoded dark XAML
+            // background. Paint it from the active theme directly so it is always current.
+            UpdateThemePreview(_settings.ActiveTheme, "Main");
 
             _statusTimer = new DispatcherTimer
             {
@@ -2005,6 +2020,15 @@ namespace NovaTerminal
             }
         }
 
+        /// <summary>
+        /// Resolves one of the window's Nt* palette brushes (NtPanel, NtHairline, …). Rows built
+        /// in code hold the brush INSTANCE, so ThemePaletteResources' in-place recolors keep them
+        /// live across theme switches - the same mechanism the XAML StaticResource references use.
+        /// Hardcoding hex here is what left the title-bar and shortcut cards dark navy under light
+        /// themes (they never saw the palette at all).
+        /// </summary>
+        private IBrush? ThemeResourceBrush(string key) => this.FindResource(key) as IBrush;
+
         private Control CreateTitleBarRow(
             TitleBarCatalogEntry entry,
             int index)
@@ -2014,8 +2038,8 @@ namespace NovaTerminal
 
             var row = new Border
             {
-                Background = new SolidColorBrush(Color.Parse("#23272f")),
-                BorderBrush = new SolidColorBrush(Color.Parse("#2a2f38")),
+                Background = ThemeResourceBrush("NtPanel"),
+                BorderBrush = ThemeResourceBrush("NtHairline"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
                 Padding = new Thickness(12),
@@ -2223,8 +2247,8 @@ namespace NovaTerminal
             string effectiveBinding = GetEffectiveShortcutBinding(entry);
             var row = new Border
             {
-                Background = new SolidColorBrush(Color.Parse("#23272f")),
-                BorderBrush = new SolidColorBrush(Color.Parse("#2a2f38")),
+                Background = ThemeResourceBrush("NtPanel"),
+                BorderBrush = ThemeResourceBrush("NtHairline"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
                 Padding = new Thickness(12),
@@ -2821,8 +2845,8 @@ namespace NovaTerminal
 
             return new Border
             {
-                Background = new SolidColorBrush(Color.Parse("#23272f")),
-                BorderBrush = new SolidColorBrush(Color.Parse("#2a2f38")),
+                Background = ThemeResourceBrush("NtPanel"),
+                BorderBrush = ThemeResourceBrush("NtHairline"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
                 Padding = new Thickness(12),
@@ -2997,9 +3021,17 @@ namespace NovaTerminal
 
             if (themeList != null)
             {
+                // Legacy settings store "Default (Dark)" while the combo lists the manager's
+                // canonical "Default" (ThemeManager.GetTheme maps between them). Normalize that
+                // one alias rather than resolving through GetTheme: for a name GetTheme cannot
+                // find it falls back to the Default theme OBJECT, whose .Name would match the
+                // "Default" combo item and silently rewrite the stored name on Save. When nothing
+                // matches here the selection stays empty and SaveAndClose skips the theme field,
+                // preserving the stored name - that must keep holding for unresolvable names.
+                var themeName = _settings.ThemeName == "Default (Dark)" ? "Default" : _settings.ThemeName;
                 foreach (ComboBoxItem item in themeList.Items.Cast<ComboBoxItem>())
                 {
-                    if (item.Content?.ToString() == _settings.ThemeName)
+                    if (item.Content?.ToString() == themeName)
                     {
                         themeList.SelectedItem = item;
                         break;

@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Velopack;
@@ -32,6 +33,60 @@ namespace NovaTerminal.Update
         private readonly UpdateManager _manager;
         private UpdateInfo? _downloaded;
 
+        /// <summary>
+        /// The Velopack channel this process should read updates from, or null to use whatever
+        /// channel the running release was packed with.
+        /// </summary>
+        /// <remarks>
+        /// Linux is the only platform that needs this. Windows publishes one architecture and
+        /// macOS one, so each resolves its platform-default channel (win, osx) unambiguously.
+        /// Linux publishes x64 and arm64 into the SAME GitHub release, and a Velopack feed is
+        /// per-channel, not per-architecture - so a single `linux` channel would put both
+        /// architectures' packages in one releases.linux.json and could hand an arm64 client an
+        /// x64 update.
+        ///
+        /// `vpk pack --channel linux-x64` (or linux-arm64) already bakes that channel into the
+        /// package's .nuspec and into the release manifest filenames, so a client packed
+        /// correctly resolves its own channel unaided - this method is a no-op in that case, not
+        /// the mechanism preventing the collision. What this method actually guards against is a
+        /// future release.yml change that packs without --channel: Velopack would then fall back
+        /// to its platform-default `linux` channel, silently recreating the collision above. This
+        /// resolves linux-x64 / linux-arm64 explicitly so that regression cannot happen, matching
+        /// the --channel values release.yml passes to `vpk pack`.
+        ///
+        /// Taking isLinux and architecture as parameters rather than reading RuntimeInformation
+        /// inline is what makes this assertable on any CI leg (see VelopackUpdateServiceTests).
+        ///
+        /// Returning null off Linux is load-bearing, not tidiness: Windows and macOS have
+        /// installed clients in the field on their default channels, and naming a channel here
+        /// would repoint them at a feed that does not exist.
+        /// </remarks>
+        internal static string? ResolveExplicitChannel(bool isLinux, Architecture architecture)
+        {
+            if (!isLinux)
+            {
+                return null;
+            }
+
+            return architecture switch
+            {
+                Architecture.X64 => "linux-x64",
+                Architecture.Arm64 => "linux-arm64",
+                // Any architecture we publish no feed for: fall back to the packed default,
+                // which finds nothing rather than offering a package for the wrong CPU.
+                _ => null,
+            };
+        }
+
+        private static UpdateOptions? BuildUpdateOptions()
+        {
+            var channel = ResolveExplicitChannel(
+                RuntimeInformation.IsOSPlatform(OSPlatform.Linux),
+                RuntimeInformation.ProcessArchitecture);
+
+            return channel is null ? null : new UpdateOptions { ExplicitChannel = channel };
+        }
+
         public VelopackUpdateService(string repoUrl, Action<string> log)
         {
             _log = log;
@@ -54,12 +109,14 @@ namespace NovaTerminal.Update
             var locator = VelopackLocator.IsCurrentSet
                 ? VelopackLocator.Current
                 : VelopackLocator.CreateDefaultForPlatform(null, null);
-            _manager = new UpdateManager(new GithubSource(repoUrl, null, false), null, locator);
+            _manager = new UpdateManager(new GithubSource(repoUrl, null, false), BuildUpdateOptions(), locator);
         }
 
         /// <summary>
         /// True only when Velopack installed this process. False for the portable zip, the winget
-        /// portable package, and every dev run.
+        /// portable package, a Linux system package (.deb), and every dev run. A .deb install is
+        /// updated through the user's package manager, so the in-app updater staying silent there
+        /// is correct, not a gap - see <see cref="IUpdateService.IsSupported"/>.
         /// </summary>
         public bool IsSupported => _manager.IsInstalled;
 

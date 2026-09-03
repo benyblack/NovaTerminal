@@ -25,8 +25,8 @@ public class ProjectFileLayeringTests
 
     // Same CA1861 reasoning as VtOnly above. Order matches the csproj's own ItemGroup so
     // Assert.Equal's ordered comparison doesn't need a Sort/OrderBy on either side.
-    private static readonly string[] AgentHostContractsAndBackup =
-        ["NovaTerminal.AgentHost.Contracts", "NovaTerminal.Backup"];
+    private static readonly string[] McpServerLeafDependencies =
+        ["NovaTerminal.AgentHost.Contracts", "NovaTerminal.Backup", "NovaTerminal.VtContract"];
 
     private static string RepoRoot()
     {
@@ -167,14 +167,14 @@ public class ProjectFileLayeringTests
     /// P2 on PR #245.
     /// </summary>
     [Fact]
-    public void McpServer_csproj_only_references_AgentHostContractsAndBackup()
+    public void McpServer_csproj_only_references_approved_leaf_dependencies()
     {
         var refs = ProjectReferences("src/NovaTerminal.McpServer/NovaTerminal.McpServer.csproj");
-        Assert.Equal(AgentHostContractsAndBackup, refs);
+        Assert.Equal(McpServerLeafDependencies, refs);
     }
 
     /// <summary>
-    /// The assertion that actually keeps <see cref="McpServer_csproj_only_references_AgentHostContractsAndBackup"/>
+    /// The assertion that actually keeps <see cref="McpServer_csproj_only_references_approved_leaf_dependencies"/>
     /// meaningful long-term. That test only pins McpServer's own reference list; it says
     /// nothing about what <c>NovaTerminal.Backup</c> itself can reach. Without this test,
     /// someone could add e.g. <c>NovaTerminal.Platform</c> as a "small, surely harmless"
@@ -188,6 +188,13 @@ public class ProjectFileLayeringTests
     public void Backup_csproj_has_no_project_references()
     {
         var refs = ProjectReferences("src/NovaTerminal.Backup/NovaTerminal.Backup.csproj");
+        Assert.Empty(refs);
+    }
+
+    [Fact]
+    public void VtContract_csproj_has_no_project_references()
+    {
+        var refs = ProjectReferences("src/NovaTerminal.VtContract/NovaTerminal.VtContract.csproj");
         Assert.Empty(refs);
     }
 
