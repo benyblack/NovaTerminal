@@ -20,6 +20,7 @@ public sealed class AgentOutputViewModel : INotifyPropertyChanged
     private bool _isStreaming;
     private string _markdownText = string.Empty;
     private string _statusText = string.Empty;
+    private bool _renderFencedMarkdown = true;
 
     /// <summary>Raised when any bound property changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -123,6 +124,32 @@ public sealed class AgentOutputViewModel : INotifyPropertyChanged
 
             _statusText = value;
             OnPropertyChanged(nameof(StatusText));
+        }
+    }
+
+    /// <summary>
+    /// Render <c>```markdown</c> fences as documents rather than as source.
+    /// </summary>
+    /// <remarks>
+    /// Panel-level rather than per-block, and deliberately so: the panel rebuilds its whole
+    /// control tree on every <see cref="MarkdownText"/> change, which while streaming is every
+    /// few hundred milliseconds. State living in a block's own control would reset on every
+    /// tick, and keying it by block ordinal would reattach a choice to the wrong block when a
+    /// new block arrives earlier in the stream. One field survives all of that. Per-pane
+    /// runtime state; not persisted.
+    /// </remarks>
+    public bool RenderFencedMarkdown
+    {
+        get => _renderFencedMarkdown;
+        set
+        {
+            if (_renderFencedMarkdown == value)
+            {
+                return;
+            }
+
+            _renderFencedMarkdown = value;
+            OnPropertyChanged(nameof(RenderFencedMarkdown));
         }
     }
 

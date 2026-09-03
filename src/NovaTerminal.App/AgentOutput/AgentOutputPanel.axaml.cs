@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -71,7 +72,9 @@ public partial class AgentOutputPanel : UserControl
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         // Always on the UI thread: the tracker posts its updates through the pane's dispatcher.
-        if (e.PropertyName is nameof(AgentOutputViewModel.MarkdownText) or nameof(AgentOutputViewModel.HasContent))
+        if (e.PropertyName is nameof(AgentOutputViewModel.MarkdownText)
+            or nameof(AgentOutputViewModel.HasContent)
+            or nameof(AgentOutputViewModel.RenderFencedMarkdown))
         {
             Render();
         }
@@ -93,6 +96,7 @@ public partial class AgentOutputPanel : UserControl
         if (!hasContent)
         {
             MarkdownHost.Children.Clear();
+            BtnRenderFences.IsVisible = false;
             return;
         }
 
@@ -106,8 +110,13 @@ public partial class AgentOutputPanel : UserControl
             markdown,
             this,
             onCopyText: text => _ = CopyToClipboardAsync(text),
-            onOpenLink: url => _ = OpenLinkAsync(url));
+            onOpenLink: url => _ = OpenLinkAsync(url),
+            renderFencedMarkdown: _viewModel?.RenderFencedMarkdown ?? true);
         MarkdownHost.Children.Add(rendered.Root);
+
+        // A switch that governs nothing is clutter, so it appears only for a response that
+        // actually contains a block it governs.
+        BtnRenderFences.IsVisible = rendered.HasTransformBlock;
 
         if (wasPinned && isStreaming)
         {
@@ -141,6 +150,17 @@ public partial class AgentOutputPanel : UserControl
 
     private void OnCloseClick(object? sender, RoutedEventArgs e)
         => CloseRequested?.Invoke();
+
+    private void OnRenderFencesClick(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel is null)
+        {
+            return;
+        }
+
+        _viewModel.RenderFencedMarkdown = BtnRenderFences.IsChecked ?? true;
+        Render();
+    }
 
     // Task-returning rather than async void (SonarCloud S3168): both are fire-and-forget UI
     // side effects, so the discard at each call site is the containment — an exception surfaces
