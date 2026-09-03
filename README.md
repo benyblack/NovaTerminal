@@ -177,12 +177,13 @@ For build steps, jump to [Build & test](#build--test) below.
 
 ### UI
 
-- Tabs and split panes
-- Vertical tab sidebar (`Ctrl+Shift+L`) with per-tab status and a live output preview
+- Tabs and split panes, reorderable by drag or by `Ctrl+Shift+PageUp` / `Ctrl+Shift+PageDown`
+- Vertical tab sidebar (`Ctrl+Shift+L`) with per-tab status, agent-activity chips, and a live output preview
+- Agent Output panel — renders a command's output as markdown beside the pane, streaming as it arrives
 - Command palette
 - Search overlay
 - Profiles (local & SSH)
-- Themes and fonts
+- Bundled themes (Dracula, Nord, Gruvbox, Tokyo Night, Catppuccin Mocha, Solarized, GitHub, Monokai, OneHalf, Cobalt2), custom themes, and font configuration
 - Live settings (no restart)
 
 ### Command Assist
@@ -221,11 +222,19 @@ about where the prompt ends — built on OSC 133 shell-integration marks.
 
 ### Native SSH
 
-- SSH profiles with platform-vault credential storage
-- Keepalive and dynamic port forwarding
+The in-process SSH client is the **default backend for new profiles**; OpenSSH
+remains selectable per profile, and stays the default for profiles that predate
+the flip.
+
+- SSH profiles with platform-vault credential storage (Windows Credential Manager, macOS Keychain, Linux Secret Service)
+- Password, identity-file, and ssh-agent authentication
+- Multi-hop jump chains of any length
+- Local, remote, and dynamic port forwarding
+- Keepalive
 - Coalesced resize handling for fullscreen TUIs (vim, htop, tmux)
 - Disconnect state surfaced in the terminal pane
 - Runtime password memory (opt-in, session-scoped)
+- Native SFTP transfers and a pane-local remote-files sidebar
 
 ### Cross-platform parity
 NovaTerminal guarantees identical terminal behavior across operating systems
@@ -302,6 +311,9 @@ acyclic dependency graph.
 - **[`src/NovaTerminal.Rendering`](src/NovaTerminal.Rendering/)** — SkiaSharp rendering: framework-agnostic text shaping and GPU glyph caching.
 - **[`src/NovaTerminal.Pty`](src/NovaTerminal.Pty/)** — Native OS integration and PTY session management.
 - **[`src/NovaTerminal.Replay`](src/NovaTerminal.Replay/)** — Deterministic session recording and playback.
+- **[`src/NovaTerminal.CommandAssist`](src/NovaTerminal.CommandAssist/)** — Command Assist domain, ranking, history/snippet storage, and shell integration. Avalonia-free by design; the App owns only its views.
+- **[`src/NovaTerminal.Backup`](src/NovaTerminal.Backup/)** — `.novabackup` export/import, automatic snapshots, and the category-to-path catalogue. A leaf, so the MCP server can reference it without reaching into the app.
+- **[`src/NovaTerminal.VtContract`](src/NovaTerminal.VtContract/)** — the machine-readable VT capability catalogue (`vt-capabilities.json`) and its schema validation, shared by the conformance tool, the parser tests, and the MCP dev tools.
 - **[`src/NovaTerminal.Conformance`](src/NovaTerminal.Conformance/)** — VT conformance matrix tooling and report generation.
 - **[`src/NovaTerminal.Cli`](src/NovaTerminal.Cli/)** — console-subsystem twin of the (WinExe) app for headless tooling: `vt-report`, headless replay (`--replay <file>`), and the SSH askpass helper.
 - **[`src/NovaTerminal.AgentHost.Contracts`](src/NovaTerminal.AgentHost.Contracts/)** — zero-dependency wire contracts for the agent-host observe channel (shared by App and McpServer).
@@ -323,13 +335,22 @@ graph TD
     App --> Rendering[NovaTerminal.Rendering]
     App --> Pty[NovaTerminal.Pty]
     App --> Replay[NovaTerminal.Replay]
+    App --> CommandAssist[NovaTerminal.CommandAssist]
+    App --> Backup[NovaTerminal.Backup]
+    App --> Contracts[NovaTerminal.AgentHost.Contracts]
     Platform --> Pty
     Pty --> Replay
     Rendering --> VT
     Replay --> VT
-    Conformance[NovaTerminal.Conformance]
-    McpServer[NovaTerminal.McpServer]
+    McpServer[NovaTerminal.McpServer] --> Contracts
+    McpServer --> Backup
+    McpServer --> VtContract[NovaTerminal.VtContract]
+    Conformance[NovaTerminal.Conformance] --> VtContract
 ```
+
+`CommandAssist`, `Backup`, `VtContract` and `AgentHost.Contracts` are leaves with
+zero project references, and that is what lets `McpServer` share code with the
+app without acquiring a path into `App`, `VT`, `Pty` or `Rendering`.
 
 Enforced invariants (`NovaTerminal.Architecture.Tests`): `VT` is a leaf with zero project references; `Pty` must **not** depend on `VT` (the PTY layer delivers raw bytes only); `Replay` and `Rendering` reference exactly `VT`; no production assembly references test libraries. The remaining edges above are documented from the csproj references but not individually asserted.
 
@@ -366,9 +387,11 @@ Enforced invariants (`NovaTerminal.Architecture.Tests`): `VT` is a leaf with zer
   closed when real TUI or agent workflows hit them. See
   [`docs/ghostty-gaps/`](docs/ghostty-gaps/) and
   [`docs/vt_ghostty_gap_matrix.md`](docs/vt_ghostty_gap_matrix.md).
-- **Native SSH** — cross-platform SSH client (experimental, opt-in) with VT
-  correctness, resize coalescing, dynamic forwarding, keepalive, and runtime
-  password memory. See [`docs/SSH_ROADMAP.md`](docs/SSH_ROADMAP.md) and
+- **Native SSH** — an in-process, cross-platform SSH client, now the default
+  backend for new profiles, with VT correctness, resize coalescing, multi-hop
+  jump chains, local/remote/dynamic forwarding, ssh-agent authentication,
+  keepalive, and runtime password memory. See
+  [`docs/SSH_ROADMAP.md`](docs/SSH_ROADMAP.md) and
   [`docs/native-ssh/`](docs/native-ssh/).
 
 #### Ongoing guardrails
@@ -411,25 +434,34 @@ Notes:
 - The CLI project references the app project, so `dotnet build` and `dotnet test` both require the Rust toolchain unless you explicitly set `SKIP_RUST_NATIVE_BUILD=1` for a downstream job that already has the native artifacts.
 - If a clean clone fails during Cargo's `build-script-build` step on macOS, first confirm `rustc`/`cargo` are installed and that Xcode Command Line Tools are available. If the failure happened after a partial build, remove `src/NovaTerminal.App/native/target` and `src/NovaTerminal.App/native/rusty_ssh/target` and retry.
 
-Build:
+Build — **always through the wrapper scripts**, never raw `dotnet build`:
 
 ```bash
-dotnet restore
-dotnet build -c Release
+# Linux / macOS / Git Bash
+scripts/build.sh build -c Release
 ```
 
-> **Note:** if your build's stdout/stderr is captured by a parent process (CI
-> runners, agents, test harnesses), use the wrapper scripts
-> `scripts/build.ps1` / `scripts/build.sh` instead of raw `dotnet` — they pass
-> `-nodeReuse:false` and disable the MSBuild server, preventing an
-> indefinite hang caused by long-lived MSBuild daemons inheriting the output
-> handles. Details in [`CLAUDE.md`](CLAUDE.md).
+```powershell
+# Windows / PowerShell
+scripts\build.ps1 build -c Release
+```
 
-Run tests (same filter as the blocking CI unit lane):
+The wrappers pass `-nodeReuse:false` and set `DOTNET_CLI_USE_MSBUILD_SERVER=0`.
+Without them, MSBuild leaves daemons holding the caller's stdout/stderr handles,
+and any build whose output is captured by a parent process (CI runners, agents,
+test harnesses) hangs indefinitely — usually looking stuck in `BuildCliShim`.
+Details in [`CLAUDE.md`](CLAUDE.md).
+
+Run tests (same filter as the gating CI unit lane):
 
 ```bash
-dotnet test -c Release --no-build --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
+scripts/build.sh test -c Release --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
 ```
+
+CI applies that filter per test project rather than across the solution, and
+runs the App.Tests `Lane=PlatformBoot` tests in a separate process. Per-project
+runs are also the fast local loop — a whole-solution run takes tens of minutes
+because of the headless Avalonia suite.
 
 Use `ci/run.sh` (Linux/macOS) or `ci/run.ps1` (Windows) for the full local
 CI-style sequence. Both scripts assume the .NET and Rust toolchains are already installed.

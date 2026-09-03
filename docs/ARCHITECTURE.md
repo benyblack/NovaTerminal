@@ -22,18 +22,34 @@ All architectural decisions follow from these goals.
 
 ## 2. Assembly Graph
 
-NovaTerminal is structured as eight focused .NET assemblies plus standalone tools. The dependency graph is acyclic. Each assembly's namespace matches its assembly name (enforced by `tests/NovaTerminal.Architecture.Tests/NamespaceAlignmentTests`).
+NovaTerminal is structured as eleven focused .NET assemblies. The dependency graph is acyclic. Each assembly's namespace matches its assembly name (enforced by `tests/NovaTerminal.Architecture.Tests/NamespaceAlignmentTests`).
 
 ```
-Cli ──► App ──► { Platform, VT, Rendering, Pty, Replay }
-                  │          │     │         │     │
-                  └──► Pty   │     │         │     │
-                             └─VT◄──┘        │     │
-                                            └─VT◄──┘
-                                                  Replay◄─Pty
+Cli ──► App ──► Platform ──► Pty ──► Replay ──► VT
+            ├─► Rendering ─────────────────────► VT
+            ├─► VT
+            ├─► Pty
+            ├─► Replay
+            ├─► CommandAssist          (leaf)
+            ├─► Backup                 (leaf)
+            └─► AgentHost.Contracts    (leaf)
 
-Conformance  (standalone Exe – vt-report tool)
+McpServer  ──► AgentHost.Contracts     (leaf)
+           ├─► Backup                  (leaf)
+           └─► VtContract              (leaf)
+
+Conformance ─► VtContract              (leaf)
 ```
+
+Four of those eleven are **leaves with no project references at all**:
+`CommandAssist`, `Backup`, `VtContract`, `AgentHost.Contracts`. The empty
+reference list is the point — it is what lets `McpServer` share real code with
+the app without acquiring a transitive path into `App`, `VT`, `Pty` or
+`Rendering`. An earlier attempt routed the MCP backup tools through
+`NovaTerminal.Platform`, which has no App or VT dependency but does reference
+`Pty`, and that broke `McpServer`'s Pty-independence invariant with the
+reasoning fully intact. Each empty list is asserted individually by the
+architecture tests.
 
 Concretely, from the `.csproj` graph:
 
@@ -45,9 +61,13 @@ Concretely, from the `.csproj` graph:
 | `NovaTerminal.Pty` | Replay | PTY transport: rust-PTY adapter, session contracts. **Does not depend on VT** — see arch test `Pty_must_not_depend_on_Vt` |
 | `NovaTerminal.Platform` | Pty | Platform-utilities: input routing, path mapping, SSH transport/sessions, credential vault |
 | `NovaTerminal.CommandAssist` | (leaf) | Command Assist domain, models, storage, shell integration, view-models and application core. **No Avalonia** — see arch test `CommandAssist_must_not_depend_on_Avalonia_or_the_App` |
-| `NovaTerminal.App` | Platform, VT, Rendering, Pty, Replay, CommandAssist | Avalonia UI shell: windows, controls, command palette, settings, themes, command-assist views |
-| `NovaTerminal.Cli` | App | Headless CLI shim (`vt-report` etc.) |
-| `NovaTerminal.Conformance` | (standalone Exe) | VT conformance matrix tool used by tests and CI |
+| `NovaTerminal.Backup` | (leaf) | `.novabackup` bundle format, export/import/restore, the category-to-path catalogue, the debounced snapshot scheduler. Never reads secret storage |
+| `NovaTerminal.VtContract` | (leaf) | The machine-readable VT capability catalogue (`vt-capabilities.json`) and its strict schema validation |
+| `NovaTerminal.AgentHost.Contracts` | (leaf) | Wire protocol between the app's agent host and any external client: frames, discovery, source-generated JSON context |
+| `NovaTerminal.App` | Platform, VT, Rendering, Pty, Replay, CommandAssist, Backup, AgentHost.Contracts | Avalonia UI shell: windows, controls, command palette, settings, themes, command-assist views, Agent Output panel |
+| `NovaTerminal.McpServer` | AgentHost.Contracts, Backup, VtContract | stdio MCP server: repo/dev-companion tools, config validators, and the opt-in observe/act channel into live sessions. **Must not reference App, VT, Pty or Rendering** |
+| `NovaTerminal.Cli` | App | Headless CLI shim (`vt-report`, `--replay`, askpass, `backup` verbs) |
+| `NovaTerminal.Conformance` | VtContract | VT conformance matrix tool used by tests and CI |
 
 ### Hard Rule
 
@@ -163,6 +183,7 @@ Shell composition glue (startup orchestration, app paths/logging/services, sessi
 - Selection handling
 - Settings UI, theming, profiles
 - Command palette + command-assist (in-process shell-integration helpers)
+- The Agent Output panel (`AgentOutput/`): tracks the current command's output region and renders it as markdown into an Avalonia control tree. Parsing is Markdig; the control-tree rendering is this assembly's own `MarkdownRenderer`
 - Pane resizing (pixel → row/col calculation)
 
 ### Non-Responsibilities
@@ -264,13 +285,13 @@ App-side tests use xunit.v3 + `Avalonia.Headless.XUnit 12.0.4` (which carries th
 
 These are tracked in follow-up plans under `docs/plans/`:
 
-- **Renderer composition still lives in App.** `src/NovaTerminal.App/Shell/TerminalView.cs` (1,912 LOC) and `TerminalDrawOperation.cs` (2,723 LOC) implement the Skia-backed Avalonia renderer. They belong in `NovaTerminal.Rendering` behind a thin Avalonia binding shell. Planned extraction: `2026-MM-DD-renderer-composition-extraction-plan.md`.
+- **Renderer composition still lives in App.** `src/NovaTerminal.App/Shell/TerminalView.cs` (2,604 LOC) and `TerminalDrawOperation.cs` (2,935 LOC) implement the Skia-backed Avalonia renderer. They belong in `NovaTerminal.Rendering` behind a thin Avalonia binding shell. Planned extraction: `2026-MM-DD-renderer-composition-extraction-plan.md`.
 - **SSH is fragmented across Platform and App.** `Platform/Ssh/` holds the transport, while `App/Services/Ssh/`, `App/ViewModels/Ssh/`, `App/Views/Ssh/`, and `App/Shell/{SftpService,VaultService,SshAskPassCommand}.cs` hold the user-facing surface. A `NovaTerminal.Ssh` (or `.Remote`) assembly would consolidate the non-UI portion.
 - **CommandAssist Phase 0 has one item left.** Tasks 1–2 and 7 of `docs/plans/2026-08-01-command-assist-v2-plan.md` Phase 0 (the `NovaTerminal.CommandAssist` assembly extraction and its Avalonia-free key/geometry abstractions, #114) landed first; tasks 3, 5 and 6 followed (`CommandAssistServices` composed at the App root and injected into `TerminalPane`, a single ranking path with the history store reduced to a recall gate, and the append-only JSONL history store with in-memory index and compaction). What remains is task 4: `CommandAssistController` is ~940 LOC doing session state, capture, and suggestion orchestration at once, and splits into `AssistSessionStateMachine` / `CapturePipeline` / `SuggestionOrchestrator`. (`JsonSnippetStore` deliberately stays whole-file JSON — it writes only on pin/unpin/delete.)
 - **CLI ↔ App reference direction.** `Cli` currently references `App` and is built via a nested MSBuild target (`BuildCliShim` in `App.csproj`). A `NovaTerminal.Bootstrap` library should mediate so `Cli → Bootstrap ← App` replaces `Cli → App`.
 - **Byte vs string at the PTY boundary.** `ITerminalIO.SendInput(string)` and `OnOutputReceived(Action<string>)` lose information at the byte-vs-codepoint boundary (UTF-8 split across reads, embedded NULs, lone surrogates). Migrating to `ReadOnlySpan<byte>` / `Action<ReadOnlyMemory<byte>>` is the planned follow-up to Phase 5.
 - **Buffer-snapshot recording.** Phase 5 removed `ITerminalSession.AttachBuffer` / `TakeSnapshot`. The byte-stream is still recorded; buffer snapshots at recording start/stop are gone. Re-introducing them as an orchestration helper (likely in `Replay` or `Platform`) is a small follow-up.
-- **`MainWindow.axaml.cs` is 5,259 LOC, `TerminalPane.axaml.cs` 2,572 LOC, `SettingsWindow.axaml.cs` 1,672 LOC.** These code-behinds contain business logic that should live in services and view-models.
+- **`MainWindow.axaml.cs` is 8,755 LOC, `TerminalPane.axaml.cs` 5,029 LOC, `SettingsWindow.axaml.cs` 3,312 LOC** (measured 2026-09-03; each has grown 60-95% since this item was written, so the trend is the finding as much as the number). These code-behinds contain business logic that should live in services and view-models.
 - **`TerminalBuffer` is split across 10 partial files (~5K LOC).** Several of the partials (`WritePath`, `ReflowEngine`, `ThreadingAndInvalidation`, `TabStops`) want to be collaborators rather than partials.
 
 The 2026-05-28 architecture review (`docs/plans/2026-05-28-architecture-module-boundaries-review.md`) catalogs all of the above and ranks them by leverage.
