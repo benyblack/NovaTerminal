@@ -764,7 +764,7 @@ public sealed class VerticalTabStripTests
     // commit path above only exercised it vertically. This mirrors it along X through a
     // real horizontal strip (orientation via _settings.TabStripOrientation +
     // ApplyTabLayout, headers rebuilt through the wired horizontal factory) so the
-    // horizontal wiring - X axis selection, Height-side indicator thickness - is pinned
+    // horizontal wiring - X axis selection, width-side indicator thickness - is pinned
     // end-to-end too.
     [AvaloniaFact]
     public void DragReorder_Commit_HorizontalStrip_ReordersAlongX_AndRestoresSelection()
@@ -785,6 +785,13 @@ public sealed class VerticalTabStripTests
         driver.Move(host0, window, new Point(pressPos.X + 6, pressPos.Y));
         Assert.True(window.IsTabReorderDraggingForTest, "past-threshold move must begin the drag");
         Assert.Equal(0.5, host0.Opacity, 5);
+
+        // Mirror of the vertical orientation pin: a horizontal strip shows a vertical bar
+        // at the drop gap (2-DIP wide, at least the 16-DIP minimum length).
+        var indicator = FindInsertIndicator(window)!;
+        Assert.True(indicator.IsVisible);
+        Assert.Equal(2, indicator.Width);
+        Assert.True(indicator.Height >= 16, $"indicator height {indicator.Height} must span the row");
 
         // Drop past tab 2's center: insert index = count, so the dragged tab lands last.
         var pastTab2 = new Point(HeaderCenterInWindow(host2, window).X + 4, pressPos.Y);
@@ -850,6 +857,11 @@ public sealed class VerticalTabStripTests
 
         Assert.True(window.IsTabReorderDraggingForTest);
         Assert.True(indicator.IsVisible, "insert indicator must be visible mid-drag");
+
+        // Orientation: a vertical strip shows a horizontal bar spanning the drop gap
+        // (2-DIP tall, at least the 16-DIP minimum length), not a vertical caret.
+        Assert.Equal(2, indicator.Height);
+        Assert.True(indicator.Width >= 16, $"indicator width {indicator.Width} must span the row");
 
         driver.Release(host1, window, new Point(pressPos.X, pressPos.Y + 6));
 
