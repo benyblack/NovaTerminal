@@ -1,7 +1,9 @@
 ---
-// Release asset names follow the workflow in `.github/workflows/release.yml`:
+// Release asset names follow the workflows in `.github/workflows/release.yml`:
 // installers are `NovaTerminal-Setup-{rid}-{tag}.{exe,pkg}`, portable bundles are
-// `NovaTerminal-{rid}-{tag}.zip`. The Windows winget package id lives in
+// `NovaTerminal-{rid}-{tag}.zip`, and Linux ships `NovaTerminal-linux-{arch}-{tag}.AppImage`,
+// `NovaTerminal-linux-{arch}-{tag}.tar.gz`, and `novaterminal_{version}-1_{debarch}.deb`
+// from the publish_linux / release_linux lanes. The winget package id lives in
 // `packaging/winget/0.3.0/benyblack.NovaTerminal.yaml`.
 //
 // Ordered Windows, macOS, Linux: the two platforms with an installer come first,
@@ -21,7 +23,7 @@ const releases = [
     arch: 'arm64',
     installer: 'NovaTerminal-Setup-osx-arm64-<tag>.pkg',
     installerNote:
-      'Installs a proper NovaTerminal.app bundle, and updates itself in the background.',
+      'Installs a proper NovaTerminal.app bundle, and updates itself in the background. Signed and notarized — Gatekeeper opens it with no warnings.',
     asset: 'NovaTerminal-osx-arm64-<tag>.zip',
     cmd:
       'unzip NovaTerminal-osx-arm64-<tag>.zip\n' +
@@ -29,13 +31,18 @@ const releases = [
   },
   {
     platform: 'Linux',
-    arch: 'x64',
-    installer: null,
-    installerNote: null,
-    asset: 'NovaTerminal-linux-x64-<tag>.zip',
+    arch: 'x64 · arm64',
+    installer: 'NovaTerminal-linux-x64-<tag>.AppImage',
+    installerLabel: 'AppImage — recommended',
+    installerNote:
+      'Self-updating, like the Windows and macOS installers. Needs glibc 2.35+ (Ubuntu 22.04+, Debian 12+, Fedora 36+); arm64 builds on the same release page.',
+    asset: 'novaterminal_0.7.0-1_amd64.deb',
+    assetLabel: 'Or the .deb — system integration',
     cmd:
-      'unzip NovaTerminal-linux-x64-<tag>.zip\n' +
-      'chmod +x NovaTerminal && ./NovaTerminal',
+      'sudo apt install ./novaterminal_0.7.0-1_amd64.deb\n' +
+      'nova',
+    extraNote:
+      'The .deb adds a desktop entry, icons, `nova` on your PATH, and `man nova`, and updates via your package manager. Copy its exact filename from the release page. A portable .tar.gz is there too.',
   },
 ];
 
@@ -85,14 +92,16 @@ const buildSteps = [
       <p class="lede mt-4 max-w-2xl">
         Windows and macOS have one-click installers that keep themselves up to
         date — a new version downloads in the background and applies on your next
-        restart. Every platform also ships a portable Native AOT bundle for
-        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">win-x64</code>,
-        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">linux-x64</code>, and
-        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">osx-arm64</code>; portable builds have no updater. Every release runs the gating unit-test lane on all three OSes before any bundle is published. Replace <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">&lt;tag&gt;</code> with the version you downloaded.
+        restart. Linux ships a self-updating AppImage, a system
+        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">.deb</code>, and a portable tarball, for
+        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">x64</code> and
+        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">arm64</code> alike. Every release runs the gating unit-test lane on all three OSes before any bundle is published. Replace <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">&lt;tag&gt;</code> with the version you downloaded.
       </p>
       <p class="mt-4 max-w-2xl text-sm text-ink-400">
-        Installers are not code-signed yet, so Windows SmartScreen and macOS
-        Gatekeeper will warn on first run — see
+        macOS builds are signed and notarized (since v0.7.0), so Gatekeeper
+        opens them normally. Windows installers are not code-signed yet, so
+        SmartScreen will warn on first run — choose{' '}
+        <em>More info → Run anyway</em>; see
         {' '}
         <a
           href="https://github.com/benyblack/NovaTerminal/issues/91"
@@ -131,7 +140,7 @@ const buildSteps = [
             {rel.installer && (
               <div class="mt-4">
                 <p class="text-xs font-semibold uppercase tracking-wider text-nova-300">
-                  Installer — recommended
+                  {rel.installerLabel ?? 'Installer — recommended'}
                 </p>
                 <p class="mt-1 font-mono text-[11px] text-ink-400">
                   {rel.installer}
@@ -141,12 +150,17 @@ const buildSteps = [
             )}
 
             <p class="mt-4 text-xs font-semibold uppercase tracking-wider text-ink-400">
-              {rel.installer ? 'Portable — no updater' : 'Portable'}
+              {rel.assetLabel ?? (rel.installer ? 'Portable — no updater' : 'Portable')}
             </p>
             <p class="mt-1 font-mono text-[11px] text-ink-400">
               {rel.asset}
             </p>
             <pre class="code-block mt-3 text-xs leading-relaxed"><code>{rel.cmd}</code></pre>
+            {rel.extraNote && (
+              <p class="mt-3 text-xs leading-relaxed text-ink-400">
+                {rel.extraNote}
+              </p>
+            )}
           </article>
         ))
       }
