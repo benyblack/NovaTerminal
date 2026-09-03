@@ -66,7 +66,66 @@ public sealed class MarkdownPresenceDetectorTests
         Assert.True(MarkdownPresenceDetector.LooksLikeMarkdown(markdown));
     }
 
+    [Fact]
+    public void BulletsOnlyAnswer_IsDetected()
+    {
+        // Reported from the running app: "claude -p explain X in 3 bullets" left the MD button
+        // hidden. A bullets-only answer carries no heading, fence, table or task list, so the
+        // strong-signal floor was unreachable at any number of bullets - and this is the single
+        // most common shape the panel exists to render.
+        const string output = """
+            Here is the breakdown:
+
+            - **AI Harness** wraps the model in a tool-calling loop.
+            - **Context** is assembled per turn from files and prior messages.
+            - **Tools** are declared as schemas the model can invoke.
+            """;
+        Assert.True(MarkdownPresenceDetector.LooksLikeMarkdown(output));
+    }
+
+    [Fact]
+    public void NumberedAnswerWithoutAHeading_IsDetected()
+    {
+        // The same shape, ordered - agents alternate between the two freely.
+        const string output = """
+            Three steps:
+            1. Read the config
+            2. Apply fixes
+            3. Re-run the build
+            """;
+        Assert.True(MarkdownPresenceDetector.LooksLikeMarkdown(output));
+    }
+
     // ---------------------------------------------------------------- noise that must not trigger
+
+    [Fact]
+    public void TwoBulletsAlone_IsBelowTheBar()
+    {
+        // The floor is three: a bare pair of dash lines is common in build and install logs and
+        // carries no other markdown structure to corroborate it.
+        const string output = """
+            notes:
+            - first
+            - second
+            """;
+        Assert.False(MarkdownPresenceDetector.LooksLikeMarkdown(output));
+    }
+
+    [Fact]
+    public void ThreeBulletShellBanner_IsDetected_AcceptedFalsePositive()
+    {
+        // The documented cost of the three-list-line floor: clink's startup banner is three dash
+        // bullets, so a fresh cmd pane shows the MD button. Accepted on this class's stated bias -
+        // a pointless button is cheap, a hidden feature is not - and it ages out of the panel's
+        // recent-tail window as soon as real output scrolls in.
+        const string output = """
+            Clink v1.9.32 is available.
+            - To apply the update, run 'clink update'.
+            - To stop checking for updates, run 'clink set clink.autoupdate off'.
+            - To view the release notes, visit the Releases page:
+            """;
+        Assert.True(MarkdownPresenceDetector.LooksLikeMarkdown(output));
+    }
 
     [Fact]
     public void PlainProgramOutput_IsNotDetected()

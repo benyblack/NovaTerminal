@@ -19,8 +19,9 @@ namespace NovaTerminal.AgentOutput;
 /// </para>
 /// <para>
 /// <b>False negative</b> (button hidden on real markdown): costs discoverability. Two distinct
-/// strong signals, or one strong signal plus a couple of list lines, is the floor real agent
-/// output clears easily and incidental terminal noise does not.
+/// strong signals, one strong signal plus a couple of list lines, or a list of at least three
+/// items on its own, is the floor real agent output clears easily and incidental terminal noise
+/// mostly does not.
 /// </para>
 /// <para>
 /// Detection is line-structural on purpose - no regex, no markdown parse. It runs against a
@@ -29,6 +30,19 @@ namespace NovaTerminal.AgentOutput;
 /// </remarks>
 public static class MarkdownPresenceDetector
 {
+    /// <summary>
+    /// List lines that carry a verdict on their own, with no corroborating strong signal.
+    /// </summary>
+    /// <remarks>
+    /// Three, because that is where the two error costs cross. A bare pair of dash lines is
+    /// ordinary in build and install logs, so two cannot be enough; three list items with nothing
+    /// else markdown-shaped around them is already far more likely to be an answer than a log.
+    /// The known price is a shell banner that opens with three bullets - clink's does - putting
+    /// the button on a fresh pane until real output scrolls past it. That is the cheap direction
+    /// of the trade this class documents.
+    /// </remarks>
+    private const int ListOnlyFloor = 3;
+
     public static bool LooksLikeMarkdown(string text)
     {
         bool fence = false;
@@ -73,7 +87,14 @@ public static class MarkdownPresenceDetector
         }
 
         int strongSignals = (fence ? 1 : 0) + (heading ? 1 : 0) + (table ? 1 : 0) + (taskList ? 1 : 0);
-        return strongSignals >= 2 || (strongSignals >= 1 && listLines >= 2);
+
+        // The third clause is the one that admits a bullets-only answer. Without it the strong
+        // signals gate everything, and "explain X in three bullets" - no heading, no fence, no
+        // table, no checkboxes - could not reach the bar at any number of bullets, which hid the
+        // button on the single most common shape the panel exists for.
+        return strongSignals >= 2
+            || (strongSignals >= 1 && listLines >= 2)
+            || listLines >= ListOnlyFloor;
     }
 
     private static bool IsFence(string line)
