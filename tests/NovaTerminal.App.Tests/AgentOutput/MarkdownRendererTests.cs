@@ -258,4 +258,70 @@ public sealed class MarkdownRendererTests
         Assert.IsType<StackPanel>(result.Root);
         Assert.False(result.HasTransformBlock);
     }
+
+    [Fact]
+    public void MarkdownFence_RendersNestedBlocks_NotSource()
+    {
+        MarkdownRenderResult result = MarkdownRenderer.Build("```markdown\n# Nested Title\n```\n", Anchor);
+
+        // A rendered heading is a TextBlock with the heading's own size, not a monospace code run.
+        TextBlock? heading = TextBlocks((StackPanel)result.Root)
+            .FirstOrDefault(b => TextOf(b).Contains("Nested Title", StringComparison.Ordinal));
+        Assert.NotNull(heading);
+        Assert.True(heading!.FontSize > 12, "a rendered heading is larger than code text");
+        Assert.True(result.HasTransformBlock);
+    }
+
+    [Fact]
+    public void MarkdownFence_WithSwitchOff_RendersSource_ButStillReportsTransform()
+    {
+        MarkdownRenderResult result = MarkdownRenderer.Build(
+            "```markdown\n# Nested Title\n```\n",
+            Anchor,
+            renderFencedMarkdown: false);
+
+        TextBlock? source = TextBlocks((StackPanel)result.Root)
+            .FirstOrDefault(b => TextOf(b).Contains("# Nested Title", StringComparison.Ordinal));
+        Assert.NotNull(source);
+
+        // The switch must stay visible, or the choice is not reversible.
+        Assert.True(result.HasTransformBlock);
+    }
+
+    [Fact]
+    public void MarkdownFence_NestedInsideAnother_RendersTheInnerOneAsSource()
+    {
+        const string md = "````markdown\n# Outer\n\n```markdown\n# Inner\n```\n````\n";
+
+        MarkdownRenderResult result = MarkdownRenderer.Build(md, Anchor);
+
+        // Outer renders: its heading is a real heading.
+        TextBlock? outer = TextBlocks((StackPanel)result.Root)
+            .FirstOrDefault(b => TextOf(b).Contains("Outer", StringComparison.Ordinal));
+        Assert.NotNull(outer);
+        Assert.True(outer!.FontSize > 12);
+
+        // Inner does not: its hash survives as literal text at the depth cap.
+        TextBlock? inner = TextBlocks((StackPanel)result.Root)
+            .FirstOrDefault(b => TextOf(b).Contains("# Inner", StringComparison.Ordinal));
+        Assert.NotNull(inner);
+    }
+
+    [Fact]
+    public void MarkdownFence_KeepsCopyYieldingRawSource()
+    {
+        string? copied = null;
+        MarkdownRenderResult result = MarkdownRenderer.Build(
+            "```markdown\n# Nested Title\n```\n",
+            Anchor,
+            onCopyText: text => copied = text);
+
+        Button copy = Descendants((StackPanel)result.Root).OfType<Button>().First(b => b.Content as string == "Copy");
+        copy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        // Contains, not Equal: whether GetLinesText keeps a trailing newline is not this test's
+        // subject. The surviving hash is what proves Copy yielded source rather than rendered text.
+        Assert.NotNull(copied);
+        Assert.Contains("# Nested Title", copied!, StringComparison.Ordinal);
+    }
 }
