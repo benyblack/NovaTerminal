@@ -547,6 +547,56 @@ public sealed class AgentOutputRegionTrackerTests
     }
 
     [Fact]
+    public async Task PanelOpenedAfterAnIdleEnter_ShowsThePrecedingResponse()
+    {
+        // Reported from the running app: the panel opened on its "No output yet" empty state
+        // while the response was still on screen. Enter at an idle prompt - a keystroke away at
+        // any shell sitting at a prompt - pins a row whose region is empty forever, and it
+        // displaced the row belonging to the response above it.
+        using var h = new Harness(enabled: false);
+        h.Write("Clink v1.9.25.dc17e7\r\n");
+        h.Write(" behna \uE0B0  ~ \uE0B0 \u276F agent --task");
+        h.Tracker.CaptureHeuristicStart();
+        h.Output("## Latest answer", "the payload");
+
+        // The command finished, the shell drew a fresh prompt, and Enter landed on it.
+        h.Write(" behna \uE0B0  ~ \uE0B0 \u276F ");
+        h.Tracker.CaptureHeuristicStart();
+
+        h.Tracker.SetEnabled(true);
+        h.Tracker.FlushNow(includeRecentTailFallback: true);
+        await WaitForAsync(() => h.UpdateCount > 0);
+
+        // The displaced row answers, so the response is recovered exactly - not blanked, and not
+        // widened into the whole pane by falling straight through to the prompt-shape snapshot.
+        Assert.Contains("## Latest answer", h.LastText, StringComparison.Ordinal);
+        Assert.Contains("the payload", h.LastText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Clink", h.LastText, StringComparison.Ordinal);
+        Assert.False(h.LastStreaming);
+    }
+
+    [Fact]
+    public async Task CorrectiveFlushWithADeadRow_FallsBackToTheSnapshot()
+    {
+        // A scrollback reset kills the remembered row outright (the reader refuses a mark from a
+        // dead coordinate epoch). The corrective flush must still put something in the panel.
+        using var h = new Harness(enabled: false);
+        h.Write(" behna \uE0B0  ~ \uE0B0 \u276F agent --task");
+        h.Tracker.CaptureHeuristicStart();
+        h.Output("## Answer", "payload");
+
+        h.Write("\x1b[3J\x1b[H");
+        h.Write("## After the reset\r\nstill readable");
+
+        h.Tracker.SetEnabled(true);
+        h.Tracker.FlushNow(includeRecentTailFallback: true);
+        await WaitForAsync(() => h.UpdateCount > 0);
+
+        Assert.Contains("After the reset", h.LastText, StringComparison.Ordinal);
+        Assert.False(h.LastStreaming);
+    }
+
+    [Fact]
     public async Task AltScreenWhileTracked_PostsNoUpdates()
     {
         using var h = new Harness()

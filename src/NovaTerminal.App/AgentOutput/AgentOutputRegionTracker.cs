@@ -76,6 +76,7 @@ public sealed class AgentOutputRegionTracker : IDisposable
     private bool _enabled;
     private bool _regionActive;
     private ShellIntegrationMark? _heuristicStart;
+    private ShellIntegrationMark? _previousHeuristicStart;
     private int _lastPostedHash;
     private int _lastPostedStreaming;
     private int _dedupeStale;
@@ -250,6 +251,10 @@ public sealed class AgentOutputRegionTracker : IDisposable
         // there is no B mark. False on an active alt screen, which is the right refusal.
         if (CommandOutputReader.TryCaptureOutputStart(buffer, null, out ShellIntegrationMark start))
         {
+            // The displaced row is kept as a retry. An Enter that submitted nothing - a bare
+            // prompt, which is a keystroke away at any idle shell - pins a row whose region stays
+            // empty forever, and it must not bury the response sitting right above it.
+            _previousHeuristicStart = _heuristicStart;
             _heuristicStart = start;
         }
     }
@@ -289,6 +294,7 @@ public sealed class AgentOutputRegionTracker : IDisposable
     {
         _regionActive = false;
         _heuristicStart = null;
+        _previousHeuristicStart = null;
         AdvanceGeneration();
     }
 
@@ -360,11 +366,27 @@ public sealed class AgentOutputRegionTracker : IDisposable
                 _heuristicStart = null;
             }
 
+            // A corrective flush still owes the panel something. Leaving it on its empty state
+            // while readable output sits on screen is the worst of the three answers.
+            if (fallbackToRecentTail)
+            {
+                PostCorrectiveFallback(buffer, generation);
+            }
+
             return;
         }
 
         if (Volatile.Read(ref _generation) != generation)
         {
+            return;
+        }
+
+        // An empty region is a real answer while a command streams - it has printed nothing yet -
+        // but on a corrective flush it means the remembered row did not pan out, and the panel
+        // must not blank out over output the user can see above it.
+        if (text.Length == 0 && fallbackToRecentTail && !_regionActive)
+        {
+            PostCorrectiveFallback(buffer, generation);
             return;
         }
 
@@ -375,6 +397,35 @@ public sealed class AgentOutputRegionTracker : IDisposable
         // re-marks itself on the next debounce tick, one window later.
         bool live = streaming && (_regionActive || !fallbackToRecentTail);
         DeliverUpdate(text, live, generation);
+    }
+
+    /// <summary>
+    /// What a corrective flush posts when the newest remembered row cannot answer: the row before
+    /// it, and failing that the prompt-shape snapshot.
+    /// </summary>
+    /// <remarks>
+    /// The ladder exists because the newest row is not always the interesting one. Pressing Enter
+    /// at an idle prompt pins a row that will never hold output, and it lands on top of the row
+    /// for the response the user actually wants to read. Retrying the displaced row recovers that
+    /// response exactly; the snapshot below it is the guess of last resort, and guesses at prompt
+    /// shape are why this ladder is preferred over starting there.
+    /// </remarks>
+    private void PostCorrectiveFallback(TerminalBuffer buffer, int generation)
+    {
+        if (_previousHeuristicStart is ShellIntegrationMark previous &&
+            CommandOutputReader.TryReadOutputTail(buffer, previous, RegionBudget, out string text) &&
+            text.Length > 0)
+        {
+            if (Volatile.Read(ref _generation) != generation)
+            {
+                return;
+            }
+
+            DeliverUpdate(text, streaming: false, generation);
+            return;
+        }
+
+        TryPostRecentTailSnapshot(buffer, generation);
     }
 
     /// <summary>
