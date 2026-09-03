@@ -328,6 +328,7 @@ jobs:
           dotnet test tests/NovaTerminal.App.Tests -c "$CONFIGURATION" --no-build --no-restore \
             --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng&Lane!=PlatformBoot" \
             --blame-hang-timeout 5m --blame-hang-dump-type mini \
+            --results-directory tests/NovaTerminal.App.Tests/TestResults/main \
             --logger "trx;LogFileName=unit_app.trx"
 
       # Lane!=PlatformBoot above, Lane=PlatformBoot here: these run in a SEPARATE PROCESS on
@@ -352,6 +353,7 @@ jobs:
           dotnet test tests/NovaTerminal.App.Tests -c "$CONFIGURATION" --no-build --no-restore \
             --filter "Lane=PlatformBoot&Category!=GoldenSharedPng" \
             --blame-hang-timeout 5m --blame-hang-dump-type mini \
+            --results-directory tests/NovaTerminal.App.Tests/TestResults/platformboot \
             --logger "trx;LogFileName=unit_app_platformboot.trx"
 
       # Gates the lane above on its own results: any failing test not named in
@@ -365,11 +367,18 @@ jobs:
           # windows-latest ships python.exe; ubuntu ships python3. Pick whichever exists.
           py=python3
           command -v "$py" >/dev/null 2>&1 || py=python
+          # Each lane has its own results directory, and that is load-bearing rather than tidy:
+          # the gate tells "hung" from "crashed" by whether a hang dump sits beside the trx, so
+          # with one shared TestResults/ each lane would see the other's dump. That reported the
+          # PlatformBoot lane as truncated when it had finished cleanly, and would have let a
+          # leftover dump excuse a genuine crash in the other lane.
           status=0
-          for trx in unit_app unit_app_platformboot; do
+          for lane in main:unit_app platformboot:unit_app_platformboot; do
+            dir="${lane%%:*}"
+            trx="${lane##*:}"
             echo "::group::$trx"
             "$py" scripts/check-app-tests-baseline.py \
-              "tests/NovaTerminal.App.Tests/TestResults/$trx.trx" \
+              "tests/NovaTerminal.App.Tests/TestResults/$dir/$trx.trx" \
               tests/app-tests-known-flaky.txt || status=1
             echo "::endgroup::"
           done
