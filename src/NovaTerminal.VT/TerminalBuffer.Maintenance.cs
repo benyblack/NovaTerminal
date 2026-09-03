@@ -350,13 +350,39 @@ namespace NovaTerminal.VT
                 // so a snapshot captured after this call always observes the new epoch.
                 _renderThemeEpoch++;
 
-                // Sync current buffer defaults to new theme
-                if (IsDefaultForeground) CurrentForeground = Theme.Foreground;
-                if (IsDefaultBackground) CurrentBackground = Theme.Background;
-                SyncThemeDefaultsInCursorStateNoLock(_savedCursors.Main);
-                SyncThemeDefaultsInCursorStateNoLock(_savedCursors.Alt);
-                SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Main);
-                SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Alt);
+                // Sync current buffer defaults to new theme. The CurrentForeground/Background
+                // SETTERS clear the default flag as a side effect, so the flag is re-asserted
+                // AFTER each assignment - otherwise the first theme switch silently demotes the
+                // live SGR state to explicit colors and every cell written afterwards stops
+                // following later theme switches. The paint-to-match adoption also covers the
+                // live SGR state: a shell that queried OSC 11 and kept the answered background
+                // active across the switch must not re-materialize the old color on its next
+                // write.
+                if (IsDefaultForeground)
+                {
+                    CurrentForeground = Theme.Foreground;
+                    IsDefaultForeground = true;
+                }
+                if (IsDefaultBackground)
+                {
+                    CurrentBackground = Theme.Background;
+                    IsDefaultBackground = true;
+                }
+                if (!IsDefaultForeground && CurrentFgIndex < 0 && CurrentForeground == oldTheme.Foreground)
+                {
+                    CurrentForeground = Theme.Foreground;
+                    IsDefaultForeground = true;
+                }
+                if (!IsDefaultBackground && CurrentBgIndex < 0 && CurrentBackground == oldTheme.Background)
+                {
+                    CurrentBackground = Theme.Background;
+                    IsDefaultBackground = true;
+                }
+
+                SyncThemeDefaultsInCursorStateNoLock(_savedCursors.Main, oldTheme.Foreground, oldTheme.Background);
+                SyncThemeDefaultsInCursorStateNoLock(_savedCursors.Alt, oldTheme.Foreground, oldTheme.Background);
+                SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Main, oldTheme.Foreground, oldTheme.Background);
+                SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Alt, oldTheme.Foreground, oldTheme.Background);
 
                 // Materialized/paint-to-match adoption: shells and CLIs query OSC 11 and then
                 // explicitly paint their prompt/status regions with the ANSWERED terminal

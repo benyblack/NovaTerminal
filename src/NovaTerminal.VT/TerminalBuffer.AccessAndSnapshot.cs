@@ -294,15 +294,27 @@ namespace NovaTerminal.VT
             IsHidden = false;
         }
 
-        private void SyncThemeDefaultsInCursorStateNoLock(CursorState state)
+        private void SyncThemeDefaultsInCursorStateNoLock(CursorState state, TermColor oldForeground, TermColor oldBackground)
         {
             if (state.IsDefaultForeground)
             {
                 state.Foreground = Theme.Foreground;
             }
+            else if (state.FgIndex < 0 && state.Foreground == oldForeground)
+            {
+                // OSC 11 paint-to-match adoption (same rationale as UpdateCell): a saved SGR
+                // state holding the answered old background must not restore stale colors.
+                state.IsDefaultForeground = true;
+                state.Foreground = Theme.Foreground;
+            }
 
             if (state.IsDefaultBackground)
             {
+                state.Background = Theme.Background;
+            }
+            else if (state.BgIndex < 0 && state.Background == oldBackground)
+            {
+                state.IsDefaultBackground = true;
                 state.Background = Theme.Background;
             }
         }

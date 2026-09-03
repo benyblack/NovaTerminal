@@ -71,6 +71,7 @@ namespace NovaTerminal.Tests.BufferTests
 
         private static RenderCellSnapshot[] FindRowCells(TerminalRenderSnapshot snapshot, char firstChar, char secondChar)
         {
+            var dump = new System.Text.StringBuilder();
             for (int r = 0; r < snapshot.RowsData.Length; r++)
             {
                 var row = snapshot.RowsData.Array![r];
@@ -78,9 +79,18 @@ namespace NovaTerminal.Tests.BufferTests
                 {
                     return row.Cells;
                 }
+
+                dump.Append($" row{r}='");
+                for (int c = 0; c < Math.Min(12, row.Cells.Length); c++)
+                {
+                    dump.Append(row.Cells[c].Character == '\0' ? '~' : row.Cells[c].Character);
+                }
+
+                dump.Append('\'');
             }
 
-            throw new Xunit.Sdk.XunitException($"row starting with '{firstChar}{secondChar}' not found in the snapshot");
+            throw new Xunit.Sdk.XunitException(
+                $"row starting with '{firstChar}{secondChar}' not found in the snapshot.{dump}");
         }
 
         private static void AssertBannerRowUsesNewTheme(TerminalBuffer buffer, TerminalTheme newTheme, bool populateSnapshotCacheFirst)
@@ -227,6 +237,71 @@ namespace NovaTerminal.Tests.BufferTests
 
             var cells = FindRowCells(after, 'P', 'S');
             Assert.True(cells[0].IsDefaultBackground, "paint-to-match cells must be adopted as default background");
+            Assert.Equal(newTheme.Background, cells[0].Background);
+        }
+
+        [Fact]
+        public void ActivePaintToMatchSgr_AcrossSwitch_NextWriteUsesTheNewTheme()
+        {
+            // Greptile P1 on the paint-to-match adoption: a shell that KEEPS the OSC-derived
+            // SGR active across the switch must not re-materialize the old color on its next
+            // write - the live SGR state has to be adopted along with the cells.
+            var oldTheme = LoadTheme("SolarizedDark");
+            var newTheme = LoadTheme("GitHubLight");
+            var buffer = new TerminalBuffer(80, 6) { Theme = oldTheme };
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[48;2;0;43;54mPS ");
+
+            buffer.Theme = newTheme;
+            buffer.UpdateThemeColors(oldTheme);
+            parser.Process("C:\\Users\\behna>");
+
+            var after = buffer.CaptureRenderSnapshot(new RenderSnapshotRequest
+            {
+                ViewportRows = 6,
+                ViewportCols = 80,
+                ScrollOffset = 0
+            }, out _);
+
+            var cells = FindRowCells(after, 'P', 'S');
+            for (int i = 0; i < 18; i++)
+            {
+                Assert.True(cells[i].IsDefaultBackground,
+                    $"cell {i} ('{cells[i].Character}') kept a non-default background after the switch");
+                Assert.Equal(newTheme.Background, cells[i].Background);
+            }
+        }
+
+        [Fact]
+        public void SavedCursor_WithPaintToMatchSgr_RestoresAdoptedStateAfterSwitch()
+        {
+            // The same gap for DECSC/DECRC: a saved cursor state holding the OSC-derived
+            // background must restore as the adopted (new default) state, not the old color.
+            // SaveCursor/RestoreCursor are driven directly so the test exercises the state
+            // adoption rather than escape-sequence parsing.
+            var oldTheme = LoadTheme("SolarizedDark");
+            var newTheme = LoadTheme("GitHubLight");
+            var buffer = new TerminalBuffer(80, 6) { Theme = oldTheme };
+            var parser = new AnsiParser(buffer);
+
+            buffer.SaveCursor();
+            parser.Process("\x1b[48;2;0;43;54m");
+
+            buffer.Theme = newTheme;
+            buffer.UpdateThemeColors(oldTheme);
+            buffer.RestoreCursor();
+            parser.Process("restored");
+
+            var after = buffer.CaptureRenderSnapshot(new RenderSnapshotRequest
+            {
+                ViewportRows = 6,
+                ViewportCols = 80,
+                ScrollOffset = 0
+            }, out _);
+
+            var cells = FindRowCells(after, 'r', 'e');
+            Assert.True(cells[0].IsDefaultBackground);
             Assert.Equal(newTheme.Background, cells[0].Background);
         }
 

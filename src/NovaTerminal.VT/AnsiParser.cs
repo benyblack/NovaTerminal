@@ -1619,6 +1619,11 @@ namespace NovaTerminal.VT
         {
             _buffer.CurrentForeground = _buffer.Theme.Foreground;
             _buffer.CurrentBackground = _buffer.Theme.Background;
+            // The CurrentForeground/Background setters clear the default flags; re-assert them
+            // so output after a reset keeps following theme switches instead of materializing
+            // the default colors as explicit ones.
+            _buffer.IsDefaultForeground = true;
+            _buffer.IsDefaultBackground = true;
             _buffer.CurrentFgIndex = -1;
             _buffer.CurrentBgIndex = -1;
             _buffer.IsInverse = false;
