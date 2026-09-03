@@ -68,14 +68,13 @@ all three OSes before any bundle is published.
 The installer and the executables are **not code-signed yet** ([#91](https://github.com/benyblack/NovaTerminal/issues/91)),
 so SmartScreen will warn on first run. Choose *More info → Run anyway*.
 
-**Linux / macOS**
+**macOS**
 
 - **macOS (Apple Silicon)** — download `NovaTerminal-Setup-osx-arm64-<tag>.pkg` from the
   [latest release](https://github.com/benyblack/NovaTerminal/releases/latest) and run it;
   it installs into `/Applications` (or `~/Applications`) as a proper `NovaTerminal.app`
   bundle. Alternatively grab `NovaTerminal-osx-arm64-<tag>.zip`, open it, and drag
   `NovaTerminal.app` to `/Applications`.
-- **Linux** — download the `linux-x64` zip and extract it anywhere, or build from source.
 
 macOS builds installed via the `.pkg` check for updates in the background and apply them
 on restart, same as Windows. If the app lives in `/Applications`, macOS will ask for your
@@ -92,6 +91,74 @@ notarized**, so Gatekeeper blocks their first launch. On macOS 13+:
 
 From a terminal, the one-liner equivalent is
 `xattr -cr /Applications/NovaTerminal.app`.
+
+**Linux**
+
+Requires **glibc 2.35 or newer** — Ubuntu 22.04+, Debian 12+, Fedora 36+, or a current
+rolling distro. Debian 11 and RHEL 8/9 are not supported.
+
+**AppImage** (recommended — updates itself):
+
+```sh
+# Replace <tag> with the latest release, and x64 with arm64 on ARM machines.
+curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/NovaTerminal-linux-x64-<tag>.AppImage
+chmod +x NovaTerminal-linux-x64-<tag>.AppImage
+mkdir -p ~/Applications && mv NovaTerminal-linux-x64-<tag>.AppImage ~/Applications/
+~/Applications/NovaTerminal-linux-x64-<tag>.AppImage
+```
+
+Keep it somewhere you can write, such as `~/Applications` — the app updates itself by
+rewriting the AppImage, which it cannot do from a root-owned path like `/opt`.
+
+Ubuntu 22.04 and later ship no FUSE 2 by default, which AppImages need. Either
+install it (`sudo apt install fuse`, which pulls in `libfuse2` — `libfuse2` alone
+supplies only the library, not the `fusermount` binary the mount step needs) or
+run with `--appimage-extract-and-run`.
+
+**Debian / Ubuntu package** (system integration; update via your package manager):
+
+The `.deb` filename is not the release tag substituted into a template, unlike
+every other asset on this page. `build-deb.sh` always appends a Debian revision
+(`-1`), and for a prerelease tag it also turns the `-` before the prerelease
+label into `~` — dpkg reads the *last* `-` in a version as the revision
+separator, so a prerelease left as `-beta.1` would parse as upstream `0.5.0`
+revision `beta.1` and sort *above* the eventual `0.5.0-1` final release; `~`
+sorts before everything, so `~beta.1-1` correctly sorts below it. `v0.5.3` ships
+as `novaterminal_0.5.3-1_amd64.deb`; `v0.5.0-beta.1` is built as
+`novaterminal_0.5.0~beta.1-1_amd64.deb`, but GitHub replaces `~` with `.` in
+release asset names, so the file you'll actually see on the releases page for a
+prerelease is named `novaterminal_0.5.0.beta.1-1_amd64.deb` — the package's
+internal `Version:` field (what dpkg reads) still carries the `~`, so
+installation works either way; stable tags have no `~` to sanitize, so this
+doesn't affect them. That's exactly why you shouldn't construct the filename
+yourself — copy it verbatim from the [releases page](https://github.com/benyblack/NovaTerminal/releases):
+
+```sh
+curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/<exact .deb filename from the release page>
+sudo apt install ./<same filename>
+nova
+```
+
+On ARM machines, grab the `arm64` asset instead of `amd64` — the `.deb` uses
+Debian architecture names (`amd64`/`arm64`), not the `x64`/`arm64` RID names the
+AppImage and tarball below use.
+
+Installs `nova` on your PATH, an app-menu entry, and `man nova`. The in-app updater is
+inactive for package installs by design.
+
+**Portable tarball** (no integration):
+
+```sh
+# Replace <tag> with the latest release, and x64 with arm64 on ARM machines.
+curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/NovaTerminal-linux-x64-<tag>.tar.gz
+tar -xzf NovaTerminal-linux-x64-<tag>.tar.gz && ./NovaTerminal
+```
+
+NovaTerminal is not registered as your default terminal. To do that yourself after
+installing the `.deb`, see `man nova`.
+
+For details on what each Linux package contains and its known limitations, see
+[packaging/linux](packaging/linux/README.md).
 
 For build steps, jump to [Build & test](#build--test) below.
 

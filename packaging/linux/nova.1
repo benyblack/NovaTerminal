@@ -1,0 +1,55 @@
+.TH NOVA 1 "2026-09-02" "NovaTerminal" "User Commands"
+.SH NAME
+nova \- NovaTerminal, a modern terminal emulator
+.SH SYNOPSIS
+.B nova
+.RI [ options ]
+.SH DESCRIPTION
+.B nova
+launches the NovaTerminal graphical terminal emulator. Run with no arguments to
+open a window with your default shell.
+.PP
+The same executable also serves several headless command modes, used by CI and by
+agent tooling. Any argument list that does not match one of them launches the GUI.
+.SH OPTIONS
+.TP
+.B \-\-vt-report
+Print a VT/ANSI conformance report to standard output and exit.
+.TP
+.BI \-\-replay " FILE"
+Replay a recorded session file through the deterministic terminal core and print the
+final screen. Exit status is 0 on success, 1 if the file is unreadable or truncated,
+and 2 on a usage error.
+.TP
+.B backup
+Configuration backup and restore. See
+.B nova backup \-\-help
+for its own subcommands.
+.TP
+.B \-\-ssh-askpass
+Act as an SSH_ASKPASS helper. Invoked by ssh, not normally by hand.
+.SH FILES
+.TP
+.I ~/.local/share/NovaTerminal
+Configuration, themes, and session state. Never modified by package upgrades or removal.
+.SH NOTES
+This package does not register NovaTerminal as the system
+.BR x-terminal-emulator (1).
+To do so yourself:
+.PP
+.RS
+.nf
+sudo update\-alternatives \-\-install /usr/bin/x\-terminal\-emulator \\
+    x\-terminal\-emulator /usr/bin/nova 40
+.fi
+.RE
+.PP
+Note that callers of
+.B x-terminal-emulator
+pass
+.BI \-e " command"
+to run a single command, which
+.B nova
+does not yet implement.
+.SH SEE ALSO
+Project homepage: https://github.com/benyblack/NovaTerminal

@@ -58,6 +58,20 @@ namespace NovaTerminal.Shell.Secrets
             {
                 // Resolve glib helpers first. On Windows/macOS this throws
                 // DllNotFoundException, which we catch below -> IsAvailable == false.
+                //
+                // The SAME catch also fires on a Linux machine that merely lacks
+                // libsecret/glib, where it is NOT a benign "wrong OS" signal: it
+                // silently disables persistent SSH password storage with no
+                // user-visible error. There is nothing to do about that here (the
+                // whole point of this type is to degrade instead of throwing), so it
+                // is handled where it can be: the libsecret-1-0 and
+                // libglib2.0-0{,t64} sonames are declared in the DLOPEN_LIBS table in
+                // packaging/linux/build-deb.sh, which both puts them in the .deb's
+                // Depends: and makes packaging/linux/smoke-test.sh assert they
+                // resolve in a container that installed nothing else. If you add or
+                // change a native library referenced from this file, add it there too
+                // - `ldd` cannot see a runtime-loaded library, so packaging has no
+                // other way to find out.
                 IntPtr glib = NativeLibrary.Load(Glib);
                 _gStrHash = NativeLibrary.GetExport(glib, "g_str_hash");
                 _gStrEqual = NativeLibrary.GetExport(glib, "g_str_equal");

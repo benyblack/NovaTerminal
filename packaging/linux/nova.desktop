@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=NovaTerminal
+GenericName=Terminal Emulator
+Comment=A modern terminal emulator
+Exec=/usr/bin/nova
+Icon=novaterminal
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=shell;prompt;command;commandline;terminal;
+StartupNotify=true
+StartupWMClass=NovaTerminal
