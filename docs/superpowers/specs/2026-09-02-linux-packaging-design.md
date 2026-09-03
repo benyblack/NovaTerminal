@@ -503,3 +503,89 @@ Tracked as: #383 (APT repository), #384 (terminal-emulator contract),
    built in this task, so the Linux result is source-derived (the code path is
    platform-agnostic — no Avalonia, no P/Invoke) rather than independently verified
    on Linux.
+
+## Retrospective (2026-09-03, after merge)
+
+Shipped in #386, merged as `f9240a3`. Proven end to end by prerelease `v0.7.0-rc.1`
+(release run `33740981976`): both architectures published an AppImage, a `.deb`, a
+tarball, a full nupkg and a per-arch `releases.linux-<arch>.json`, and the smoke gate
+passed on both — including the FUSE-mounted AppImage launch on `ubuntu-24.04-arm`.
+
+Kept here rather than in a separate document because the useful part is short, and
+because the design rationale it qualifies is already above it.
+
+### The recurring defect was assertions that could not fail
+
+Seven of them, across nine review rounds. Not one was visible by reading the line:
+
+| Assertion | Why it could not fail |
+|---|---|
+| dependency dedupe | fixture's only ELF was `/bin/true`, whose sole dep is skipped |
+| root ownership | harness ran as uid 0, so `--root-owner-group` was untestable |
+| per-ELF `ldd` | discovery used `file`, absent from the container by design |
+| `.dbg` nupkg leak | `unzip \| grep` with no `pipefail`: missing `unzip` → vacuous pass |
+| window probe | `xdotool` never authenticated to its own `xvfb-run` server |
+| bundle ELF count | derived from files *present*, so it could not notice an absence |
+| `layout checked` | `pass` printed unconditionally, beneath its own failures |
+
+Two directions of failure, and both shipped: some passed vacuously, others failed
+closed on correct input. The fix that generalises is not more assertions but
+**checks that detect their own vacuity** — `smoke-test.sh` now fails if ELF discovery
+reaches zero files, and `build-deb.sh`'s `DLOPEN_LIBS` table is the single source
+both the package and the gate derive from, with the gate additionally asserting the
+installed `.deb`'s own `Depends:` covers every row. Neither half can drift alone.
+
+When touching any check here, ask what concrete defect trips it, then arrange for it
+to trip once. An assertion nobody has watched fail is not yet an assertion.
+
+### A dependency list cannot verify its own completeness
+
+The `.deb` derives dependencies two ways because eight of the nine X11/fontconfig
+libraries are invisible to `ldd` — Avalonia `dlopen`s them. That measurement is real,
+but it says nothing about whether the hand-maintained half is *complete*: a missing
+row is invisible to both mechanisms at once. Exactly that happened —
+`LinuxSecretStore`'s `libsecret-1.so.0` and `libglib-2.0.so.0` were absent, so a clean
+install would have silently lost persistent SSH password storage, with `IsAvailable`
+swallowing the load failure.
+
+The audit that closed it is worth reusing: **sweep the shipped NativeAOT binary's
+string table.** AOT compiles the managed closure in, so every resolvable P/Invoke
+module name is a literal in the binary — which makes Avalonia's and SkiaSharp's
+dlopens visible instead of assumed. Grepping `src/` alone cannot see them.
+
+### Local verification cannot certify an environment it does not reproduce
+
+Two CI failures were environment gaps, not code defects, and both survived a fully
+green local end-to-end run:
+
+- **GitHub runs `container:` job `run:` blocks under `sh`, not `bash`.** Every local
+  proof invoked `docker run … bash -c`, so `set -o pipefail` was never exercised as
+  GitHub would. Fixed with `defaults.run.shell: bash` on the three container jobs.
+- **`libfuse2` does not provide `fusermount` on Ubuntu 22.04** — the `fuse` package
+  does. This was also a bug in our own README advice, so users following it would
+  have hit the same error.
+
+### Decisions a future maintainer may want to revisit
+
+- **`libssl3` / `libgssapi_krb5` are undeclared runtime loads**, left out because both
+  are `Priority: required` and resolve in a bare `ubuntu:22.04`, so a soname assertion
+  for them could not fail. Strict policy would declare `libssl3` anyway — the updater
+  does TLS. One row in `DLOPEN_LIBS` if you prefer completeness.
+- **The container recipe exists in three places** (`ci.yml`'s build job, `release.yml`'s
+  `build_native_linux` and `publish_linux`). They are byte-identical apart from `jq`
+  today; if they diverge, the derived `Depends:` diverges between the CI dry run and the
+  real release. A composite action is the fix when a fourth caller appears.
+- **The delta guard reads one page of 100 releases.** Past 100, a channel whose last
+  release fell off page 1 reads as "first release"; combined with a failed download that
+  permits a silent full-only publish. Shared with the win and osx lanes.
+- **AppImage dependencies are not gated the way the `.deb`'s are** — the coverage
+  assertion reads `dpkg-query`, which an AppImage has no equivalent of.
+
+Follow-ups: #383 (signed APT repo), #384 (`nova -e` then `x-terminal-emulator`),
+#385 (Flatpak/AUR/RPM/Snap), #390 (the macOS dSYM assertion has the same vacuous shape
+this branch fixed on the Linux side), #391 (a ~1-in-3 Windows PTY flake).
+
+The full working record — 39 decisions with what each costs if wrong, the complete
+dlopen inventory, and every review round — is untracked at
+`.superpowers/sdd/2026-09-02-linux-packaging/`, deliberately: most of it is review
+diffs git already stores.
