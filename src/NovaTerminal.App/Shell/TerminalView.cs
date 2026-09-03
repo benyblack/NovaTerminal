@@ -920,6 +920,10 @@ namespace NovaTerminal.Shell
                     // Update all existing cells, remapping old theme colors to new
                     _buffer.UpdateThemeColors(oldTheme);
 
+                    TerminalLogger.Log(
+                        $"[TerminalView] Theme applied: '{_buffer.Theme.Name}' (was '{oldTheme.Name}'); " +
+                        $"buffer {_buffer.Cols}x{_buffer.Rows}.");
+
                     // Force immediate visual refresh
                     InvalidateVisual();
                 }

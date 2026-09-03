@@ -215,7 +215,8 @@ namespace NovaTerminal.VT.Storage
 
         /// <summary>
         /// Updates cells that rely on default foreground or background colors to a new theme.
-        /// This is an O(n) operation over all used cells, invoked rarely during a theme change.
+        /// Explicit colors are left untouched, even when they equal the old default. This is an
+        /// O(n) operation over all used cells, invoked rarely during a theme change.
         /// </summary>
         public void UpdateThemeDefaults(uint newFg, uint newBg)
         {

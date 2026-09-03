@@ -27,6 +27,9 @@
         <SolidColorBrush x:Key="NtBlueDim"    Color="#2461afef"/>
         <SolidColorBrush x:Key="NtBlueFaint"  Color="#1561afef"/>
         <SolidColorBrush x:Key="NtBlueBorder" Color="#4d61afef"/>
+        <SolidColorBrush x:Key="NtAccentHover"   Color="#7cc1f5"/>
+        <SolidColorBrush x:Key="NtAccentPressed" Color="#4f9bde"/>
+        <SolidColorBrush x:Key="NtAccentFg"      Color="#0a1622"/>
         <SolidColorBrush x:Key="NtGreen"      Color="#98c379"/>
         <SolidColorBrush x:Key="NtYellow"     Color="#e5c07b"/>
         <SolidColorBrush x:Key="NtRed"        Color="#e06c75"/>
@@ -64,7 +67,7 @@
         <!-- Primary action button -->
         <Style Selector="Button.Primary">
             <Setter Property="Background" Value="{StaticResource NtBlue}"/>
-            <Setter Property="Foreground" Value="#0a1622"/>
+            <Setter Property="Foreground" Value="{StaticResource NtAccentFg}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="CornerRadius" Value="5"/>
@@ -74,10 +77,10 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
         <Style Selector="Button.Primary:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#7cc1f5"/>
+            <Setter Property="Background" Value="{StaticResource NtAccentHover}"/>
         </Style>
         <Style Selector="Button.Primary:pressed /template/ ContentPresenter">
-            <Setter Property="Background" Value="#4f9bde"/>
+            <Setter Property="Background" Value="{StaticResource NtAccentPressed}"/>
         </Style>
 
         <!-- Secondary pill button -->
@@ -356,7 +359,7 @@
                             ToolTip.Tip="Create a new SSH connection"
                             Click="OnNewConnectionClick">
                         <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" Width="12" Height="12" Foreground="#0a1622"/>
+                            <PathIcon Data="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" Width="12" Height="12" Foreground="{StaticResource NtAccentFg}"/>
                             <TextBlock Text="New"/>
                         </StackPanel>
                     </Button>
@@ -565,7 +568,7 @@
                                     Click="OnOpenCurrentClick"
                                     ToolTip.Tip="Open in current pane">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <PathIcon Data="M8,5.14V19.14L19,12.14L8,5.14Z" Width="11" Height="11" Foreground="#0a1622"/>
+                                    <PathIcon Data="M8,5.14V19.14L19,12.14L8,5.14Z" Width="11" Height="11" Foreground="{StaticResource NtAccentFg}"/>
                                     <TextBlock Text="Open"/>
                                 </StackPanel>
                             </Button>

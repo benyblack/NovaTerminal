@@ -345,6 +345,11 @@ namespace NovaTerminal.VT
             Lock.EnterWriteLock();
             try
             {
+                // Invalidate render-side caches keyed by the theme epoch (paged-scrollback
+                // snapshots and everything derived from them). Must happen under the write lock
+                // so a snapshot captured after this call always observes the new epoch.
+                _renderThemeEpoch++;
+
                 // Sync current buffer defaults to new theme
                 if (IsDefaultForeground) CurrentForeground = Theme.Foreground;
                 if (IsDefaultBackground) CurrentBackground = Theme.Background;
@@ -353,6 +358,11 @@ namespace NovaTerminal.VT
                 SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Main);
                 SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Alt);
 
+                // NOTE: deliberately no value-based adoption here. Rewriting cells whose color
+                // happens to equal the old default would also capture explicitly-requested
+                // truecolors (programs query OSC 11 and paint to match the terminal), silently
+                // converting them to theme-following defaults. Explicit stays explicit; only
+                // flagged default cells migrate.
                 void UpdateCell(ref TerminalCell cell)
                 {
                     // Preserve palette/default flags across theme switches.
