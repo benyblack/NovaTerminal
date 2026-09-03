@@ -223,9 +223,19 @@ public sealed class AgentOutputRegionTracker : IDisposable
     /// thread from the pane's Enter observation, and only when shell integration is not active -
     /// with integration, <see cref="NotifyCommandAccepted"/> owns the region.
     /// </summary>
+    /// <remarks>
+    /// Deliberately <b>not</b> gated on <see cref="_enabled"/>, for the same reason
+    /// <see cref="NotifyCommandAccepted"/> is not: Enter is the only moment this row is
+    /// answerable, and a panel opened afterwards still needs it. Without the remembered row the
+    /// snapshot has to guess where the response starts by recognizing prompt shapes, which only
+    /// works for the handful of prompts <c>RecentTailSanitizer</c> knows - a themed prompt
+    /// (powerline segments, a right-aligned clock) matches none of them, and the panel then
+    /// renders the whole pane, shell banner included. Remembering the row costs a struct while
+    /// the panel is closed and removes the guess entirely.
+    /// </remarks>
     public void CaptureHeuristicStart()
     {
-        if (!_enabled || _regionActive)
+        if (_regionActive)
         {
             return;
         }
@@ -296,9 +306,10 @@ public sealed class AgentOutputRegionTracker : IDisposable
     private void ReadScheduled(object? state)
     {
         // While the panel is closed the timer drives markdown-presence detection instead of
-        // region reads - nothing is being tracked, and the MD button's visibility is the thing
-        // that needs updating.
-        if (!_enabled && !_regionActive && !_heuristicStart.HasValue)
+        // region reads: the MD button's visibility is the thing that needs updating, and
+        // ReadAndPostCore would refuse anyway. This covers the closed-panel ticks that now
+        // carry a remembered Enter row, which the earlier shape routed into that refusal.
+        if (!_enabled)
         {
             CheckMarkdownPresence(Volatile.Read(ref _generation));
             return;
@@ -357,7 +368,13 @@ public sealed class AgentOutputRegionTracker : IDisposable
             return;
         }
 
-        DeliverUpdate(text, streaming, generation);
+        // A corrective flush - the panel just opened, or the alternate screen just closed - that
+        // resolved its region from a remembered Enter row rather than a live C mark is looking at
+        // history. The markless path has no D edge, so "streaming" there is a guess that nothing
+        // would ever retract; post it finished instead. A command that really is still printing
+        // re-marks itself on the next debounce tick, one window later.
+        bool live = streaming && (_regionActive || !fallbackToRecentTail);
+        DeliverUpdate(text, live, generation);
     }
 
     /// <summary>

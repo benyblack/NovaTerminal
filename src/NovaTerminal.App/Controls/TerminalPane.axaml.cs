@@ -2210,11 +2210,8 @@ namespace NovaTerminal.Controls
         /// </summary>
         private void OnAgentOutputEnterObserved()
         {
-            if (_agentOutput is not { IsPanelOpen: true })
-            {
-                return;
-            }
-
+            // Not gated on the panel being open: the row is only answerable at Enter, and a panel
+            // opened later needs it to bound the response instead of guessing at prompt shapes.
             if (_isShellIntegrationActive)
             {
                 return;

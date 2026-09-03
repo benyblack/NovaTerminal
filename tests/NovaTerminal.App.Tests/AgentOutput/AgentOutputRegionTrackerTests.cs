@@ -498,6 +498,55 @@ public sealed class AgentOutputRegionTrackerTests
     }
 
     [Fact]
+    public async Task PanelOpenedAfterAMarklessCommand_ShowsThatCommandsOutputOnly()
+    {
+        // The real-world shape behind the whole-pane bug: a themed prompt (powerline segments,
+        // no "PS ", no drive letter at column 0, no user@host) that prompt-shape matching cannot
+        // recognize, so the snapshot handed the panel the entire scrollback - shell banner and
+        // every earlier round included. The remembered Enter row bounds it instead.
+        using var h = new Harness(enabled: false);
+        h.Write("Clink v1.9.25.dc17e7\r\nCopyright (c) 2012-2018 Martin Ridgers\r\n");
+        h.Write(" behna \uE0B0  ~ \uE0B0 \u276F earlier --round\r\n");
+        h.Write("## Earlier answer\r\n");
+
+        // The prompt for the command that matters, then Enter - observed while the panel is
+        // CLOSED, which is exactly the case the old gate threw away.
+        h.Write(" behna \uE0B0  ~ \uE0B0 \u276F agent --task");
+        h.Tracker.CaptureHeuristicStart();
+        h.Output("## Latest answer", "the payload");
+
+        // The panel opens after the fact.
+        h.Tracker.SetEnabled(true);
+        h.Tracker.FlushNow(includeRecentTailFallback: true);
+        await WaitForAsync(() => h.UpdateCount > 0);
+
+        Assert.Contains("## Latest answer", h.LastText, StringComparison.Ordinal);
+        Assert.Contains("the payload", h.LastText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Clink", h.LastText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Earlier answer", h.LastText, StringComparison.Ordinal);
+
+        // Opened after the fact, so the panel is looking at history, not a live stream.
+        Assert.False(h.LastStreaming);
+    }
+
+    [Fact]
+    public async Task PanelOpenedWithNoEnterEverObserved_StillFallsBackToTheSnapshot()
+    {
+        // Output that predates the app - or a pane that never saw an Enter - has no remembered
+        // row to bound, so the prompt-shape snapshot stays the last resort rather than the panel
+        // showing nothing at all.
+        using var h = new Harness(enabled: false);
+        h.Write("## Answer from before\r\nstill worth showing\r\n");
+
+        h.Tracker.SetEnabled(true);
+        h.Tracker.FlushNow(includeRecentTailFallback: true);
+        await WaitForAsync(() => h.UpdateCount > 0);
+
+        Assert.Contains("Answer from before", h.LastText, StringComparison.Ordinal);
+        Assert.False(h.LastStreaming);
+    }
+
+    [Fact]
     public async Task AltScreenWhileTracked_PostsNoUpdates()
     {
         using var h = new Harness()
