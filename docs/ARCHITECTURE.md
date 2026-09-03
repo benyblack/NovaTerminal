@@ -22,7 +22,7 @@ All architectural decisions follow from these goals.
 
 ## 2. Assembly Graph
 
-NovaTerminal is structured as eleven focused .NET assemblies. The dependency graph is acyclic. Each assembly's namespace matches its assembly name (enforced by `tests/NovaTerminal.Architecture.Tests/NamespaceAlignmentTests`).
+NovaTerminal is structured as thirteen focused .NET assemblies. The dependency graph is acyclic. Each assembly's namespace matches its assembly name (enforced by `tests/NovaTerminal.Architecture.Tests/NamespaceAlignmentTests`).
 
 ```
 Cli ──► App ──► Platform ──► Pty ──► Replay ──► VT
@@ -41,7 +41,7 @@ McpServer  ──► AgentHost.Contracts     (leaf)
 Conformance ─► VtContract              (leaf)
 ```
 
-Four of those eleven are **leaves with no project references at all**:
+Four of those thirteen are **leaves with no project references at all**:
 `CommandAssist`, `Backup`, `VtContract`, `AgentHost.Contracts`. The empty
 reference list is the point — it is what lets `McpServer` share real code with
 the app without acquiring a transitive path into `App`, `VT`, `Pty` or
