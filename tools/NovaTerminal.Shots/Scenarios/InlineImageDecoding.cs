@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using NovaTerminal.Controls;
 using NovaTerminal.Shell;
@@ -8,33 +8,24 @@ using SkiaSharp;
 namespace NovaTerminal.Shots.Scenarios;
 
 /// <summary>
-/// Shared machinery for <see cref="SixelGraphicsScenario"/> and
-/// <see cref="Iterm2InlineImageScenario"/>: the region-scoped verification that a decoded picture
-/// actually reached the screen, and the column check that it landed without wrecking the text
-/// around it. Both scenarios are unregistered in <see cref="ScenarioCatalog"/> - see the class
-/// remarks below and each scenario's own header comment.
+/// Shared verification for <see cref="SixelGraphicsScenario"/> and
+/// <see cref="Iterm2InlineImageScenario"/>: that a decoded picture actually reached the screen, and
+/// that it landed without wrecking the text around it.
 /// </summary>
 /// <remarks>
 /// <para>
-/// These scenarios were originally deferred because nothing under <c>src/</c> assigned
-/// <see cref="AnsiParser.ImageDecoder"/>: <c>HandleSixel</c> and <c>HandleITerm2Image</c> both
-/// early-return when it is null, so a plain build parsed each escape sequence correctly and then
-/// silently dropped the picture. An earlier version of this harness worked around that by injecting
-/// its own <c>IImageDecoder</c> before the image-emitting command ran, which made the screenshots
-/// demonstrate a capability no shipped build had - worse than staging content, because it staged a
-/// feature. That injection was removed.
+/// Both checks exist because both have failed in production, and neither is caught by anything else
+/// the harness runs. A terminal that drops the escape sequence leaves the image's rectangle at the
+/// pane background, which the blank-raster guard never notices because the surrounding transcript is
+/// full of ink; and an image that decodes perfectly while the prompt beside it is indented or wrapped
+/// mid-word is not a publishable picture either.
 /// </para>
 /// <para>
-/// The gap has since been closed in production: <c>TerminalPane.CreateAndWireParser</c> assigns
-/// <c>Parser.ImageDecoder = new NovaTerminal.Rendering.SkiaImageDecoder()</c>, and no injection is
-/// needed or wanted - by the time either scenario runs, the pane's parser already has a real
-/// decoder. Both scenarios decode genuinely today.
-/// </para>
-/// <para>
-/// They remain unregistered for a different reason, and it is the one
-/// <see cref="AssertTextResumesAtColumnZero"/> exists to name: the cursor is not returned to column
-/// 0 after an image is placed, so the next prompt resumes mid-row. Decoding is only half of
-/// "rendered inline", and the published image has to satisfy both halves.
+/// Historically these scenarios were unregistered because <c>src/</c> assigned no
+/// <see cref="AnsiParser.ImageDecoder"/> at all, and an earlier version of this harness injected one
+/// - making the screenshots demonstrate a capability no shipped build had. That injection was
+/// removed, and production has since wired a real decoder, so nothing is injected here now: by the
+/// time either scenario runs, <c>pane.Parser.ImageDecoder</c> is already set by the application.
 /// </para>
 /// </remarks>
 internal static class InlineImageDecoding

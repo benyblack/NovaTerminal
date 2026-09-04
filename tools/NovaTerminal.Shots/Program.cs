@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using NovaTerminal.Shell;
 using NovaTerminal.Shots.Scenarios;
 using SkiaSharp;

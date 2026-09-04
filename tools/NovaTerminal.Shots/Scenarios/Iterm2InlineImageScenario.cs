@@ -1,36 +1,34 @@
-﻿using NovaTerminal.Controls;
+using NovaTerminal.Controls;
 
 namespace NovaTerminal.Shots.Scenarios;
 
 /// <summary>
-/// DEFERRED - unregistered from <see cref="ScenarioCatalog"/>, not deleted. Do not re-register
-/// without first re-reading this comment and confirming its premise no longer holds.
+/// An image decoded and rendered inline in the terminal via the iTerm2 image protocol.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The original blocker is gone.</b> This scenario was deferred because nothing under
-/// <c>src/</c> implemented or wired <see cref="NovaTerminal.VT.IImageDecoder"/>, so
-/// <c>AnsiParser.HandleITerm2Image</c> always hit its <c>if (ImageDecoder == null) return;</c>
-/// guard and a plain build parsed the OSC 1337 <c>File=</c> framing and then dropped the picture.
-/// That was fixed upstream: <c>TerminalPane.CreateAndWireParser</c> now assigns
-/// <c>Parser.ImageDecoder = new NovaTerminal.Rendering.SkiaImageDecoder()</c>. Run today, this
-/// scenario renders the logo for real and
-/// <see cref="InlineImageDecoding.AssertImageRegionDecoded"/> passes on genuine pixels.
+/// <b>Formerly deferred; both blockers are now fixed.</b> This scenario spent a long time
+/// implemented but unregistered, for two separate reasons in sequence.
 /// </para>
 /// <para>
-/// <b>What still blocks it:</b> the cursor is not returned to column 0 once the image is placed.
-/// Here that is worse than sixel's indent - the prompt resumes at column 74 of a 116-column pane,
-/// on the image's own last row, then overruns the right edge and wraps, splitting
-/// "(feat/sixel-decoder)" across two lines. The Intent asks for the image "correctly positioned
-/// relative to the surrounding text"; this is the opposite.
-/// <see cref="InlineImageDecoding.AssertTextResumesAtColumnZero"/> fails on it rather than letting
-/// a mangled image through.
+/// First, nothing under <c>src/</c> assigned <see cref="NovaTerminal.VT.AnsiParser.ImageDecoder"/>,
+/// so the parser consumed the escape sequence correctly and then dropped the picture - a plain
+/// build rendered nothing. An earlier version of this harness papered over that by injecting its
+/// own decoder, which made the screenshot advertise a capability no shipped build had; that
+/// injection was removed rather than kept. Production now wires a real decoder
+/// (<c>TerminalPane.CreateAndWireParser</c> assigns <c>SkiaImageDecoder</c>), so the picture here
+/// is decoded by the same code a user runs.
 /// </para>
 /// <para>
-/// <b>To re-enable:</b> once <c>src/</c> leaves the cursor at column 0 after an image, add
-/// <c>new Iterm2InlineImageScenario()</c> back to <c>ScenarioCatalog</c>'s list. No other code
-/// change is required - the asset (<c>Assets/nova-logo.png</c>) and <c>scripts/imgcat.sh</c> remain
-/// valid as-is.
+/// Second, the cursor was not returned to column 0 once an image was placed, so the shell prompt
+/// after it resumed mid-row - an indent for sixel, and for the narrower iTerm2 logo an overrun
+/// past the last column that wrapped the prompt mid-word. That is fixed too (#405), along with the
+/// follow-on where the post-image newline swallow leaked past other output and ate a later line
+/// break.
+/// </para>
+/// <para>
+/// <see cref="InlineImageDecoding"/> asserts both properties on every run - a genuinely decoded
+/// region, and text resuming at column 0 - so neither blocker can return unnoticed.
 /// </para>
 /// </remarks>
 internal sealed class Iterm2InlineImageScenario : IScenario
