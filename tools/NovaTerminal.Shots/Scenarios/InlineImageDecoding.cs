@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using NovaTerminal.Controls;
 using NovaTerminal.Shell;
@@ -10,40 +10,31 @@ namespace NovaTerminal.Shots.Scenarios;
 /// <summary>
 /// Shared machinery for <see cref="SixelGraphicsScenario"/> and
 /// <see cref="Iterm2InlineImageScenario"/>: the region-scoped verification that a decoded picture
-/// actually reached the screen. Both scenarios are unregistered in <see cref="ScenarioCatalog"/>
-/// pending a product fix — see the class remarks below and each scenario's own header comment.
+/// actually reached the screen, and the column check that it landed without wrecking the text
+/// around it. Both scenarios are unregistered in <see cref="ScenarioCatalog"/> - see the class
+/// remarks below and each scenario's own header comment.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="AnsiParser.ImageDecoder"/> is a public, settable dependency the parser was built
-/// to take (<c>HandleSixel</c> and <c>HandleITerm2Image</c> both early-return when it is null),
-/// but nothing under <c>src/NovaTerminal.App</c> ever assigns it —
-/// <c>TerminalPane.CreateAndWireParser</c> (<c>TerminalPane.axaml.cs:2806</c>) constructs a bare
-/// <c>new AnsiParser(Buffer)</c> and stops there. The only other assignments in the repository
-/// are test doubles (see <c>AnsiParserHardeningTests.RecordingImageDecoder</c>). So a plain build
-/// parses both escape sequences correctly — DCS sixel framing, OSC 1337's <c>File=</c>
-/// parameters, the base64 payload — but never turns the bytes into pixels:
-/// <c>HandleSixel</c> (<c>AnsiParser.cs:1685</c>) and <c>HandleITerm2Image</c>
-/// (<c>AnsiParser.cs:2720</c>) both early-return on the null decoder before ever calling
-/// <c>TerminalBuffer.AddImage</c>. No shipped build renders either protocol today.
+/// These scenarios were originally deferred because nothing under <c>src/</c> assigned
+/// <see cref="AnsiParser.ImageDecoder"/>: <c>HandleSixel</c> and <c>HandleITerm2Image</c> both
+/// early-return when it is null, so a plain build parsed each escape sequence correctly and then
+/// silently dropped the picture. An earlier version of this harness worked around that by injecting
+/// its own <c>IImageDecoder</c> before the image-emitting command ran, which made the screenshots
+/// demonstrate a capability no shipped build had - worse than staging content, because it staged a
+/// feature. That injection was removed.
 /// </para>
 /// <para>
-/// An earlier version of this harness worked around that gap by assigning
-/// <c>parser.ImageDecoder ??= new ShotsImageDecoder()</c> before either scenario's image-emitting
-/// command ran, supplying its own <c>IImageDecoder</c> implementation (Skia's decoder for iTerm2
-/// bytes, <see cref="NovaTerminal.Rendering.SixelDecoder"/> for sixel — both genuine decodes, not
-/// canned bitmaps). That made the resulting screenshots misleading: they showed capability no
-/// plain build has, which is worse than staging content, because it stages a feature. The
-/// injection (<c>ShotsImageDecoder.cs</c> and the <c>EnableRealDecoding</c> method that assigned
-/// it) has been removed. See the Task 13 report for the full trail (grep results, line numbers)
-/// and why fixing this for real belongs in <c>src/</c>, which this task may not touch.
+/// The gap has since been closed in production: <c>TerminalPane.CreateAndWireParser</c> assigns
+/// <c>Parser.ImageDecoder = new NovaTerminal.Rendering.SkiaImageDecoder()</c>, and no injection is
+/// needed or wanted - by the time either scenario runs, the pane's parser already has a real
+/// decoder. Both scenarios decode genuinely today.
 /// </para>
 /// <para>
-/// Both scenarios, their assets, <c>scripts/imgcat.sh</c>, and this region-scoped verification
-/// are kept in the tree, deliberately unregistered from <see cref="ScenarioCatalog"/>. Re-enabling
-/// them once <c>src/</c> wires a real decoder is two catalogue lines — no decoder-injection code
-/// needs to come back, because at that point <c>pane.Parser.ImageDecoder</c> will already be set
-/// by production before either scenario ever runs.
+/// They remain unregistered for a different reason, and it is the one
+/// <see cref="AssertTextResumesAtColumnZero"/> exists to name: the cursor is not returned to column
+/// 0 after an image is placed, so the next prompt resumes mid-row. Decoding is only half of
+/// "rendered inline", and the published image has to satisfy both halves.
 /// </para>
 /// </remarks>
 internal static class InlineImageDecoding
@@ -120,6 +111,8 @@ internal static class InlineImageDecoding
         using var cropped = new SKBitmap(region.Width, region.Height);
         frame.ExtractSubset(cropped, region);
 
+        AssertTextResumesAtColumnZero(buffer, image, protocolLabel);
+
         double ink = Rasterizer.InkFraction(cropped);
         if (ink <= 0.05)
         {
@@ -128,6 +121,61 @@ internal static class InlineImageDecoding
                 "did not decode. A decoded picture is not a uniform rectangle; this one is, which " +
                 "is what a terminal that dropped the escape sequence and left background in its " +
                 "place would also look like.");
+        }
+    }
+    /// <summary>
+    /// Fails unless the first line of text below the image starts at column 0.
+    /// </summary>
+    /// <remarks>
+    /// Decoding is only half of "rendered inline". Both Intents also require the picture to sit
+    /// <i>correctly positioned relative to the surrounding text</i>, and that half fails today even
+    /// though the decode succeeds: the cursor is not returned to column 0 after an image is placed,
+    /// so the shell's next prompt begins partway across the row the image ended on. For sixel that
+    /// is a visible indent; for the narrower iTerm2 logo the prompt starts far enough right to
+    /// overrun the last column and wrap mid-word, splitting "(feat/sixel-decoder)" across two lines.
+    ///
+    /// <see cref="AssertImageRegionDecoded"/> cannot catch it - the image region itself is perfectly
+    /// good ink - and neither can the blank-raster guard. Without this check both scenarios report
+    /// success while producing an image no one would publish, which is the same shape of silent
+    /// wrongness that shipped an empty hero-split pane.
+    /// </remarks>
+    private static void AssertTextResumesAtColumnZero(TerminalBuffer buffer, TerminalImage image, string protocolLabel)
+    {
+        // Scans from the image's own first row, not from the row below it. The cursor is not
+        // always left past the image: for the iTerm2 logo the prompt resumes on the image's *last*
+        // row (column 54 of a 116-column pane) and wraps from there, so a scan starting below the
+        // picture walks straight past the offending line and onto its column-0 continuation, and
+        // reports success. Text on any row the image occupies is itself the defect - both scenarios
+        // emit their image from a command of its own, so nothing legitimate shares those rows.
+        int firstRowBelow = image.CellY;
+
+        for (int row = firstRowBelow; row < buffer.TotalLines; row++)
+        {
+            int viewportRow = row - Math.Max(0, buffer.TotalLines - buffer.Rows);
+            if (viewportRow < 0 || viewportRow >= buffer.ViewportRows.Count)
+            {
+                continue;
+            }
+
+            TerminalCell[] cells = buffer.ViewportRows[viewportRow].Cells;
+            int firstInked = Array.FindIndex(cells, c => c.Character != ' ' && !char.IsWhiteSpace(c.Character));
+
+            if (firstInked < 0)
+            {
+                continue;
+            }
+
+            if (firstInked > 0)
+            {
+                throw new InvalidOperationException(
+                    $"{protocolLabel}: the first text below the image starts at column {firstInked}, " +
+                    "not column 0, so the cursor was left mid-row after the image was placed. The " +
+                    "picture decoded, but the prompt after it is indented (and, if it starts far " +
+                    "enough right, wraps mid-word) - the Intent requires the image correctly " +
+                    "positioned relative to the surrounding text, not merely present.");
+            }
+
+            return;
         }
     }
 }

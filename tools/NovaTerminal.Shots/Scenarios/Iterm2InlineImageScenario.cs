@@ -1,37 +1,36 @@
-using NovaTerminal.Controls;
+﻿using NovaTerminal.Controls;
 
 namespace NovaTerminal.Shots.Scenarios;
 
 /// <summary>
-/// DEFERRED — unregistered from <see cref="ScenarioCatalog"/>, not deleted. Do not re-register
+/// DEFERRED - unregistered from <see cref="ScenarioCatalog"/>, not deleted. Do not re-register
 /// without first re-reading this comment and confirming its premise no longer holds.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>What is missing:</b> no production code anywhere under <c>src/</c> implements or wires
-/// <see cref="NovaTerminal.VT.IImageDecoder"/>. <c>TerminalPane.CreateAndWireParser</c>
-/// (<c>src/NovaTerminal.App/TerminalPane.axaml.cs:2806</c>) constructs a bare
-/// <c>new AnsiParser(Buffer)</c> and never assigns <c>Parser.ImageDecoder</c>. As a result,
-/// <c>AnsiParser.HandleITerm2Image</c> (<c>src/NovaTerminal.VT/AnsiParser.cs:2720</c>) always
-/// hits its <c>if (ImageDecoder == null) return;</c> guard and never calls
-/// <c>TerminalBuffer.AddImage</c>. (The Kitty graphics protocol handler at
-/// <c>AnsiParser.cs:2557</c> has the identical guard, for the same reason, though no scenario in
-/// this catalogue exercises it.) A plain NovaTerminal build parses the OSC 1337 <c>File=</c>
-/// framing and its base64 payload correctly and then silently drops the picture — nothing
-/// renders.
+/// <b>The original blocker is gone.</b> This scenario was deferred because nothing under
+/// <c>src/</c> implemented or wired <see cref="NovaTerminal.VT.IImageDecoder"/>, so
+/// <c>AnsiParser.HandleITerm2Image</c> always hit its <c>if (ImageDecoder == null) return;</c>
+/// guard and a plain build parsed the OSC 1337 <c>File=</c> framing and then dropped the picture.
+/// That was fixed upstream: <c>TerminalPane.CreateAndWireParser</c> now assigns
+/// <c>Parser.ImageDecoder = new NovaTerminal.Rendering.SkiaImageDecoder()</c>. Run today, this
+/// scenario renders the logo for real and
+/// <see cref="InlineImageDecoding.AssertImageRegionDecoded"/> passes on genuine pixels.
 /// </para>
 /// <para>
-/// This scenario previously passed only because the harness assigned its own
-/// <c>IImageDecoder</c> onto the pane's parser before running — see
-/// <see cref="InlineImageDecoding"/>'s remarks for why that was removed: it made the screenshot
-/// demonstrate a capability no shipped build has.
+/// <b>What still blocks it:</b> the cursor is not returned to column 0 once the image is placed.
+/// Here that is worse than sixel's indent - the prompt resumes at column 74 of a 116-column pane,
+/// on the image's own last row, then overruns the right edge and wraps, splitting
+/// "(feat/sixel-decoder)" across two lines. The Intent asks for the image "correctly positioned
+/// relative to the surrounding text"; this is the opposite.
+/// <see cref="InlineImageDecoding.AssertTextResumesAtColumnZero"/> fails on it rather than letting
+/// a mangled image through.
 /// </para>
 /// <para>
-/// <b>To re-enable:</b> once <c>src/</c> gets a real <c>IImageDecoder</c> implementation wired
-/// into <c>TerminalPane.CreateAndWireParser</c> (a <c>src/</c> change, out of scope for the shots
-/// harness), this scenario needs no code change at all — just add
-/// <c>new Iterm2InlineImageScenario()</c> back to <c>ScenarioCatalog</c>'s list. The asset
-/// (<c>Assets/nova-logo.png</c>) and <c>scripts/imgcat.sh</c> remain valid as-is.
+/// <b>To re-enable:</b> once <c>src/</c> leaves the cursor at column 0 after an image, add
+/// <c>new Iterm2InlineImageScenario()</c> back to <c>ScenarioCatalog</c>'s list. No other code
+/// change is required - the asset (<c>Assets/nova-logo.png</c>) and <c>scripts/imgcat.sh</c> remain
+/// valid as-is.
 /// </para>
 /// </remarks>
 internal sealed class Iterm2InlineImageScenario : IScenario

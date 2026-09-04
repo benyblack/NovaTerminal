@@ -1,21 +1,28 @@
-using NovaTerminal.Shots.Scenarios;
+﻿using NovaTerminal.Shots.Scenarios;
 
 namespace NovaTerminal.Shots;
 
 public static class ScenarioCatalog
 {
     // SixelGraphicsScenario and Iterm2InlineImageScenario are deliberately NOT registered here.
-    // Both are implemented, their assets and scripts/imgcat.sh are still seeded by DemoWorld, and
-    // their region-scoped verification (InlineImageDecoding.AssertImageRegionDecoded) still
-    // exists — but no production code under src/ implements or wires an IImageDecoder onto
-    // AnsiParser (TerminalPane.CreateAndWireParser constructs a bare `new AnsiParser(Buffer)`;
-    // see AnsiParser.cs's HandleSixel/HandleITerm2Image null-decoder guards), so a plain build
-    // decodes neither protocol. An earlier version of this harness worked around that by
-    // injecting its own IImageDecoder before each scenario ran, which made the screenshots
-    // demonstrate a capability no shipped build has — see InlineImageDecoding.cs's remarks and
-    // each scenario's own header comment for the full evidence trail. Re-enable by adding
-    // `new SixelGraphicsScenario()` and `new Iterm2InlineImageScenario()` back to this list once
-    // src/ wires a real decoder — no other code change is required.
+    // Both are implemented and both now decode: the original blocker - no production IImageDecoder
+    // anywhere under src/ - was closed upstream, and TerminalPane.CreateAndWireParser now assigns
+    // `Parser.ImageDecoder = new SkiaImageDecoder()`. Registered and run, each produces a real
+    // decoded picture on screen and AssertImageRegionDecoded passes.
+    //
+    // What still blocks them is a different, narrower defect: the cursor is not returned to column 0
+    // after an image is placed, so the shell's next prompt resumes partway across a row. sixel-graphics
+    // indents it to column 8; iterm2-inline-image resumes at column 74 of a 116-column pane, which
+    // overruns the last column and wraps "(feat/sixel-decoder)" mid-word. Both Intents require the
+    // image "correctly positioned relative to the surrounding text", and neither image is publishable
+    // while the text around it is mangled - so they stay out of the catalogue rather than shipping a
+    // picture that advertises broken layout.
+    //
+    // InlineImageDecoding.AssertTextResumesAtColumnZero now fails on exactly that, so re-registering
+    // them before the cursor defect is fixed produces a loud failure rather than a published image
+    // nobody looked at twice. Once src/ returns the cursor to column 0, re-enable by adding
+    // `new SixelGraphicsScenario()` and `new Iterm2InlineImageScenario()` back to this list - still
+    // no other code change required.
     //
     // ConnectionManagerScenario and RemoteFilesScenario (Task 14) are likewise implemented but
     // deliberately NOT registered here. connection-manager's data path
