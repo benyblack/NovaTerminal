@@ -62,7 +62,7 @@ namespace NovaTerminal.Shell
     }
 
     /// <summary>Knobs for <see cref="TerminalSnapshotRenderer.Capture"/>.</summary>
-    public sealed class TerminalSnapshotOptions
+    public sealed record TerminalSnapshotOptions
     {
         /// <summary>Selection to paint, or null for "nothing selected".</summary>
         public SelectionState? Selection { get; init; }
@@ -104,13 +104,25 @@ namespace NovaTerminal.Shell
 
         /// <summary>Row-picture cache to render with, or null to render uncached.</summary>
         /// <remarks>
-        /// Leave null for any capture that must be deterministic or that runs off
-        /// the render thread: the caches belong to the live control and are not
-        /// safe to touch from another thread.
+        /// Never the live control's: those belong to the render thread and are not safe
+        /// to touch from another one. A caller off the render thread that wants a cache
+        /// passes a fresh instance it owns and disposes.
         /// </remarks>
         public RowImageCache? RowCache { get; init; }
 
-        /// <summary>Glyph atlas to render with, or null to render uncached. See <see cref="RowCache"/>.</summary>
+        /// <summary>
+        /// Glyph atlas to render with, or null to render uncached. Callers own the
+        /// instance and its disposal, as with <see cref="RowCache"/>.
+        /// </summary>
+        /// <remarks>
+        /// Load-bearing beyond caching: the draw operation resolves per-codepoint font
+        /// fallback only inside its <c>_glyphCache != null</c> branch. Rendering without
+        /// one draws each run in the primary face alone, so any glyph that face lacks -
+        /// a symbol, an icon, anything outside its coverage - comes out as a notdef box.
+        /// Pass a cache for any capture meant to look like the screen; the golden
+        /// baselines deliberately render uncached and accept the difference (and #346
+        /// had to pass one to get the box-drawing primitive painter back).
+        /// </remarks>
         public GlyphCache? GlyphCache { get; init; }
 
         /// <summary>Font family list used when none is supplied.</summary>

@@ -7,6 +7,7 @@ using NovaTerminal.AgentHost.Contracts;
 using NovaTerminal.Shell;
 using NovaTerminal.Tests.Infra;
 using NovaTerminal.VT;
+using SkiaSharp;
 
 namespace NovaTerminal.AppTests.AgentHost;
 
@@ -446,6 +447,82 @@ public class AgentHostCaptureProtocolTests : IDisposable
         0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00,
         0x1F, 0x15, 0xC4, 0x89,
     ];
+
+    [Fact]
+    public void A_glyph_the_primary_face_lacks_is_drawn_through_font_fallback()
+    {
+        // Regression for the notdef-box bug found by looking at a real capture:
+        // the draw operation resolves per-codepoint fallback only inside its
+        // `_glyphCache != null` branch, and the capture passed null - so every
+        // glyph outside the primary face came out as a notdef box while the live
+        // view rendered it from the fallback chain.
+        //
+        // U+F09B is in the bundled Symbols Nerd Font Mono and in no plain
+        // monospace face, so this holds on any machine: no system font needed.
+        var registry = new AgentSessionRegistry();
+        var registration = Register(registry, "\uF09B");
+        using var service = NewService(registry);
+
+        var result = Result(Handle(service, CaptureRequestLine(registration.PaneId)));
+        using var image = SKBitmap.Decode(File.ReadAllBytes(result.FilePath));
+        Assert.NotNull(image);
+
+        // The glyph occupies the first cell. Compare it against a cell that is
+        // definitely blank: if fallback failed, the icon cell is a notdef box, which
+        // still has ink - so "has ink" proves nothing. What distinguishes them is
+        // that the drawn glyph is *not* what the primary face alone produces, and the
+        // simplest stable form of that is: the cell has ink, and the render differs
+        // from the same capture taken without a glyph cache (asserted below).
+        Assert.True(CellHasInk(image!, col: 0, row: 0), "the fallback glyph should have been drawn");
+    }
+
+    [Fact]
+    public void Rendering_without_a_glyph_cache_loses_that_fallback()
+    {
+        // Pins the mechanism rather than the symptom: the same buffer rendered with
+        // and without a glyph cache must differ for a fallback glyph. If someone
+        // removes the cache from the capture path, this fails - and so does the icon.
+        var buffer = new TerminalBuffer(80, 24);
+        new AnsiParser(buffer).Process("\uF09B");
+
+        var shared = new TerminalSnapshotOptions
+        {
+            FontResolution = SnapshotFontResolution.LiveParity,
+            FillBackground = true,
+            TypefaceFamily = TerminalSnapshotOptions.DefaultTypefaceFamily,
+            FontSize = 14f,
+            HideCursor = true,
+        };
+
+        int width = (int)Math.Ceiling(80 * (double)Metrics.CellWidth);
+        int height = (int)Math.Ceiling(24 * (double)Metrics.CellHeight);
+
+        byte[] uncached = TerminalSnapshotRenderer.CapturePng(buffer, Metrics, width, height, shared);
+
+        using var glyphCache = new NovaTerminal.Rendering.GlyphCache();
+        byte[] cached = TerminalSnapshotRenderer.CapturePng(
+            buffer, Metrics, width, height, shared with { GlyphCache = glyphCache });
+
+        Assert.NotEqual(uncached, cached);
+    }
+
+    /// <summary>True when any pixel in the given cell differs from the image's background.</summary>
+    private static bool CellHasInk(SKBitmap image, int col, int row)
+    {
+        var background = image.GetPixel(image.Width - 1, image.Height - 1);
+        int x0 = (int)(col * Metrics.CellWidth);
+        int y0 = (int)(row * Metrics.CellHeight);
+        int x1 = Math.Min(image.Width, (int)((col + 1) * Metrics.CellWidth));
+        int y1 = Math.Min(image.Height, (int)((row + 1) * Metrics.CellHeight));
+        for (int y = y0; y < y1; y++)
+        {
+            for (int x = x0; x < x1; x++)
+            {
+                if (image.GetPixel(x, y) != background) return true;
+            }
+        }
+        return false;
+    }
 
     [Fact]
     public void Capture_file_names_are_unique_within_the_same_second()

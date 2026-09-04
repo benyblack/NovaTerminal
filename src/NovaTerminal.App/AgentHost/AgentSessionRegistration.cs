@@ -494,6 +494,23 @@ namespace NovaTerminal.AgentHost
 
             try
             {
+                // A glyph cache of our own, per capture. Not an optimisation: the draw
+                // operation's per-codepoint fallback resolution lives inside its
+                // `_glyphCache != null` branch, and the branch taken without one draws
+                // the whole run in the primary face - so every glyph the primary font
+                // lacks came out as a notdef box. Found by looking at a real capture:
+                // Claude Code's status line (U+23F5, U+29C9, U+23BF) rendered as boxes
+                // while the live view showed them via Segoe UI Symbol, which sits first
+                // in the fallback chain.
+                //
+                // Fresh rather than the live control's, which the render thread owns and
+                // this IPC thread must not touch. Disposed with the capture; a screenshot
+                // is rare enough that building one atlas per call costs nothing that
+                // matters. Same remedy #346 used to get the primitive painter back on the
+                // golden-baseline path.
+                using var glyphCache = new NovaTerminal.Rendering.GlyphCache();
+                options = options with { GlyphCache = glyphCache };
+
                 using var bitmap = TerminalSnapshotRenderer.Capture(buffer, parameters.Metrics, width, height, options);
                 using var downscaled = TerminalSnapshotRenderer.DownscaleToWidth(bitmap, maxWidth);
                 var final = downscaled ?? bitmap;
