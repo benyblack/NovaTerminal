@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using NovaTerminal.Shell;
 using NovaTerminal.VT;
 
 namespace NovaTerminal.AgentOutput;
@@ -298,6 +299,14 @@ public sealed class AgentOutputRegionTracker : IDisposable
         AdvanceGeneration();
     }
 
+    /// <remarks>
+    /// The timer goes first, and this does not route through <see cref="SetEnabled"/>: the
+    /// disabling branch there arms a <see cref="PresenceSoonDelay"/> tick, so disposing through it
+    /// scheduled a callback 250ms into the future and then immediately destroyed the timer that
+    /// owed it. The state it wants is set directly instead. Nothing is left to cancel, and the
+    /// window in which <see cref="ReadScheduled"/> can find itself running against a disposed
+    /// tracker is as narrow as <see cref="Timer"/> allows.
+    /// </remarks>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -305,26 +314,59 @@ public sealed class AgentOutputRegionTracker : IDisposable
             return;
         }
 
-        SetEnabled(false);
         _debounceTimer.Dispose();
+        _enabled = false;
+        AdvanceGeneration();
     }
 
+    /// <remarks>
+    /// <para>
+    /// This is a <see cref="Timer"/> callback, so it owns two obligations that are easy to miss.
+    /// </para>
+    /// <para>
+    /// It must not run against a disposed tracker. <see cref="Timer.Dispose()"/> cancels pending
+    /// callbacks but does not join one already executing, so a tick can still be in flight when
+    /// the pane it reports to goes away - and everything downstream of here ends at a control on
+    /// that pane.
+    /// </para>
+    /// <para>
+    /// And it must not let an exception escape. An unhandled exception on a threadpool thread
+    /// terminates the process, so without this catch any throw on the read or presence path takes
+    /// the whole terminal down - which is what the headless test suite has been demonstrating
+    /// several times per run: a stale tick reached <c>AgentOutputToggle.IsVisible</c> across a
+    /// swapped dispatcher, Avalonia's <c>VerifyAccess</c> threw, and the escape killed an entire
+    /// xUnit collection with no result written for any test in it. The MD button's visibility is
+    /// not worth a process for.
+    /// </para>
+    /// </remarks>
     private void ReadScheduled(object? state)
     {
-        // While the panel is closed the timer drives markdown-presence detection instead of
-        // region reads: the MD button's visibility is the thing that needs updating, and
-        // ReadAndPostCore would refuse anyway. This covers the closed-panel ticks that now
-        // carry a remembered Enter row, which the earlier shape routed into that refusal.
-        if (!_enabled)
+        if (Volatile.Read(ref _disposed) != 0)
         {
-            CheckMarkdownPresence(Volatile.Read(ref _generation));
             return;
         }
 
-        ReadAndPostCore(
-            streaming: true,
-            Volatile.Read(ref _generation),
-            fallbackToRecentTail: Interlocked.Exchange(ref _recentTailFallback, 0) == 1);
+        try
+        {
+            // While the panel is closed the timer drives markdown-presence detection instead of
+            // region reads: the MD button's visibility is the thing that needs updating, and
+            // ReadAndPostCore would refuse anyway. This covers the closed-panel ticks that now
+            // carry a remembered Enter row, which the earlier shape routed into that refusal.
+            if (!_enabled)
+            {
+                CheckMarkdownPresence(Volatile.Read(ref _generation));
+                return;
+            }
+
+            ReadAndPostCore(
+                streaming: true,
+                Volatile.Read(ref _generation),
+                fallbackToRecentTail: Interlocked.Exchange(ref _recentTailFallback, 0) == 1);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Log($"[AgentOutputRegionTracker] read tick threw: {ex}");
+        }
     }
 
     private void ReadAndPostCore(bool streaming, int generation, bool fallbackToRecentTail = false)

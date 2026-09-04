@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using NovaTerminal.AgentOutput;
 using NovaTerminal.VT;
@@ -339,6 +340,52 @@ public sealed class AgentOutputRegionTrackerTests
         await WaitForAsync(() => h.PresenceChanges.Count > 0, timeoutMs: 6000);
 
         Assert.True(h.PresenceChanges[^1]);
+    }
+
+    [Fact]
+    public async Task APresenceCallbackThatThrows_IsContainedInsideTheTimerTick()
+    {
+        // ReadScheduled is a Timer callback, so an exception escaping it is unhandled on a
+        // threadpool thread - which terminates the process rather than failing a test. That is not
+        // hypothetical: the headless suite hit it several times per run, when a stale presence tick
+        // reached a pane's toggle across a dispatcher the test session had already swapped and
+        // Avalonia's VerifyAccess threw. The escape took out a whole xUnit collection, writing no
+        // result for any test in it, so the run reported "no failures" over a hole - which is how
+        // this stayed unattributed for weeks while looking like an upstream hang.
+        //
+        // Read what this does and does not guard. The assertion below proves the tick reached the
+        // callback and threw; it passes either way, because the increment happens before the throw
+        // and xUnit catches the escape at the runner level rather than in the test. A regression
+        // shows up as the run itself: "Catastrophic failure" in the console and a non-zero exit
+        // from dotnet test, which is verified both ways - reverting the catch reproduces exactly
+        // that line carrying this test's own message. So this case is the reproduction, and the
+        // abort check in scripts/check-app-tests-baseline.py is what makes it red; that check is
+        // a warning today only because these escapes were routine, which is the very thing being
+        // fixed here.
+        var buffer = new TerminalBuffer(40, 8);
+        var parser = new AnsiParser(buffer);
+        parser.Process(PromptStart + "$ " + PromptEnd + "\r\n## Title\r\n\r\n- one\r\n");
+
+        int throwingCalls = 0;
+        using var tracker = new AgentOutputRegionTracker(
+            () => buffer,
+            () => null,
+            // Inline, standing in for the pane's already-on-the-UI-thread fast path - the branch
+            // that was taken when the tick threw.
+            dispatch: action => action(),
+            onUpdate: (_, _) => { },
+            markdownPresenceChanged: _ =>
+            {
+                Interlocked.Increment(ref throwingCalls);
+                throw new InvalidOperationException("as a pane's toggle does on a dead dispatcher");
+            });
+
+        // The disabling branch arms the presence tick, which is the callback that reaches the pane.
+        tracker.SetEnabled(false);
+
+        await WaitForAsync(() => Volatile.Read(ref throwingCalls) > 0, timeoutMs: 6000);
+
+        Assert.Equal(1, Volatile.Read(ref throwingCalls));
     }
 
     [Fact]
