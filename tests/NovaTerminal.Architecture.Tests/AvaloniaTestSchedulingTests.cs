@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace NovaTerminal.Architecture.Tests;
 
@@ -45,6 +46,55 @@ public class AvaloniaTestSchedulingTests
     // and a guard that flags itself is worse than no guard.
     private const string Booter = "SnapshotService.EnsureAvaloniaInitialized(";
     private const string RequiredCollection = "[Collection(\"GoldenPng\")]";
+
+    /// <summary>
+    /// Entry points that boot the platform on the caller's behalf, by calling
+    /// <c>EnsureAvaloniaInitialized</c> internally.
+    /// </summary>
+    /// <remarks>
+    /// Checking only the direct call was very nearly a no-op: exactly one test file in the
+    /// repository named it, so this guard was verifying a single file while every other
+    /// snapshot-path renderer reached the same global state through <c>CapturePng</c> and was
+    /// skipped. <c>BoxDrawingRenderScalingTests</c> came in that way (#346), sat in the main
+    /// lane with neither the trait nor the collection, and turned the Unit Tests job red on both
+    /// OSes - 17 failures across two unrelated classes - for the week it took to find. A guard
+    /// that looks for the polite spelling of a hazard catches only polite hazards.
+    /// </remarks>
+    private static readonly string[] TransitiveBooters =
+    [
+        "SnapshotService.Capture(",
+        "SnapshotService.CapturePng(",
+    ];
+
+    /// <summary>
+    /// Categories CI runs as their own <c>dotnet test</c> invocation. A file carrying one of
+    /// these is already in a process of its own, which is the same containment the PlatformBoot
+    /// lane provides - so it satisfies the invariant without the trait.
+    /// </summary>
+    /// <remarks>
+    /// Kept in step with the <c>--filter</c> arguments in <c>.github/workflows/ci.yml</c>: the
+    /// headless App.Tests step excludes each of these, and a separate job runs it. If a category
+    /// is dropped from that exclusion list, it stops isolating and belongs out of this table.
+    /// </remarks>
+    private static readonly string[] IsolatingCategories =
+    [
+        "RenderMetrics",
+        "GoldenSharedPng",
+        "GoldenFontPng",
+        "Replay",
+        "Stress",
+        "PtySmoke",
+    ];
+
+    /// <summary>True when the file boots the platform, directly or through a helper that does.</summary>
+    private static bool Boots(string text) =>
+        text.Contains(Booter, StringComparison.Ordinal)
+        || TransitiveBooters.Any(call => text.Contains(call, StringComparison.Ordinal));
+
+    /// <summary>True when a category already gives the file its own CI process.</summary>
+    private static bool IsolatedByCategory(string text) =>
+        IsolatingCategories.Any(category =>
+            text.Contains($"[Trait(\"Category\", \"{category}\")]", StringComparison.Ordinal));
 
     /// <summary>The single file allowed to boot the platform.</summary>
     private const string BootOwner = "SnapshotService.cs";
@@ -173,25 +223,32 @@ public class AvaloniaTestSchedulingTests
 
         foreach ((string relative, string text) in TestSources())
         {
-            if (!text.Contains(Booter, StringComparison.Ordinal))
+            if (!Boots(text))
             {
                 continue;
             }
 
-            // Two files mention the call without making it: the helper that declares it, and
-            // this guard, whose needle and prose both contain it.
+            // Two files mention the calls without making them: the helper that declares them, and
+            // this guard, whose needles and prose both contain them.
             string name = Path.GetFileName(relative);
             if (name is "SnapshotService.cs" or "AvaloniaTestSchedulingTests.cs")
             {
                 continue;
             }
 
-            if (!text.Contains(RequiredLane, StringComparison.Ordinal))
+            // Either containment will do, because what matters is not sharing the process with an
+            // [AvaloniaFact] that would inherit the MediaContext - the lane achieves that by
+            // trait, an isolating category by having its own CI invocation.
+            if (!text.Contains(RequiredLane, StringComparison.Ordinal) && !IsolatedByCategory(text))
             {
                 missingLane.Add(relative);
             }
 
-            if (!text.Contains(RequiredCollection, StringComparison.Ordinal))
+            // The collection is only meaningful inside the shared lane: the isolating categories
+            // each run alone, so there is nothing there for it to serialize against. Requiring it
+            // of them would be noise, and widening it is a separate decision from this fix.
+            if (text.Contains(RequiredLane, StringComparison.Ordinal)
+                && !text.Contains(RequiredCollection, StringComparison.Ordinal))
             {
                 missingCollection.Add(relative);
             }
@@ -203,7 +260,8 @@ public class AvaloniaTestSchedulingTests
             + "lane, so they share a process with [AvaloniaFact] tests. Booting binds a "
             + "thread-affine MediaContext into the process-global AvaloniaLocator root, which "
             + "every later [AvaloniaFact] inherits and throws on. Add "
-            + "[Trait(\"Lane\", \"PlatformBoot\")] and check ci.yml runs them: "
+            + "[Trait(\"Lane\", \"PlatformBoot\")] (and check ci.yml runs that lane), or give the "
+            + "file a category CI runs as its own invocation: "
             + string.Join(", ", missingLane));
 
         Assert.True(
