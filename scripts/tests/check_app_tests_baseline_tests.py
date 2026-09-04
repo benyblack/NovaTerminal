@@ -8,6 +8,10 @@ hang dump). Getting any of those backwards either reds every PR or hides another
 green-but-broken run - the exact failure this gate was extended to stop, where a job executed
 1,112 of 3,434 tests and reported "no failures".
 
+The two truncation causes are deliberately not symmetric, which is the pairing most worth
+pinning down here: a hang dump waives the executed-count floor and does *not* waive the abort
+check. Cases exist for both halves so that neither can be "simplified" into the other.
+
 Plain python with no test framework, matching the rest of scripts/. Run it directly:
 
     python scripts/tests/check_app_tests_baseline_tests.py
@@ -38,7 +42,11 @@ def make_trx(path: Path, passed: int, failed_names=()):
 def run(case, trx, floor, log=None, dump=False):
     root = Path(tempfile.mkdtemp())
     trx_path = root / "lane" / "unit_app.trx"
-    make_trx(trx_path, trx["passed"], trx.get("failed", ()))
+    if trx is None:
+        # No trx at all - a crash, a kill, or a testhost that never got to write one.
+        trx_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        make_trx(trx_path, trx["passed"], trx.get("failed", ()))
     if dump:
         (trx_path.parent / "testhost_1_hangdump.dmp").write_bytes(b"\x00")
     args = [sys.executable, str(GATE), str(trx_path), str(ALLOW), str(floor)]
@@ -64,16 +72,24 @@ cases = [
     ("healthy full run",                      {"passed": 3434},          3300,  "",        False, 0),
     ("truncated, nothing hung",               {"passed": 1112},          3300,  "",        False, 1),
     ("truncated but hung (#81, tolerated)",   {"passed": 1112},          3300,  "",        True,  0),
-    # Aborts warn rather than block: they fire on complete, clean runs too (21208fd ran all
-    # 3,434 with 10 of them), so blocking would red every PR and train everyone to ignore
-    # this lane. The floor is what guards coverage until the underlying cause is fixed.
-    ("aborts in log, full run, warns only",   {"passed": 3434},          3300,  ABORT_LOG, False, 0),
-    ("aborts in log but hung (tolerated)",    {"passed": 3434},          3300,  ABORT_LOG, True,  0),
-    ("truncated and aborted, floor blocks",   {"passed": 1112},          3300,  ABORT_LOG, False, 1),
+    # Aborts block, and nothing waives them - not a clean full run, not a hang dump. They were
+    # tolerated while they fired on every run including complete ones (21208fd ran all 3,434
+    # with 10 of them); #411 fixed the cause and both OS lanes went to zero, so the next one is
+    # a regression. The pair below is the asymmetry: the same dump that excuses the count in
+    # "truncated but hung" does not excuse an abort.
+    ("aborts in log, full run, blocks",       {"passed": 3434},          3300,  ABORT_LOG, False, 1),
+    ("aborts in log and hung, still blocks",  {"passed": 3434},          3300,  ABORT_LOG, True,  1),
+    ("truncated and aborted, blocks",         {"passed": 1112},          3300,  ABORT_LOG, False, 1),
     ("unlisted failure, full run",            {"passed": 3400, "failed": ["Totally.New.Test"]}, 3300, "", False, 1),
     ("no log argument, healthy",              {"passed": 3434},          3300,  None,      False, 0),
     ("no log argument, truncated",            {"passed": 10},            3300,  None,      False, 1),
     ("platformboot lane, healthy",            {"passed": 46},            40,    "",        False, 0),
+    # Missing or empty results. The first is the one shape continue-on-error exists for; the
+    # rest are the crash-shaped ones a green job used to be indistinguishable from.
+    ("no trx, hung (#81, tolerated)",         None,                      3300,  "",        True,  0),
+    ("no trx, hung, but aborts logged",       None,                      3300,  ABORT_LOG, True,  1),
+    ("no trx, nothing hung",                  None,                      3300,  "",        False, 1),
+    ("trx with zero results",                 {"passed": 0},             3300,  "",        False, 1),
 ]
 
 failures = 0
