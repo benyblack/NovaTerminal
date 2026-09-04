@@ -7,6 +7,7 @@ using NovaTerminal.AgentHost.Contracts;
 using NovaTerminal.Shell;
 using NovaTerminal.Tests.Infra;
 using NovaTerminal.VT;
+using SkiaSharp;
 
 namespace NovaTerminal.AppTests.AgentHost;
 
@@ -75,7 +76,8 @@ public class AgentHostCaptureProtocolTests : IDisposable
         AgentSessionRegistry registry,
         string? content = null,
         CellMetrics? metrics = null,
-        bool publishRenderParameters = true)
+        bool publishRenderParameters = true,
+        string? fontFamily = null)
     {
         var buffer = new TerminalBuffer(80, 24);
         if (content != null)
@@ -89,7 +91,7 @@ public class AgentHostCaptureProtocolTests : IDisposable
         {
             registration.UpdateRenderParameters(new PaneRenderParameters(
                 metrics ?? Metrics,
-                TerminalSnapshotOptions.DefaultTypefaceFamily,
+                fontFamily ?? TerminalSnapshotOptions.DefaultTypefaceFamily,
                 FontSize: 14f,
                 EnableLigatures: false,
                 EnableComplexShaping: true));
@@ -446,6 +448,103 @@ public class AgentHostCaptureProtocolTests : IDisposable
         0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00,
         0x1F, 0x15, 0xC4, 0x89,
     ];
+
+    // U+F09B (a GitHub mark) is in the bundled Symbols Nerd Font Mono and in no plain
+    // monospace face, so a capture can only draw it by resolving font fallback.
+    private const int FallbackOnlyCodePoint = 0xF09B;
+
+    [Fact]
+    public void A_glyph_the_primary_face_lacks_is_drawn_through_font_fallback()
+    {
+        // Regression for the notdef-box bug found by looking at a real capture: the draw
+        // operation resolves per-codepoint fallback only inside its `_glyphCache != null`
+        // branch, and the capture passed null - so every glyph outside the primary face
+        // came out as a notdef box while the live view rendered it from the fallback chain.
+        //
+        // The assertion is pixel equality against the same glyph rendered with the symbols
+        // font as the *primary* face, which needs no fallback at all. That is what makes
+        // this discriminating: a notdef box also has ink (measured: 42 pixels against the
+        // glyph's 55), so "the cell is not blank" would pass while the bug was present.
+        //
+        // The primary face is pinned to the bundled Cascadia Mono PL rather than the
+        // default family. The default resolves through the installed-font chain, which on
+        // a machine with any Nerd Font installed lands on one that *has* this glyph - and
+        // then nothing exercises fallback and the test proves nothing. Both fonts here
+        // ship in the binary, so this behaves the same on every machine.
+        var registry = new AgentSessionRegistry();
+        var registration = Register(
+            registry,
+            char.ConvertFromUtf32(FallbackOnlyCodePoint),
+            fontFamily: BundledFontCatalog.CascadiaFontFamily);
+        using var service = NewService(registry);
+
+        var result = Result(Handle(service, CaptureRequestLine(registration.PaneId)));
+        using var captured = SKBitmap.Decode(File.ReadAllBytes(result.FilePath));
+        Assert.NotNull(captured);
+
+        using var reference = RenderIconCell(BundledFontCatalog.SymbolsFontFamily, withGlyphCache: true);
+        Assert.True(
+            FirstCellMatches(captured!, reference),
+            "the capture should draw the glyph the symbols font draws, not a notdef box");
+    }
+
+    [Fact]
+    public void Rendering_without_a_glyph_cache_draws_a_notdef_box_instead()
+    {
+        // The other half of the pin: shows the assertion above can fail, and that the
+        // glyph cache is the thing that decides it. Without one, the same content renders
+        // differently from the reference - that difference is the bug this PR fixes.
+        using var reference = RenderIconCell(BundledFontCatalog.SymbolsFontFamily, withGlyphCache: true);
+        using var withCache = RenderIconCell(BundledFontCatalog.CascadiaFontFamily, withGlyphCache: true);
+        using var withoutCache = RenderIconCell(BundledFontCatalog.CascadiaFontFamily, withGlyphCache: false);
+
+        Assert.True(FirstCellMatches(withCache, reference), "with a glyph cache, fallback resolves the real glyph");
+        Assert.False(FirstCellMatches(withoutCache, reference), "without one, the glyph is not resolved");
+    }
+
+    /// <summary>
+    /// Renders <see cref="FallbackOnlyCodePoint"/> in the first cell with the given
+    /// primary family, mirroring the options the capture path uses.
+    /// </summary>
+    private static SKBitmap RenderIconCell(string fontFamily, bool withGlyphCache)
+    {
+        var buffer = new TerminalBuffer(8, 2);
+        new AnsiParser(buffer).Process(char.ConvertFromUtf32(FallbackOnlyCodePoint));
+
+        var options = new TerminalSnapshotOptions
+        {
+            FontResolution = SnapshotFontResolution.LiveParity,
+            FillBackground = true,
+            TypefaceFamily = fontFamily,
+            FontSize = 14f,
+            HideCursor = true,
+        };
+        int width = (int)Math.Ceiling(8 * (double)Metrics.CellWidth);
+        int height = (int)Math.Ceiling(2 * (double)Metrics.CellHeight);
+
+        if (!withGlyphCache)
+        {
+            return TerminalSnapshotRenderer.Capture(buffer, Metrics, width, height, options);
+        }
+        using var glyphCache = new NovaTerminal.Rendering.GlyphCache();
+        return TerminalSnapshotRenderer.Capture(buffer, Metrics, width, height, options with { GlyphCache = glyphCache });
+    }
+
+    /// <summary>Pixel-compares the first cell of two renders drawn at the same metrics.</summary>
+    private static bool FirstCellMatches(SKBitmap left, SKBitmap right)
+    {
+        int w = (int)Metrics.CellWidth;
+        int h = (int)Metrics.CellHeight;
+        if (left.Width < w || left.Height < h || right.Width < w || right.Height < h) return false;
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                if (left.GetPixel(x, y) != right.GetPixel(x, y)) return false;
+            }
+        }
+        return true;
+    }
 
     [Fact]
     public void Capture_file_names_are_unique_within_the_same_second()
