@@ -1651,7 +1651,15 @@ namespace NovaTerminal
                 systemFonts?.Where(f => !string.IsNullOrWhiteSpace(f)) ?? System.Array.Empty<string>(),
                 StringComparer.OrdinalIgnoreCase);
 
-            names.Add(BundledFontCatalog.DefaultTerminalFontFamily);
+            // Every bundled family, not just the default: the others ship in the
+            // binary and work, but are typically not installed system-wide, so
+            // without this they would be unpickable - which is how Cascadia Mono PL
+            // would have disappeared from this list when it stopped being the
+            // default. The symbols-only font is excluded by SelectableFamilies.
+            foreach (string bundled in BundledFontCatalog.SelectableFamilies)
+            {
+                names.Add(bundled);
+            }
 
             if (!string.IsNullOrWhiteSpace(configuredFontFamily))
             {

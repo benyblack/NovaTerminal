@@ -56,6 +56,16 @@
     <Content Include="Assets\Fonts\CascadiaMonoPL-Regular.otf">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- Default terminal face, and the symbols-only Nerd Font that supplies icon
+         glyphs as a fallback under whichever face is selected. Both are read from
+         beside the binary when present (BundledFontCatalog.LoadFontData), so they
+         are copied out as well as embedded as Avalonia resources. -->
+    <Content Include="Assets\Fonts\JetBrainsMonoNL-Regular.ttf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Fonts\SymbolsNerdFontMono-Regular.ttf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Assets\Fonts\LICENSES\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

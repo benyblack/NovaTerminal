@@ -184,6 +184,9 @@ For build steps, jump to [Build & test](#build--test) below.
 - Search overlay
 - Profiles (local & SSH)
 - Bundled themes (Dracula, Nord, Gruvbox, Tokyo Night, Catppuccin Mocha, Solarized, GitHub, Monokai, OneHalf, Cobalt2), custom themes, and font configuration
+- Bundled fonts, so a fresh install renders correctly with no system font installed: JetBrains Mono NL by default,
+  Cascadia Mono PL alongside it, and a symbols-only Nerd Font loaded as a fallback so prompt icons work under
+  whichever face you pick
 - Live settings (no restart)
 
 ### Command Assist

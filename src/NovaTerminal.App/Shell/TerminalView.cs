@@ -679,16 +679,13 @@ namespace NovaTerminal.Shell
             }
         }
         // Keep primary font deterministic and monospace-first for box-drawing stability.
-        // JetBrains Mono NL Nerd Font leads: preferred terminal face when installed,
-        // and being a Nerd Font it also carries the powerline and icon glyphs a
-        // prompt asks for. Both spellings are listed because the two Nerd Font
-        // installers register different family names - the Windows-compatible
-        // package as "JetBrainsMonoNL NFM", the full-name package as
-        // "JetBrainsMonoNL Nerd Font Mono" - and a name that is not installed
-        // resolves to nothing useful. Not bundled: the bundled guarantee stays
-        // Cascadia Mono PL, the .otf that actually ships in the binary, so these are
-        // preferences and the list falls through when they are absent.
-        private static readonly string FontFamilyList = $"JetBrainsMonoNL NFM, JetBrainsMonoNL Nerd Font Mono, {BundledFontCatalog.DefaultTerminalFontFamily}, Cascadia Mono, JetBrains Mono, DejaVu Sans Mono, Consolas, MesloLGS NF, MesloLGM Nerd Font, Fira Code, Monospace";
+        // The bundled default leads, so this resolves with no system font installed.
+        // A locally installed Nerd Font build of the same face is preferred over the
+        // bundled copy when present, under both names the two Nerd Font installers
+        // register (the Windows-compatible package as "JetBrainsMonoNL NFM", the
+        // full-name package as "JetBrainsMonoNL Nerd Font Mono"), because those
+        // carry the icon glyphs in the primary face rather than through fallback.
+        private static readonly string FontFamilyList = $"JetBrainsMonoNL NFM, JetBrainsMonoNL Nerd Font Mono, {BundledFontCatalog.DefaultTerminalFontFamily}, {BundledFontCatalog.CascadiaFontFamily}, Cascadia Mono, JetBrains Mono, DejaVu Sans Mono, Consolas, MesloLGS NF, MesloLGM Nerd Font, Fira Code, Monospace";
         private Typeface _typeface = new Typeface(FontFamilyList, FontStyle.Normal, FontWeight.Normal);
         private double _fontSize = 14;
         private CellMetrics _metrics;
@@ -708,13 +705,18 @@ namespace NovaTerminal.Shell
         private SharedSKFont? _skFont;
         private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
         private static readonly int[] BoxDrawingProbeCodePoints = { 0x2502, 0x2500, 0x250C, 0x2510, 0x2514, 0x2518, 0x253C };
-        private static readonly string[] PreferredMonospaceFonts = { "JetBrainsMonoNL NFM", "JetBrainsMonoNL Nerd Font Mono", BundledFontCatalog.DefaultTerminalFontFamily, "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
+        private static readonly string[] PreferredMonospaceFonts = { "JetBrainsMonoNL NFM", "JetBrainsMonoNL Nerd Font Mono", BundledFontCatalog.DefaultTerminalFontFamily, BundledFontCatalog.CascadiaFontFamily, "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
 
         private static readonly string[] FallbackChainNames = {
             "Segoe UI Symbol", "Symbola",                              // Symbols
             "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", // Emojis
-            "JetBrainsMonoNL NFM", "JetBrainsMonoNL Nerd Font Mono", // Nerd Font: powerline + icon glyphs
-            BundledFontCatalog.DefaultTerminalFontFamily, "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", // Monospace-first
+            // Bundled symbols-only Nerd Font first: it is the only entry guaranteed
+            // to be present, and it is what makes icon glyphs work under a primary
+            // face that has none (every plain monospace font). It carries no ASCII,
+            // so it can only ever satisfy a glyph the primary face already missed.
+            BundledFontCatalog.SymbolsFontFamily,
+            "JetBrainsMonoNL NFM", "JetBrainsMonoNL Nerd Font Mono", // locally installed Nerd Font builds
+            BundledFontCatalog.DefaultTerminalFontFamily, BundledFontCatalog.CascadiaFontFamily, "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", // Monospace-first
             "Cascadia Code", "Fira Code", "MesloLGS NF",                        // Alternate symbol sources
             "Courier New", "Monospace"                                 // Last Resort
         };
