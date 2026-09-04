@@ -43,7 +43,7 @@ namespace NovaTerminal.CommandAssist.Application;
 /// reconstruct from pixels, and it gates history capture and insertion rather than the query.
 /// </para>
 /// </remarks>
-public sealed class CommandAssistController
+public sealed class CommandAssistController : IDisposable
 {
     private readonly AssistSessionStateMachine _state = new();
     private readonly AssistSessionContext _context = new();
@@ -634,6 +634,29 @@ public sealed class CommandAssistController
     {
         ViewModel.ShortcutHintLabels = labels;
     }
+
+    /// <summary>
+    /// Cancels any suggestion pass still in flight, so nothing this controller started can
+    /// publish after its owner has let go of it.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not <see cref="Dismiss"/>: dismissing is a user-visible act that writes to
+    /// the view model, and by the time an owner disposes us the surface it would write to is
+    /// already going away. The only thing worth doing here is stopping the work - a pass that
+    /// lands after its owner is gone reaches a dispatch delegate whose UI is no longer there,
+    /// which is one half of what made #81 possible.
+    /// </remarks>
+    public void Dispose()
+    {
+        _suggestionOrchestrator.CancelPending();
+    }
+
+    /// <summary>
+    /// Whether a ranking pass is still running. Exposed for the lifetime tests, which have to let an
+    /// abandoned pass finish before they can say it published nothing - asserting any earlier would
+    /// pass against a pass that had simply not got there yet.
+    /// </summary>
+    internal bool HasSuggestionPassInFlight => _suggestionOrchestrator.HasPassInFlight;
 
     public void Dismiss()
     {

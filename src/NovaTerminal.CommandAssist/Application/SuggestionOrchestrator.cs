@@ -396,6 +396,16 @@ internal sealed class SuggestionOrchestrator
 
     private void Publish(SuggestionRefreshOutcome outcome, CancellationToken token)
     {
+        // Checked before the dispatch as well as inside it. The inner check is what keeps a
+        // superseded outcome off the surface, and it has to stay - the pass can be cancelled
+        // between the two. The outer one is about not calling _dispatch at all: a pass whose
+        // owner is already gone has nothing to publish, and handing it to a dispatch delegate
+        // anyway is how a dead pass ends up touching live UI machinery (#81).
+        if (token.IsCancellationRequested)
+        {
+            return;
+        }
+
         _dispatch(() =>
         {
             if (token.IsCancellationRequested)

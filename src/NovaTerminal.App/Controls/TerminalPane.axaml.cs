@@ -1210,6 +1210,34 @@ namespace NovaTerminal.Controls
             TerminalSettings settings = _settings!;
             CommandAssistServices services = RequireCommandAssistServices();
             services.ApplyHistoryRetentionLimit(settings.CommandAssistMaxHistoryEntries);
+
+            // This pane's own dispatcher, not Dispatcher.UIThread, and not read inside the
+            // dispatch delegate below either. Both halves of that matter (#81).
+            //
+            // Dispatcher.UIThread is a mutable static whose getter binds the UI-thread identity
+            // to *the calling thread* whenever the backing field is null (Dispatcher.cs, the
+            // `s_uiThread ?? CurrentDispatcher` slow path). Under headless test isolation that
+            // field is nulled by ResetGlobalState() at every test boundary, so *any* read of it
+            // off the dispatch thread can decide who the UI thread is - and both directions of
+            // that have now been observed. A suggestion pass still in flight from a finished
+            // test reached this delegate in the gap between two tests and made a threadpool
+            // thread the UI thread, after which the next test's Compositor ctor ->
+            // DefaultRenderLoop.Add -> VerifyAccess() threw inside EnsureIsolatedApplication(),
+            // which sits outside the try/catch in HeadlessUnitTestSession.DispatchCore, killing
+            // the one dispatcher loop the assembly shares. And reading the static *eagerly*
+            // here is no safer: it leaves s_uiThread pointing at whichever thread built the
+            // pane, and the plain-[Fact] tests that marshal onto Dispatcher.UIThread rely on
+            // finding it null so they can be their own UI thread - see the note in
+            // TestAppBuilder.cs, and SshInteractionServiceTests, which hangs forever otherwise.
+            //
+            // AvaloniaObject.Dispatcher costs nothing on either count. It is captured by every
+            // AvaloniaObject at construction (`= Dispatcher.CurrentDispatcher`), so the pane
+            // already holds it before this line runs: reading it binds nothing that `new
+            // TerminalPane()` had not already bound. A late pass then posts to the dispatcher
+            // the pane was born with - inert once that test is over - and no read of the global
+            // happens at all. It is also the more correct reading in production, where a pane
+            // belongs to one dispatcher for its whole life.
+            Dispatcher paneDispatcher = Dispatcher;
             _commandAssistController = new CommandAssistController(
                 services.HistoryStore,
                 services.SecretsFilter,
@@ -1233,13 +1261,13 @@ namespace NovaTerminal.Controls
                 renderedSurfaceProbe: () => IsCommandAssistOverlayRendered,
                 dispatch: action =>
                 {
-                    if (Dispatcher.UIThread.CheckAccess())
+                    if (paneDispatcher.CheckAccess())
                     {
                         action();
                     }
                     else
                     {
-                        Dispatcher.UIThread.Post(action);
+                        paneDispatcher.Post(action);
                     }
                 });
 
@@ -4123,6 +4151,12 @@ namespace NovaTerminal.Controls
             }
 
             CloseRemoteFilesSidebar();
+
+            // Cancels any suggestion pass still in flight. Without this a debounced pass
+            // outlives the pane that owns it and publishes into a surface that is being torn
+            // down; see the dispatcher note in InitializeCommandAssist for what that cost.
+            _commandAssistController?.Dispose();
+
 
             // Detach handlers on the reused TermView so a disposed pane stops reacting.
             if (_onTermViewResize != null) TermView.OnResize -= _onTermViewResize;
