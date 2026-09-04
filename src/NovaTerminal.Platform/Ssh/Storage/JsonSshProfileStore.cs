@@ -25,11 +25,13 @@ public sealed class JsonSshProfileStore : ISshProfileStore
 
     public string StoreFilePath => _storeFilePath;
 
+    /// <remarks>
+    /// Resolved through <see cref="PlatformAppPaths"/> so that redirecting NOVATERM_APPDATA_ROOT
+    /// moves SSH profiles with everything else. Reading LocalApplicationData directly here is what
+    /// let a redirected process write the machine's real profile file (#406).
+    /// </remarks>
     public static string GetDefaultStorePath()
-    {
-        string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(appData, "NovaTerminal", "ssh", "profiles.json");
-    }
+        => Path.Combine(PlatformAppPaths.SshDirectory, "profiles.json");
 
     public IReadOnlyList<SshProfile> GetProfiles()
     {
