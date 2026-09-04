@@ -5,12 +5,13 @@ printf '\033[38;5;213m  ██╔██╗ ██║██║   ██║██�
 printf '\033[38;5;177m  ██║╚██╗██║██║   ██║╚██╗ ██╔╝██╔══██║\033[0m\n'
 printf '\033[38;5;177m  ██║ ╚████║╚██████╔╝ ╚████╔╝ ██║  ██║\033[0m\n'
 printf '\n'
-# Version mirrors Directory.Build.props's <Version> (currently 0.5.0). This is a static string,
-# not read from the repo at capture time, so re-check it against Directory.Build.props whenever
-# this banner is re-published - it will drift silently otherwise.
-printf '  \033[1mterminal\033[0m   NovaTerminal 0.5.0 (win-x64)\n'
+# Version mirrors Directory.Build.props's <Version> (currently 0.7.0). This is a static string,
+# not read from the repo at capture time - the demo shell has no repo to read. It drifted from
+# 0.5.0 to 0.7.0 unnoticed across two releases before anyone looked, so BannerAssetTests now
+# pins it to Directory.Build.props rather than relying on this comment being obeyed.
+printf '  \033[1mterminal\033[0m   NovaTerminal 0.7.0 (win-x64)\n'
 # "partial" is the honest summary of src/NovaTerminal.App/Resources/vt-conformance-report.json's
-# own numbers (18 of 58 rows fully supported, 34 partial) - re-check that file if this banner is
+# own numbers (23 of 60 rows fully supported, 31 partial) - re-check that file if this banner is
 # ever revisited, rather than restoring a flat percentage that overclaims.
 printf '  \033[1mengine\033[0m     VT parser · partial ANSI/xterm conformance\n'
 printf '  \033[1mrenderer\033[0m   Skia · GPU glyph cache\n'
