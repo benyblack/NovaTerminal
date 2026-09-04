@@ -65,7 +65,7 @@ namespace NovaTerminal.Shell
         private static readonly bool UseBlockElementPrimitives = IsEnvFlagEnabled("NOVATERM_BLOCK_PRIMITIVES");
         private static readonly AsyncLocal<TestPrimitiveRenderOverride?> PrimitiveRenderOverrideForTests = new();
         private static readonly ConcurrentDictionary<string, byte> GlyphDiagOnce = new();
-        private static readonly string[] KnownGoodBoxFonts = { "JetBrainsMonoNL NFM", "JetBrainsMonoNL Nerd Font Mono", "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
+        private static readonly string[] KnownGoodBoxFonts = { "JetBrains Mono NL", "JetBrainsMonoNL NFM", "JetBrainsMonoNL Nerd Font Mono", "Cascadia Mono PL", "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
         private static Lazy<RenderPerfWriter?> SharedRenderPerfWriter = new(RenderPerfWriter.CreateFromEnvironment);
 
         // Batching for DrawAtlas
