@@ -99,14 +99,10 @@ public partial class AboutWindow : Window, IUpdateCheckFeedback
 
     public void Outcome(UpdateCheckOutcome outcome, string? stagedVersion)
     {
-        var button = this.FindControl<Button>("CheckForUpdatesButton");
-        var progress = this.FindControl<ProgressBar>("CheckProgress");
+        ShowStatus(UpdateCheckMessages.OutcomeMessage(outcome, stagedVersion));
+
         var restart = this.FindControl<Button>("RestartNowButton");
         var releases = this.FindControl<Button>("OpenReleasesButton");
-        if (button != null) button.IsEnabled = true;
-        if (progress != null) progress.IsVisible = false;
-
-        ShowStatus(UpdateCheckMessages.OutcomeMessage(outcome, stagedVersion));
 
         // Failed-while-staged must not hide the restart affordance: the staged update is still
         // on disk even though the re-check could not reach the feed.
@@ -122,10 +118,19 @@ public partial class AboutWindow : Window, IUpdateCheckFeedback
         }
     }
 
+    /// <summary>
+    /// Shows a terminal answer and ends the check state. Every path that ends a check - a real
+    /// outcome, the already-running answer, or the broken-coordinator answer - comes through
+    /// here, because the pipeline returns early on the latter two without calling Outcome; each
+    /// of them must re-enable the button, or one early answer leaves the window looking stuck
+    /// mid-check forever.
+    /// </summary>
     private void ShowStatus(string message)
     {
+        var button = this.FindControl<Button>("CheckForUpdatesButton");
         var progress = this.FindControl<ProgressBar>("CheckProgress");
         var status = this.FindControl<TextBlock>("StatusText");
+        if (button != null) button.IsEnabled = true;
         if (progress != null) progress.IsVisible = false;
         if (status != null)
         {
