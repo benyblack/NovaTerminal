@@ -72,15 +72,19 @@ public class AvaloniaTestSchedulingTests
     /// lane provides - so it satisfies the invariant without the trait.
     /// </summary>
     /// <remarks>
-    /// Kept in step with the <c>--filter</c> arguments in <c>.github/workflows/ci.yml</c>: the
-    /// headless App.Tests step excludes each of these, and a separate job runs it. If a category
-    /// is dropped from that exclusion list, it stops isolating and belongs out of this table.
+    /// This must mirror the <c>Category!=</c> exclusions on the headless App.Tests step in
+    /// <c>.github/workflows/ci.yml</c> exactly, and
+    /// <see cref="EveryIsolatingCategoryIsActuallyExcludedInCi"/> asserts that it does. A
+    /// hand-kept mirror is how this went wrong once already: <c>GoldenFontPng</c> sat in this
+    /// table on the assumption that a category named after a golden-PNG job must have one, when
+    /// the string appears nowhere in <c>ci.yml</c> - so it excluded nothing, and a test relying on
+    /// it alone would have passed the guard while still sharing the process.
+    /// <c>GoldenFontPngTests</c> was unaffected because it also carries the lane trait.
     /// </remarks>
     private static readonly string[] IsolatingCategories =
     [
         "RenderMetrics",
         "GoldenSharedPng",
-        "GoldenFontPng",
         "Replay",
         "Stress",
         "PtySmoke",
@@ -203,6 +207,37 @@ public class AvaloniaTestSchedulingTests
             + $"guard and the PlatformBoot lane it enforces need rewriting rather than deleting — "
             + $"plain [Fact] tests still need a font manager from somewhere.");
 
+    }
+
+    /// <summary>
+    /// Every category this guard treats as isolating must really be excluded from the shared
+    /// headless pass in CI, or the exemption it grants is fictional.
+    /// </summary>
+    /// <remarks>
+    /// The whole point of <see cref="IsolatingCategories"/> is "CI runs this elsewhere, so the
+    /// lane trait is unnecessary". That claim lives in a different file from the workflow it
+    /// describes, which makes it exactly the kind of assertion that rots quietly. Reading the
+    /// workflow is cheap and turns a silent hole into a named failure.
+    /// </remarks>
+    [Fact]
+    public void EveryIsolatingCategoryIsActuallyExcludedInCi()
+    {
+        string workflow = Path.Combine(RepoRoot(), ".github", "workflows", "ci.yml");
+        Assert.True(File.Exists(workflow), $"Expected the CI workflow at {workflow}.");
+        string text = File.ReadAllText(workflow);
+
+        var notExcluded = IsolatingCategories
+            .Where(category => !text.Contains($"Category!={category}", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.True(
+            notExcluded.Count == 0,
+            "These categories are treated as isolating a test into its own CI process, but "
+            + "ci.yml does not exclude them from the shared headless App.Tests pass - so a test "
+            + "carrying only one of them still shares a process with the [AvaloniaFact] tests, "
+            + "and the exemption this guard grants it is fictional. Either exclude the category "
+            + "in ci.yml or drop it from IsolatingCategories: "
+            + string.Join(", ", notExcluded));
     }
 
     /// <summary>
