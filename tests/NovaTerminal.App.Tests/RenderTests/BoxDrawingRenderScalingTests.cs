@@ -21,7 +21,19 @@ namespace NovaTerminal.Tests.RenderTests
     /// Deliberately not a golden-PNG test. GoldenSharedPng is filtered out of every other job and
     /// runs Windows-only, so a baseline is the one thing that would not have caught this on the
     /// machine it was found on. This asserts the pixels directly and runs everywhere.
+    ///
+    /// In the PlatformBoot lane and the GoldenPng collection like every other snapshot-path
+    /// renderer, and for the same reason: SnapshotService.CapturePng boots the Avalonia headless
+    /// platform, which binds a thread-affine MediaContext into the process-global locator root.
+    /// Any [AvaloniaFact] sharing the process inherits it and throws "The calling thread cannot
+    /// access this object because a different thread owns it". This class shipped without either
+    /// attribute and spent a week turning the Unit Tests lane red from across the assembly -
+    /// TabRunningCommandTests and most of VerticalTabStripTests - because it reaches the boot
+    /// through CapturePng rather than by naming EnsureAvaloniaInitialized, which is all the
+    /// scheduling guard used to look for.
     /// </remarks>
+    [Collection("GoldenPng")]
+    [Trait("Lane", "PlatformBoot")]
     public sealed class BoxDrawingRenderScalingTests
     {
         private const int BorderCells = 32;
