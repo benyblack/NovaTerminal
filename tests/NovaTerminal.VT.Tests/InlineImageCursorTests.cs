@@ -89,6 +89,43 @@ public class InlineImageCursorTests
         Assert.Equal(0, buffer.CursorCol);
     }
 
+    // The swallow-the-next-newline flag is scoped to "immediately after the image". A program that
+    // emits an image and sends no trailing newline - `cat` of a sixel file is the ordinary case -
+    // leaves the flag armed, and it must not then eat a line break belonging to whatever runs next.
+    // It did: the flag survived a whole shell prompt (printable text is buffered and flushed through
+    // WriteContent, which never cleared it) and swallowed the newline between the next command's
+    // echo and its output, rendering `echo done` / `done` as `echo donedone`.
+    [Fact]
+    public void A_newline_after_other_output_is_not_swallowed()
+    {
+        (TerminalBuffer buffer, AnsiParser parser) = NewTerminal();
+
+        parser.Process("\x1bPq#0;2;0;0;0#0~~~\x1b\\");
+        parser.Process("echo done");
+
+        int rowAfterText = CursorViewRow(buffer);
+        parser.Process("\r\n");
+
+        Assert.Equal(rowAfterText + 1, CursorViewRow(buffer));
+        Assert.Equal(0, buffer.CursorCol);
+    }
+
+    // The other half of the same contract, so a fix for the above cannot simply disarm the flag:
+    // a newline that really does arrive first is still absorbed, and the image is not followed by a
+    // blank line.
+    [Fact]
+    public void A_newline_arriving_first_is_still_swallowed_after_a_sixel_image()
+    {
+        (TerminalBuffer buffer, AnsiParser parser) = NewTerminal();
+
+        parser.Process("\x1bPq#0;2;0;0;0#0~~~\x1b\\");
+        int rowAfterImage = CursorViewRow(buffer);
+
+        parser.Process("\r\n");
+
+        Assert.Equal(rowAfterImage, CursorViewRow(buffer));
+        Assert.Equal(0, buffer.CursorCol);
+    }
     private static (TerminalBuffer, AnsiParser) NewTerminal(bool? forceConPtyFiltering = null)
     {
         var buffer = new TerminalBuffer(Cols, Rows);
