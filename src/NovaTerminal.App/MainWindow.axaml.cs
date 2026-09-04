@@ -3261,6 +3261,7 @@ namespace NovaTerminal
                 // Broadcast bytes never went through the receiving pane's key handling, so its
                 // markless submission accumulator cannot model them.
                 pane.NotifyExternalInputSent();
+                pane.ScrollToInputLine();
                 pane.Session?.SendInput(sequence);
             }
         }
@@ -3277,6 +3278,7 @@ namespace NovaTerminal
             {
                 if (pane == _currentPane) continue;
                 pane.NotifyExternalInputSent();
+                pane.ScrollToInputLine();
                 pane.Session?.SendInput(text);
             }
         }
@@ -6265,6 +6267,7 @@ namespace NovaTerminal
                         text,
                         _currentPane.Buffer?.Modes.IsBracketedPasteMode == true);
 
+                    _currentPane.ScrollToInputLine();
                     _currentPane.Session.SendInput(text);
                     return;
                 }
@@ -6287,6 +6290,7 @@ namespace NovaTerminal
                             ? NovaTerminal.Platform.Input.ClipboardImage.ToWslMountPath(path)
                             : path;
                         _currentPane.NotifyExternalInputSent();
+                        _currentPane.ScrollToInputLine();
                         _currentPane.Session.SendInput(NovaTerminal.Platform.Input.ClipboardImage.QuotePathForInput(sendPath));
                     }
                     finally
