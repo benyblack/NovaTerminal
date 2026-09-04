@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Input;
+using Avalonia;
 using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
@@ -174,6 +177,86 @@ public sealed class AgentOutputPanelTests
                 .OfType<Control>()
                 .SelectMany(TextOf),
             StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// A link inside a rendered markdown fence reaches the link handler.
+    /// </summary>
+    /// <remarks>
+    /// <b>This lives here, not in <c>MarkdownRendererTests</c>, and the placement is the point.</b>
+    /// That class is plain <c>[Fact]</c> on purpose - it builds control trees without a headless
+    /// application. Synthesizing pointer input there touches Avalonia's input and ambient visual
+    /// state from a thread that owns none of it, which corrupts state shared with the
+    /// <c>[AvaloniaFact]</c> suites: unrelated classes then fail with "The calling thread cannot
+    /// access this object because a different thread owns it", non-deterministically, depending on
+    /// ordering. That is what turned main red after #397, and what
+    /// <c>AvaloniaBootLocatorHygieneTests.TheAmbientMediaContextBelongsToTheSessionDispatchThread</c>
+    /// exists to catch. Raising the event needs a session thread, so the test needs this class.
+    /// </remarks>
+    [AvaloniaFact]
+    public void MarkdownFence_LinkInside_ReachesTheLinkHandler()
+    {
+        var anchor = new Border();
+        string? opened = null;
+        MarkdownRenderResult result = MarkdownRenderer.Build(
+            "```markdown\n[x](https://example.com)\n```\n",
+            anchor,
+            onOpenLink: url => opened = url);
+
+        TextBlock link = Descendants(result.Root)
+            .OfType<SelectableTextBlock>()
+            .SelectMany(t => t.Inlines!.OfType<InlineUIContainer>())
+            .Select(c => c.Child)
+            .OfType<TextBlock>()
+            .First(b => b.Text == "x");
+
+        // Disposed, so the pressed pointer does not outlive the test and leak capture into the
+        // pointer-driven suites (the tab strip's drag-reorder tests) that share this session.
+        using var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, isPrimary: true);
+        link.RaiseEvent(new PointerPressedEventArgs(
+            link,
+            pointer,
+            link,
+            new Point(0, 0),
+            0,
+            new PointerPointProperties(),
+            KeyModifiers.None,
+            1));
+
+        Assert.Equal("https://example.com", opened);
+    }
+
+    private static IEnumerable<Control> Descendants(Control control)
+    {
+        if (control is Panel panel)
+        {
+            foreach (Control child in panel.Children)
+            {
+                yield return child;
+                foreach (Control nested in Descendants(child))
+                {
+                    yield return nested;
+                }
+            }
+        }
+
+        if (control is Border { Child: Control inner })
+        {
+            yield return inner;
+            foreach (Control nested in Descendants(inner))
+            {
+                yield return nested;
+            }
+        }
+
+        if (control is ContentControl { Content: Control content })
+        {
+            yield return content;
+            foreach (Control nested in Descendants(content))
+            {
+                yield return nested;
+            }
+        }
     }
 
     private static IEnumerable<string> TextOf(Control control)

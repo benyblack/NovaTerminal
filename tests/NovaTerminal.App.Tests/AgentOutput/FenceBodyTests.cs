@@ -6,6 +6,7 @@ using Avalonia.Controls.Documents;
 using Avalonia.Media;
 using NovaTerminal.AgentOutput;
 using NovaTerminal.AgentOutput.Fences;
+using Avalonia.Headless.XUnit;
 using Xunit;
 
 namespace NovaTerminal.Tests.AgentOutput;
@@ -13,9 +14,16 @@ namespace NovaTerminal.Tests.AgentOutput;
 /// <summary>
 /// The fence-body seam: which info strings resolve, and what each handler makes of a body.
 /// </summary>
+/// <remarks>
+/// <b><see cref="AvaloniaFactAttribute"/>, not <c>[Fact]</c>, on purpose.</b> The handlers build
+/// real Avalonia visuals, and Avalonia's ambient state has thread affinity to the headless
+/// session's dispatch thread. Building visuals from a plain <c>[Fact]</c> corrupts that state for
+/// every <c>[AvaloniaFact]</c> suite in the process - see the remarks on
+/// <c>MarkdownRendererTests</c> for the failure this caused on main.
+/// </remarks>
 public sealed class FenceBodyTests
 {
-    [Theory]
+    [AvaloniaTheory]
     [InlineData("markdown")]
     [InlineData("md")]
     [InlineData("MARKDOWN")]
@@ -25,14 +33,14 @@ public sealed class FenceBodyTests
     public void MarkdownAliases_Resolve(string info)
         => Assert.NotNull(FenceBodyResolver.Resolve(info));
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData("diff")]
     [InlineData("patch")]
     [InlineData("DIFF")]
     public void DiffAliases_Resolve(string info)
         => Assert.NotNull(FenceBodyResolver.Resolve(info));
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData("csharp")]
     [InlineData("bash")]
     [InlineData("json")]
@@ -42,14 +50,14 @@ public sealed class FenceBodyTests
     public void UnrecognizedInfo_DoesNotResolve(string? info)
         => Assert.Null(FenceBodyResolver.Resolve(info));
 
-    [Fact]
+    [AvaloniaFact]
     public void DiffHandler_IsNotATransform()
     {
         IFenceBody body = Assert.IsType<DiffFenceBody>(FenceBodyResolver.Resolve("diff"));
         Assert.False(body.IsTransform);
     }
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData("+added line", "NtGreen")]
     [InlineData("-removed line", "NtRed")]
     [InlineData("@@ -1,2 +1,3 @@", "NtYellow")]
@@ -74,7 +82,7 @@ public sealed class FenceBodyTests
         Assert.Same(MarkdownThemeProbe.BrushFor(theme, expectedRole), run.Foreground);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void DiffHandler_EmitsOneRunPerLine()
     {
         var theme = MarkdownThemeProbe.WithDistinctBrushes();
