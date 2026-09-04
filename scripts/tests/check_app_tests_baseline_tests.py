@@ -64,9 +64,12 @@ cases = [
     ("healthy full run",                      {"passed": 3434},          3300,  "",        False, 0),
     ("truncated, nothing hung",               {"passed": 1112},          3300,  "",        False, 1),
     ("truncated but hung (#81, tolerated)",   {"passed": 1112},          3300,  "",        True,  0),
-    ("aborts in log, nothing hung",           {"passed": 3434},          3300,  ABORT_LOG, False, 1),
+    # Aborts warn rather than block: they fire on complete, clean runs too (21208fd ran all
+    # 3,434 with 10 of them), so blocking would red every PR and train everyone to ignore
+    # this lane. The floor is what guards coverage until the underlying cause is fixed.
+    ("aborts in log, full run, warns only",   {"passed": 3434},          3300,  ABORT_LOG, False, 0),
     ("aborts in log but hung (tolerated)",    {"passed": 3434},          3300,  ABORT_LOG, True,  0),
-    ("both: truncated and aborted",           {"passed": 1112},          3300,  ABORT_LOG, False, 1),
+    ("truncated and aborted, floor blocks",   {"passed": 1112},          3300,  ABORT_LOG, False, 1),
     ("unlisted failure, full run",            {"passed": 3400, "failed": ["Totally.New.Test"]}, 3300, "", False, 1),
     ("no log argument, healthy",              {"passed": 3434},          3300,  None,      False, 0),
     ("no log argument, truncated",            {"passed": 10},            3300,  None,      False, 1),

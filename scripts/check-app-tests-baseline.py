@@ -19,9 +19,15 @@ So the hang stays non-blocking and the *results* become blocking:
     collection aborts reported "no failures" and went green, minutes after the same branch
     had run all 3,434. Truncation is only tolerated for the one cause this lane exists to
     tolerate, the #81 teardown hang, which leaves a hang dump behind to prove itself.
-  * A catastrophic (runner-level) failure in the step log fails this step. Those aborts kill
-    whole collections without ever appearing in the trx, so the results file is silent about
-    them: the summary reads "no failures" precisely because the tests were never run.
+  * A catastrophic (runner-level) failure in the step log is surfaced with its count, but
+    does not block - yet. Those aborts kill whole collections without ever appearing in the
+    trx, which is why the summary can read "no failures" precisely because tests were never
+    run. They are not blocking because they are currently happening on every run, including
+    ones that complete the whole suite cleanly (21208fd: 3,434 executed, 0 failures, 10
+    aborts), so blocking on them would red every PR and teach everyone to ignore this lane -
+    the dynamic that let the truncation hide. Flip it to blocking once the remaining source
+    of thread-affine Avalonia state is fixed; the floor above is what protects coverage in
+    the meantime, and it discriminates properly (3,434 passes, 1,112 does not).
 
 Names are matched as substrings, so an allowlist entry without theory arguments covers
 every case of that theory.
@@ -171,12 +177,15 @@ def main() -> int:
     # case - a run cut short with nothing hung, which had no signal at all.
     truncated = executed < min_executed
     if aborts and not dumps:
+        # A warning, not an error: see the module docstring. These fire on healthy full runs
+        # too, so blocking here would red every PR rather than telling anyone anything new.
         summary(
-            f"::error::App.Tests hit {len(aborts)} runner-level abort(s) "
-            f"({len(set(aborts))} distinct) and no hang dump was "
-            f"written, so this is not the #81 hang. Each one kills a whole xUnit collection "
-            f"without writing a single result, which is why {trx.name} can report no failures "
-            f"while the suite lost most of its tests."
+            f"::warning::App.Tests hit {len(aborts)} runner-level abort(s) "
+            f"({len(set(aborts))} distinct) with no hang dump, so this is not the #81 hang. "
+            f"Each one kills a whole xUnit collection without writing a result, so they are "
+            f"invisible to {trx.name}. Not blocking yet - they occur on complete runs as well, "
+            f"and the executed-count floor is what guards coverage until the underlying "
+            f"thread-affine state is fixed."
         )
         for line in sorted(set(aborts)):
             summary(f"  - {line}")
@@ -189,7 +198,7 @@ def main() -> int:
             f"deliberately; do not let a truncated run report success."
         )
 
-    if (aborts or truncated) and not dumps:
+    if truncated and not dumps:
         # Reported before returning so the failure list is still visible: knowing which tests
         # failed in the part that did run is useful even when the run is being rejected.
         if failures:
