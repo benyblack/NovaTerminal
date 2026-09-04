@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using NovaTerminal.Shell;
 using NovaTerminal.Shots.Scenarios;
 using SkiaSharp;
@@ -176,6 +176,29 @@ public static class Program
     }
 
     /// <summary>
+    /// The service bundle every captured window is built from: <see cref="AppServices.BuildForDesigner"/>'s
+    /// startup and command-assist wiring, but carrying the settings this run actually seeded.
+    /// </summary>
+    /// <remarks>
+    /// BuildForDesigner deliberately supplies a fresh <c>new TerminalSettings()</c> and never calls
+    /// TerminalSettings.Load(), so designer previews and window-building tests cannot read the
+    /// developer's live settings.json (the #357/#365 settings-bleed pathology). That is right for
+    /// those callers and fatal here: DemoWorld.SeedSettings' whole job is to write a settings.json -
+    /// theme, font, font size, and each scenario's own overrides such as TabStripOrientation and
+    /// AgentAccessActEnabled - that the captured window is then supposed to render. Taking the
+    /// designer default instead meant every scenario silently photographed stock settings: the two
+    /// that assert on their own override (tabs-vertical, and the agent pair through act being
+    /// enabled) failed outright, and the rest produced wrong-but-plausible images.
+    ///
+    /// Loading here does not reintroduce what that guard protects against. DemoWorld redirects
+    /// NOVATERM_APPDATA_ROOT at its own temporary profile root for the life of the run and AppPaths
+    /// resolves from it live, so this reads that world's seeded file. The developer's real
+    /// settings.json is not on this path at all.
+    /// </remarks>
+    private static AppServiceBundle BuildSeededServices()
+        => AppServices.BuildForDesigner() with { Settings = TerminalSettings.Load() };
+
+    /// <summary>
     /// The normal one-window-per-scenario path: seed settings and the environment, construct a
     /// fresh MainWindow, run the scenario's own body, and tear the window down again. Pulled out
     /// of <see cref="Main"/>'s loop so <see cref="ComposeThemesGridAsync"/> can drive the same
@@ -200,7 +223,7 @@ public static class Program
 
         await host.RunAsync(async () =>
         {
-            var window = new MainWindow(AppServices.BuildForDesigner())
+            var window = new MainWindow(BuildSeededServices())
             {
                 Width = scenario.Spec.LogicalWidth,
                 Height = scenario.Spec.LogicalHeight
@@ -280,7 +303,7 @@ public static class Program
 
                 await host.RunAsync(async () =>
                 {
-                    var window = new MainWindow(AppServices.BuildForDesigner())
+                    var window = new MainWindow(BuildSeededServices())
                     {
                         Width = scenario.Spec.LogicalWidth,
                         Height = scenario.Spec.LogicalHeight
