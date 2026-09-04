@@ -45,8 +45,13 @@ public sealed class CommandAssistPassiveBubbleTests
         controller.NotifyInputActivity();
         delay.ReleaseAll();
 
-        await WaitForAsync(() => controller.ViewModel.TopSuggestionText == "git status");
-        Assert.True(controller.ViewModel.IsVisible);
+        // Waited on IsVisible rather than on the row text, because ApplyRefreshOutcome sets it
+        // last: publishing the rows, resetting the selection and shutting the popup all happen
+        // earlier in that method, so this is the one poll that cannot land mid-pass. Waiting on
+        // the text instead let this test observe rows-published/not-yet-visible and fail on the
+        // line below - rarely, and only on CI.
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
+        Assert.Equal("git status", controller.ViewModel.TopSuggestionText);
         Assert.False(controller.ViewModel.IsPopupOpen);
         Assert.Equal(0, controller.ViewModel.SelectedIndex);
     }
@@ -158,7 +163,9 @@ public sealed class CommandAssistPassiveBubbleTests
         controller.NotifyInputActivity();
         delay.ReleaseAll();
 
-        await WaitForAsync(() => controller.ViewModel.QueryText.Length > 0);
+        // IsVisible, not QueryText: the pass writes the query before it publishes the rows, so
+        // waiting on the query and then reading the top row is the same mid-pass race as above.
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
         Assert.Equal("ec", controller.ViewModel.QueryText);
         Assert.Equal(new[] { "ec" }, history.SearchQueries);
         Assert.Equal("echo hello", controller.ViewModel.TopSuggestionText);
@@ -210,7 +217,8 @@ public sealed class CommandAssistPassiveBubbleTests
         controller.NotifyInputActivity();
         delay.ReleaseAll();
 
-        await WaitForAsync(() => controller.ViewModel.QueryText == "echo h");
+        // See above: the pass commits on IsVisible, and the query it writes first settles nothing.
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
         Assert.Equal(new[] { "echo h" }, history.SearchQueries);
         Assert.Equal("echo hello", controller.ViewModel.TopSuggestionText);
     }
