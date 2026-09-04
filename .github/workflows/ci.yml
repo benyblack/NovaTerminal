@@ -325,11 +325,17 @@ jobs:
           SKIP_RUST_NATIVE_BUILD: '1'
         shell: bash
         run: |
+          mkdir -p tests/NovaTerminal.App.Tests/TestResults/main
+          # tee, because xUnit's "Catastrophic failure" aborts exist only in this output: they
+          # kill a whole collection without writing a result, so the trx cannot report them and
+          # the gate has to read the log to see them at all.
+          set -o pipefail
           dotnet test tests/NovaTerminal.App.Tests -c "$CONFIGURATION" --no-build --no-restore \
             --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng&Lane!=PlatformBoot" \
             --blame-hang-timeout 5m --blame-hang-dump-type mini \
             --results-directory tests/NovaTerminal.App.Tests/TestResults/main \
-            --logger "trx;LogFileName=unit_app.trx"
+            --logger "trx;LogFileName=unit_app.trx" \
+            2>&1 | tee tests/NovaTerminal.App.Tests/TestResults/main/console.log
 
       # Lane!=PlatformBoot above, Lane=PlatformBoot here: these run in a SEPARATE PROCESS on
       # purpose, and the split is the fix for a real bug rather than tidiness.
@@ -350,16 +356,30 @@ jobs:
           SKIP_RUST_NATIVE_BUILD: '1'
         shell: bash
         run: |
+          mkdir -p tests/NovaTerminal.App.Tests/TestResults/platformboot
+          set -o pipefail
           dotnet test tests/NovaTerminal.App.Tests -c "$CONFIGURATION" --no-build --no-restore \
             --filter "Lane=PlatformBoot&Category!=GoldenSharedPng" \
             --blame-hang-timeout 5m --blame-hang-dump-type mini \
             --results-directory tests/NovaTerminal.App.Tests/TestResults/platformboot \
-            --logger "trx;LogFileName=unit_app_platformboot.trx"
+            --logger "trx;LogFileName=unit_app_platformboot.trx" \
+            2>&1 | tee tests/NovaTerminal.App.Tests/TestResults/platformboot/console.log
 
       # Gates the lane above on its own results: any failing test not named in
       # tests/app-tests-known-flaky.txt fails this job. A missing trx is the #81 hang and
       # only warns — there are no results to judge. Runs on failure too, so a non-zero
       # `dotnet test` still gets its results read.
+      # The gate decides whether this lane may report success, so its own branching is worth
+      # a second of CI: the truncation and abort rules are what stop another green-but-broken
+      # run, and getting them backwards would either red every PR or hide the next one.
+      - name: Self-test the App.Tests gate
+        if: always()
+        shell: bash
+        run: |
+          py=python3
+          command -v "$py" >/dev/null 2>&1 || py=python
+          "$py" scripts/tests/check_app_tests_baseline_tests.py
+
       - name: Check App.Tests failures against the flake allowlist
         if: always()
         shell: bash
@@ -372,14 +392,25 @@ jobs:
           # with one shared TestResults/ each lane would see the other's dump. That reported the
           # PlatformBoot lane as truncated when it had finished cleanly, and would have let a
           # leftover dump excuse a genuine crash in the other lane.
+          # The third field is the lane's floor for executed tests. A run below it that did not
+          # hang is rejected rather than summarised: 0962be8 executed 1,112 of 3,434 here, lost
+          # the rest to collection aborts, and reported "no failures" on a green job. The floors
+          # sit next to the --filter arguments above because changing a filter is what
+          # legitimately changes a count - and lowering one should be as deliberate as adding a
+          # line to the flake allowlist. Headroom is for OS skip differences (windows and ubuntu
+          # differ by a handful) and small churn, not for losing collections.
           status=0
-          for lane in main:unit_app platformboot:unit_app_platformboot; do
+          for lane in main:unit_app:3300 platformboot:unit_app_platformboot:40; do
             dir="${lane%%:*}"
-            trx="${lane##*:}"
+            rest="${lane#*:}"
+            trx="${rest%%:*}"
+            floor="${rest##*:}"
             echo "::group::$trx"
             "$py" scripts/check-app-tests-baseline.py \
               "tests/NovaTerminal.App.Tests/TestResults/$dir/$trx.trx" \
-              tests/app-tests-known-flaky.txt || status=1
+              tests/app-tests-known-flaky.txt \
+              "$floor" \
+              "tests/NovaTerminal.App.Tests/TestResults/$dir/console.log" || status=1
             echo "::endgroup::"
           done
           exit $status
