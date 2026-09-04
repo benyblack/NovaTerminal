@@ -1702,6 +1702,33 @@ namespace NovaTerminal.VT
             return false;
         }
 
+        /// <summary>
+        /// Ends an inline image placement with the cursor at column 0 of the row below the picture.
+        /// </summary>
+        /// <remarks>
+        /// Every image protocol reserves its cells the same way - write <c>width</c> spaces, newline,
+        /// repeat - and each one used to stop after the last row's spaces, leaving the cursor at
+        /// <c>CellX + width</c> on the image's own final row. Whatever the program wrote next started
+        /// from there: an indent beside a narrow image, and beside a wide one an overrun past the last
+        /// column that wrapped the text mid-word (#405).
+        ///
+        /// The newline is what puts the cursor on a fresh line. <see cref="_swallowNextNewline"/> then
+        /// absorbs the newline the emitting program almost always sends after its image, so the picture
+        /// is not followed by a blank line - wanting that is why the last row's newline was skipped in
+        /// the first place, but skipping it moved the text sideways instead of keeping it close.
+        /// Emitting our own and swallowing theirs gives both: no blank line, and text that resumes at
+        /// the left margin.
+        /// </remarks>
+        private void FinishImagePlacement()
+        {
+            // CR then LF, not LF alone: line feed only returns to column 0 when LNM is set, and it
+            // is off by default, so a bare '\n' would drop a row and keep the column - the very
+            // thing this exists to prevent.
+            _buffer.WriteChar('\r');
+            _buffer.WriteChar('\n');
+            _swallowNextNewline = true;
+        }
+
         private void HandleSixel(string dcs)
         {
             try
@@ -1741,6 +1768,8 @@ namespace NovaTerminal.VT
                                 for (int x = 0; x < img.CellX; x++) _buffer.WriteContent(" ", false);
                             }
                         }
+
+                        FinishImagePlacement();
                     }
                     finally
                     {
@@ -2668,6 +2697,8 @@ namespace NovaTerminal.VT
                                 for (int i = 0; i < img.CellX; i++) _buffer.WriteContent(" ", false);
                             }
                         }
+
+                        FinishImagePlacement();
                     }
                     finally
                     {
@@ -2827,6 +2858,9 @@ namespace NovaTerminal.VT
                     }
 
 
+                    // Before the delta below is measured, so the row this adds is counted in it.
+                    FinishImagePlacement();
+
                     // Accumulate vertical offset for ConPTY sync
                     // Use actual visual cursor delta instead of image height to account for scrolling/clamping
                     int endRow = _buffer.CursorRow;
@@ -2835,9 +2869,6 @@ namespace NovaTerminal.VT
                     // This maps PTY (Start) -> Visual (End).
                     _verticalOffset += delta;
 
-
-                    // Set flag to swallow the next newline if it comes immediately
-                    _swallowNextNewline = true;
                 }
                 finally
                 {
