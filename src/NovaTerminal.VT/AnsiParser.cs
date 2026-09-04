@@ -232,6 +232,22 @@ namespace NovaTerminal.VT
         {
             if (_textBuffer.Length > 0)
             {
+                // Printable output closes the window in which a post-image newline may be
+                // swallowed. The flag means "absorb the newline the image-emitting program sends
+                // immediately after its picture" - once anything else has been printed, a newline
+                // is the program's own line break and must not be eaten.
+                //
+                // ExecuteControl's single-character path already clears it for the same reason, but
+                // printable text does not go through there: it accumulates in _textBuffer and lands
+                // here, so the flag used to survive arbitrary output. Only HandleITerm2Image armed
+                // it, and imgcat-style emitters send their newline straight after the image, so the
+                // flag was always consumed before anything could reveal that. Arming it for sixel
+                // too (#405) surfaced it: `cat` of a sixel file sends no trailing newline, the flag
+                // stayed live across the whole next prompt, and it swallowed the line break between
+                // the following command's echo and its output - rendering `echo done` / `done` as
+                // `echo donedone`.
+                _swallowNextNewline = false;
+
                 _buffer.WriteContent(_textBuffer.ToString());
                 _textBuffer.Clear();
             }
