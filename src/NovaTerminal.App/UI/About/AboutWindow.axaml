@@ -1,0 +1,59 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NovaTerminal.UI.About.AboutWindow"
+        Title="About NovaTerminal"
+        Width="480"
+        SizeToContent="Height"
+        CanResize="False"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <Window.Styles>
+        <Style Selector="Button.link">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="#4C8DFF" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
+        <Style Selector="Button.link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#7FB0FF" />
+        </Style>
+    </Window.Styles>
+    <Border Padding="20">
+        <StackPanel Spacing="16">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Image Width="48" Height="48" Source="avares://NovaTerminal/Assets/nova_icon.png" />
+                <StackPanel VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Text="NovaTerminal" FontSize="22" FontWeight="SemiBold" />
+                    <TextBlock Name="VersionText" Opacity="0.75" />
+                </StackPanel>
+            </StackPanel>
+
+            <Separator />
+
+            <StackPanel Spacing="10">
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <Button Name="CheckForUpdatesButton" Content="Check for updates" Click="OnCheckForUpdatesClick" />
+                    <ProgressBar Name="CheckProgress" IsIndeterminate="True" Width="110" Height="6"
+                                 IsVisible="False" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Name="StatusText" TextWrapping="Wrap" IsVisible="False" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button Name="RestartNowButton" Content="Restart now" IsVisible="False" Click="OnRestartNowClick" />
+                    <Button Name="OpenReleasesButton" Content="Open releases page" IsVisible="False" Click="OnOpenReleasesClick" />
+                </StackPanel>
+            </StackPanel>
+
+            <Separator />
+
+            <StackPanel Orientation="Horizontal" Spacing="16">
+                <Button Classes="link" Content="GitHub repository" Click="OnOpenRepoClick" />
+                <Button Classes="link" Content="Releases" Click="OnOpenReleasesClick" />
+            </StackPanel>
+
+            <Button Name="CloseButton" Content="Close" Width="96" HorizontalAlignment="Right" Click="OnCloseClick" />
+        </StackPanel>
+    </Border>
+</Window>
