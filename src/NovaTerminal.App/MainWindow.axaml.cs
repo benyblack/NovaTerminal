@@ -3534,6 +3534,12 @@ namespace NovaTerminal
                 await ShowAgentActivityJournalAsync();
             };
 
+            var menuAbout = this.FindControl<MenuItem>("MenuAbout");
+            if (menuAbout != null) menuAbout.Click += async (s, e) =>
+            {
+                await ShowAboutWindowAsync();
+            };
+
             // Wired once, here, and never again: PlaceAgentObserveIndicator re-parents this exact
             // instance on every RebuildTitleBar instead of recreating it, so this subscription
             // survives every rebuild. (BtnRecord's old wiring is gone - PR #342 moved Record into
@@ -8448,16 +8454,21 @@ namespace NovaTerminal
         /// what happened: the user asked a direct question and silence would read as a hang.
         /// Constructs the coordinator on demand (see <see cref="EnsureUpdateCoordinator"/>) so
         /// this works even in the first 10 seconds of the process's life, before the deferred
-        /// startup timer would otherwise have built it.
+        /// startup timer would otherwise have built it. Reporting goes through
+        /// <see cref="NovaTerminal.Update.IUpdateCheckFeedback"/> so the About window can run
+        /// this same pipeline and render the answer inline; without one, the answers surface
+        /// as toasts (see <see cref="ToastUpdateCheckFeedback"/>).
         /// </summary>
-        private async System.Threading.Tasks.Task CheckForUpdatesInteractiveAsync()
+        private async System.Threading.Tasks.Task CheckForUpdatesInteractiveAsync(NovaTerminal.Update.IUpdateCheckFeedback? feedback = null)
         {
+            feedback ??= new ToastUpdateCheckFeedback(this);
+
             EnsureUpdateCoordinator();
             if (_updateCoordinator == null)
             {
                 // Construction itself failed unexpectedly (see EnsureUpdateCoordinator) - distinct
                 // from Unsupported below, which is a healthy check reporting a non-Velopack host.
-                ShowRecordingToast("Update check failed", "Could not check for updates. See the debug log for details.", null, null, autoHide: true);
+                feedback.CoordinatorUnavailable();
                 return;
             }
 
@@ -8477,12 +8488,7 @@ namespace NovaTerminal
                 // could adopt its outcome is the fuller answer, but it is a lot of machinery
                 // for a ~10 s window, and it would make a background check's failure suddenly
                 // user-visible depending on timing. (Codex P2 on #340.)
-                ShowRecordingToast(
-                    "Checking for updates",
-                    "A check is already running in the background. If it finds a new version, you'll get a notification.",
-                    null,
-                    null,
-                    autoHide: true);
+                feedback.AlreadyRunning();
                 return;
             }
 
@@ -8494,7 +8500,7 @@ namespace NovaTerminal
                 // check does synchronous file I/O (staged-user-id read/write, nuspec parse of
                 // every local .nupkg) before its first await, and this runs from a palette
                 // click on the UI thread. The continuation resumes on the UI thread, which the
-                // ShowRecordingToast calls below require.
+                // feedback surfaces (toasts, or the About window's status area) require.
                 outcome = await Task.Run(() => _updateCoordinator.RunManualCheckAsync());
             }
             finally
@@ -8502,38 +8508,96 @@ namespace NovaTerminal
                 _updateCheckInFlight = false;
             }
 
-            switch (outcome)
+            feedback.Outcome(outcome, _updateCoordinator.StagedVersion);
+        }
+
+        /// <summary>
+        /// The palette's surface: the same answers every check gives, delivered as toasts. The
+        /// strings come from <see cref="NovaTerminal.Update.UpdateCheckMessages"/> so this and
+        /// the About window's inline rendering cannot drift apart.
+        /// </summary>
+        private sealed class ToastUpdateCheckFeedback : NovaTerminal.Update.IUpdateCheckFeedback
+        {
+            private readonly MainWindow _owner;
+
+            public ToastUpdateCheckFeedback(MainWindow owner)
             {
-                case NovaTerminal.Update.UpdateCheckOutcome.UpdateReady:
-                    // Show it here rather than relying on the coordinator's onUpdateReady
-                    // callback. That callback fires only when the staged version CHANGES (its
-                    // announce-once guard, which exists so a second check does not re-nag about
-                    // an update the user already dismissed). So for a user who dismissed the
-                    // toast and then asked again, the callback correctly stays silent - and
-                    // trusting it here left the manual check answering a direct question with
-                    // nothing at all, and no visible way to restart. Re-showing is idempotent:
-                    // when the callback did just fire, this sets the same text again.
-                    // (Codex P2 on #340.)
-                    ShowUpdateToast(_updateCoordinator.StagedVersion ?? string.Empty);
-                    break;
-                case NovaTerminal.Update.UpdateCheckOutcome.UpToDate:
-                    ShowRecordingToast("Up to date", "You are running the newest version.", null, null, autoHide: true);
-                    break;
-                case NovaTerminal.Update.UpdateCheckOutcome.Unsupported:
-                    ShowRecordingToast(
-                        "Updates unavailable",
-                        "This build was not installed by the NovaTerminal installer, so it cannot update itself. Download the installer from the releases page to get automatic updates.",
-                        null,
-                        null,
-                        autoHide: true);
-                    break;
-                case NovaTerminal.Update.UpdateCheckOutcome.Failed:
-                    ShowRecordingToast("Update check failed", "Could not reach GitHub. See the debug log for details.", null, null, autoHide: true);
-                    break;
-                case NovaTerminal.Update.UpdateCheckOutcome.Disabled:
-                    // Unreachable: a manual check ignores the automatic-checks setting.
-                    break;
+                _owner = owner;
             }
+
+            // A toast IS the announcement; there is no interim state to show.
+            public void Checking()
+            {
+            }
+
+            public void AlreadyRunning()
+            {
+                _owner.ShowRecordingToast(
+                    NovaTerminal.Update.UpdateCheckMessages.AlreadyRunningTitle,
+                    NovaTerminal.Update.UpdateCheckMessages.AlreadyRunningMessage,
+                    null,
+                    null,
+                    autoHide: true);
+            }
+
+            public void CoordinatorUnavailable()
+            {
+                _owner.ShowRecordingToast(
+                    NovaTerminal.Update.UpdateCheckMessages.CoordinatorUnavailableTitle,
+                    NovaTerminal.Update.UpdateCheckMessages.CoordinatorUnavailableMessage,
+                    null,
+                    null,
+                    autoHide: true);
+            }
+
+            public void Outcome(NovaTerminal.Update.UpdateCheckOutcome outcome, string? stagedVersion)
+            {
+                switch (outcome)
+                {
+                    case NovaTerminal.Update.UpdateCheckOutcome.UpdateReady:
+                        // Show it here rather than relying on the coordinator's onUpdateReady
+                        // callback. That callback fires only when the staged version CHANGES (its
+                        // announce-once guard, which exists so a second check does not re-nag about
+                        // an update the user already dismissed). So for a user who dismissed the
+                        // toast and then asked again, the callback correctly stays silent - and
+                        // trusting it here left the manual check answering a direct question with
+                        // nothing at all, and no visible way to restart. Re-showing is idempotent:
+                        // when the callback did just fire, this sets the same text again.
+                        // (Codex P2 on #340.)
+                        _owner.ShowUpdateToast(stagedVersion ?? string.Empty);
+                        break;
+                    case NovaTerminal.Update.UpdateCheckOutcome.UpToDate:
+                    case NovaTerminal.Update.UpdateCheckOutcome.Unsupported:
+                    case NovaTerminal.Update.UpdateCheckOutcome.Failed:
+                        _owner.ShowRecordingToast(
+                            NovaTerminal.Update.UpdateCheckMessages.OutcomeTitle(outcome),
+                            NovaTerminal.Update.UpdateCheckMessages.OutcomeMessage(outcome, stagedVersion),
+                            null,
+                            null,
+                            autoHide: true);
+                        break;
+                    case NovaTerminal.Update.UpdateCheckOutcome.Disabled:
+                        // Unreachable: a manual check ignores the automatic-checks setting.
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The "+" flyout's "About NovaTerminal...". The window only renders and reports; the
+        /// update machinery stays here so a check started from About shares the coordinator, the
+        /// in-flight guard and the announce-once state with the palette's manual check and the
+        /// deferred startup check. Wiring is by property, the same way SettingsWindow is.
+        /// </summary>
+        private async System.Threading.Tasks.Task ShowAboutWindowAsync()
+        {
+            var about = new UI.About.AboutWindow();
+            about.RunUpdateCheck = () => CheckForUpdatesInteractiveAsync(about);
+            about.ApplyStagedUpdate = ApplyStagedUpdate;
+            about.StagedVersionProvider = () => _updateCoordinator?.StagedVersion;
+
+            ApplyThemeToDialogWindow(about);
+            await about.ShowDialog(this);
         }
 
         private void SyncRecordingButtonState()
