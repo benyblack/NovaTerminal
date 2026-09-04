@@ -65,12 +65,13 @@ From `docs/agent-host/DIRECTION.md` and the milestone design docs:
   covers most of it). Rendering a *live* pane to a PNG shipped in A5 as
   `capture_screen`, and a replay-to-PNG path would reuse the same
   `TerminalSnapshotRenderer`.
-- **Screenshots are the pane's grid, not the window** — `capture_screen` renders
-  the terminal grid offscreen from the buffer. That is what makes it
-  deterministic, occlusion-proof, and incapable of leaking another window into
-  the image, but it also means tab bars, the command-assist bar, split borders,
-  and any other app chrome are not in the picture. UI-level screenshots would be
-  a separate feature.
+- **Screenshots are the pane, not the window** — neither `capture_screen` mode
+  photographs app chrome: `render` draws the terminal grid offscreen from the
+  buffer, and `live` photographs the pane's own control. So tab bars, the
+  command-assist bar and split borders are in neither. `live` does carry what is
+  drawn *within* the pane that the buffer cannot describe — the user's background
+  image and window opacity — at the cost of needing the pane on screen and of not
+  being reproducible. A whole-window screenshot would still be a separate feature.
 - **Screenshots need the pane to have been measured** — a pane that has never
   been laid out (created but never shown) has no cell geometry to render into and
   returns `captureUnavailable`; `read_screen` works regardless.

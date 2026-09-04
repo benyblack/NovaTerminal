@@ -120,11 +120,32 @@ public sealed record CaptureScreenParams
 
     /// <summary>
     /// Resample the capture down to at most this pixel width, preserving aspect
-    /// ratio. 0 (the default) keeps the pane's native 1:1 size. The render itself
-    /// always happens at 1:1; this only scales the result.
+    /// ratio. 0 (the default) delivers the capture at its rendered size. Applied
+    /// after the render, so it trades detail for payload size; to render *more*
+    /// detail, raise <see cref="Scale"/> instead.
     /// </summary>
     [JsonPropertyName("maxWidth")]
     public int MaxWidth { get; init; }
+
+    /// <summary>
+    /// Device pixels per DIP to render at, from 1 to
+    /// <see cref="AgentHostProtocol.MaxCaptureScale"/>. 0 or absent means 1.
+    /// Raising it makes the image bigger and the text easier to read back; the
+    /// value is the caller's, never the monitor's, so a capture stays
+    /// reproducible.
+    /// </summary>
+    [JsonPropertyName("scale")]
+    public double Scale { get; init; }
+
+    /// <summary>
+    /// <see cref="AgentHostProtocol.CaptureModes"/>: <c>render</c> (default) for
+    /// the deterministic headless re-render, or <c>live</c> to photograph the
+    /// on-screen control. Absent, empty, or unrecognized-with-correct-casing is
+    /// not silently coerced — an unknown mode is a malformed request, so a typo
+    /// cannot quietly get a different picture than the caller asked for.
+    /// </summary>
+    [JsonPropertyName("mode")]
+    public string? Mode { get; init; }
 }
 
 /// <summary>Result payload for <c>captureScreen</c> (A5).</summary>
@@ -157,6 +178,19 @@ public sealed record CaptureScreenResult
     /// <summary>True when <c>maxWidth</c> forced a resample.</summary>
     [JsonPropertyName("downscaled")]
     public required bool Downscaled { get; init; }
+
+    /// <summary>
+    /// Which mode produced this image. Echoed rather than assumed: a caller that
+    /// asked for <c>live</c> should be able to see that it got <c>live</c>.
+    /// Defaulted rather than <c>required</c> so an older client reading a newer
+    /// endpoint's result still deserializes.
+    /// </summary>
+    [JsonPropertyName("mode")]
+    public string Mode { get; init; } = AgentHostProtocol.CaptureModes.Render;
+
+    /// <summary>The scale the capture was rendered at, after clamping.</summary>
+    [JsonPropertyName("scale")]
+    public double Scale { get; init; } = 1.0;
 
     /// <summary>
     /// Base64 PNG, present only when the caller asked for it and it fit under the

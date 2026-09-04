@@ -39,6 +39,18 @@ namespace NovaTerminal.AgentHost
     }
 
     /// <summary>
+    /// A WYSIWYG capture of a pane's on-screen control (A5 <c>live</c> mode).
+    /// Distinct from <see cref="AgentCaptureInfo"/> because a live capture has no
+    /// grid dimensions of its own — it is pixels off the screen, and the endpoint
+    /// fills in cols/rows from the buffer.
+    /// </summary>
+    public readonly record struct AgentLiveCapture(
+        byte[] Png,
+        int Width,
+        int Height,
+        bool Downscaled);
+
+    /// <summary>
     /// UI-thread bridge the agent-host endpoint uses to open and close sessions
     /// (A3 spawn/close). Implemented by MainWindow and published on the service
     /// while the window lives; the service never touches Avalonia directly.
@@ -56,5 +68,21 @@ namespace NovaTerminal.AgentHost
 
         /// <summary>Closes the pane with <paramref name="paneId"/>. False if no such live pane.</summary>
         Task<bool> ClosePaneAsync(Guid paneId);
+
+        /// <summary>
+        /// Photographs the pane's live control (A5 <c>live</c> mode), scaled by
+        /// <paramref name="scale"/> device pixels per DIP and resampled down to
+        /// <paramref name="maxWidth"/> if that is non-zero. Null when there is no
+        /// such pane on screen, or it has no laid-out size to capture.
+        /// </summary>
+        /// <remarks>
+        /// This is the one part of the screenshot surface that needs the UI thread,
+        /// which is exactly why it sits behind this bridge rather than in the
+        /// registration: <c>render</c> mode captures a hidden or occluded pane
+        /// precisely because it never touches a visual tree, and that property is
+        /// worth keeping unconditionally true of the default path. Implementations
+        /// marshal to the UI thread themselves.
+        /// </remarks>
+        Task<AgentLiveCapture?> CaptureLiveAsync(Guid paneId, int maxWidth, double scale);
     }
 }

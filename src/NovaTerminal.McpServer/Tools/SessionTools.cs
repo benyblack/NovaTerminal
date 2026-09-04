@@ -53,12 +53,14 @@ public static class SessionTools
     }
 
     [McpServerTool(Name = "novaterminal.capture_screen"),
-     Description("Renders a live NovaTerminal session to a PNG image and returns its path — use it when the pixels matter and text does not carry them: inline images (sixel), box-drawing and TUI layout, colour and theme problems, or a rendering bug you need to see. The pane is rendered offscreen from its buffer, not screen-grabbed, so it works even if the window is minimized, occluded, or on another desktop, and no other window can leak into the image. Set inline=true to also get the image itself back (capped; the file is written either way), and maxWidth to shrink it. Read-only. Requires BOTH 'Agent access (observe)' and its 'Agent screenshots' sub-toggle in NovaTerminal settings, and every capture is shown in the app's agent activity journal. For reading text, novaterminal.read_screen is cheaper and needs no extra permission. Get paneId from novaterminal.list_sessions.")]
+     Description("Captures a live NovaTerminal session as a PNG image and returns its path — use it when the pixels matter and text does not carry them: inline images (sixel), box-drawing and TUI layout, colour and theme problems, or a rendering bug you need to see. Two modes: mode='render' (default) re-renders the pane offscreen from its buffer, so it works even if the window is minimized, occluded, or on another desktop, no other window can leak in, and the same screen always produces the same bytes; mode='live' photographs the pane as drawn on screen, which additionally carries the user's background image and window opacity but only works while the pane is visible and is not reproducible. Raise scale (up to 3) to render more detail — a 1x capture of an 80x24 pane is only about 640x384, which is thin for reading text back out of the image; maxWidth shrinks the result instead. Set inline=true to also get the image itself back (capped; the file is written either way). Read-only, and requires 'Agent access (observe)' like every other read; the pane's agent indicator lights when you capture it. For reading text, novaterminal.read_screen is cheaper. Get paneId from novaterminal.list_sessions.")]
     public static async Task<IEnumerable<ContentBlock>> CaptureScreen(
         AgentHostClient client,
         [Description("The pane id (GUID) from novaterminal.list_sessions.")] string paneId,
         [Description("If true, return the PNG in the response as an image as well as writing it to disk. Default false (path only).")] bool inline = false,
-        [Description("Shrink the image to at most this pixel width, preserving aspect ratio. 0 (default) keeps the pane's native size.")] int maxWidth = 0,
+        [Description("Shrink the delivered image to at most this pixel width, preserving aspect ratio. 0 (default) delivers it at its rendered size. To gain detail rather than lose it, raise scale instead.")] int maxWidth = 0,
+        [Description("Device pixels per point to render at, 1 to 3. Default 1. Raising it makes text in the image easier to read; the value is yours, not the monitor's, so a capture stays reproducible.")] double scale = 1,
+        [Description("'render' (default) for the deterministic offscreen re-render that works on hidden panes, or 'live' to photograph the pane as drawn on screen (visible panes only; includes background image and window opacity).")] string mode = "render",
         CancellationToken cancellationToken = default)
     {
         if (!Guid.TryParse(paneId, out var pane))
@@ -67,11 +69,33 @@ public static class SessionTools
         }
         if (maxWidth < 0)
         {
-            return Text("Error: maxWidth must be 0 (native size) or greater.");
+            return Text("Error: maxWidth must be 0 (rendered size) or greater.");
+        }
+        // Clamped rather than rejected: a caller asking for more detail than the
+        // endpoint allows wants the most it can give, not an error. Out-of-range
+        // low is a different matter - 0.5 would mean "blur it", which nothing wants.
+        if (scale < 0)
+        {
+            return Text("Error: scale must be 0 (meaning 1) or greater.");
+        }
+        var effectiveScale = scale <= 0 ? 1d : Math.Min(scale, AgentHostProtocol.MaxCaptureScale);
+
+        var normalizedMode = string.IsNullOrWhiteSpace(mode) ? AgentHostProtocol.CaptureModes.Render : mode.Trim();
+        if (!normalizedMode.Equals(AgentHostProtocol.CaptureModes.Render, StringComparison.OrdinalIgnoreCase) &&
+            !normalizedMode.Equals(AgentHostProtocol.CaptureModes.Live, StringComparison.OrdinalIgnoreCase))
+        {
+            return Text($"Error: unknown mode '{mode}'. Use '{AgentHostProtocol.CaptureModes.Render}' (default) or '{AgentHostProtocol.CaptureModes.Live}'.");
         }
 
         var parameters = JsonSerializer.SerializeToElement(
-            new CaptureScreenParams { PaneId = pane, Inline = inline, MaxWidth = maxWidth },
+            new CaptureScreenParams
+            {
+                PaneId = pane,
+                Inline = inline,
+                MaxWidth = maxWidth,
+                Scale = effectiveScale,
+                Mode = normalizedMode,
+            },
             AgentHostJsonContext.Default.CaptureScreenParams);
         var outcome = await client.CallAsync(AgentHostProtocol.Methods.CaptureScreen, parameters, cancellationToken).ConfigureAwait(false);
         if (!TryUnwrap(outcome, out var result, out var error)) return Text(error);
@@ -452,15 +476,18 @@ public static class SessionTools
 
     internal static string FormatCapture(CaptureScreenResult dto)
     {
+        var live = string.Equals(dto.Mode, AgentHostProtocol.CaptureModes.Live, StringComparison.OrdinalIgnoreCase);
         var sb = new StringBuilder();
         sb.AppendLine($"Screenshot written: {dto.FilePath}");
         sb.AppendLine(
-            $"{dto.Width}x{dto.Height} px for a {dto.Cols}x{dto.Rows} grid, {dto.ByteCount:N0} bytes{(dto.Downscaled ? " (downscaled from the pane's native size)" : "")}.");
+            $"{dto.Width}x{dto.Height} px for a {dto.Cols}x{dto.Rows} grid at scale {dto.Scale:0.##} ({dto.Mode} mode), {dto.ByteCount:N0} bytes{(dto.Downscaled ? ", downscaled to fit maxWidth" : "")}.");
         if (dto.InlineOmitted)
         {
             sb.AppendLine("The inline image was omitted because it exceeded the inline size cap — read the file from the path above, or retry with a smaller maxWidth.");
         }
-        sb.Append("The image is the pane's grid only: no window chrome, no other panes, no selection highlight, and no cursor blink (the cursor is drawn whenever the session has it enabled).");
+        sb.Append(live
+            ? "This is the pane as drawn on screen, so it carries the background image and window opacity — and is not reproducible: the same session photographs differently as the window moves or is covered."
+            : "The image is the pane's grid only: no window chrome, no other panes, no selection highlight, and no cursor blink (the cursor is drawn whenever the session has it enabled). The user's background image and window opacity are not in it — mode='live' captures those.");
         return sb.ToString();
     }
 

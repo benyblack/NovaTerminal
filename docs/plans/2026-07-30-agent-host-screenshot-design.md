@@ -1,5 +1,30 @@
 # Agent Host A5 (Screenshot for Agents) Design
 
+> **Status: implemented, with the divergences below reconciled (2026-09-03).**
+>
+> This design was written on 2026-07-30 and archived into the repo on 2026-08-18
+> (#329), by which time A5 had already shipped in #257 — built without reference
+> to this document, so it diverged from it. The divergences and their resolution:
+>
+> | This design | Shipped in #257 | Now |
+> |---|---|---|
+> | `novaterminal.capture_screenshot` | `novaterminal.capture_screen` | kept as shipped — the tool is public API, and the shorter name is the one in use |
+> | two modes, `render` + `live` | `render` only | **`live` implemented** as designed, behind the existing `IAgentActionExecutor` bridge |
+> | observe toggle alone, no new setting | added `AgentScreenshotEnabled` | **reverted to this design**: captures ride the observe toggle |
+> | no journal entry | journaled every capture | **reverted to this design** — see below |
+> | path only, "no base64 payloads in the NDJSON frame" | `inline=true` returns base64 | kept as shipped, under a 3 MB cap that drops only the inline copy |
+>
+> Two notes on the gating. First, the reason the stricter gate looked right in
+> July was that a capture had no other visible surface; #339 has since given
+> every pane an agent-access indicator that lights on a capture, so the
+> visibility the journal stood in for now exists without it. Second, `render`
+> mode gained a caller-named `scale` (1–3) that this design does not mention:
+> it was not implementable until #346 fixed `TerminalSnapshotRenderer`, which
+> passed the render scaling to the draw operation while handing it an unscaled
+> canvas.
+>
+> Everything below is the original text, unedited.
+
 Proposed milestone **A5** of `docs/agent-host/DIRECTION.md` — pixel-level observe:
 an agent can capture a live session's terminal content as a PNG image, either as a
 deterministic headless re-render of the buffer (works for any pane, testable) or as

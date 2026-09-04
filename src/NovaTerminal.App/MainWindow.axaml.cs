@@ -3343,11 +3343,10 @@ namespace NovaTerminal
 
             // Agent-host observe endpoint (docs/agent-host/DIRECTION.md, A1):
             // strictly no-op unless the user opted in via Settings. The replay
-            // export sub-gate (A4), the screenshot sub-gate (A5), and the act gate
-            // + SSH allowlist (A3) are pushed alongside so the endpoint checks the
-            // current settings on every request.
+            // export sub-gate (A4) and the act gate + SSH allowlist (A3) are pushed
+            // alongside so the endpoint checks the current settings on every
+            // request. Screenshots (A5) ride the observe toggle alone.
             AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
-            AgentHost.AgentHostService.Instance.ScreenshotEnabled = _settings.AgentScreenshotEnabled;
             AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
             AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
             AgentHost.AgentHostService.Instance.SetActionExecutor(this);
@@ -4873,6 +4872,15 @@ namespace NovaTerminal
             });
         }
 
+        async Task<AgentHost.AgentLiveCapture?> AgentHost.IAgentActionExecutor.CaptureLiveAsync(Guid paneId, int maxWidth, double scale)
+        {
+            return await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                TerminalPane? target = _paneOwnerTab.Keys.FirstOrDefault(p => p.PaneId == paneId);
+                return target?.CaptureLiveForAgent(maxWidth, scale);
+            });
+        }
+
         private void CloseTab(TabItem ti)
         {
             if (_paneZoomStateByTab.ContainsKey(ti))
@@ -5318,7 +5326,6 @@ namespace NovaTerminal
         internal void ApplyAgentHostSettingsLive()
         {
             AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
-            AgentHost.AgentHostService.Instance.ScreenshotEnabled = _settings.AgentScreenshotEnabled;
             AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
             AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
             AgentHost.AgentHostService.Instance.SetActionExecutor(this);
