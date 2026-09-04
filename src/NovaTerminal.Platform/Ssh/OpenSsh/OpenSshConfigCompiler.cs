@@ -304,11 +304,13 @@ public sealed class OpenSshConfigCompiler : IOpenSshConfigCompiler
         return $"nova_{profileId:N}";
     }
 
-    private static string GetDefaultSshRootDirectory()
-    {
-        string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(appData, "NovaTerminal", "ssh");
-    }
+    /// <remarks>
+    /// Resolved through <see cref="PlatformAppPaths"/> for the same reason as
+    /// <c>JsonSshProfileStore.GetDefaultStorePath</c>: reading LocalApplicationData directly ignored
+    /// NOVATERM_APPDATA_ROOT, so a redirected process still wrote generated OpenSSH config into the
+    /// machine's real ssh directory (#406).
+    /// </remarks>
+    private static string GetDefaultSshRootDirectory() => PlatformAppPaths.SshDirectory;
 
     private static SshProfile CloneProfile(SshProfile profile)
     {
