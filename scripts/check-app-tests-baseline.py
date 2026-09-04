@@ -19,15 +19,24 @@ So the hang stays non-blocking and the *results* become blocking:
     collection aborts reported "no failures" and went green, minutes after the same branch
     had run all 3,434. Truncation is only tolerated for the one cause this lane exists to
     tolerate, the #81 teardown hang, which leaves a hang dump behind to prove itself.
-  * A catastrophic (runner-level) failure in the step log is surfaced with its count, but
-    does not block - yet. Those aborts kill whole collections without ever appearing in the
-    trx, which is why the summary can read "no failures" precisely because tests were never
-    run. They are not blocking because they are currently happening on every run, including
-    ones that complete the whole suite cleanly (21208fd: 3,434 executed, 0 failures, 10
-    aborts), so blocking on them would red every PR and teach everyone to ignore this lane -
-    the dynamic that let the truncation hide. Flip it to blocking once the remaining source
-    of thread-affine Avalonia state is fixed; the floor above is what protects coverage in
-    the meantime, and it discriminates properly (3,434 passes, 1,112 does not).
+  * A catastrophic (runner-level) failure in the step log *fails* this step, hang or no hang.
+    Those aborts kill whole collections without ever appearing in the trx, which is why the
+    summary can read "no failures" precisely because tests were never run. They used to be
+    reported and tolerated, and the tolerance was earned: they fired on every run, including
+    ones that completed the whole suite cleanly (21208fd: 3,434 executed, 0 failures, 10
+    aborts), so blocking would have redded every PR and taught everyone to ignore this lane -
+    the dynamic that let the truncation hide in the first place. #411 removed their cause, a
+    Timer callback in AgentOutputRegionTracker that let exceptions escape onto a threadpool
+    thread, and the count went to zero on both OS lanes of a full run. The tolerance has been
+    spent, so it is withdrawn: zero is now the only acceptable number, and the next one to
+    appear is a regression rather than weather.
+
+    Unlike truncation, this check is not waived by a hang dump, because an abort is not
+    something the #81 teardown hang produces: the blame collector kills the testhost rather
+    than letting it print, and runs have been observed hanging with zero aborts, never the
+    reverse. Waiving it under a dump would reopen exactly the hole this gate was extended to
+    close, one job-run in three wide. If that reasoning is ever wrong it surfaces as a red PR
+    naming the abort, not as another green-but-broken run.
 
 Names are matched as substrings, so an allowlist entry without theory arguments covers
 every case of that theory.
@@ -119,25 +128,30 @@ def hang_dumps(trx: Path) -> list[Path]:
     return sorted(results_dir.rglob("*hangdump*.dmp"))
 
 
-def main() -> int:
-    if len(sys.argv) not in (4, 5):
-        print(
-            f"usage: {Path(sys.argv[0]).name} <trx-path> <allowlist-path> <min-executed> "
-            f"[log-path]",
-            file=sys.stderr,
-        )
-        return 2
+def report_aborts(aborts: list[str], trx: Path) -> None:
+    """
+    Announce runner-level aborts as the blocking failure they are.
 
-    trx = Path(sys.argv[1])
-    allowlist_path = Path(sys.argv[2])
-    try:
-        min_executed = int(sys.argv[3])
-    except ValueError:
-        print(f"min-executed must be an integer, got {sys.argv[3]!r}", file=sys.stderr)
-        return 2
-    log_path = Path(sys.argv[4]) if len(sys.argv) == 5 else None
+    Kept separate from the result judgement below, and applied to every exit path including
+    the tolerated ones, because an abort is independent evidence: it says a collection died
+    unread, which no trx and no hang dump can either confirm or excuse.
+    """
+    summary(
+        f"::error::App.Tests hit {len(aborts)} runner-level abort(s) "
+        f"({len(set(aborts))} distinct). Each one kills a whole xUnit collection without "
+        f"writing a result, so they are invisible to {trx.name} and the tests they took with "
+        f"them cannot be said to have passed. This is blocking as of #411, which fixed the "
+        f"cause and left both OS lanes at zero; a hang dump does not excuse it, because the "
+        f"#81 hang does not produce aborts. Find what threw and contain it at its source - do "
+        f"not reach for the allowlist, which cannot name a test that never reported."
+    )
+    for line in sorted(set(aborts)):
+        summary(f"  - {line}")
+
+
+def judge(trx: Path, allowlist_path: Path, min_executed: int) -> int:
+    """Judge the lane's recorded results. Aborts are the caller's verdict, not this one's."""
     dumps = hang_dumps(trx)
-    aborts = catastrophic_failures(log_path) if log_path else []
 
     if not trx.is_file():
         if dumps:
@@ -171,36 +185,21 @@ def main() -> int:
             f"reached are neither passed nor failed. The failures below are judged as usual."
         )
 
-    # Both checks below are skipped when a hang dump is present, and that is deliberate rather
-    # than lenient: the #81 hang truncates runs on roughly one job-run in three, and this lane
-    # is non-blocking precisely so that cannot red unrelated PRs. What they close is the other
-    # case - a run cut short with nothing hung, which had no signal at all.
-    truncated = executed < min_executed
-    if aborts and not dumps:
-        # A warning, not an error: see the module docstring. These fire on healthy full runs
-        # too, so blocking here would red every PR rather than telling anyone anything new.
-        summary(
-            f"::warning::App.Tests hit {len(aborts)} runner-level abort(s) "
-            f"({len(set(aborts))} distinct) with no hang dump, so this is not the #81 hang. "
-            f"Each one kills a whole xUnit collection without writing a result, so they are "
-            f"invisible to {trx.name}. Not blocking yet - they occur on complete runs as well, "
-            f"and the executed-count floor is what guards coverage until the underlying "
-            f"thread-affine state is fixed."
-        )
-        for line in sorted(set(aborts)):
-            summary(f"  - {line}")
-
-    if truncated and not dumps:
+    # The floor is waived when a hang dump is present, and that is deliberate rather than
+    # lenient: the #81 hang truncates runs on roughly one job-run in three, and this lane is
+    # non-blocking precisely so that cannot red unrelated PRs. What it closes is the other
+    # case - a run cut short with nothing hung, which had no signal at all. Note that the
+    # abort check in main() takes no such waiver; see the module docstring for why the two
+    # truncation causes are treated differently.
+    if executed < min_executed and not dumps:
         summary(
             f"::error::App.Tests executed {executed} test(s), below this lane's floor of "
             f"{min_executed}, and nothing hung. The missing tests did not pass - they never "
             f"ran. If the lane legitimately has fewer tests now, lower the floor in ci.yml "
             f"deliberately; do not let a truncated run report success."
         )
-
-    if truncated and not dumps:
-        # Reported before returning so the failure list is still visible: knowing which tests
-        # failed in the part that did run is useful even when the run is being rejected.
+        # Listed before returning so the failures are still visible: knowing which tests failed
+        # in the part that did run is useful even when the run is being rejected.
         if failures:
             summary(f"Failures recorded before the run was cut short ({len(failures)}):")
             for name in failures:
@@ -235,6 +234,36 @@ def main() -> int:
         f"Do not widen the list to make a red build green."
     )
     return 1
+
+
+def main() -> int:
+    if len(sys.argv) not in (4, 5):
+        print(
+            f"usage: {Path(sys.argv[0]).name} <trx-path> <allowlist-path> <min-executed> "
+            f"[log-path]",
+            file=sys.stderr,
+        )
+        return 2
+
+    trx = Path(sys.argv[1])
+    allowlist_path = Path(sys.argv[2])
+    try:
+        min_executed = int(sys.argv[3])
+    except ValueError:
+        print(f"min-executed must be an integer, got {sys.argv[3]!r}", file=sys.stderr)
+        return 2
+    log_path = Path(sys.argv[4]) if len(sys.argv) == 5 else None
+
+    aborts = catastrophic_failures(log_path) if log_path else []
+    code = judge(trx, allowlist_path, min_executed)
+
+    # Reported after the result judgement, and overriding it, so the log ends on the reason the
+    # step is red. A tolerated outcome above - the #81 hang, with or without a trx - still loses
+    # here: those are excuses for missing *results*, not for a collection that died unread.
+    if aborts:
+        report_aborts(aborts, trx)
+        return 1
+    return code
 
 
 if __name__ == "__main__":

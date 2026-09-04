@@ -366,9 +366,11 @@ jobs:
             2>&1 | tee tests/NovaTerminal.App.Tests/TestResults/platformboot/console.log
 
       # Gates the lane above on its own results: any failing test not named in
-      # tests/app-tests-known-flaky.txt fails this job. A missing trx is the #81 hang and
-      # only warns — there are no results to judge. Runs on failure too, so a non-zero
-      # `dotnet test` still gets its results read.
+      # tests/app-tests-known-flaky.txt fails this job, as does a runner-level abort in the
+      # console log — those kill a whole collection without writing a result, so the trx
+      # cannot see them. A missing trx is the #81 hang and only warns; there are no results to
+      # judge, and that hang is the one thing this lane exists to tolerate. Runs on failure
+      # too, so a non-zero `dotnet test` still gets its results read.
       # The gate decides whether this lane may report success, so its own branching is worth
       # a second of CI: the truncation and abort rules are what stop another green-but-broken
       # run, and getting them backwards would either red every PR or hide the next one.
@@ -421,10 +423,14 @@ jobs:
         with:
           name: unit-tests-${{ runner.os }}
           retention-days: 5
-          # *.dmp captures the blame-hang minidump on a teardown hang (#81).
+          # *.dmp captures the blame-hang minidump on a teardown hang (#81). console.log is
+          # the tee'd App.Tests output, and it is here because it is the only place a
+          # runner-level abort exists: those now fail the gate, so the evidence for a red run
+          # has to outlive the job log rather than being buried in it.
           path: |
             **/*.trx
             **/*.dmp
+            **/TestResults/*/console.log
 
   # Native SSH end-to-end against a real sshd in a container.
   #
