@@ -10,6 +10,14 @@
 
 **Spec:** [`docs/superpowers/specs/2026-08-28-marketing-screenshot-harness-design.md`](../specs/2026-08-28-marketing-screenshot-harness-design.md)
 
+> **Status (2026-09-04):** all 19 tasks implemented. 16 of 20 scenarios are registered and
+> publishing. The four unticked steps below belong to scenarios that are implemented but
+> deliberately left out of `ScenarioCatalog` - `sixel-graphics` and `iterm2-inline-image` (they
+> decode correctly now, but the cursor is not returned to column 0 after an image, so the prompt
+> after it lands mid-row), and `connection-manager` and `remote-files` (the SSH profile store
+> bypasses `AppPaths`' sandbox and writes a real per-machine file; remote-files needs a live SSH
+> session). `ScenarioCatalog.cs` carries the current evidence for each - read it rather than this
+> doc for the up-to-date blocker.
 ## Global Constraints
 
 - **Build only through the wrappers.** `scripts/build.ps1 <args>` (Windows) or `scripts/build.sh` (bash). Raw `dotnet build` spawns MSBuild daemons that inherit stdout and hang the caller. This applies to every build step in every task.
@@ -44,7 +52,7 @@ Creates both projects and proves the app boots headless in a plain console proce
 - Consumes: nothing.
 - Produces: `NovaTerminal.Shots.ShotsAppBuilder.BuildAvaloniaApp() -> AppBuilder`; `NovaTerminal.Shots.ShotHost` with `static ShotHost Start()`, `Task RunAsync(Func<Task> body)`, `Task<T> RunAsync<T>(Func<Task<T>> body)`, `void Dispose()`.
 
-- [ ] **Step 1: Add the Avalonia.Headless package version**
+- [x] **Step 1: Add the Avalonia.Headless package version**
 
 In `Directory.Packages.props`, next to the existing `Avalonia.Headless.XUnit` line, add:
 
@@ -52,7 +60,7 @@ In `Directory.Packages.props`, next to the existing `Avalonia.Headless.XUnit` li
     <PackageVersion Include="Avalonia.Headless" Version="12.0.4" />
 ```
 
-- [ ] **Step 2: Create the tool project**
+- [x] **Step 2: Create the tool project**
 
 `tools/NovaTerminal.Shots/NovaTerminal.Shots.csproj`:
 
@@ -77,7 +85,7 @@ In `Directory.Packages.props`, next to the existing `Avalonia.Headless.XUnit` li
 </Project>
 ```
 
-- [ ] **Step 3: Create the test project**
+- [x] **Step 3: Create the test project**
 
 `tests/NovaTerminal.Shots.Tests/NovaTerminal.Shots.Tests.csproj`:
 
@@ -105,7 +113,7 @@ In `Directory.Packages.props`, next to the existing `Avalonia.Headless.XUnit` li
 </Project>
 ```
 
-- [ ] **Step 4: Write the failing smoke test**
+- [x] **Step 4: Write the failing smoke test**
 
 `tests/NovaTerminal.Shots.Tests/ShotHostSmokeTests.cs`:
 
@@ -137,7 +145,7 @@ public sealed class ShotHostSmokeTests
 }
 ```
 
-- [ ] **Step 5: Run the test and verify it fails**
+- [x] **Step 5: Run the test and verify it fails**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "Category=ShotsSmoke"
@@ -145,7 +153,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "Category=ShotsSm
 
 Expected: FAIL — `ShotHost` does not exist, so the project does not compile.
 
-- [ ] **Step 6: Implement the app builder**
+- [x] **Step 6: Implement the app builder**
 
 `tools/NovaTerminal.Shots/ShotsAppBuilder.cs`:
 
@@ -174,7 +182,7 @@ public static class ShotsAppBuilder
 }
 ```
 
-- [ ] **Step 7: Implement the host**
+- [x] **Step 7: Implement the host**
 
 `tools/NovaTerminal.Shots/ShotHost.cs`:
 
@@ -217,7 +225,7 @@ public sealed class ShotHost : IDisposable
 }
 ```
 
-- [ ] **Step 8: Implement a placeholder entry point**
+- [x] **Step 8: Implement a placeholder entry point**
 
 `tools/NovaTerminal.Shots/Program.cs`:
 
@@ -234,7 +242,7 @@ public static class Program
 }
 ```
 
-- [ ] **Step 9: Grant the tool access to internals**
+- [x] **Step 9: Grant the tool access to internals**
 
 Task 8 drives the agent-host acting path through `AgentHostService.HandleRequestLineAsync`, which is `internal`. That is the escape hatch the spec documents. Add to `src/NovaTerminal.App/AssemblyInfo.cs`:
 
@@ -250,13 +258,13 @@ and to `src/NovaTerminal.App/NovaTerminal.App.csproj` beside the existing entrie
 
 This is the only production file the harness touches.
 
-- [ ] **Step 10: Add both projects to the solution**
+- [x] **Step 10: Add both projects to the solution**
 
 ```bash
 rtk dotnet sln NovaTerminal.sln add tools/NovaTerminal.Shots/NovaTerminal.Shots.csproj tests/NovaTerminal.Shots.Tests/NovaTerminal.Shots.Tests.csproj
 ```
 
-- [ ] **Step 11: Run the test and verify it passes**
+- [x] **Step 11: Run the test and verify it passes**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "Category=ShotsSmoke"
@@ -264,7 +272,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "Category=ShotsSm
 
 Expected: PASS, 1 test.
 
-- [ ] **Step 12: Wire CI so solution-wide test jobs keep working**
+- [x] **Step 12: Wire CI so solution-wide test jobs keep working**
 
 Several `ci.yml` jobs run `dotnet test` with **no project argument** and `--no-build --no-restore` (lines 630, 690, 761, 856, 914, 972). A test project present in the solution but absent from the downloaded build artifact makes those jobs fail. Three edits:
 
@@ -285,7 +293,7 @@ Several `ci.yml` jobs run `dotnet test` with **no project argument** and `--no-b
 
 The smoke test is excluded from CI because it boots a real Avalonia session; it is a local guard, run on demand.
 
-- [ ] **Step 13: Verify the whole solution still builds**
+- [x] **Step 13: Verify the whole solution still builds**
 
 ```bash
 scripts/build.ps1 build -c Release
@@ -293,7 +301,7 @@ scripts/build.ps1 build -c Release
 
 Expected: build succeeds with no warnings from the two new projects.
 
-- [ ] **Step 14: Commit**
+- [x] **Step 14: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests Directory.Packages.props NovaTerminal.sln .github/workflows/ci.yml && rtk git commit -m "feat(shots): add headless capture host skeleton"
@@ -311,7 +319,7 @@ rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests Directory.Pa
 - Consumes: nothing from earlier tasks.
 - Produces: `DemoWorld` with `static DemoWorld Create(string baseDirectory)`, properties `string ProfileRoot`, `string WorkspaceRoot`, `TerminalProfile DemoProfile`, method `void SeedSettings(Action<TerminalSettings>? customize = null)`, and `void Dispose()`. `DemoProfile.Name` is `"Demo"`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/NovaTerminal.Shots.Tests/DemoWorldTests.cs`:
 
@@ -365,7 +373,7 @@ public sealed class DemoWorldTests
 }
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [x] **Step 2: Run the test and verify it fails**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~DemoWorldTests"
@@ -373,7 +381,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: FAIL — `DemoWorld` is not defined.
 
-- [ ] **Step 3: Implement DemoWorld**
+- [x] **Step 3: Implement DemoWorld**
 
 `tools/NovaTerminal.Shots/DemoWorld.cs`:
 
@@ -484,7 +492,7 @@ public sealed class DemoWorld : IDisposable
 }
 ```
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~DemoWorldTests"
@@ -492,11 +500,11 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: PASS, 3 tests.
 
-- [ ] **Step 5: Verify `DefaultProfileId` and `Profiles` exist with those names**
+- [x] **Step 5: Verify `DefaultProfileId` and `Profiles` exist with those names**
 
 If compilation fails on `settings.DefaultProfileId` or `settings.Profiles`, read `src/NovaTerminal.App/Shell/TerminalSettings.cs` around line 203 (where the built-in profile list is constructed) and use the real member names. Do not invent members.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots/DemoWorld.cs tests/NovaTerminal.Shots.Tests/DemoWorldTests.cs && rtk git commit -m "feat(shots): isolate captures in a seeded demo profile root"
@@ -518,7 +526,7 @@ Gives the shell something real and attractive to print. The scripts are authored
 - Consumes: `DemoWorld` from Task 2.
 - Produces: `DemoWorld.SeedWorkspace()`, which leaves `WorkspaceRoot` a git repo on branch `feat/sixel-decoder` containing `scripts/nova-banner.sh`, `scripts/demo-test.sh`, and `src/sixel-decoder.rs`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `tests/NovaTerminal.Shots.Tests/DemoWorldTests.cs`:
 
@@ -539,7 +547,7 @@ Append to `tests/NovaTerminal.Shots.Tests/DemoWorldTests.cs`:
     }
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [x] **Step 2: Run the test and verify it fails**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~SeedWorkspace"
@@ -547,7 +555,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: FAIL — `SeedWorkspace` is not defined.
 
-- [ ] **Step 3: Author the demo scripts**
+- [x] **Step 3: Author the demo scripts**
 
 `tools/NovaTerminal.Shots/Assets/nova-banner.sh` — prints a compact colored identity block. Uses only ANSI SGR so it renders identically on both platforms:
 
@@ -580,7 +588,7 @@ printf '\n\033[32m  6 passed\033[0m \033[90m·\033[0m 0 failed \033[90m·\033[0m
 
 `tools/NovaTerminal.Shots/Assets/sixel-decoder.rs` — 40-60 lines of plausible Rust with comments and a struct, so `tui-vim` has something worth showing. Write real, compiling-looking code: a `SixelDecoder` struct with a `state: DecoderState` enum, a `feed(&mut self, byte: u8)` match, and a doc comment.
 
-- [ ] **Step 4: Copy assets to output**
+- [x] **Step 4: Copy assets to output**
 
 In `tools/NovaTerminal.Shots/NovaTerminal.Shots.csproj`, add:
 
@@ -590,7 +598,7 @@ In `tools/NovaTerminal.Shots/NovaTerminal.Shots.csproj`, add:
   </ItemGroup>
 ```
 
-- [ ] **Step 5: Implement SeedWorkspace**
+- [x] **Step 5: Implement SeedWorkspace**
 
 Add to `DemoWorld`:
 
@@ -659,7 +667,7 @@ Add to `DemoWorld`:
     }
 ```
 
-- [ ] **Step 6: Run the tests and verify they pass**
+- [x] **Step 6: Run the tests and verify they pass**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~DemoWorldTests"
@@ -667,7 +675,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: PASS, 4 tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests && rtk git commit -m "feat(shots): seed a scripted demo workspace and git history"
@@ -687,7 +695,7 @@ rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests && rtk git c
 
 `InkFraction` returns the share of pixels differing from the image's most common color — the same blank-raster guard `CommandAssistOverlayContentRenderTests` uses. It is pure and testable without Avalonia, which is why it is the unit under test here.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/NovaTerminal.Shots.Tests/RasterizerTests.cs`:
 
@@ -749,7 +757,7 @@ public sealed class RasterizerTests
 }
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [x] **Step 2: Run the test and verify it fails**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~RasterizerTests"
@@ -757,7 +765,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: FAIL — `Rasterizer` is not defined.
 
-- [ ] **Step 3: Implement Rasterizer**
+- [x] **Step 3: Implement Rasterizer**
 
 `tools/NovaTerminal.Shots/Rasterizer.cs`:
 
@@ -832,7 +840,7 @@ public static class Rasterizer
 }
 ```
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~RasterizerTests"
@@ -840,7 +848,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: PASS, 3 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots/Rasterizer.cs tests/NovaTerminal.Shots.Tests/RasterizerTests.cs && rtk git commit -m "feat(shots): rasterize the full window with a blank-raster guard"
@@ -860,7 +868,7 @@ rtk git add tools/NovaTerminal.Shots/Rasterizer.cs tests/NovaTerminal.Shots.Test
 
 `WaitFor` is the only piece that is unit-testable without a window, so it is what the test covers; the rest is exercised by every scenario.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/NovaTerminal.Shots.Tests/DriverWaitTests.cs`:
 
@@ -892,7 +900,7 @@ public sealed class DriverWaitTests
 }
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [x] **Step 2: Run the test and verify it fails**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~DriverWaitTests"
@@ -900,7 +908,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: FAIL — `Driver` is not defined.
 
-- [ ] **Step 3: Implement Driver**
+- [x] **Step 3: Implement Driver**
 
 `tools/NovaTerminal.Shots/Driver.cs`:
 
@@ -994,7 +1002,7 @@ public sealed class Driver
 }
 ```
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~DriverWaitTests"
@@ -1002,7 +1010,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: PASS, 2 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots/Driver.cs tests/NovaTerminal.Shots.Tests/DriverWaitTests.cs && rtk git commit -m "feat(shots): drive the window through real input with settle waits"
@@ -1030,7 +1038,7 @@ The first end-to-end capture. After this task, `scripts/shots.ps1 hero-single` w
   - `record ShotAsset(string Name, int Tier, string File, int Width, int Height, string Scenario, string Commit, string Os, string TimestampUtc)`
   - `ScenarioCatalog.All()` and `ScenarioCatalog.Find(string name)`
 
-- [ ] **Step 1: Write the failing catalog test**
+- [x] **Step 1: Write the failing catalog test**
 
 `tests/NovaTerminal.Shots.Tests/ScenarioCatalogTests.cs`:
 
@@ -1070,7 +1078,7 @@ public sealed class ScenarioCatalogTests
 }
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [x] **Step 2: Run the test and verify it fails**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~ScenarioCatalogTests"
@@ -1078,7 +1086,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: FAIL — `ScenarioCatalog` is not defined.
 
-- [ ] **Step 3: Implement the model types**
+- [x] **Step 3: Implement the model types**
 
 `tools/NovaTerminal.Shots/ShotSpec.cs`:
 
@@ -1154,7 +1162,7 @@ public static class Manifest
 }
 ```
 
-- [ ] **Step 4: Implement ShotRun and ShotContext**
+- [x] **Step 4: Implement ShotRun and ShotContext**
 
 `tools/NovaTerminal.Shots/ShotRun.cs`:
 
@@ -1357,7 +1365,7 @@ public sealed class ShotContext
 }
 ```
 
-- [ ] **Step 5: Implement the first scenario**
+- [x] **Step 5: Implement the first scenario**
 
 `tools/NovaTerminal.Shots/Scenarios/HeroSingleScenario.cs`:
 
@@ -1390,7 +1398,7 @@ internal sealed class HeroSingleScenario : IScenario
 }
 ```
 
-- [ ] **Step 6: Implement the catalog**
+- [x] **Step 6: Implement the catalog**
 
 `tools/NovaTerminal.Shots/ScenarioCatalog.cs`:
 
@@ -1413,7 +1421,7 @@ public static class ScenarioCatalog
 }
 ```
 
-- [ ] **Step 7: Implement the CLI**
+- [x] **Step 7: Implement the CLI**
 
 `tools/NovaTerminal.Shots/Program.cs`:
 
@@ -1539,7 +1547,7 @@ Note: the `--scale N` argument is skipped by `ResolveScenarios` only because it 
         string[] names = args.Where((a, i) => !skip.Contains(i) && !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
 ```
 
-- [ ] **Step 8: Add the runner script**
+- [x] **Step 8: Add the runner script**
 
 `scripts/shots.ps1`:
 
@@ -1559,7 +1567,7 @@ $dll = Join-Path $PSScriptRoot '../tools/NovaTerminal.Shots/bin/Release/net10.0/
 exit $LASTEXITCODE
 ```
 
-- [ ] **Step 9: Run the catalog tests and verify they pass**
+- [x] **Step 9: Run the catalog tests and verify they pass**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~ScenarioCatalogTests"
@@ -1567,7 +1575,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: PASS, 3 tests.
 
-- [ ] **Step 10: Run the harness end to end**
+- [x] **Step 10: Run the harness end to end**
 
 ```bash
 scripts/shots.ps1 hero-single --scale 2
@@ -1575,11 +1583,11 @@ scripts/shots.ps1 hero-single --scale 2
 
 Expected: exit 0, and `artifacts/shots/hero-single@2x.png` exists at roughly 2560×1600.
 
-- [ ] **Step 11: Look at the image**
+- [x] **Step 11: Look at the image**
 
 Read `artifacts/shots/hero-single@2x.png` and check it against `HeroSingleScenario.Spec.Intent`: banner visible, colours present, prompt reads `nova@demo`, no `C:\Users\` or real hostname anywhere. If the prompt still shows the developer's identity, fix the prompt setup in `DemoWorld` before continuing — every later scenario inherits it.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests scripts/shots.ps1 && rtk git commit -m "feat(shots): capture the first end-to-end hero still"
@@ -1600,7 +1608,7 @@ First half of the agent story. Opens the settings window on the Agent Access tab
 - Consumes: `ShotContext`, `Driver`, `DemoWorld`.
 - Produces: `ShotContext.CaptureOther(Window window, string suffix)` — captures a window other than the main one (the settings window is a separate `Window`).
 
-- [ ] **Step 1: Confirm the settings window's tab headers**
+- [x] **Step 1: Confirm the settings window's tab headers**
 
 ```bash
 rtk grep -n 'TabItem Header' src/NovaTerminal.App/SettingsWindow.axaml
@@ -1608,7 +1616,7 @@ rtk grep -n 'TabItem Header' src/NovaTerminal.App/SettingsWindow.axaml
 
 Expected: `Appearance`, `Profiles`, `Shortcuts`, `Command Assist`, `Agent Access`, `SSH`. Note the index of `Agent Access` (0-based, currently 4) — the scenario selects by header text, not index, but the count confirms the markup has not changed.
 
-- [ ] **Step 2: Add CaptureOther to ShotContext**
+- [x] **Step 2: Add CaptureOther to ShotContext**
 
 ```csharp
     /// <summary>
@@ -1636,7 +1644,7 @@ Expected: `Appearance`, `Profiles`, `Shortcuts`, `Command Assist`, `Agent Access
     }
 ```
 
-- [ ] **Step 3: Implement the scenario**
+- [x] **Step 3: Implement the scenario**
 
 `tools/NovaTerminal.Shots/Scenarios/SettingsAgentAccessScenario.cs`:
 
@@ -1692,7 +1700,7 @@ internal sealed class SettingsAgentAccessScenario : IScenario
 
 Add `using Avalonia.VisualTree;` for `GetVisualDescendants`. If `SettingsWindow`'s constructor requires arguments, read `src/NovaTerminal.App/SettingsWindow.axaml.cs` and pass what it needs — do not guess.
 
-- [ ] **Step 4: Seed the agent toggles**
+- [x] **Step 4: Seed the agent toggles**
 
 In `Program.cs`, change the seeding call so agent access is enabled for the run:
 
@@ -1714,11 +1722,11 @@ rtk grep -n "AgentAccess\|AgentObserve\|AgentAct" src/NovaTerminal.App/Shell/Ter
 
 Use the names that grep returns. If a new field is ever added to `TerminalSettings`, remember it must also be registered in `McpServer` `SettingsTools` or two drift-guard tests fail — but this task adds no fields, only sets existing ones.
 
-- [ ] **Step 5: Register the scenario**
+- [x] **Step 5: Register the scenario**
 
 Add `new SettingsAgentAccessScenario()` to the `Scenarios` array in `ScenarioCatalog`.
 
-- [ ] **Step 6: Run it and look at the image**
+- [x] **Step 6: Run it and look at the image**
 
 ```bash
 scripts/shots.ps1 settings-agent-access --scale 2
@@ -1726,7 +1734,7 @@ scripts/shots.ps1 settings-agent-access --scale 2
 
 Expected: exit 0. Read `artifacts/shots/settings-agent-access-tab@2x.png` and confirm against the Intent: Agent Access tab selected, observe on, act off, text legible.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots && rtk git commit -m "feat(shots): capture the agent-access opt-in settings tab"
@@ -1746,7 +1754,7 @@ Second half of the agent story, and the one that must not be faked: the journal 
 - Consumes: `ShotContext`, `NovaTerminal.AgentHost.AgentSessionRegistry`.
 - Produces: nothing new.
 
-- [ ] **Step 1: Confirm the wire contract still matches**
+- [x] **Step 1: Confirm the wire contract still matches**
 
 ```bash
 rtk grep -n "SendInputParams" -A 12 src/NovaTerminal.App/AgentHost/AgentHostService.cs | head -20
@@ -1755,7 +1763,7 @@ rtk grep -rn "class SendInputParams" -A 12 src/NovaTerminal.AgentHost.Contracts/
 
 Expected: `AgentHostService.HandleRequestLineAsync(string line, CancellationToken)` is the line-level entry point (internal, reachable via the `InternalsVisibleTo` added in Task 1), its `sendInput` branch wraps every outcome in `Journaled(...)`, and `SendInputParams` carries `PaneId`, `Text`, and `Submit`. Note the exact `JsonPropertyName` values — the JSON below must match them character for character.
 
-- [ ] **Step 2: Implement the scenario**
+- [x] **Step 2: Implement the scenario**
 
 `tools/NovaTerminal.Shots/Scenarios/AgentSessionScenario.cs`:
 
@@ -1868,7 +1876,7 @@ Add `using NovaTerminal.AgentHost.Contracts;` for `AgentHostProtocol` and `Agent
 
 `RunCommandAsync(pane, string.Empty)` is used only for its settle wait — the input was already delivered by the agent path, and this waits for the resulting output to finish drawing. If `RunCommandAsync` rejects an empty command, extract its `WaitForQuiet` call into a public `Task SettleAsync(TerminalPane pane, string what)` on `ShotContext` and call that instead.
 
-- [ ] **Step 2a: Ensure the host is actually acting**
+- [x] **Step 2a: Ensure the host is actually acting**
 
 `AgentHostService.Instance` must be started with act enabled before the first `SendAsAgentAsync`. Check how `MainWindow` turns it on:
 
@@ -1888,11 +1896,11 @@ If `MainWindow` already applies it from the settings this run seeds (observe on,
 
 using the real property names confirmed in Task 7. Keeping act off in `settings-agent-access` and on here is deliberate: the settings shot documents the safe default, this one documents the capability.
 
-- [ ] **Step 3: Register the scenario**
+- [x] **Step 3: Register the scenario**
 
 Add `new AgentSessionScenario()` to `ScenarioCatalog.Scenarios`.
 
-- [ ] **Step 4: Run it and look at the image**
+- [x] **Step 4: Run it and look at the image**
 
 ```bash
 scripts/shots.ps1 agent-session --scale 2
@@ -1900,7 +1908,7 @@ scripts/shots.ps1 agent-session --scale 2
 
 Read `artifacts/shots/agent-session@2x.png`. Verify against the Intent: indicator lit, journal entries present and readable, output visible. If the journal is empty, Step 2 was not completed correctly.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots && rtk git commit -m "feat(shots): capture a real agent-driven session with journal entries"
@@ -1920,7 +1928,7 @@ rtk git add tools/NovaTerminal.Shots && rtk git commit -m "feat(shots): capture 
 - Consumes: `Rasterizer`, `ShotRun`.
 - Produces: `FrameRecorder` with `FrameRecorder(Window window, string frameDirectory, double scale)`, `void CaptureFrame()`, `int FrameCount { get; }`; `Encoder` with `static bool IsAvailable()`, `static void ToWebm(string frameDirectory, string outputPath, int fps)`, `static void ToGif(string frameDirectory, string outputPath, int fps)`; `ShotContext.Recorder` property and `Task RecordAsync(Func<Task> body, int fps)`.
 
-- [ ] **Step 1: Write the failing encoder-availability test**
+- [x] **Step 1: Write the failing encoder-availability test**
 
 `tests/NovaTerminal.Shots.Tests/EncoderTests.cs`:
 
@@ -1941,7 +1949,7 @@ public sealed class EncoderTests
 }
 ```
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~EncoderTests"
@@ -1949,7 +1957,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: FAIL — `Encoder` is not defined.
 
-- [ ] **Step 3: Implement FrameRecorder**
+- [x] **Step 3: Implement FrameRecorder**
 
 ```csharp
 using Avalonia.Controls;
@@ -1983,7 +1991,7 @@ public sealed class FrameRecorder
 }
 ```
 
-- [ ] **Step 4: Implement Encoder**
+- [x] **Step 4: Implement Encoder**
 
 ```csharp
 using System.Diagnostics;
@@ -2050,7 +2058,7 @@ public static class Encoder
 }
 ```
 
-- [ ] **Step 5: Add clip support to ShotContext**
+- [x] **Step 5: Add clip support to ShotContext**
 
 ```csharp
     public FrameRecorder? Recorder { get; private set; }
@@ -2095,11 +2103,11 @@ public static class Encoder
     }
 ```
 
-- [ ] **Step 6: Implement `clip-agent`**
+- [x] **Step 6: Implement `clip-agent`**
 
 `tools/NovaTerminal.Shots/Scenarios/ClipAgentScenario.cs`: reuse `AgentSessionScenario`'s real acting path, wrapping the command sequence in `context.RecordAsync(...)` and calling `context.Recorder!.CaptureFrame()` after each `Pump` inside a short loop so the typing animates. Capture roughly 100 frames at 20 fps for a 5-second clip. End with a final still via `context.Capture()`.
 
-- [ ] **Step 7: Register and run**
+- [x] **Step 7: Register and run**
 
 Add `new ClipAgentScenario()` to the catalog, then:
 
@@ -2109,11 +2117,11 @@ scripts/shots.ps1 clip-agent
 
 Expected: `artifacts/shots/clip-agent.webm` and `.gif` exist and are non-empty.
 
-- [ ] **Step 8: Watch the clip**
+- [x] **Step 8: Watch the clip**
 
 Open the GIF and confirm the journal fills over time rather than appearing fully-formed in frame one.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests && rtk git commit -m "feat(shots): record and encode the agent-driven clip"
@@ -2127,7 +2135,7 @@ rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests && rtk git c
 - Create: `tools/NovaTerminal.Shots/Scenarios/HeroSplitScenario.cs`, `TabsVerticalScenario.cs`, `CommandPaletteScenario.cs`
 - Modify: `tools/NovaTerminal.Shots/ScenarioCatalog.cs`
 
-- [ ] **Step 1: Implement `hero-split`**
+- [x] **Step 1: Implement `hero-split`**
 
 ```csharp
 using Avalonia.Layout;
@@ -2188,7 +2196,7 @@ rtk grep -n "_currentPane" src/NovaTerminal.App/MainWindow.axaml.cs | head -5
 
 Also confirm `SplitPane`'s parameter type is `Avalonia.Layout.Orientation` (it is, at `MainWindow.axaml.cs:5223`).
 
-- [ ] **Step 2: Implement `tabs-vertical`**
+- [x] **Step 2: Implement `tabs-vertical`**
 
 Seed settings with the vertical orientation, open five tabs with distinct names, and capture:
 
@@ -2245,7 +2253,7 @@ Also confirm `ShallowCopy()` exists on `TerminalProfile`:
 rtk grep -n "ShallowCopy" src/NovaTerminal.App/Shell/TerminalProfile.cs
 ```
 
-- [ ] **Step 3: Implement `command-palette`**
+- [x] **Step 3: Implement `command-palette`**
 
 ```csharp
 namespace NovaTerminal.Shots.Scenarios;
@@ -2282,17 +2290,17 @@ internal sealed class CommandPaletteScenario : IScenario
 
 Add `using Avalonia.Controls;` and `using NovaTerminal.Controls;`.
 
-- [ ] **Step 4: Register all three and run them**
+- [x] **Step 4: Register all three and run them**
 
 ```bash
 scripts/shots.ps1 hero-split tabs-vertical command-palette --scale 2
 ```
 
-- [ ] **Step 5: Look at all three images**
+- [x] **Step 5: Look at all three images**
 
 Check each against its Intent. `hero-split` most often fails by having one empty pane — if so, the split happened before the previous command settled; add a `WaitForQuiet` before splitting.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots && rtk git commit -m "feat(shots): add split, vertical-tabs, and palette hero shots"
@@ -2310,7 +2318,7 @@ rtk git add tools/NovaTerminal.Shots && rtk git commit -m "feat(shots): add spli
 **Interfaces:**
 - Produces: `PostProcess.Grid(IReadOnlyList<SKBitmap> tiles, int columns, int gap, SKColor background) -> SKBitmap`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```csharp
 using NovaTerminal.Shots;
@@ -2339,7 +2347,7 @@ public sealed class PostProcessGridTests
 }
 ```
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~PostProcessGridTests"
@@ -2347,7 +2355,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: FAIL — `PostProcess` is not defined.
 
-- [ ] **Step 3: Implement PostProcess.Grid**
+- [x] **Step 3: Implement PostProcess.Grid**
 
 ```csharp
 using SkiaSharp;
@@ -2388,7 +2396,7 @@ public static class PostProcess
 }
 ```
 
-- [ ] **Step 4: Implement the scenario**
+- [x] **Step 4: Implement the scenario**
 
 `ThemesGridScenario` captures `hero-single`'s content once per theme. Because a theme change is a settings re-apply, the cleanest correct approach is one window per theme:
 
@@ -2417,11 +2425,11 @@ internal sealed class ThemesGridScenario : IScenario
 }
 ```
 
-- [ ] **Step 5: Add the multi-pass path in Program**
+- [x] **Step 5: Add the multi-pass path in Program**
 
 `themes-grid` is the one scenario that needs a fresh window per tile. Add to `Program.Main`, before the normal loop, a special case: for each theme in `ThemesGridScenario.Themes`, re-seed settings with that `ThemeName`, run the `hero-single` scenario body into a per-theme file, then compose the five PNGs with `PostProcess.Grid(tiles, columns: 2, gap: 24, background: new SKColor(0x0E, 0x10, 0x14))` and write `themes-grid@2x.png`. Record it in the manifest with `Tier = 1`.
 
-- [ ] **Step 6: Run and inspect**
+- [x] **Step 6: Run and inspect**
 
 ```bash
 scripts/shots.ps1 themes-grid --scale 2
@@ -2429,7 +2437,7 @@ scripts/shots.ps1 themes-grid --scale 2
 
 Read the image and confirm the five palettes are visibly different — if two tiles look identical, the theme did not apply and the re-seed happened after the window was constructed.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests && rtk git commit -m "feat(shots): compose the built-in themes grid"
@@ -2443,7 +2451,7 @@ rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests && rtk git c
 - Create: `tools/NovaTerminal.Shots/Scenarios/SearchOverlayScenario.cs`, `TuiVimScenario.cs`, `TuiHtopScenario.cs`
 - Modify: `ScenarioCatalog.cs`
 
-- [ ] **Step 1: Implement `search-overlay`**
+- [x] **Step 1: Implement `search-overlay`**
 
 ```csharp
 internal sealed class SearchOverlayScenario : IScenario
@@ -2480,7 +2488,7 @@ internal sealed class SearchOverlayScenario : IScenario
 
 Note `SearchPanel` and `SearchCount` exist both on `MainWindow` and inside `TerminalPane`. `pane.ToggleSearch()` opens the pane-level one, so `Require` must search the pane's tree, not the window's. Add a `Driver.RequireIn<T>(Control root, string name)` overload that calls `root.FindControl<T>(name)` and use it with `pane` as the root.
 
-- [ ] **Step 2: Implement `tui-vim`**
+- [x] **Step 2: Implement `tui-vim`**
 
 ```csharp
 internal sealed class TuiVimScenario : IScenario
@@ -2519,17 +2527,17 @@ rtk grep -n "AlternateScreen\|IsAltScreen" src/NovaTerminal.VT/TerminalBuffer.cs
 
 Use whatever it actually is. If `vim` is unavailable on the capture machine, the scenario must fail loudly rather than capture a shell prompt — add an explicit check that the alternate screen was entered, which the `WaitFor` above already provides.
 
-- [ ] **Step 3: Implement `tui-htop`**
+- [x] **Step 3: Implement `tui-htop`**
 
 Same shape as `tui-vim`, running `htop -d 5` on Linux or `btop`/`top` where available, waiting on the alternate screen, capturing, then sending `q`. State the fallback explicitly in the Intent so a reviewer knows which program should appear.
 
-- [ ] **Step 4: Register, run, and inspect all three**
+- [x] **Step 4: Register, run, and inspect all three**
 
 ```bash
 scripts/shots.ps1 search-overlay tui-vim tui-htop --scale 2
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots && rtk git commit -m "feat(shots): add search overlay and TUI scenarios"
@@ -2546,7 +2554,7 @@ rtk git add tools/NovaTerminal.Shots && rtk git commit -m "feat(shots): add sear
 
 The image assets are pre-generated rather than produced by `gnuplot`/`imgcat` at capture time, because those tools are not present on every machine and their absence would silently degrade the shot to a bare prompt. The terminal still decodes the real protocols — only the producer is fixed.
 
-- [ ] **Step 1: Generate the sixel asset**
+- [x] **Step 1: Generate the sixel asset**
 
 ```bash
 rtk ffmpeg -y -f lavfi -i "color=c=0x1E1E2E:s=480x320" -frames:v 1 /tmp/plot-bg.png
@@ -2554,7 +2562,7 @@ rtk ffmpeg -y -f lavfi -i "color=c=0x1E1E2E:s=480x320" -frames:v 1 /tmp/plot-bg.
 
 Then produce a real sixel stream from a plot image using `img2sixel` if available; otherwise commit a sixel file generated once by any tool and record its provenance in a comment at the top of `plot.sixel`. The file must be a genuine sixel stream — the point of the shot is that NovaTerminal decodes it.
 
-- [ ] **Step 2: Implement `sixel-graphics`**
+- [x] **Step 2: Implement `sixel-graphics`**
 
 ```csharp
 internal sealed class SixelGraphicsScenario : IScenario
@@ -2580,11 +2588,11 @@ internal sealed class SixelGraphicsScenario : IScenario
 }
 ```
 
-- [ ] **Step 3: Implement `iterm2-inline-image`**
+- [x] **Step 3: Implement `iterm2-inline-image`**
 
 Same shape, emitting the iTerm2 OSC 1337 `File=` sequence with the base64 of `nova-logo.png`. Write a small `scripts/imgcat.sh` into the seeded workspace that does the base64 and escape assembly, so the command in the shot reads naturally as `bash scripts/imgcat.sh assets/nova-logo.png`.
 
-- [ ] **Step 4: Verify the images actually decoded**
+- [x] **Step 4: Verify the images actually decoded**
 
 Both scenarios must assert more than "a frame was captured". After capture, check the ink fraction of the region where the image should be — if the terminal did not decode the protocol, that region is uniform background. Add to each scenario:
 
@@ -2601,7 +2609,7 @@ Implement `Assert` as a small private static helper that throws `InvalidOperatio
 scripts/shots.ps1 sixel-graphics iterm2-inline-image --scale 2
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots && rtk git commit -m "feat(shots): add inline image protocol scenarios"
@@ -2640,11 +2648,11 @@ Add to `DemoWorld.SeedSettings`, before `customize`:
 
 Hostnames are under `.internal` and obviously fictional — no real host may appear in a published image.
 
-- [ ] **Step 2: Implement `settings-appearance`**
+- [x] **Step 2: Implement `settings-appearance`**
 
 Same shape as `SettingsAgentAccessScenario` from Task 7, selecting the `Appearance` tab. Intent: "The settings window on Appearance, showing theme selection, font family and size, with a live preview of the chosen theme."
 
-- [ ] **Step 3: Implement `connection-manager`**
+- [x] **Step 3: Implement `connection-manager`**
 
 ```csharp
         context.Driver.Require<Border>("ConnectionOverlay").IsVisible = true;
@@ -2654,13 +2662,13 @@ Same shape as `SettingsAgentAccessScenario` from Task 7, selecting the `Appearan
 
 Open it through its real command-palette entry if one exists (check `PopulateNewTabMenu` and the command registry first); fall back to setting `IsVisible` only if no command path exists. Intent: "The connection manager overlay listing two SSH profiles with their hosts and users, over a populated terminal."
 
-- [ ] **Step 4: Implement `remote-files`**
+- [x] **Step 4: Implement `remote-files`**
 
 Call `pane.ToggleRemoteFilesSidebar()` (a public method on `TerminalPane`), then show the transfer overlay via `Require<Border>("TransferOverlay").IsVisible = true`. Intent: "The remote files sidebar open beside a terminal pane, with the transfer centre visible in the lower right showing recent transfers."
 
 Note that without a live SSH connection the sidebar may render empty. If it does, the scenario must fail rather than capture an empty sidebar — add a `WaitFor` on the sidebar having at least one row, and if that cannot be satisfied offline, drop this scenario from the catalogue and record why in the commit message. An empty panel is not a feature screenshot.
 
-- [ ] **Step 5: Implement `command-assist`**
+- [x] **Step 5: Implement `command-assist`**
 
 Call `pane.ToggleCommandAssist()`, type a partial command, wait for the suggestion popup to have items, capture. Intent: "The command assist popup open beneath the prompt with several ranked suggestions visible, the typed prefix highlighted in each."
 
@@ -2670,7 +2678,7 @@ Call `pane.ToggleCommandAssist()`, type a partial command, wait for the suggesti
 scripts/shots.ps1 settings-appearance connection-manager remote-files command-assist --scale 2
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots && rtk git commit -m "feat(shots): add settings, connections, remote files, and assist shots"
@@ -2689,7 +2697,7 @@ rtk git add tools/NovaTerminal.Shots && rtk git commit -m "feat(shots): add sett
 **Interfaces:**
 - Produces: `PostProcess.RoundedWithShadow(SKBitmap source, float cornerRadius, float shadowBlur, int margin) -> SKBitmap`; `PostProcess.OnBackdrop(SKBitmap source, int width, int height, SKColor top, SKColor bottom) -> SKBitmap`; `VariantBuilder.BuildAll(ShotAsset master, ShotRun run) -> IReadOnlyList<ShotAsset>`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```csharp
 using NovaTerminal.Shots;
@@ -2727,7 +2735,7 @@ public sealed class VariantBuilderTests
 }
 ```
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~VariantBuilderTests"
@@ -2735,7 +2743,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: FAIL — the methods do not exist.
 
-- [ ] **Step 3: Implement RoundedWithShadow and OnBackdrop**
+- [x] **Step 3: Implement RoundedWithShadow and OnBackdrop**
 
 ```csharp
     /// <summary>
@@ -2805,15 +2813,15 @@ Expected: FAIL — the methods do not exist.
     }
 ```
 
-- [ ] **Step 4: Implement VariantBuilder**
+- [x] **Step 4: Implement VariantBuilder**
 
 `BuildAll` produces, for each Tier 1/2 master: `<name>-readme.png` (1280 wide), `<name>-site.png` (2400 wide), and for `hero-single` only, `og-card.png` (1200×630) and `social-square.png` (1080×1080), each built by `RoundedWithShadow` then `OnBackdrop` with the brand gradient `#0E1014` → `#1B1330`. Every produced file is recorded as a `ShotAsset` with `Tier = 3`.
 
-- [ ] **Step 5: Call it from Program**
+- [x] **Step 5: Call it from Program**
 
 After the scenario loop and before `run.WriteManifest()`, iterate `run.Assets.Where(a => a.Tier <= 2)` into `VariantBuilder.BuildAll`. Take a snapshot of the list first — `BuildAll` records new assets and iterating the live list while appending throws.
 
-- [ ] **Step 6: Run the full set and inspect the variants**
+- [x] **Step 6: Run the full set and inspect the variants**
 
 ```bash
 scripts/shots.ps1 all --scale 2
@@ -2821,7 +2829,7 @@ scripts/shots.ps1 all --scale 2
 
 Read `og-card.png` and `social-square.png`. Check that the terminal is not cropped and the shadow reads as a shadow rather than a grey band.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests && rtk git commit -m "feat(shots): derive README, site, and social variants"
@@ -2835,7 +2843,7 @@ rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests && rtk git c
 - Create: `tools/NovaTerminal.Shots/Scenarios/ClipPaletteScenario.cs`, `ClipSplitScenario.cs`, `ClipTuiScenario.cs`
 - Modify: `ScenarioCatalog.cs`
 
-- [ ] **Step 1: Implement `clip-palette`**
+- [x] **Step 1: Implement `clip-palette`**
 
 Wrap the `command-palette` sequence in `RecordAsync`, capturing a frame after every single typed character rather than after the whole string, so the filtering animates:
 
@@ -2871,7 +2879,7 @@ Wrap the `command-palette` sequence in `RecordAsync`, capturing a frame after ev
     }
 ```
 
-- [ ] **Step 2: Implement `clip-split`**
+- [x] **Step 2: Implement `clip-split`**
 
 Record frames across two `SplitPane` calls and a broadcast-input toggle, then send a command that appears in both panes. Find the broadcast entry point:
 
@@ -2879,11 +2887,11 @@ Record frames across two `SplitPane` calls and a broadcast-input toggle, then se
 rtk grep -n "Broadcast" src/NovaTerminal.App/MainWindow.axaml.cs | head -10
 ```
 
-- [ ] **Step 3: Implement `clip-tui`**
+- [x] **Step 3: Implement `clip-tui`**
 
 Launch the process monitor, then capture ~60 frames spaced by `Driver.Pump(2)` so the redraw is visible.
 
-- [ ] **Step 4: Register, run, and watch all three**
+- [x] **Step 4: Register, run, and watch all three**
 
 ```bash
 scripts/shots.ps1 clip-palette clip-split clip-tui
@@ -2891,7 +2899,7 @@ scripts/shots.ps1 clip-palette clip-split clip-tui
 
 Open each GIF. A clip whose first and last frames are identical means no frames captured the change — fix the capture points, not the frame count.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots && rtk git commit -m "feat(shots): add palette, split, and TUI clips"
@@ -2910,7 +2918,7 @@ rtk git add tools/NovaTerminal.Shots && rtk git commit -m "feat(shots): add pale
 **Interfaces:**
 - Produces: `Publisher.Publish(ShotRun run, string repositoryRoot) -> IReadOnlyList<string>` returning the published relative paths; `Publisher.ResolveDestination(ShotAsset asset, string repositoryRoot) -> string`.
 
-- [ ] **Step 1: Write the failing guard test**
+- [x] **Step 1: Write the failing guard test**
 
 ```csharp
 using NovaTerminal.Shots;
@@ -2942,7 +2950,7 @@ public sealed class PublisherTests
 }
 ```
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedName~PublisherTests"
@@ -2950,15 +2958,15 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests --filter "FullyQualifiedNa
 
 Expected: FAIL — `Publisher` is not defined.
 
-- [ ] **Step 3: Implement Publisher**
+- [x] **Step 3: Implement Publisher**
 
 `ResolveDestination` builds `<root>/docs/assets/shots/<name><extension>`, calls `Path.GetFullPath`, and throws `InvalidOperationException` if the result does not start with the full path of the assets directory. `Publish` copies each Tier 1–3 asset and each clip to its destination and returns the relative paths. Masters (`@2x`) are **not** published; only the README, site, OG, square variants and the clips are.
 
-- [ ] **Step 4: Add `--publish` to Program**
+- [x] **Step 4: Add `--publish` to Program**
 
 When `--publish` is passed, call `Publisher.Publish(run, repositoryRoot)` after variants are built and print each published path.
 
-- [ ] **Step 5: Write the slash command**
+- [x] **Step 5: Write the slash command**
 
 `.claude/commands/shots.md`:
 
@@ -2999,7 +3007,7 @@ Scenarios requested: $ARGUMENTS (empty means `all`).
 Never publish an image you have not looked at.
 ```
 
-- [ ] **Step 6: Run the tests and the command end to end**
+- [x] **Step 6: Run the tests and the command end to end**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.Shots.Tests
@@ -3007,7 +3015,7 @@ scripts/build.ps1 test tests/NovaTerminal.Shots.Tests
 
 Expected: PASS, all tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests .claude/commands/shots.md && rtk git commit -m "feat(shots): publish assets and add the /shots review command"
@@ -3021,7 +3029,7 @@ rtk git add tools/NovaTerminal.Shots tests/NovaTerminal.Shots.Tests .claude/comm
 - Create: `scripts/capture-hero.ps1`
 - Create: `docs/assets/shots/hero/README.md`
 
-- [ ] **Step 1: Write the script**
+- [x] **Step 1: Write the script**
 
 `scripts/capture-hero.ps1` — captures a window by process id, using `DwmGetWindowAttribute` with `DWMWA_EXTENDED_FRAME_BOUNDS` (attribute 9) so the real shadow and rounded corners are included:
 
@@ -3079,11 +3087,11 @@ $bitmap.Dispose()
 Write-Host "Saved $path ($width x $height)"
 ```
 
-- [ ] **Step 2: Write the arrangement checklist**
+- [x] **Step 2: Write the arrangement checklist**
 
 `docs/assets/shots/hero/README.md` lists, for each hero shot, the exact window arrangement to produce before running the script: which profile, which commands, which theme, and the window size. Include a line recording which OS and build each committed hero image came from.
 
-- [ ] **Step 3: Capture one hero shot manually**
+- [x] **Step 3: Capture one hero shot manually**
 
 ```bash
 scripts/capture-hero.ps1 -Name hero-real-split
@@ -3091,7 +3099,7 @@ scripts/capture-hero.ps1 -Name hero-real-split
 
 Verify the shadow and rounded corners are present and that no other window intrudes into the padded region.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 rtk git add scripts/capture-hero.ps1 docs/assets/shots/hero && rtk git commit -m "feat(shots): add the real-window hero capture script"
@@ -3106,13 +3114,13 @@ rtk git add scripts/capture-hero.ps1 docs/assets/shots/hero && rtk git commit -m
 - Modify: `site/src/pages/*`, `site/public/`
 - Create: `docs/assets/shots/README.md`
 
-- [ ] **Step 1: Generate and publish the full set**
+- [x] **Step 1: Generate and publish the full set**
 
 ```bash
 scripts/shots.ps1 all --scale 2 --publish
 ```
 
-- [ ] **Step 2: Replace the README images**
+- [x] **Step 2: Replace the README images**
 
 Swap the five `user-attachments` URLs at the top of `README.md` for relative paths to the published assets. Use `hero-split`, `command-palette`, `tabs-vertical`, `agent-session`, and `themes-grid`. Keep them in a single row as today, sized consistently.
 
@@ -3122,15 +3130,15 @@ Add a line under the feature list linking the agent clip, since it is the differ
 ![An agent driving a live session](docs/assets/shots/clip-agent.gif)
 ```
 
-- [ ] **Step 3: Update the site**
+- [x] **Step 3: Update the site**
 
 Copy the site-width variants into `site/public/shots/` and reference them from the Astro pages. Point the OG meta tag at `og-card.png` instead of the current `og.svg`.
 
-- [ ] **Step 4: Document the asset directory**
+- [x] **Step 4: Document the asset directory**
 
 `docs/assets/shots/README.md` explains that everything in the directory is generated, that `/shots` regenerates it, that masters live in gitignored `artifacts/shots/`, and that `shots.json` in a run's output records the commit and OS behind each image.
 
-- [ ] **Step 5: Verify the README renders**
+- [x] **Step 5: Verify the README renders**
 
 Check that every image path resolves from the repository root and that no `user-attachments` URL remains:
 
@@ -3140,7 +3148,7 @@ rtk grep -n "user-attachments" README.md
 
 Expected: no matches.
 
-- [ ] **Step 6: Build the site**
+- [x] **Step 6: Build the site**
 
 ```bash
 rtk npm --prefix site run build
@@ -3148,7 +3156,7 @@ rtk npm --prefix site run build
 
 Expected: build succeeds and the referenced images exist.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 rtk git add README.md site docs/assets/shots && rtk git commit -m "docs: replace attachment screenshots with generated assets"
@@ -3158,11 +3166,11 @@ rtk git add README.md site docs/assets/shots && rtk git commit -m "docs: replace
 
 ## Verification before calling this done
 
-- [ ] `scripts/build.ps1 build -c Release` succeeds with no new warnings.
-- [ ] `scripts/build.ps1 test tests/NovaTerminal.Shots.Tests` passes in full.
-- [ ] `scripts/build.ps1 test tests/NovaTerminal.App.Tests --blame-hang-timeout 5m` is no worse than the pre-change baseline — this change must not perturb the headless suite.
-- [ ] `scripts/shots.ps1 all --scale 2` exits 0 and produces every catalogued asset.
-- [ ] Every published image has been looked at and matches its scenario's `Intent`.
-- [ ] No published image contains a real username, hostname, path, or branch.
-- [ ] `rtk grep -rn "user-attachments" README.md` returns nothing.
-- [ ] CI passes, including the solution-wide filtered test jobs that would break on an artifact-list omission.
+- [x] `scripts/build.ps1 build -c Release` succeeds with no new warnings.
+- [x] `scripts/build.ps1 test tests/NovaTerminal.Shots.Tests` passes in full.
+- [x] `scripts/build.ps1 test tests/NovaTerminal.App.Tests --blame-hang-timeout 5m` is no worse than the pre-change baseline — this change must not perturb the headless suite.
+- [x] `scripts/shots.ps1 all --scale 2` exits 0 and produces every catalogued asset.
+- [x] Every published image has been looked at and matches its scenario's `Intent`.
+- [x] No published image contains a real username, hostname, path, or branch. One caveat: `command-assist`'s popup footer shows the harness's own temp workspace (`/tmp/nova-shots/<guid>`, truncated), which leaks no identity but contradicts the `~/projects/nova-demo` prompt above it. Fixing it means giving `DemoWorld` a workspace path that renders as the demo path.
+- [x] `rtk grep -rn "user-attachments" README.md` returns nothing.
+- [ ] CI passes, including the solution-wide filtered test jobs that would break on an artifact-list omission. **Not yet run** - the workflow triggers on pull requests and no PR is open for this branch, so nothing has executed against it. Verified locally instead: `build -c Release` on the full solution, the Shots suite, and App.Tests against a main baseline.
