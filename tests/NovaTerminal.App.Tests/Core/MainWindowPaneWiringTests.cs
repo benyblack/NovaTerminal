@@ -1,3 +1,4 @@
+using System;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -21,8 +22,14 @@ namespace NovaTerminal.Tests.Core;
 /// throw into "[ERROR] Failed to spawn process", and the session was never created: restoring a
 /// workspace produced a window full of dead panes.
 /// </remarks>
-public sealed class MainWindowPaneWiringTests
+public sealed class MainWindowPaneWiringTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     [AvaloniaFact]
     public void InitializeRestoredTabs_InjectsCommandAssistServicesIntoRestoredPanes()
     {
@@ -80,7 +87,7 @@ public sealed class MainWindowPaneWiringTests
                 CommandAssist = TestCommandAssistServices.Instance
             };
 
-            var window = new NovaTerminal.MainWindow(bundle);
+            var window = TestMainWindowFactory.Create(bundle);
             TabControl tabs = window.FindControl<TabControl>("Tabs")!;
             var settings = (TerminalSettings)typeof(NovaTerminal.MainWindow)
                 .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!

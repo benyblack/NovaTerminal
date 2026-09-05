@@ -22,8 +22,14 @@ namespace NovaTerminal.Tests.Core;
 /// long poll names no pane, and a read landing on a pane that carries no agent
 /// segment of its own would otherwise be invisible everywhere.
 /// </summary>
-public class AgentObserveIndicatorTests
+public class AgentObserveIndicatorTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     [Theory]
     // Observe off: invisible, and nothing else matters.
     [InlineData(false, false, false, false, false)]

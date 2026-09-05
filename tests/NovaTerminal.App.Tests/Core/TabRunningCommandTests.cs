@@ -34,8 +34,14 @@ namespace NovaTerminal.Tests.Core;
 /// unregisters the diffed registration explicitly. Without that, the driven
 /// status machine would stay reachable through the shared registry forever.
 /// </summary>
-public sealed class TabRunningCommandTests
+public sealed class TabRunningCommandTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     private static TerminalSettings GetSettings(MainWindow window)
         => (TerminalSettings)typeof(MainWindow)
             .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!

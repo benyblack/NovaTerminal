@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Reflection;
 using Avalonia;
@@ -12,8 +13,14 @@ using Xunit;
 
 namespace NovaTerminal.Tests.Core;
 
-public sealed class VerticalTabStripTests
+public sealed class VerticalTabStripTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     private static TerminalSettings GetSettings(NovaTerminal.MainWindow window)
         => (TerminalSettings)typeof(NovaTerminal.MainWindow)
             .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!

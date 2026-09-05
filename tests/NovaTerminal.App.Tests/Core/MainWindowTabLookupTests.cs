@@ -18,8 +18,14 @@ namespace NovaTerminal.Tests.Core;
 /// answering "no tab", which is why the bell indicator never appeared and why a split tab
 /// resolved the wrong pane.
 /// </summary>
-public sealed class MainWindowTabLookupTests
+public sealed class MainWindowTabLookupTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     /// <summary>
     /// #319: the cached active pane was discarded on every call, because the staleness check
     /// compared <c>null == tabItem</c>. The fallback then returned the *first* pane in the tab,
@@ -91,7 +97,7 @@ public sealed class MainWindowTabLookupTests
         public static SplitTabFixture Create()
         {
             AppServiceBundle bundle = AppServices.BuildForDesigner();
-            var window = new NovaTerminal.MainWindow(bundle);
+            var window = TestMainWindowFactory.Create(bundle);
             TabControl tabs = window.FindControl<TabControl>("Tabs")!;
             var settings = (TerminalSettings)typeof(NovaTerminal.MainWindow)
                 .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!

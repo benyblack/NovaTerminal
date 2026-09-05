@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -26,8 +27,14 @@ namespace NovaTerminal.Tests.Core;
 /// runtime by TitleBarViewFactory, so they are never registered into it - FindControl returns null
 /// for them both here and in the shipped app. See task-10-report.md for the production-code impact.
 /// </summary>
-public sealed class MainWindowTitleBarTests
+public sealed class MainWindowTitleBarTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     // TabOverflowBadge is inserted immediately after the Tab List button by
     // MainWindow.PlaceTabOverflowBadge - see
     // RebuildTitleBar_DefaultSettings_BadgeSitsImmediatelyAfterTabListButton below for the dedicated

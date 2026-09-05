@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Reflection;
 using Avalonia.Controls;
@@ -22,8 +23,14 @@ namespace NovaTerminal.Tests.Core;
 ///   the theme foregrounds an earlier ApplyThemeToUI had applied were lost - white icons under the
 ///   app's default Dark variant, invisible on light themes. The rebuild now re-applies them.
 /// </summary>
-public sealed class ThemeApplicationRegressionTests
+public sealed class ThemeApplicationRegressionTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     // The Default theme's ANSI blue - the "eye killer".
     private static TermColor PureBlue => TermColor.FromRgb(0, 0, 238);
 

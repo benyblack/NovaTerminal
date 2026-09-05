@@ -1,3 +1,4 @@
+using System;
 using NovaTerminal.Shell;
 using NovaTerminal.Pty;
 using Avalonia.Headless.XUnit;
@@ -14,8 +15,14 @@ using System.Reflection;
 
 namespace NovaTerminal.Tests.Core;
 
-public sealed class MainWindowStartupTests
+public sealed class MainWindowStartupTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     [AvaloniaFact]
     public void MainWindow_CanBeConstructed()
     {
@@ -128,7 +135,7 @@ public sealed class MainWindowStartupTests
     public void MainWindow_CommandPaletteShowsSettingsShortcut()
     {
         CommandRegistry.Clear();
-        var window = new NovaTerminal.MainWindow();
+        var window = TestMainWindowFactory.Create();
         var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
 
         toggleMethod!.Invoke(window, null);
@@ -141,7 +148,7 @@ public sealed class MainWindowStartupTests
     public void MainWindow_CommandPaletteIncludesConnections()
     {
         CommandRegistry.Clear();
-        var window = new NovaTerminal.MainWindow();
+        var window = TestMainWindowFactory.Create();
         var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
 
         toggleMethod!.Invoke(window, null);
@@ -153,7 +160,7 @@ public sealed class MainWindowStartupTests
     public void MainWindow_CommandPalettePrefersMostUsedCommandsWhenOpened()
     {
         CommandRegistry.Clear();
-        var window = new NovaTerminal.MainWindow();
+        var window = TestMainWindowFactory.Create();
         var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
         var usageField = typeof(NovaTerminal.MainWindow).GetField("_commandPaletteUsage", BindingFlags.Instance | BindingFlags.NonPublic);
 
@@ -177,7 +184,7 @@ public sealed class MainWindowStartupTests
     [AvaloniaFact]
     public async Task MainWindow_CustomCommandAssistHelpShortcut_UsesConfiguredBinding()
     {
-        var window = new NovaTerminal.MainWindow();
+        var window = TestMainWindowFactory.Create();
         var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
         var currentPaneField = typeof(NovaTerminal.MainWindow).GetField("_currentPaneValue", BindingFlags.Instance | BindingFlags.NonPublic);
 

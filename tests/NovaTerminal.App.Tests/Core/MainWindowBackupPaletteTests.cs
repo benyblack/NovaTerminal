@@ -1,3 +1,4 @@
+using System;
 using System.Reflection;
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Shell;
@@ -16,8 +17,14 @@ namespace NovaTerminal.Tests.Core;
 /// <c>SetupCommandPalette()</c>, which is lazy (runs on palette-open / settings-save) - starting it
 /// there would mean automatic snapshots only begin after the user's first palette open.
 /// </summary>
-public sealed class MainWindowBackupPaletteTests
+public sealed class MainWindowBackupPaletteTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     [AvaloniaFact]
     public void CommandPalette_IncludesTheThreeBackupEntries_AllRoutedToOpenSettingsToBackupPage()
     {
