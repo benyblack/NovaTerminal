@@ -704,6 +704,37 @@ public sealed class CommandAssistPassiveBubbleTests
         Assert.Empty(history.Entries);
     }
 
+    /// <summary>
+    /// Enter is the one late write that reaches the surface without a provider behind it: the pane
+    /// starts <see cref="CommandAssistController.HandleEnterAsync"/> fire-and-forget, and its
+    /// <c>finally</c> resets six view-model fields on the far side of a history append. A pane closed
+    /// mid-append used to land that reset on a surface that was already gone.
+    /// </summary>
+    /// <remarks>
+    /// Disposed from inside the append, so there is no window to time: the controller is gone before
+    /// the continuation runs. The surface is given sentinel values first because the reset's own
+    /// effect - an emptied, invisible bubble - is otherwise indistinguishable from the state a fresh
+    /// controller is already in, and a test that cannot tell them apart passes either way.
+    /// </remarks>
+    [Fact]
+    public async Task DisposalWhileASubmissionIsBeingCaptured_KeepsTheResetOffTheSurface()
+    {
+        var history = new RecordingHistoryStore();
+        var grid = new FakeGrid();
+        CommandAssistController controller = CreateController(history, grid);
+
+        controller.ViewModel.QueryText = "sentinel";
+        controller.ViewModel.IsVisible = true;
+        history.OnAppend = controller.Dispose;
+
+        await controller.HandleEnterAsync("git status");
+
+        // The capture itself ran - this is not a test that Enter was dropped.
+        Assert.Single(history.Entries);
+        Assert.Equal("sentinel", controller.ViewModel.QueryText);
+        Assert.True(controller.ViewModel.IsVisible);
+    }
+
     /// <summary>And with it on, the same submission is captured - so the test above is not vacuous.</summary>
     [Fact]
     public async Task HandleEnterAsync_WithHistoryEnabled_Captures()
@@ -886,6 +917,61 @@ public sealed class CommandAssistPassiveBubbleTests
         int dispatchCalls = await RunPassAndAbandonIt(static controller => controller.Dispose());
 
         Assert.Equal(0, dispatchCalls);
+    }
+
+    /// <summary>
+    /// Disposal is terminal, not a dismissal that the next trigger undoes. Cancelling the pass in
+    /// flight was all this used to do (#416 review), and it says nothing about the pass after it:
+    /// every entry point on the controller stays callable once its owner has let go, and several are
+    /// reached by something other than a keystroke - a shell-integration event, a command that
+    /// finishes, a debounce that was already running.
+    /// </summary>
+    /// <remarks>
+    /// Asserted at the debounce rather than at the dispatch delegate, because the two answer
+    /// different questions.
+    /// <see cref="APassAbandonedByDisposingTheController_NeverReachesTheDispatchDelegate"/> says
+    /// nothing was published, which a pass that runs to completion and drops its own outcome would
+    /// also satisfy. This says no pass was started: the injected delay is only ever asked to wait
+    /// from inside one.
+    /// </remarks>
+    [Fact]
+    public async Task ATriggerAfterDisposal_StartsNoFurtherPass()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("git status");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        int dispatchCalls = 0;
+
+        CommandAssistController controller = CreateController(
+            history,
+            grid,
+            delay,
+            dispatch: action =>
+            {
+                Interlocked.Increment(ref dispatchCalls);
+                action();
+            });
+
+        // Baselines rather than zeroes: opening the prompt is itself session setup, and what this
+        // test is about is what happens after the disposal, not what happened before it.
+        int passesBeforeDisposal = delay.RequestCount;
+        int dispatchesBeforeDisposal = Volatile.Read(ref dispatchCalls);
+
+        controller.Dispose();
+
+        grid.SetLine("gi");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+
+        // There is nothing to wait on when the guard holds - no pass, so no HasPassInFlight to watch
+        // fall - which means a broken one has to be given time to get somewhere before this can say
+        // it did not.
+        await Task.Delay(100);
+
+        Assert.False(controller.HasSuggestionPassInFlight);
+        Assert.Equal(passesBeforeDisposal, delay.RequestCount);
+        Assert.Equal(dispatchesBeforeDisposal, Volatile.Read(ref dispatchCalls));
     }
 
     /// <summary>
@@ -1198,6 +1284,9 @@ public sealed class CommandAssistPassiveBubbleTests
             }
         }
 
+        /// <summary>Runs inside the append, i.e. while the capture is still being awaited.</summary>
+        public Action? OnAppend { get; set; }
+
         public Task AppendAsync(CommandHistoryEntry entry, CancellationToken cancellationToken = default)
         {
             lock (_gate)
@@ -1205,6 +1294,7 @@ public sealed class CommandAssistPassiveBubbleTests
                 _entries.Add(entry);
             }
 
+            OnAppend?.Invoke();
             return Task.CompletedTask;
         }
 

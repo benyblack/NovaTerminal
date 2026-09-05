@@ -434,6 +434,35 @@ public sealed class AssistContentProviderSeamTests
             controller.Suggestions.Select(s => s.DisplayText).ToArray());
     }
 
+    /// <summary>
+    /// The ranking pass is not the only thing that can publish after its owner has gone. Help asks
+    /// its providers and then posts the rows to the surface, and a pane can be torn down inside that
+    /// await - the same shape as #81, on a path the pass's own cancellation says nothing about.
+    /// </summary>
+    /// <remarks>
+    /// The disposal happens inside the provider rather than on a timer, so there is no window to get
+    /// right: the controller is gone before the await that follows it has resumed.
+    /// </remarks>
+    [Fact]
+    public async Task Controller_WhenDisposedWhileHelpIsBeingAnswered_PublishesNothing()
+    {
+        var provider = new RecordingProvider(
+            "p.docs",
+            AssistCapabilities.EnrichDocs,
+            docs: [Doc("ssh")],
+            recipes: [Doc("ssh -p 2222 user@host")]);
+        CommandAssistController controller = CreateController(new AssistContentProviderRegistry([provider]));
+        provider.OnQuery = controller.Dispose;
+
+        await controller.OpenHelpAsync("ssh user@host");
+
+        // The provider did answer - this is not a test that the query was skipped - and the answer
+        // went nowhere.
+        Assert.Single(provider.Requests);
+        Assert.Empty(controller.Suggestions);
+        Assert.False(controller.ViewModel.IsVisible);
+    }
+
     [Fact]
     public async Task Controller_WhenAProviderAnswersHelpWithNothing_SaysWeLooked()
     {
@@ -589,6 +618,9 @@ public sealed class AssistContentProviderSeamTests
         }
 
         public List<AssistContentRequest> Requests { get; } = [];
+
+        /// <summary>Runs inside the query, i.e. while the caller is still awaiting it.</summary>
+        public Action? OnQuery { get; set; }
         public int QueryCount => Requests.Count;
         public string Id { get; }
         public string DisplayName => Id;
@@ -599,6 +631,7 @@ public sealed class AssistContentProviderSeamTests
         public Task<AssistContentResult> QueryAsync(AssistContentRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
+            OnQuery?.Invoke();
             return Task.FromResult(new AssistContentResult(
                 Id,
                 request.Capability,
