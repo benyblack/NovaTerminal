@@ -1,3 +1,4 @@
+using System;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -52,8 +53,14 @@ namespace NovaTerminal.Tests.Core;
 /// <c>TabClosePolicyTests</c>), and the declined branch remains uncovered for the modal-deadlock
 /// reason described above.
 /// </remarks>
-public sealed class MainWindowShellExitTests
+public sealed class MainWindowShellExitTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     [AvaloniaFact]
     public async Task ClosePaneAsync_ClosesTheGivenPanesTab_NotTheSelectedOne()
     {
@@ -232,7 +239,7 @@ public sealed class MainWindowShellExitTests
         public static TwoTabFixture Create()
         {
             AppServiceBundle bundle = AppServices.BuildForDesigner();
-            var window = new NovaTerminal.MainWindow(bundle);
+            var window = TestMainWindowFactory.Create(bundle);
             TabControl tabs = window.FindControl<TabControl>("Tabs")!;
             var settings = (TerminalSettings)typeof(NovaTerminal.MainWindow)
                 .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -352,7 +359,7 @@ public sealed class MainWindowShellExitTests
         public static SplitPaneFixture Create()
         {
             AppServiceBundle bundle = AppServices.BuildForDesigner();
-            var window = new NovaTerminal.MainWindow(bundle);
+            var window = TestMainWindowFactory.Create(bundle);
             TabControl tabs = window.FindControl<TabControl>("Tabs")!;
             var settings = (TerminalSettings)typeof(NovaTerminal.MainWindow)
                 .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!

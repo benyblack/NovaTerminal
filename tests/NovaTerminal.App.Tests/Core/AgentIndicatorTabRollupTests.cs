@@ -33,8 +33,14 @@ namespace NovaTerminal.Tests.Core;
 /// before creating its window and diffs against that snapshot afterwards, so
 /// the assertion is about what *this* window added, not the global count.
 /// </summary>
-public sealed class AgentIndicatorTabRollupTests
+public sealed class AgentIndicatorTabRollupTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     [Theory]
     // WritesOnly (the default): only a write reaches the tab strip.
     [InlineData("WritesOnly", AgentAttentionTier.Idle, false)]

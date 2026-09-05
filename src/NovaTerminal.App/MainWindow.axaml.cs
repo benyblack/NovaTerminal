@@ -2471,6 +2471,55 @@ namespace NovaTerminal
             _pendingVisualRefreshTabs.Clear();
         }
 
+        /// <summary>
+        /// Disposes every pane this window owns, and with them the PTY and child shell behind
+        /// each one. For tests, which build a real window and then abandon it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Nothing else reclaims them. <c>Window.Close()</c> runs <see cref="PerformAppTeardown"/>,
+        /// which saves the session and stops timers but never walks the tabs, and a test that only
+        /// drops its reference leaves the shells running - a full run finished with 53 of them
+        /// alive. Tests cannot call <c>Close()</c> instead: that path also stops the process-wide
+        /// <c>AgentHostService</c> singleton, which the next test would inherit.
+        /// </para>
+        /// <para>
+        /// Zoom is why this cannot be a walk of <c>ti.Content</c> from outside. Zooming moves the
+        /// tab's real root off the visual tree into <c>_paneZoomStateByTab</c> and puts the zoomed
+        /// pane in its place, so disposing the content of a zoomed tab reaches exactly one pane and
+        /// abandons its siblings. <see cref="CloseTab"/> exits zoom first for the same reason, and
+        /// this mirrors it.
+        /// </para>
+        /// </remarks>
+        internal void DisposeAllPanesForTest()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            foreach (var ti in tabs.Items.Cast<TabItem>().ToList())
+            {
+                if (_paneZoomStateByTab.ContainsKey(ti))
+                {
+                    ExitPaneZoom(ti, publishEvent: false);
+                }
+
+                if (ti.Content is Control content)
+                {
+                    DisposeControlTree(content);
+                }
+            }
+
+            // Whatever the walk above did not reach is still registered here, because
+            // DisposeControlTree unwires every pane it disposes and unwiring is what removes it
+            // from this map. That is how a pane whose tab has left the collection is still found:
+            // MainWindowStartupTests calls tabs.Items.Clear() to build its own strip, and the
+            // constructor's live tab - shell and all - goes with it.
+            foreach (var orphan in _paneOwnerTab.Keys.ToList())
+            {
+                DisposeControlTree(orphan);
+            }
+        }
+
         private void DisposeAllTabs(TabControl tabs)
         {
             foreach (var item in tabs.Items.Cast<TabItem>().ToList())

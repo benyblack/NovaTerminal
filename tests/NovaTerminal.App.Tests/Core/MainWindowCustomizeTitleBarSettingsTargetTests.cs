@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Reflection;
 using Xunit;
@@ -22,8 +23,14 @@ namespace NovaTerminal.Tests.Core;
 /// inlining the tuple, so asserting on its result is asserting on what production actually runs -
 /// not a parallel duplicate that could drift from the real click handler.
 /// </remarks>
-public sealed class MainWindowCustomizeTitleBarSettingsTargetTests
+public sealed class MainWindowCustomizeTitleBarSettingsTargetTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     [AvaloniaFact]
     public void CustomizeTitleBarSettingsTarget_RequestsTheAppearanceTabAndTitleBarSection()
     {

@@ -19,8 +19,14 @@ namespace NovaTerminal.Tests.Core;
 /// AgentAttentionRegistrationTests; this file covers the wiring — that the
 /// window actually pushes, and that a pane registered later is seeded.
 /// </summary>
-public class AgentWindowVisibilityTests
+public class AgentWindowVisibilityTests : IDisposable
 {
+    /// <summary>
+    /// Disposes the panes of every window this class asked for, and with them the real shells
+    /// behind them. xUnit builds a fresh instance per test, so this runs after each one.
+    /// </summary>
+    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+
     private sealed class FakeClock
     {
         public DateTimeOffset Now { get; private set; } = new(2026, 8, 21, 12, 0, 0, TimeSpan.Zero);
