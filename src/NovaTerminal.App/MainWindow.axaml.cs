@@ -2500,7 +2500,7 @@ namespace NovaTerminal
             {
                 if (_paneZoomStateByTab.ContainsKey(ti))
                 {
-                    ExitPaneZoom(ti, publishEvent: false);
+                    ExitPaneZoom(ti, publishEvent: false, forTeardown: true);
                 }
 
                 if (ti.Content is Control content)
@@ -2520,10 +2520,30 @@ namespace NovaTerminal
             }
         }
 
+        /// <summary>
+        /// Disposes every pane of every tab, for the paths that replace the whole strip.
+        /// </summary>
+        /// <remarks>
+        /// Zoom is exited first, for the reason <c>CloseTab</c> does it: <see cref="EnterPaneZoom"/>
+        /// moves the tab's real root off the visual tree into <c>_paneZoomStateByTab</c> and leaves
+        /// only the zoomed pane in <c>Content</c>, so disposing the content of a zoomed tab reaches
+        /// one pane and abandons its siblings. Here that abandonment is permanent rather than merely
+        /// untidy: <see cref="ResetTabCollections"/> runs on the very next line of
+        /// <see cref="ApplySessionSnapshot"/> and clears the map that held the off-tree root, after
+        /// which nothing can reach those panes at all and their shells outlive the workspace that
+        /// owned them. Zoom survives a save/restore cycle, and every caller of this is a user action
+        /// - open a workspace bundle, load a workspace, apply a template - that a zoomed tab is
+        /// perfectly free to be in the middle of.
+        /// </remarks>
         private void DisposeAllTabs(TabControl tabs)
         {
             foreach (var item in tabs.Items.Cast<TabItem>().ToList())
             {
+                if (_paneZoomStateByTab.ContainsKey(item))
+                {
+                    ExitPaneZoom(item, publishEvent: false, forTeardown: true);
+                }
+
                 if (item.Content is Control content)
                 {
                     DisposeControlTree(content);
@@ -3181,7 +3201,16 @@ namespace NovaTerminal
             return true;
         }
 
-        private bool ExitPaneZoom(TabItem tabItem, bool publishEvent)
+        /// <param name="forTeardown">
+        /// Whether this exit is unwinding a tab that is about to be disposed, in which case the
+        /// presentation half below is skipped. It is not merely wasted there, it is harmful:
+        /// <see cref="FocusPaneTerminal"/> with <c>defer</c> queues two
+        /// <c>Dispatcher.UIThread.Post</c> jobs that focus a pane the caller is about to dispose,
+        /// and they sit in the queue the whole assembly shares until something runs them. In the
+        /// headless lane that something is another test calling <c>RunJobs()</c>, which is how a
+        /// teardown here reddens a rendering test in a later class.
+        /// </param>
+        private bool ExitPaneZoom(TabItem tabItem, bool publishEvent, bool forTeardown = false)
         {
             if (!_paneZoomStateByTab.TryGetValue(tabItem, out var state)) return false;
             if (tabItem.Content is not TerminalPane zoomedPane) return false;
@@ -3214,6 +3243,15 @@ namespace NovaTerminal
 
             _paneZoomStateByTab.Remove(tabItem);
             _zoomedPaneIdByTab.Remove(tabItem);
+
+            if (forTeardown)
+            {
+                // The structural half is all a teardown wants: the root is back in Content, so the
+                // walk that follows can reach every pane. Making a doomed pane the active one and
+                // queueing focus at it are the parts that outlive the tab.
+                return true;
+            }
+
             UpdateActivePane(zoomedPane);
             FocusPaneTerminal(zoomedPane, defer: true);
             UpdatePaneAutomationLabels();
