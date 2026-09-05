@@ -846,12 +846,123 @@ public sealed class CommandAssistPassiveBubbleTests
 
     // ------------------------------------------------------------------ helpers
 
+    // ------------------------------------------------- a pass must not outlive its owner (#81)
+
+    /// <summary>
+    /// A pass whose owner let go of it while it was running must not reach the dispatch delegate
+    /// at all - not even to be turned away by the token check inside it.
+    /// </summary>
+    /// <remarks>
+    /// This is the test-visible half of #81. The dispatch delegate a real pane supplies reads
+    /// <c>Dispatcher.UIThread</c>, and under headless test isolation that static is nulled at every
+    /// test boundary and re-bound to whichever thread touches it first. A pass that outlived its
+    /// test therefore did not merely publish somewhere harmless: it could make a threadpool thread
+    /// the UI thread, after which the next test's Avalonia setup threw <c>VerifyAccess</c> from
+    /// inside the one place Avalonia does not guard, killing the dispatcher loop the whole assembly
+    /// shares and hanging every test that had not run yet.
+    ///
+    /// The pane no longer reads that static, which is the fix. This covers the other half: a dead
+    /// pass has nothing to say, so it should not be calling dispatch delegates in the first place.
+    /// The hold point is the query read rather than the debounce, deliberately - cancelling during
+    /// the debounce unwinds the pass through <c>OperationCanceledException</c> and never reaches
+    /// <c>Publish</c>, so it would prove nothing.
+    /// </remarks>
+    [Fact]
+    public async Task APassDismissedAfterItsDebounce_NeverReachesTheDispatchDelegate()
+    {
+        int dispatchCalls = await RunPassAndAbandonIt(static controller => controller.Dismiss());
+
+        Assert.Equal(0, dispatchCalls);
+    }
+
+    /// <summary>
+    /// Disposing the controller has the same effect as dismissing it, which is the point of it
+    /// being disposable: an owner tearing down has no surface left to publish to, and
+    /// <see cref="CommandAssistController.Dismiss"/> would write to a view model that is going away.
+    /// </summary>
+    [Fact]
+    public async Task APassAbandonedByDisposingTheController_NeverReachesTheDispatchDelegate()
+    {
+        int dispatchCalls = await RunPassAndAbandonIt(static controller => controller.Dispose());
+
+        Assert.Equal(0, dispatchCalls);
+    }
+
+    /// <summary>
+    /// Starts a passive pass, holds it at the query read - past its debounce, so cancelling from
+    /// here reaches <c>Publish</c> rather than unwinding through the delay - then lets
+    /// <paramref name="abandon"/> have the controller and releases the pass. Returns how many times
+    /// the pass called the dispatch delegate, which should be none.
+    /// </summary>
+    private static async Task<int> RunPassAndAbandonIt(Action<CommandAssistController> abandon)
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("git status");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+
+        var readReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int dispatchCalls = 0;
+        int readCalls = 0;
+
+        CommandAssistController controller = CreateController(
+            history,
+            grid,
+            delay,
+            dispatch: action =>
+            {
+                Interlocked.Increment(ref dispatchCalls);
+                action();
+            },
+            queryProvider: () =>
+            {
+                // Only the ranking pass is held. OpenPrompt and the shell-integration plumbing read
+                // the grid too, and blocking those would deadlock the setup rather than test it.
+                if (Interlocked.Increment(ref readCalls) == FirstRankingRead)
+                {
+                    readReached.TrySetResult();
+                    releaseRead.Task.GetAwaiter().GetResult();
+                }
+
+                return grid.Read();
+            });
+
+        grid.SetLine("gi");
+        Interlocked.Exchange(ref readCalls, 0);
+        Interlocked.Exchange(ref dispatchCalls, 0);
+
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+
+        await readReached.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The pass is now past its debounce and inside the read, which is the only window in which
+        // "abandoned mid-flight" is a state rather than a race.
+        abandon(controller);
+        releaseRead.SetResult();
+
+        // The pass has to be given the chance to publish, or this asserts on a pass that simply had
+        // not got there yet. HasPassInFlight drops in RunPassAsync's finally, after Publish.
+        await WaitForAsync(() => !controller.HasSuggestionPassInFlight);
+
+        return Volatile.Read(ref dispatchCalls);
+    }
+
+    /// <summary>
+    /// Which grid read belongs to the ranking pass. The reads before it are session setup, and the
+    /// pass resolves its query with exactly one.
+    /// </summary>
+    private const int FirstRankingRead = 1;
+
     private static CommandAssistController CreateController(
         RecordingHistoryStore history,
         FakeGrid grid,
         GatedDelay? delay = null,
         IPathSuggestionProvider? pathProvider = null,
-        TimeSpan? debounce = null)
+        TimeSpan? debounce = null,
+        Action<Action>? dispatch = null,
+        Func<AssistQuerySnapshot?>? queryProvider = null)
     {
         var controller = new CommandAssistController(
             history,
@@ -863,9 +974,9 @@ public sealed class CommandAssistPassiveBubbleTests
             errorInsightService: null,
             modeRouter: null,
             resultBuilder: null,
-            queryProvider: grid.Read,
+            queryProvider: queryProvider ?? grid.Read,
             renderedSurfaceProbe: null,
-            dispatch: null,
+            dispatch: dispatch,
             passiveRefreshDebounce: debounce ?? (delay == null ? TimeSpan.Zero : CommandAssistController_DefaultDebounce),
             refreshDelay: delay == null ? null : delay.Delay);
 
