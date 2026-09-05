@@ -300,25 +300,28 @@ jobs:
 
       # The Avalonia-headless suite (NovaTerminal.App.Tests). continue-on-error here tolerates
       # the HANG only; test failures are blocking, via the allowlist gate below.
-      # It intermittently deadlocks on a testhost teardown hang — a dump-confirmed
-      # framework deadlock in Avalonia.Headless.XUnit 12.0.4 (the latest release),
-      # reported upstream as AvaloniaUI/Avalonia#21467 and tracked here as #81. No
-      # in-repo config fixes it (collection serialization, maxParallelThreads:1, and
-      # ThreadPool.SetMinThreads were all ruled out with dump evidence). Until an
-      # upstream fix lands, run it as continue-on-error so the flake can't block PRs,
-      # while still executing it: a clean run reports real pass/fail and each hang
-      # writes a mini dump (uploaded below) for ongoing diagnosis.
+      #
+      # The hang was long recorded here as an upstream framework deadlock — AvaloniaUI/Avalonia#21467,
+      # tracked as #81 — that no in-repo change could fix. That was wrong, and it is worth being
+      # precise about why, because believing it is what kept anyone from reading a dump for months.
+      # Four hang dumps all showed the same thing: our own Command Assist pass, still in flight from
+      # a finished test, read Avalonia's mutable Dispatcher.UIThread static from a threadpool thread
+      # and became the UI thread. The next test's Compositor then threw inside
+      # EnsureIsolatedApplication(), which sits outside the try in HeadlessUnitTestSession.DispatchCore,
+      # unwinding the one dispatcher loop the assembly shares — after which every remaining test
+      # blocks forever and the trx reports nothing. PR #416 fixed the read; #417 removed the leaked
+      # panes that fed the same contamination. TerminalPane.InitializeCommandAssist has the full
+      # account.
+      #
+      # continue-on-error stays for now anyway, because the claim that replaced the old one has to
+      # earn its keep the same way: a handful of green runs is not evidence that no hang remains.
+      # Revisit by counting hang-dump uploads on main over a few dozen runs; when they stop, drop
+      # continue-on-error from both test steps and delete the hang-dump branch in
+      # check-app-tests-baseline.py.
       #
       # continue-on-error covers the HANG, not the RESULTS. The results are gated by the
       # step below, because "non-blocking" silently became "unread": this job reported
       # success for weeks while 16 tests failed on Windows and 14 on ubuntu.
-      #
-      # Why the hang still needs tolerating even though those failures are fixed: the hang is a
-      # separate, upstream defect (AvaloniaUI/Avalonia#21467) and it is frequent. Six of the last
-      # twenty Unit Tests job-runs on main uploaded a hang dump, so making this step blocking
-      # would red roughly one PR run in three for a reason unrelated to the change under review.
-      # Revisit when that upstream issue is fixed: at that point drop continue-on-error from both
-      # test steps and delete the hang-dump branch in check-app-tests-baseline.py.
       - name: Test (headless App.Tests — hang-tolerant, failures gated below; #81 / AvaloniaUI/Avalonia#21467)
         continue-on-error: true
         env:

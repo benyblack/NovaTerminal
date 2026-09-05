@@ -418,10 +418,18 @@ All PRs are automatically checked by CI:
 - unit tests (VT, Rendering, Architecture, Platform, McpServer — blocking)
 - headless App.Tests, in two lanes (`Lane!=PlatformBoot` and `Lane=PlatformBoot`)
   — **failures are blocking**. Both test steps carry `continue-on-error`, but
-  that tolerates the *hang* only: an upstream Avalonia.Headless teardown
-  deadlock (AvaloniaUI/Avalonia#21467, tracked here as #81) hits roughly one run
-  in three, and making the step blocking would red that many PRs for reasons
-  unrelated to the change. The *results* are then gated by the following step,
+  that tolerates the *hang* only. That hang was recorded here for months as an
+  upstream Avalonia.Headless deadlock (AvaloniaUI/Avalonia#21467, tracked as
+  #81) that no in-repo change could address; four dumps say otherwise. It was
+  ours: a Command Assist pass outliving its test read Avalonia's mutable
+  `Dispatcher.UIThread` static from a threadpool thread and became the UI
+  thread, and the next test's throw inside `EnsureIsolatedApplication()` — which
+  Avalonia does not guard — unwound the single dispatcher loop the whole
+  assembly shares, so every remaining test blocked forever and the `.trx`
+  reported nothing. PR #416 fixed it; #417 removed the leaked panes feeding the
+  same contamination. The tolerance stays until run data says the hang is gone,
+  because a handful of green runs is not that evidence. The *results* are then
+  gated by the following step,
   **Check App.Tests failures against the flake allowlist**, which fails the job
   for any failing test not named in `tests/app-tests-known-flaky.txt`. A missing
   `.trx` is the hang and only warns, so the step also prints how many tests
