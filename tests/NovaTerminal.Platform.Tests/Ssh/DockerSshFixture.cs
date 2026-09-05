@@ -15,10 +15,13 @@ internal enum NativeSshTestKey
 
 internal sealed class DockerSshFixture : IAsyncDisposable
 {
-    // v3 turns on public-key and keyboard-interactive auth, which v2 refused outright. Bumping the
-    // tag matters: EnsureImageBuiltAsync reuses any already-built image with this name, so a stale v2
-    // would silently serve the new tests a server that rejects the methods they are testing.
-    private const string ImageTag = "novaterm-native-ssh-e2e:v3";
+    // v3 turned on public-key and keyboard-interactive auth, which v2 refused outright.
+    // v4 moves sshd host-key generation out of the image build (docker:S6437): the keys are
+    // now created by the entrypoint at container start, so every run gets fresh ones.
+    // Bumping the tag matters: EnsureImageBuiltAsync reuses any already-built image with this
+    // name, so a stale v3 would silently serve the new tests an image built from an older
+    // Dockerfile.
+    private const string ImageTag = "novaterm-native-ssh-e2e:v4";
     private const int EchoServicePortValue = 9001;
 
     // Needed as a constant because ProvisionTestKeysAsync is static (it runs before the fixture

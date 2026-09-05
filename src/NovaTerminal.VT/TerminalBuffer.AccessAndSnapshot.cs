@@ -797,11 +797,13 @@ namespace NovaTerminal.VT
                     try
                     {
                         var options = caseSensitive ? System.Text.RegularExpressions.RegexOptions.None : System.Text.RegularExpressions.RegexOptions.IgnoreCase;
-                        regex = new System.Text.RegularExpressions.Regex(query, options);
+                        // The pattern is user-supplied (csharpsquid:S6444): the timeout bounds
+                        // catastrophic backtracking while the read lock below is held.
+                        regex = new System.Text.RegularExpressions.Regex(query, options, TimeSpan.FromMilliseconds(500));
                     }
                     catch
                     {
-                        // Invalid regex - return empty or treat as literal? 
+                        // Invalid regex - return empty or treat as literal?
                         // For now, return empty to indicate error/no match
                         return matches;
                     }
@@ -843,16 +845,27 @@ namespace NovaTerminal.VT
                     if (useRegex && regex != null)
                     {
                         // Regex Search
-                        foreach (System.Text.RegularExpressions.Match m in regex.Matches(lineText))
+                        try
                         {
-                            // Zero-length matches (patterns like "a*", "()" or "\b") have no
-                            // cells to highlight, and would index colMapping at -1 (or past the
-                            // end for a match at end-of-line). See #150.
-                            if (m.Length == 0) continue;
+                            foreach (System.Text.RegularExpressions.Match m in regex.Matches(lineText))
+                            {
+                                // Zero-length matches (patterns like "a*", "()" or "\b") have no
+                                // cells to highlight, and would index colMapping at -1 (or past the
+                                // end for a match at end-of-line). See #150.
+                                if (m.Length == 0) continue;
 
-                            int startCol = colMapping[m.Index];
-                            int endCol = colMapping[m.Index + m.Length - 1];
-                            matches.Add(new SearchMatch(r, startCol, endCol));
+                                int startCol = colMapping[m.Index];
+                                int endCol = colMapping[m.Index + m.Length - 1];
+                                matches.Add(new SearchMatch(r, startCol, endCol));
+                            }
+                        }
+                        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+                        {
+                            // The pattern hit its match timeout (csharpsquid:S6444): report no
+                            // matches, exactly like the invalid-pattern path above, instead of
+                            // holding the read lock while backtracking runs away.
+                            matches.Clear();
+                            return matches;
                         }
                     }
                     else

@@ -62,9 +62,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        # Third-party actions are pinned to full commit SHAs (githubactions:S7637).
+        # The stable branch still resolves the latest stable toolchain at run time;
+        # the SHA pins the action code, not the Rust version.
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - name: Rust incremental build cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             src/NovaTerminal.App/native
@@ -128,17 +131,20 @@ jobs:
 
       - name: Install Rust
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
+        # Third-party actions are pinned to full commit SHAs (githubactions:S7637).
+        # The stable branch still resolves the latest stable toolchain at run time;
+        # the SHA pins the action code, not the Rust version.
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - name: Rust incremental build cache
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/NovaTerminal.App/native
 
       - name: Build Rust (Windows)
         if: matrix.os == 'windows-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
-        run: cd src/NovaTerminal.App/native && cargo build --release
+        run: cd src/NovaTerminal.App/native && cargo build --release --locked
 
       # Linux build also stages the .so into target_linux/release so the
       # cached payload is complete and no separate stage step is needed.
@@ -146,13 +152,13 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
         run: |
           cd src/NovaTerminal.App/native
-          cargo build --release
+          cargo build --release --locked
           mkdir -p target_linux/release
           cp target/release/librusty_pty.so target_linux/release/
 
       - name: Build Rust (macOS)
         if: matrix.os == 'macos-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
-        run: cd src/NovaTerminal.App/native && cargo build --release
+        run: cd src/NovaTerminal.App/native && cargo build --release --locked
 
       # ── .NET ───────────────────────────────────────────────────────────────────
       - name: Cache .NET SDK

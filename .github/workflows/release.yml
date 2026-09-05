@@ -16,8 +16,11 @@ on:
         default: "main"
         type: string
 
+# Workflow-level default is read-only (githubactions:S8233). The jobs that
+# actually write to the release - create_release, publish_aot, release_linux -
+# each opt back in with a job-level `permissions: contents: write`.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -73,6 +76,8 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     needs: [release_metadata]
+    permissions:
+      contents: write
     steps:
       - name: Create or update release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
@@ -118,10 +123,12 @@ jobs:
           ref: ${{ needs.release_metadata.outputs.checkout_ref }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        # Pinned to a full commit SHA (githubactions:S7637); the stable branch
+        # still resolves the latest stable toolchain at run time.
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/NovaTerminal.App/native
 
@@ -129,17 +136,17 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           cd src/NovaTerminal.App/native
-          cargo build --release
+          cargo build --release --locked
           cd rusty_ssh
-          cargo build --release
+          cargo build --release --locked
 
       - name: Build Rust (macOS)
         if: matrix.os == 'macos-latest'
         run: |
           cd src/NovaTerminal.App/native
-          cargo build --release
+          cargo build --release --locked
           cd rusty_ssh
-          cargo build --release
+          cargo build --release --locked
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
@@ -484,6 +491,8 @@ jobs:
     # slow day — 40 was cutting the job down mid-wait.
     timeout-minutes: 90
     needs: [release_metadata, create_release, build_native, release_tests]
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -1721,6 +1730,8 @@ jobs:
     # compilation happens here.
     timeout-minutes: 30
     needs: [release_metadata, publish_linux]
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:

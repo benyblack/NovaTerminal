@@ -559,9 +559,14 @@ namespace NovaTerminal.Pty
             {
                 try
                 {
+                    // Absolute path, not PATH lookup (csharpsquid:S4036). pgrep lives in
+                    // /usr/bin on both Linux (procps) and macOS; /bin is kept for non-merged
+                    // setups. If neither exists, Process.Start throws and the catch below
+                    // returns false exactly as the old PATH-miss did.
+                    string pgrep = new[] { "/usr/bin/pgrep", "/bin/pgrep" }.FirstOrDefault(File.Exists) ?? "/usr/bin/pgrep";
                     var psi = new System.Diagnostics.ProcessStartInfo
                     {
-                        FileName = "pgrep",
+                        FileName = pgrep,
                         Arguments = $"-P {parentPid}",
                         RedirectStandardOutput = true,
                         UseShellExecute = false

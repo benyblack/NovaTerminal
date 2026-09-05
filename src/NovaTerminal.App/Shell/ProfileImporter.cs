@@ -126,7 +126,7 @@ namespace NovaTerminal.Shell
                     if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith('#')) continue;
 
                     // Support "Key Value" or "Key=Value"
-                    var parts = Regex.Split(trimmed, @"[\s=]+");
+                    var parts = Regex.Split(trimmed, @"[\s=]+", RegexOptions.None, TimeSpan.FromMilliseconds(250));
                     if (parts.Length < 2) continue;
 
                     string key = parts[0].ToLowerInvariant();

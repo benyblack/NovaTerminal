@@ -9,7 +9,9 @@ namespace NovaTerminal.Conformance;
 
 public static class VtConformanceReportTool
 {
-    private static readonly Regex InlineCodeRegex = new("`([^`]+)`", RegexOptions.Compiled);
+    // Timeout backstop (csharpsquid:S6444); the pattern parses trusted repo markdown and
+    // matches in microseconds.
+    private static readonly Regex InlineCodeRegex = new("`([^`]+)`", RegexOptions.Compiled, TimeSpan.FromMilliseconds(250));
     private const string EmbeddedReportRegenerationCommand = "dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -- --report src/NovaTerminal.App/Resources/vt-conformance-report.json";
 
     public static VtConformanceReport Generate(string repositoryRoot, string matrixPath)
