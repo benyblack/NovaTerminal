@@ -19,6 +19,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Media;
+using Avalonia.Media.Immutable;
 using Avalonia.Layout;
 using Avalonia.Platform;
 using Avalonia.Platform.Storage;
@@ -131,18 +132,18 @@ namespace NovaTerminal
         internal const double TabHeaderViewportPadding = 16;
         // Hoisted out of UpdateVerticalTabExtras: that method runs per tab per visual-refresh
         // pass, and allocating a new SolidColorBrush per tab per pass adds up.
-        private static readonly IBrush TabAttentionBrush = new SolidColorBrush(Color.Parse("#FFD25A"));
+        private static readonly IBrush TabAttentionBrush = new ImmutableSolidColorBrush(Color.Parse("#FFD25A"));
 
         // Agent-aware tab status colors (dot + marker chips). They intentionally match the
         // in-pane agent segment (TerminalPane.ApplyAgentAttention: dot #E8A33D/#4FB0D4, text
         // #F0C07A/#7FC3DC) and the existing tab attention constant above, so the same tier
         // reads as one color everywhere it appears.
-        private static readonly IBrush TabAgentWroteDotBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0xE8, 0xA3, 0x3D));
-        private static readonly IBrush TabAgentWatchedDotBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0x4F, 0xB0, 0xD4));
+        private static readonly IBrush TabAgentWroteDotBrush = new ImmutableSolidColorBrush(Color.FromArgb(0xFF, 0xE8, 0xA3, 0x3D));
+        private static readonly IBrush TabAgentWatchedDotBrush = new ImmutableSolidColorBrush(Color.FromArgb(0xFF, 0x4F, 0xB0, 0xD4));
         private static readonly IBrush TabBellChipBrush = TabAttentionBrush; // #FFD25A
-        private static readonly IBrush TabActivityChipBrush = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF));
-        private static readonly IBrush TabAgentWroteChipBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0xF0, 0xC0, 0x7A));
-        private static readonly IBrush TabAgentWatchedChipBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0x7F, 0xC3, 0xDC));
+        private static readonly IBrush TabActivityChipBrush = new ImmutableSolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF));
+        private static readonly IBrush TabAgentWroteChipBrush = new ImmutableSolidColorBrush(Color.FromArgb(0xFF, 0xF0, 0xC0, 0x7A));
+        private static readonly IBrush TabAgentWatchedChipBrush = new ImmutableSolidColorBrush(Color.FromArgb(0xFF, 0x7F, 0xC3, 0xDC));
         private bool _isVerticalTabStrip;
         internal bool IsVerticalTabStripActive => _isVerticalTabStrip;
 

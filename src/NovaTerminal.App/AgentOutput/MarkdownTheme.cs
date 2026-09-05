@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Media.Immutable;
 
 namespace NovaTerminal.AgentOutput;
 
@@ -12,15 +13,15 @@ namespace NovaTerminal.AgentOutput;
 /// </remarks>
 internal sealed class MarkdownTheme
 {
-    private static readonly IBrush FallbackForeground = new SolidColorBrush(Color.FromRgb(0xF3, 0xF6, 0xFA));
-    private static readonly IBrush FallbackSecondary = new SolidColorBrush(Color.FromRgb(0x96, 0xA0, 0xAE));
-    private static readonly IBrush FallbackCodeBackground = new SolidColorBrush(Color.FromRgb(0x16, 0x18, 0x1C));
-    private static readonly IBrush FallbackPanel = new SolidColorBrush(Color.FromRgb(0x1B, 0x1D, 0x21));
-    private static readonly IBrush FallbackHairline = new SolidColorBrush(Color.FromRgb(0x2A, 0x2F, 0x35));
-    private static readonly IBrush FallbackAccent = new SolidColorBrush(Color.FromRgb(0x4C, 0x8B, 0xD8));
-    private static readonly IBrush FallbackAdded = new SolidColorBrush(Color.FromRgb(0x6F, 0xBF, 0x73));
-    private static readonly IBrush FallbackRemoved = new SolidColorBrush(Color.FromRgb(0xD9, 0x6C, 0x6C));
-    private static readonly IBrush FallbackHunk = new SolidColorBrush(Color.FromRgb(0xD6, 0xB0, 0x5C));
+    private static readonly IBrush FallbackForeground = new ImmutableSolidColorBrush(Color.FromRgb(0xF3, 0xF6, 0xFA));
+    private static readonly IBrush FallbackSecondary = new ImmutableSolidColorBrush(Color.FromRgb(0x96, 0xA0, 0xAE));
+    private static readonly IBrush FallbackCodeBackground = new ImmutableSolidColorBrush(Color.FromRgb(0x16, 0x18, 0x1C));
+    private static readonly IBrush FallbackPanel = new ImmutableSolidColorBrush(Color.FromRgb(0x1B, 0x1D, 0x21));
+    private static readonly IBrush FallbackHairline = new ImmutableSolidColorBrush(Color.FromRgb(0x2A, 0x2F, 0x35));
+    private static readonly IBrush FallbackAccent = new ImmutableSolidColorBrush(Color.FromRgb(0x4C, 0x8B, 0xD8));
+    private static readonly IBrush FallbackAdded = new ImmutableSolidColorBrush(Color.FromRgb(0x6F, 0xBF, 0x73));
+    private static readonly IBrush FallbackRemoved = new ImmutableSolidColorBrush(Color.FromRgb(0xD9, 0x6C, 0x6C));
+    private static readonly IBrush FallbackHunk = new ImmutableSolidColorBrush(Color.FromRgb(0xD6, 0xB0, 0x5C));
 
     internal required IBrush Foreground { get; init; }
 
