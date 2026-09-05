@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Avalonia.Controls;
+using Avalonia.Threading;
 using Avalonia.Headless.XUnit;
 using NovaTerminal.AgentHost;
 using NovaTerminal.Controls;
@@ -95,6 +96,59 @@ public sealed class TestWindowTeardownTests : IDisposable
         Assert.Empty(RegisteredPaneIds().Intersect(added));
     }
 
+    /// <summary>
+    /// The same guarantee for <c>DisposeAllTabs</c>, the walk behind <c>ApplySessionSnapshot</c>.
+    /// It had the same blind spot and the consequence there is worse than a stale pane:
+    /// <c>ResetTabCollections</c> runs on the next line and clears <c>_paneZoomStateByTab</c>, so
+    /// the hidden siblings become unreachable and their shells outlive the workspace that owned
+    /// them.
+    /// </summary>
+    /// <remarks>
+    /// Housed here rather than in a file of its own on purpose. A separate class for these two
+    /// destabilised <c>VerticalTabStripTests</c> and <c>TabRunningCommandTests</c> - the suite's two
+    /// heaviest <c>RunJobs()</c> callers - with cross-thread failures inside the compositor, on both
+    /// CI lanes and intermittently here. Adding an Avalonia test class shifts what runs next to
+    /// what, and something in that neighbourhood is fragile in a way this change did not cause and
+    /// has not explained. Keeping the coverage inside a class that already coexists with those
+    /// tests buys the assertion without buying the reshuffle.
+    /// </remarks>
+    [AvaloniaFact]
+    public void TheHiddenSiblingOfAZoomedPane_IsGoneAfterTheTabStripIsReplaced()
+    {
+        MainWindow window = TestMainWindowFactory.Create();
+        (TabItem tab, TerminalPane zoomed, TerminalPane sibling) = AddSplitTab(window);
+
+        EnterZoom(window, tab, zoomed);
+
+        Assert.Same(zoomed, tab.Content);
+        Assert.Contains(sibling.PaneId, RegisteredPaneIds());
+
+        DisposeAllTabs(window);
+
+        Assert.DoesNotContain(sibling.PaneId, RegisteredPaneIds());
+        Assert.DoesNotContain(zoomed.PaneId, RegisteredPaneIds());
+    }
+
+    /// <summary>Unzoomed, so the one above is not passing on a harness that never worked.</summary>
+    [AvaloniaFact]
+    public void ThePanesOfAPlainTab_AreGoneAfterTheTabStripIsReplaced()
+    {
+        MainWindow window = TestMainWindowFactory.Create();
+        (_, TerminalPane first, TerminalPane second) = AddSplitTab(window);
+
+        Guid[] replaced = new[] { first.PaneId, second.PaneId };
+        Assert.Equal(replaced.Length, RegisteredPaneIds().Intersect(replaced).Count());
+
+        DisposeAllTabs(window);
+
+        Assert.Empty(RegisteredPaneIds().Intersect(replaced));
+    }
+
+    private static void DisposeAllTabs(MainWindow window)
+        => typeof(MainWindow)
+            .GetMethod("DisposeAllTabs", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(window, new object[] { window.FindControl<TabControl>("Tabs")! });
+
     private static HashSet<Guid> RegisteredPaneIds()
         => AgentSessionRegistry.Instance.GetRegistrations().Select(r => r.PaneId).ToHashSet();
 
@@ -144,5 +198,11 @@ public sealed class TestWindowTeardownTests : IDisposable
             .Invoke(window, new object[] { tab, pane, false })!;
 
         Assert.True(entered, "Test setup failed: EnterPaneZoom refused to zoom the pane.");
+
+        // Drained here, while the pane is still alive. EnterPaneZoom ends in FocusPaneTerminal
+        // with defer, which posts two jobs to the dispatcher the whole assembly shares; left
+        // queued, the next class to call RunJobs() runs them against a pane this test has since
+        // disposed.
+        Dispatcher.UIThread.RunJobs();
     }
 }
