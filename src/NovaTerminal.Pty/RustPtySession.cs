@@ -17,7 +17,7 @@ namespace NovaTerminal.Pty
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         // The read/process loops run on these dedicated threads. Exposed to tests to
         // assert they are background, non-threadpool threads — a leaked session must
-        // not consume the threadpool (#81).
+        // not consume the threadpool.
         private Thread? _readLoopThread;
         private Thread? _processLoopThread;
         internal Thread? ReadLoopThread => _readLoopThread;
@@ -766,10 +766,16 @@ namespace NovaTerminal.Pty
 
             // Start reading and processing on DEDICATED background threads, not the
             // threadpool. These loops make blocking native calls (pty_read) and an
-            // outright-blocking consuming enumerator; on the threadpool a leaked or
-            // slow-to-close session would tie up pool threads and, on low-core CI,
-            // starve the test-run completion -> testhost teardown hang (#81). Dedicated
-            // IsBackground threads never consume the pool and never block process exit.
+            // outright-blocking consuming enumerator, so on the threadpool a leaked or
+            // slow-to-close session ties up pool threads for as long as it lives.
+            // Dedicated IsBackground threads never consume the pool and never block
+            // process exit.
+            //
+            // This was also written as half the fix for the #81 testhost hang, on the
+            // theory that the tied-up pool threads starved the headless dispatcher worker.
+            // The dumps disproved that - every one of them had idle workers - and the real
+            // cause is documented at TerminalPane.InitializeCommandAssist. The threading
+            // choice here stands on its own reasoning above; only the attribution was wrong.
             _readLoopThread = new Thread(ReadLoop) { IsBackground = true, Name = $"PtyRead-{Id:N}" };
             _processLoopThread = new Thread(ProcessLoop) { IsBackground = true, Name = $"PtyProcess-{Id:N}" };
             _writeLoopThread = new Thread(WriteLoop) { IsBackground = true, Name = $"PtyWrite-{Id:N}" };
