@@ -16,12 +16,6 @@ on:
         default: "main"
         type: string
 
-# Workflow-level default is read-only (githubactions:S8233). The jobs that
-# actually write to the release - create_release, publish_aot, release_linux -
-# each opt back in with a job-level `permissions: contents: write`.
-permissions:
-  contents: read
-
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -40,6 +34,10 @@ jobs:
   release_metadata:
     name: Resolve Release Metadata
     runs-on: ubuntu-latest
+    # Every job declares its own permissions (githubactions:S8233): there is no
+    # workflow-level default, so each GITHUB_TOKEN states exactly what it may do.
+    permissions:
+      contents: read
     outputs:
       release_tag: ${{ steps.meta.outputs.release_tag }}
       release_version: ${{ steps.meta.outputs.release_version }}
@@ -103,6 +101,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     needs: [release_metadata]
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -197,6 +197,8 @@ jobs:
     # a warm, fully preinstalled runner image.
     timeout-minutes: 40
     needs: [release_metadata]
+    permissions:
+      contents: read
     # ARM64 GATES LIKE EVERY OTHER PLATFORM NOW - no more `continue-on-error` here.
     # `fail-fast: false` below still stops a red arm64 leg cancelling its x64
     # sibling, but a JOB failure still propagates: release_tests `needs:
@@ -394,6 +396,8 @@ jobs:
     # build_native_linux as well as build_native: the ubuntu legs' native-* artifacts
     # now come from that job, so needing only build_native would race the download.
     needs: [release_metadata, build_native, build_native_linux]
+    permissions:
+      contents: read
     # ARM64 GATES LIKE EVERY OTHER PLATFORM NOW - no more `continue-on-error`
     # here. `fail-fast: true` below still means a failing leg CANCELS its
     # in-flight siblings, and every publish job needs this one - so a red
@@ -1199,6 +1203,8 @@ jobs:
     # to fall back on. Not 90 like publish_aot - there is no notarization wait here.
     timeout-minutes: 60
     needs: [release_metadata, create_release, build_native_linux, release_tests]
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -1823,6 +1829,8 @@ jobs:
     name: Submit to winget-pkgs
     runs-on: windows-latest
     needs: [release_metadata, publish_aot]
+    permissions:
+      contents: read
     # Never submit a prerelease to the community repo. Same contains('-') test as the
     # prerelease flag on create_release: winget-pkgs is for stable versions, and a
     # `-beta`/`-test` tag reaching it is a public retraction, not a private mistake. The step
