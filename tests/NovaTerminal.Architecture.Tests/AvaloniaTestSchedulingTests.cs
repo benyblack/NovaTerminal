@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace NovaTerminal.Architecture.Tests;
 
@@ -121,6 +123,248 @@ public class AvaloniaTestSchedulingTests
         ".SetupWithLifetime(",
         ".StartWithClassicDesktopLifetime(",
     ];
+
+    /// <summary>
+    /// No <c>static</c> field or property initializer in <c>src/</c> may construct a thread-affine
+    /// Avalonia drawing object. They are <c>AvaloniaObject</c>s, so every property read goes
+    /// through <c>VerifyAccess</c>: one cached in a static is created once per process, owned by
+    /// whichever thread first touched the type, and every later read from another thread throws.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The headless lane makes that certain rather than unlikely. Under <c>PerTest</c> isolation
+    /// Avalonia nulls <c>Dispatcher.s_uiThread</c> at every test boundary and the next test rebinds
+    /// it to whichever threadpool worker serves it - measured at twenty-one migrations across eight
+    /// workers in one run, by reading the private field directly, since the
+    /// <c>Dispatcher.UIThread</c> property heals the very state a probe is trying to observe. An
+    /// object created under one binding and rendered under another throws
+    /// <c>"The calling thread cannot access this object because a different thread owns it"</c>
+    /// inside <c>MediaContext.Render</c>, and whichever test happens to be pumping the dispatcher
+    /// wears a failure it did not cause.
+    /// </para>
+    /// <para>
+    /// Not hypothetical: six such brushes on <c>MainWindow</c> - the tab dots and marker chips -
+    /// took out eighteen <c>VerticalTabStripTests</c> and <c>TabRunningCommandTests</c> in two of
+    /// five runs on main, in a cascade read as flakiness for months.
+    /// <c>VerticalTabStripTests.DotColorOf</c> reads <c>SolidColorBrush.get_Color</c>, which is the
+    /// throwing frame. It is a production hazard too, not only a test one: any static
+    /// <c>AvaloniaObject</c> touched off the UI thread has the same defect.
+    /// </para>
+    /// <para>
+    /// <strong>Source, not reflection, and deliberately so.</strong> Reading the fields answers the
+    /// question exactly - it sees through arrays, ternaries and auto-property backing fields
+    /// without caring how the initializer was written - and a draft of this guard did that. It also
+    /// runs every declaring type's static initializer, and one of those, <c>AppLogger</c>, truncates
+    /// the real <c>debug.log</c> under <c>%LOCALAPPDATA%</c>. A guard that damages the developer's
+    /// machine to check a rule is not worth the precision, so this reads the text instead.
+    /// </para>
+    /// <para>
+    /// Two gaps are deliberate, both narrow and both preferred to their alternative. A brush that
+    /// a <c>Lazy&lt;IBrush&gt;</c> caches behind a lambda is not reported, because the rule that
+    /// spares a <c>Func&lt;IBrush&gt;</c> factory - nothing past a lambda arrow runs at type-init -
+    /// cannot tell the two apart from the text, and wrongly failing correct code is the worse of
+    /// the two errors. Nor is a target-typed <c>new()</c> buried inside a ternary, where neither
+    /// the initializer's first token nor the constructor names a type. Each further spelling costs
+    /// more false-positive risk than it removes hazard; the common shape - and all sixteen real
+    /// ones - is a plain static field assigned a constructor, and that is caught every way it can
+    /// be written.
+    /// </para>
+    /// <para>
+    /// What it does catch, all verified against a probe: wrapped initializers, fully qualified and
+    /// <c>global::</c> constructors, target-typed <c>new()</c>, auto-properties, and affine objects
+    /// nested anywhere inside the initializer - inside an array, a ternary, a collection
+    /// initializer or a lambda. What it cannot see is a brush built behind a factory method, since
+    /// the initializer no longer names the type. Reviews found the first two drafts of this guard
+    /// short exactly one spelling each, which is the failure the lane rule below already warns
+    /// about, so the limit is stated rather than left to be discovered.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void NoStaticInitializerConstructsAThreadAffineDrawingObject()
+    {
+        var offenders = new List<string>();
+        string root = RepoRoot();
+
+        foreach (string file in Directory.EnumerateFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories))
+        {
+            if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string text = WithoutCommentsAndLiterals(File.ReadAllText(file));
+            foreach ((int index, string declaration, string initializer) in StaticInitializers(text))
+            {
+                int line = text.Take(index).Count(c => c == (char)10) + 1;
+                string where = $"{Path.GetRelativePath(root, file)}:{line}";
+
+                foreach (Match construction in AffineConstruction.Matches(initializer))
+                {
+                    // Anything past a lambda arrow runs per call, not once at type-init, so a
+                    // cached factory - static Func<IBrush> Make = () => new SolidColorBrush(...) -
+                    // is exactly the "build a fresh instance per use" the message recommends and
+                    // must not be reported for following the advice (local codex review).
+                    if (initializer[..construction.Index].Contains("=>", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    offenders.Add($"{where}  {construction.Value}");
+                }
+
+                // The target-typed form names no type on the right, so the type on the left is the
+                // only place the hazard is written down.
+                if (AffineTypeName.IsMatch(declaration) && TargetTypedNew.IsMatch(initializer))
+                {
+                    offenders.Add($"{where}  {declaration.Trim()} new(...)");
+                }
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            "These static initializers construct thread-affine Avalonia drawing objects. A static is "
+            + "created once per process, owned by the thread that first touched the type, and every "
+            + "read from another thread throws \"a different thread owns it\" - in the headless "
+            + "lane, as a render failure inside an unrelated test. Use an immutable equivalent "
+            + "(ImmutableSolidColorBrush, ImmutablePen, ...), which has no property system and no "
+            + "thread affinity, or build a fresh instance per use: "
+            + string.Join("; ", offenders));
+    }
+
+    /// <summary>
+    /// The initializer text of every <c>static</c> field or property, with its offset. Both shapes
+    /// are matched up to the <c>=</c>; the value that follows is taken by balancing brackets to the
+    /// declaration's semicolon, so an array, a ternary, a collection initializer or a lambda is
+    /// inside the span rather than truncating it.
+    /// </summary>
+    /// <remarks>
+    /// A static <em>method</em> cannot match: the field pattern forbids braces before the <c>=</c>,
+    /// so it cannot reach past a method's parameter list into its body, and the property pattern
+    /// requires an <c>=</c> immediately after the accessor block. Either way a local built fresh on
+    /// every call - which is not the hazard - stays out.
+    /// </remarks>
+    private static IEnumerable<(int Index, string Declaration, string Initializer)> StaticInitializers(string text)
+    {
+        foreach (Match declaration in StaticFieldOrProperty.Matches(text))
+        {
+            int i = declaration.Index + declaration.Length;
+            int depth = 0;
+            int start = i;
+
+            while (i < text.Length)
+            {
+                char c = text[i];
+                if (c is '(' or '[' or '{')
+                {
+                    depth++;
+                }
+                else if (c is ')' or ']' or '}')
+                {
+                    depth--;
+                }
+                else if (c == ';' && depth == 0)
+                {
+                    break;
+                }
+
+                i++;
+            }
+
+            yield return (declaration.Index, declaration.Value, text[start..Math.Min(i, text.Length)]);
+        }
+    }
+
+    /// <summary>
+    /// Comments and literals blanked, so a type named in prose or in a string is not a finding.
+    /// Length and offsets are preserved, which is what keeps the reported line numbers honest.
+    /// </summary>
+    private static string WithoutCommentsAndLiterals(string text)
+    {
+        var buffer = new System.Text.StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+
+            if (c == '/' && i + 1 < text.Length && text[i + 1] == '/')
+            {
+                while (i < text.Length && text[i] != (char)10) { buffer.Append(text[i] == (char)10 ? text[i] : ' '); i++; }
+                if (i < text.Length) { buffer.Append(text[i]); }
+                continue;
+            }
+
+            if (c == '/' && i + 1 < text.Length && text[i + 1] == '*')
+            {
+                while (i < text.Length && !(text[i] == '*' && i + 1 < text.Length && text[i + 1] == '/'))
+                {
+                    buffer.Append(text[i] == (char)10 ? text[i] : ' ');
+                    i++;
+                }
+
+                buffer.Append("  ");
+                i++;
+                continue;
+            }
+
+            if (c is '"' or '\'')
+            {
+                char quote = c;
+                bool verbatim = quote == '"' && i > 0 && text[i - 1] == '@';
+                buffer.Append(' ');
+                i++;
+                while (i < text.Length)
+                {
+                    if (!verbatim && text[i] == '\\') { buffer.Append("  "); i += 2; continue; }
+                    if (text[i] == quote)
+                    {
+                        if (verbatim && i + 1 < text.Length && text[i + 1] == quote) { buffer.Append("  "); i += 2; continue; }
+                        break;
+                    }
+
+                    buffer.Append(text[i] == (char)10 ? text[i] : ' ');
+                    i++;
+                }
+
+                buffer.Append(' ');
+                continue;
+            }
+
+            buffer.Append(c);
+        }
+
+        return buffer.ToString();
+    }
+
+    /// <summary>
+    /// The mutable, <c>AvaloniaObject</c>-derived drawing types. The <c>Immutable</c> prefixed
+    /// counterparts are deliberately absent - they are the fix, not the hazard - and the leading
+    /// word boundary is what keeps <c>ImmutableSolidColorBrush</c> from matching
+    /// <c>SolidColorBrush</c>.
+    /// </summary>
+    private const string ThreadAffineDrawingTypes =
+        "SolidColorBrush|LinearGradientBrush|RadialGradientBrush|ConicGradientBrush"
+        + "|ImageBrush|VisualBrush|DrawingBrush|Pen";
+
+    /// <summary>A static field, or a static property whose accessor block is followed by <c>=</c>.</summary>
+    private static readonly Regex StaticFieldOrProperty = new(
+        @"\bstatic\b[^;{}=]*?=" + @"|\bstatic\b[^;{}=]*?\{[^{}]*\}\s*=",
+        RegexOptions.Compiled);
+
+    /// <summary>The declared type naming one of those types, for the target-typed case.</summary>
+    private static readonly Regex AffineTypeName = new(
+        @"\b(?:" + ThreadAffineDrawingTypes + @")\b",
+        RegexOptions.Compiled);
+
+    /// <summary>A bare <c>new()</c> or <c>new { }</c>, which takes its type from the declaration.</summary>
+    private static readonly Regex TargetTypedNew = new(
+        @"^\s*new\s*[({]",
+        RegexOptions.Compiled);
+
+    /// <summary>A construction of one of those types, qualified however the author spelled it.</summary>
+    private static readonly Regex AffineConstruction = new(
+        @"\bnew\s+(?:global::)?(?:[\w.]+\.)?\b(?:" + ThreadAffineDrawingTypes + @")\s*[({]",
+        RegexOptions.Compiled);
 
     private static string RepoRoot()
     {

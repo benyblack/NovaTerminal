@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Media.Immutable;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Threading;
 using Avalonia.Platform.Storage;
@@ -1098,7 +1099,7 @@ namespace NovaTerminal.Shell
             System.Array.Empty<NovaTerminal.VT.Links.LinkSpan>();
         private int[] _hoverScanMap = System.Array.Empty<int>();
         private bool _isSelecting = false;
-        private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(100, 51, 153, 255));
+        private static readonly IBrush SelectionBrush = new ImmutableSolidColorBrush(Color.FromArgb(100, 51, 153, 255));
 
         // Session for sending mouse events
         private ITerminalSession? _session;
