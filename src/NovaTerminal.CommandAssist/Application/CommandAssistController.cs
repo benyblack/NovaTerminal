@@ -51,6 +51,7 @@ public sealed class CommandAssistController : IDisposable
     private readonly SuggestionOrchestrator _suggestionOrchestrator;
     private readonly List<AssistSuggestion> _suggestions = new();
     private readonly Action<Action> _dispatch;
+    private volatile bool _isDisposed;
 
     /// <summary>
     /// The AI content-provider seam (V2 Phase 5). Every Help row and every Fix row on the surface
@@ -568,7 +569,23 @@ public sealed class CommandAssistController : IDisposable
         }
         finally
         {
-            ResetSubmissionState();
+            // Guarded, because this is on the far side of an await that does history I/O and the
+            // pane starts the whole method fire-and-forget: close a pane while an append is in
+            // flight and the continuation used to write six view-model fields into a surface that
+            // was already gone (local codex review, P2-1).
+            //
+            // Guarded rather than routed through DispatchSurfaceWrite, which was the first attempt
+            // and hung the headless lane. Every other caller of that gate was already dispatching;
+            // this one was not, and posting it instead puts a finished test's leftover reset on the
+            // dispatcher queue the whole assembly shares, to be run inside whichever test comes
+            // next. That run stopped at SshInteractionServiceTests, the plain-[Fact] class
+            // TestAppBuilder.cs warns about, in the same place the #81 regression stopped. Whether
+            // this write belongs on the pane's dispatcher at all is a real question, and a separate
+            // one from the disposal it is here to fix.
+            if (!_isDisposed)
+            {
+                ResetSubmissionState();
+            }
         }
     }
 
@@ -636,19 +653,74 @@ public sealed class CommandAssistController : IDisposable
     }
 
     /// <summary>
-    /// Cancels any suggestion pass still in flight, so nothing this controller started can
-    /// publish after its owner has let go of it.
+    /// Cancels any suggestion pass still in flight and stops this controller starting another, so
+    /// nothing it began can publish after its owner has let go of it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Deliberately not <see cref="Dismiss"/>: dismissing is a user-visible act that writes to
     /// the view model, and by the time an owner disposes us the surface it would write to is
     /// already going away. The only thing worth doing here is stopping the work - a pass that
     /// lands after its owner is gone reaches a dispatch delegate whose UI is no longer there,
     /// which is one half of what made #81 possible.
+    /// </para>
+    /// <para>
+    /// Cancelling alone was not enough, which is what this used to do (#416 review). Every entry
+    /// point on this class stays callable after disposal, and several of them are reached by
+    /// something other than the user: a shell-integration event, a command that finishes, a
+    /// keystroke whose debounce is still running. Any one of those queues a fresh pass through
+    /// <see cref="QueueRefreshSuggestions"/>, and cancelling the previous pass says nothing about
+    /// the next. The orchestrator's disposal is terminal for exactly that reason, and the guard
+    /// lives there rather than here so it covers every route into a pass rather than the routes
+    /// this method happens to know about.
+    /// </para>
     /// </remarks>
     public void Dispose()
     {
-        _suggestionOrchestrator.CancelPending();
+        _isDisposed = true;
+        _suggestionOrchestrator.Dispose();
+    }
+
+    /// <summary>
+    /// Dispatches a write to the assist surface, unless this controller has been disposed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The ranking pass is not the only thing that publishes late. Help, Fix and the
+    /// command-accepted reset all await a provider or a pipeline and then post a view-model write
+    /// to the pane's dispatcher, and an owner can let go of the controller inside any of those
+    /// awaits. Checked on both sides of the post for the same reason
+    /// <see cref="SuggestionOrchestrator"/> does: the outer check is about not posting at all, and
+    /// the inner one covers a disposal that happens while the write sits in the queue.
+    /// </para>
+    /// <para>
+    /// Check-then-call, not an atomic admission, and deliberately so (local codex review, P2-2). A
+    /// caller can pass the outer check, be preempted while <see cref="Dispose"/> runs, and still
+    /// reach <c>_dispatch</c>. What survives that window is one enqueue of a delegate that does
+    /// nothing: the dispatch the host injects captured the pane's own <c>Dispatcher</c> at
+    /// construction and only calls <c>CheckAccess</c>/<c>Post</c> on it - it never reads
+    /// <c>Dispatcher.UIThread</c>, the static whose late read is what made #81 possible - and the
+    /// inner check drops the write when the queued action runs. Closing the window means holding a
+    /// lock across <c>_dispatch</c>, which runs the action inline whenever the caller is already on
+    /// the dispatch thread, so it would trade an inert enqueue for arbitrary work under a lock.
+    /// </para>
+    /// </remarks>
+    private void DispatchSurfaceWrite(Action write)
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        _dispatch(() =>
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            write();
+        });
     }
 
     /// <summary>
@@ -882,7 +954,7 @@ public sealed class CommandAssistController : IDisposable
             ? AssistEmptyStates.NoLocalHelp
             : AssistEmptyStates.ForMissingProvider(AssistCapabilities.EnrichDocs);
 
-        _dispatch(() => ApplyHelperSuggestions(
+        DispatchSurfaceWrite(() => ApplyHelperSuggestions(
             _modeRouter.ChooseModeForHelpRequest(),
             effectiveQuery,
             suggestions,
@@ -969,7 +1041,7 @@ public sealed class CommandAssistController : IDisposable
 
         if (mode == CommandAssistMode.Fix)
         {
-            _dispatch(() => ApplyHelperSuggestions(
+            DispatchSurfaceWrite(() => ApplyHelperSuggestions(
                 CommandAssistMode.Fix,
                 context.CommandText,
                 suggestions,
@@ -987,7 +1059,7 @@ public sealed class CommandAssistController : IDisposable
             return false;
         }
 
-        _dispatch(() => ApplyHelperSuggestions(
+        DispatchSurfaceWrite(() => ApplyHelperSuggestions(
             CommandAssistMode.Fix,
             context.CommandText,
             suggestions,
@@ -1024,7 +1096,7 @@ public sealed class CommandAssistController : IDisposable
     /// the line that just ran stayed on screen over the running command's output.</item>
     /// </list>
     /// <para>
-    /// The surface write goes through <see cref="_dispatch"/>: this runs on the pane's serialized event
+    /// The surface write goes through <see cref="DispatchSurfaceWrite"/>: this runs on the pane's serialized event
     /// dispatcher, which is not the UI thread, and the view-model is bound.
     /// </para>
     /// </remarks>
@@ -1038,7 +1110,7 @@ public sealed class CommandAssistController : IDisposable
                 break;
             case ShellIntegrationEventType.CommandAccepted:
                 _context.CloseCommandInputWindow();
-                _dispatch(ResetSubmissionState);
+                DispatchSurfaceWrite(ResetSubmissionState);
                 break;
             case ShellIntegrationEventType.CommandFinished:
                 _context.CloseCommandInputWindow();

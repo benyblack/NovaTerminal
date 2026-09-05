@@ -145,6 +145,7 @@ internal sealed class SuggestionOrchestrator
 
     private CancellationTokenSource? _refreshCts;
     private int _passesInFlight;
+    private volatile bool _isDisposed;
 
     public SuggestionOrchestrator(
         IHistoryStore historyStore,
@@ -182,7 +183,23 @@ internal sealed class SuggestionOrchestrator
     /// </param>
     public void Refresh(CommandAssistMode requestedMode, bool isExplicitSession, bool isTypingTriggered = false)
     {
+        if (_isDisposed)
+        {
+            return;
+        }
+
         CancellationToken token = BeginPass();
+
+        // Checked again on the far side of BeginPass, because the two lines above are where a
+        // disposal can slip through: read the flag as false, have Dispose set it and cancel what
+        // was current, then install a fresh source of our own that nothing will ever cancel. The
+        // second check hands that source to CancelPending instead of starting a pass on it.
+        if (_isDisposed)
+        {
+            CancelPending();
+            return;
+        }
+
         SuggestionScope scope = ResolveScope(requestedMode, isExplicitSession);
         Interlocked.Increment(ref _passesInFlight);
         _ = RunPassAsync(scope, requestedMode, isExplicitSession, isTypingTriggered, token);
@@ -240,6 +257,26 @@ internal sealed class SuggestionOrchestrator
     {
         CancellationTokenSource? previous = Interlocked.Exchange(ref _refreshCts, null);
         Cancel(previous);
+    }
+
+    /// <summary>
+    /// Cancels the pass in flight and refuses every pass after it. Unlike
+    /// <see cref="CancelPending"/>, which the surface calls routinely - dismiss, Escape, alt-screen -
+    /// and which the very next keystroke is meant to undo, this one is terminal.
+    /// </summary>
+    /// <remarks>
+    /// The distinction is the whole point (#416 review). An owner that has let go of us can still be
+    /// called back: a shell-integration event, a debounced keystroke, a command that finishes after
+    /// the pane is gone. Any of those reaches <c>Refresh</c> through the controller, and cancelling
+    /// the previous pass does nothing to stop the next one from starting - it just leaves a pass
+    /// running with nowhere to publish, which is the shape that made #81 possible.
+    /// </remarks>
+    public void Dispose()
+    {
+        // Flag first, then cancel. The other order leaves a window where a Refresh already past its
+        // own check installs a source after CancelPending has run.
+        _isDisposed = true;
+        CancelPending();
     }
 
     private CancellationToken BeginPass()
