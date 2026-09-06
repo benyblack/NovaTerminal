@@ -73,5 +73,59 @@ if ($verbs -contains $dotnetArgs[0]) {
     }
 }
 
+# A `test` run that aborts partway still prints a summary, and that summary counts only what
+# ran: a crashed or hung host has been seen printing "Passed! - Failed: 0, Passed: 1582,
+# Total: 1584" over a 3,443-test suite, followed by "Test Run Aborted." on the next line. Read
+# the summary and stop, as a human or an agent skimming output naturally does, and 46% of the
+# suite reports green.
+#
+# CI already refuses to be fooled - check-app-tests-baseline.py compares executed counts against
+# a per-lane floor and treats a missing trx as the hang - but every number gathered by hand comes
+# through this wrapper instead, and it was believing one of those numbers that cost a day. So the
+# wrapper says so itself, loudly, and fails even when dotnet's own exit code does not.
+if ($dotnetArgs[0] -eq 'test') {
+    $aborted = $false
+
+    # 2>&1, because both abort markers are written to stderr - a scan of stdout alone leaves
+    # $aborted false in exactly the case this guard exists for (local codex review). The
+    # preference is relaxed around the call for the same reason: with it set to Stop, native
+    # stderr arriving through the pipeline is itself treated as a terminating error, so the
+    # redirect that makes the markers visible would abort the wrapper before it could read them.
+    # Pinned to English for the duration of the run: VSTest localizes both markers, so on a
+    # non-English host the scan below would look for "Test Run Aborted." while the tool printed
+    # its translation, and the wrapper would report success on a truncated run - the exact failure
+    # it exists to prevent (local codex review). CI's gate scripts already parse the English
+    # strings, so this makes local runs agree with them rather than diverging by locale.
+    $previousLanguage = $env:DOTNET_CLI_UI_LANGUAGE
+    $env:DOTNET_CLI_UI_LANGUAGE = 'en'
+
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & dotnet @dotnetArgs 2>&1 | ForEach-Object {
+            $line = [string]$_
+            if ($line -match '^Test Run Aborted\.' -or $line -match 'The active test run was aborted') {
+                $aborted = $true
+            }
+            $line
+        }
+        $status = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+        $env:DOTNET_CLI_UI_LANGUAGE = $previousLanguage
+    }
+
+    if ($aborted) {
+        Write-Output ''
+        Write-Output 'build.ps1: THE TEST RUN WAS ABORTED. The summary above counts only the tests that'
+        Write-Output 'build.ps1: ran before the abort - it is not a result for the suite. Treat it as no'
+        Write-Output 'build.ps1: answer at all, not as a pass.'
+        exit 1
+    }
+
+    exit $status
+}
+
 & dotnet @dotnetArgs
 exit $LASTEXITCODE

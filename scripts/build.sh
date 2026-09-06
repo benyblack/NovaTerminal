@@ -70,8 +70,65 @@ sweep_stale_hosts() {
     ' 2>/dev/null || true
 }
 
+# A `test` run that aborts partway still prints a summary, and that summary counts only what
+# ran: a crashed or hung host has been seen printing "Passed! - Failed: 0, Passed: 1582,
+# Total: 1584" over a 3,443-test suite, followed by "Test Run Aborted." on the next line. Read
+# the summary and stop, as a human or an agent skimming output naturally does, and 46% of the
+# suite reports green.
+#
+# CI already refuses to be fooled - check-app-tests-baseline.py compares executed counts against
+# a per-lane floor and treats a missing trx as the hang - but every number gathered by hand comes
+# through this wrapper instead, and it was believing one of those numbers that cost a day. So the
+# wrapper says so itself, loudly, and fails even when dotnet's own exit code does not.
+run_test_verb() {
+    local log status pgid
+    log="$(mktemp -t nova-test-XXXXXX.log)"
+
+    # Job control, so the pipeline gets its own process group. Replacing the previous `exec` cost
+    # the wrapper its signal semantics: exec made this process *become* dotnet, so a SIGTERM from
+    # an automation timeout reached it: a plain pipeline leaves bash in front, and dotnet, testhost
+    # and tee survive holding the captured output handles - which is the orphan-holds-the-pipe hang
+    # this whole script exists to prevent (local codex review). The trap forwards to the group.
+    #
+    # `pipefail` is already set at the top of the script, so the pipeline's status is non-zero if
+    # *either* dotnet or tee failed. That matters beyond tidiness: a tee that cannot write leaves
+    # the scan log short, and a short log cannot be trusted to lack an abort marker, so the guard
+    # has to fail closed rather than read a truncated file and call it clean.
+    set -m
+    (
+        DOTNET_CLI_UI_LANGUAGE=en dotnet test -nodeReuse:false "$@" 2>&1 | tee "$log"
+    ) &
+    pgid=$!
+    trap 'kill -TERM -"$pgid" 2>/dev/null || kill -TERM "$pgid" 2>/dev/null' INT TERM
+
+    set +e
+    wait "$pgid"
+    status=$?
+    set -e
+
+    trap - INT TERM
+    set +m
+
+    if grep -qE '^(Test Run Aborted\.|.*The active test run was aborted)' "$log"; then
+        echo ""
+        echo "build.sh: THE TEST RUN WAS ABORTED. The summary above counts only the tests that"
+        echo "build.sh: ran before the abort - it is not a result for the suite. Treat it as no"
+        echo "build.sh: answer at all, not as a pass."
+        rm -f "$log"
+        return 1
+    fi
+
+    rm -f "$log"
+    return "$status"
+}
+
 case "$verb" in
-    build|test|publish|pack|msbuild|clean)
+    test)
+        sweep_stale_hosts
+        run_test_verb "$@"
+        exit $?
+        ;;
+    build|publish|pack|msbuild|clean)
         sweep_stale_hosts
         exec dotnet "$verb" -nodeReuse:false "$@"
         ;;
