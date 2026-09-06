@@ -1634,6 +1634,82 @@ namespace NovaTerminal.Shell
             }
         }
 
+        /// <summary>
+        /// The cell grid a control of <paramref name="size"/> can show, or <see langword="false"/>
+        /// when it cannot show one at all and the caller must keep the size it already had.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This used to clamp instead of refuse - <c>Math.Max(cols, 1)</c>, <c>Math.Max(rows, 1)</c>
+        /// - so a control with no size at all reported a 1x1 grid, and that is a destructive thing
+        /// to tell a terminal buffer. Resizing to a single column re-wraps the whole transcript one
+        /// character per row, which blows the scrollback budget and evicts nearly all of it, and the
+        /// eviction is permanent: growing back cannot restore what the budget already discarded.
+        /// Measured on the buffer directly, a plain resize against a 1x1 round trip:
+        /// </para>
+        /// <code>
+        /// 2000 lines: plain resize keeps 2000, a 1x1 round trip keeps 80
+        ///  200 lines: plain resize keeps  200, a 1x1 round trip keeps 72
+        /// </code>
+        /// <para>
+        /// It also reaches the shell. A 1x1 grid is sent on to the PTY, so the child reflows its
+        /// prompt for a one-column terminal and redraws for it.
+        /// </para>
+        /// <para>
+        /// <c>TerminalBuffer.Resize</c> already refuses non-positive dimensions for this reason,
+        /// keeping the last valid size until a real one arrives. The clamp here defeated that guard
+        /// by manufacturing a positive number from a zero, so the buffer never saw the degenerate
+        /// value it knows to ignore. Refusing keeps the two agreeing.
+        /// </para>
+        /// <para>
+        /// Zero size is ordinary, not exotic: a control that has not been laid out yet, one in a
+        /// collapsed or hidden container, and one detached from the visual tree all measure zero.
+        /// </para>
+        /// </remarks>
+        internal static bool TryComputeGrid(Size size, double cellWidth, double cellHeight, out int cols, out int rows)
+        {
+            cols = 0;
+            rows = 0;
+
+            if (cellWidth <= 0 || cellHeight <= 0)
+            {
+                return false;
+            }
+
+            // Non-finite extents are refused by name. Zero and negative ones need no check of their
+            // own - they divide to a non-positive cell count and fall out of the comparison below -
+            // and NaN converts to 0, so it does too. Infinity does NOT: (int)(double.Infinity / w)
+            // is int.MaxValue, which sails through a "> 0" test as a two-billion-column grid. An
+            // earlier draft of this guard asserted in a comment that both were handled by the
+            // arithmetic; only one of them is.
+            if (!double.IsFinite(size.Width) || !double.IsFinite(size.Height))
+            {
+                return false;
+            }
+
+            // Padding must match TerminalDrawOperation (PaddingLeft = 4); subtracting it here
+            // avoids clipping the last column.
+            double availableWidth = size.Width - 4;
+
+            int candidateCols = (int)(availableWidth / cellWidth);
+            int candidateRows = (int)(size.Height / cellHeight);
+
+            // A fractional cell is not a cell. Refusing rather than rounding up to one keeps a
+            // sliver of a pane from being described as a one-column terminal.
+            //
+            // Both out parameters stay zero unless BOTH dimensions are usable, so a refusal never
+            // hands back a half-computed grid that reads as a real one - a caller that ignored the
+            // return value would otherwise get a plausible column count beside a zero row count.
+            if (candidateCols <= 0 || candidateRows <= 0)
+            {
+                return false;
+            }
+
+            cols = candidateCols;
+            rows = candidateRows;
+            return true;
+        }
+
         protected override void OnSizeChanged(SizeChangedEventArgs e)
         {
             try
@@ -1657,71 +1733,65 @@ namespace NovaTerminal.Shell
 
                     if (_metrics.CellWidth <= 0 || _metrics.CellHeight <= 0) return; // Still zero? Bail.
 
-                    // Padding must match TerminalDrawOperation (PaddingLeft = 4)
-                    // We subtract padding from available width to avoid clipping last column
-                    int availableWidth = Math.Max(0, (int)e.NewSize.Width - 4);
-
-                    int cols = (int)(availableWidth / _metrics.CellWidth);
-                    int rows = (int)(e.NewSize.Height / _metrics.CellHeight);
-
-                    // Enforce minimum dimensions to prevent layout breakage on very small windows
-                    cols = Math.Max(cols, 1);
-                    rows = Math.Max(rows, 1);
-
-                    if (cols > 0 && rows > 0)
+                    if (!TryComputeGrid(e.NewSize, _metrics.CellWidth, _metrics.CellHeight, out int cols, out int rows))
                     {
-                        // DISCRETE RESIZE: Only trigger actual resize when cell dimensions change
-                        bool dimensionsChanged = (cols != _lastSentCols || rows != _lastSentRows);
+                        // Not laid out yet, or too small to hold a single cell. Keep the last
+                        // good size; a real layout pass will follow. See TryComputeGrid for why
+                        // this must not fall back to a 1x1 grid.
+                        return;
+                    }
 
-                        if (dimensionsChanged)
+                    // DISCRETE RESIZE: Only trigger actual resize when cell dimensions change
+                    bool dimensionsChanged = (cols != _lastSentCols || rows != _lastSentRows);
+
+                    if (dimensionsChanged)
+                    {
+                        // Update tracking
+                        _lastSentCols = cols;
+                        _lastSentRows = rows;
+                    }
+
+                    if (!_isReady)
+                    {
+                        _isReady = true;
+                        if (_buffer != null) _buffer.Resize(cols, rows);
+                        ResetMouseMotionTracking(); // Issue #269: grid reflowed, cell coords are stale.
+                        Ready?.Invoke(cols, rows);
+
+                        // Also trigger initial PTY resize to sync with layout
+                        OnResize?.Invoke(cols, rows);
+                    }
+
+                    if (dimensionsChanged)
+                    {
+                        // STRICT INTERVAL THROTTLE: Limit resize dispatch to 60ms
+                        _pendingCols = cols;
+                        _pendingRows = rows;
+                        var now = DateTime.UtcNow;
+                        if (_pendingResizeStartedAt == DateTime.MinValue)
                         {
-                            // Update tracking
-                            _lastSentCols = cols;
-                            _lastSentRows = rows;
+                            _pendingResizeStartedAt = now;
                         }
 
-                        if (!_isReady)
+                        if (_resizeThrottleTimer == null)
                         {
-                            _isReady = true;
-                            if (_buffer != null) _buffer.Resize(cols, rows);
-                            ResetMouseMotionTracking(); // Issue #269: grid reflowed, cell coords are stale.
-                            Ready?.Invoke(cols, rows);
-
-                            // Also trigger initial PTY resize to sync with layout
-                            OnResize?.Invoke(cols, rows);
+                            _resizeThrottleTimer = new DispatcherTimer(DispatcherPriority.Normal)
+                            {
+                                Interval = TimeSpan.FromMilliseconds(60)
+                            };
+                            _resizeThrottleTimer.Tick += OnResizeThrottleTick;
                         }
 
-                        if (dimensionsChanged)
+                        var elapsed = (now - _lastPtyResizeTime).TotalMilliseconds;
+
+                        if (elapsed >= 60 && !_resizeThrottleTimer.IsEnabled)
                         {
-                            // STRICT INTERVAL THROTTLE: Limit resize dispatch to 60ms
-                            _pendingCols = cols;
-                            _pendingRows = rows;
-                            var now = DateTime.UtcNow;
-                            if (_pendingResizeStartedAt == DateTime.MinValue)
-                            {
-                                _pendingResizeStartedAt = now;
-                            }
-
-                            if (_resizeThrottleTimer == null)
-                            {
-                                _resizeThrottleTimer = new DispatcherTimer(DispatcherPriority.Normal)
-                                {
-                                    Interval = TimeSpan.FromMilliseconds(60)
-                                };
-                                _resizeThrottleTimer.Tick += OnResizeThrottleTick;
-                            }
-
-                            var elapsed = (now - _lastPtyResizeTime).TotalMilliseconds;
-
-                            if (elapsed >= 60 && !_resizeThrottleTimer.IsEnabled)
-                            {
-                                // Enough time passed and no pending timer - send immediately
-                                SendThrottledResize();
-                            }
-                            else if (!_resizeThrottleTimer.IsEnabled)
-                            {
-                                _resizeThrottleTimer.Start();
-                            }
+                            // Enough time passed and no pending timer - send immediately
+                            SendThrottledResize();
+                        }
+                        else if (!_resizeThrottleTimer.IsEnabled)
+                        {
+                            _resizeThrottleTimer.Start();
                         }
                     }
                 }
