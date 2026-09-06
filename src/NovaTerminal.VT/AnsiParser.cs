@@ -27,6 +27,12 @@ namespace NovaTerminal.VT
         // Zero-alloc buffers
         private char[] _paramBuffer = new char[256];
         private int _paramLen = 0;
+
+        // Set when a CSI's parameter/intermediate run overflows MaxCsiParamChars. What fell off
+        // the end may have been an INTERMEDIATE byte, and an intermediate is part of the
+        // sequence's identity rather than decoration - so the surviving prefix cannot be
+        // classified. See the final-byte branch in Process().
+        private bool _csiTruncated;
         private const int MaxCsiParamChars = 65536;
 
         // Upper bound on a single parsed CSI numeric parameter. Operations like Scroll Up/Down
@@ -331,6 +337,7 @@ namespace NovaTerminal.VT
         {
             _state = State.Csi;
             _paramLen = 0;
+            _csiTruncated = false;
         }
 
         private void BeginOsc()
@@ -647,11 +654,33 @@ namespace NovaTerminal.VT
                                     {
                                         _paramBuffer[_paramLen++] = c;
                                     }
+                                    else
+                                    {
+                                        _csiTruncated = true;
+                                    }
                                 }
                                 else if (c >= 0x40 && c <= 0x7E)
                                 {
-                                    HandleCsi(c, _paramBuffer.AsSpan(0, _paramLen));
+                                    // A sequence we could not read in full is discarded rather
+                                    // than acted on: we do not know what it was. The bytes past
+                                    // the cap are exactly where an intermediate would sit, so
+                                    // dispatching the prefix runs the BARE meaning of a final
+                                    // byte that was never bare - CSI <cap of digits> SP A is SR,
+                                    // and used to execute CUU. Truncation is already pathological
+                                    // input at 64 KiB of parameters; guessing at it is worse than
+                                    // dropping it.
+                                    if (_csiTruncated)
+                                    {
+                                        TerminalLogger.Log(
+                                            $"[ANSI_PARSER] Discarded a CSI truncated at {MaxCsiParamChars} parameter bytes (final byte '{c}').");
+                                    }
+                                    else
+                                    {
+                                        HandleCsi(c, _paramBuffer.AsSpan(0, _paramLen));
+                                    }
+
                                     _paramLen = 0;
+                                    _csiTruncated = false;
                                     _state = State.Normal;
                                 }
                                 else if (c == '\x18' || c == '\x1a')

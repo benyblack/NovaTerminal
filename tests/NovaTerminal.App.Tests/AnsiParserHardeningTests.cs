@@ -624,6 +624,82 @@ public sealed class AnsiParserHardeningTests
         Assert.Equal("abc", VisibleText(buffer));
     }
 
+    /// <summary>
+    /// A CSI whose parameter run hits the 64 KiB safety cap stops collecting bytes, but the final
+    /// byte still arrives - and used to dispatch on the truncated prefix. An intermediate sitting
+    /// past the cap is therefore invisible, so CSI &lt;64 KiB of digits&gt; SP A, which is SR, was
+    /// classified as bare and executed CUU. A sequence that could not be read in full is now
+    /// discarded: we do not know what it was.
+    /// </summary>
+    [Theory]
+    [InlineData(' ', 'A')]  // SR, not CUU
+    [InlineData(' ', '@')]  // SL, not ICH
+    [InlineData(' ', 'P')]  // PPA, not DCH
+    [InlineData('$', 'r')]  // DECCARA, not DECSTBM
+    public void TruncatedCsi_IsDiscardedRatherThanClassifiedOnItsPrefix(char intermediate, char final)
+    {
+        var (buffer, parser) = NewTerminal();
+        parser.Process("alpha");
+        parser.Process("\x1b[2;1H");
+        parser.Process("bravo");
+        parser.Process("\x1b[3;22r");
+        parser.Process("\x1b[10;40H");
+        string textBefore = VisibleText(buffer);
+
+        // 65536 is MaxCsiParamChars, so the intermediate lands past the cap and is dropped.
+        parser.Process("\x1b[" + new string('1', 65536) + intermediate + final);
+
+        Assert.Equal(textBefore, VisibleText(buffer));
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Equal(9, buffer.CursorRow);
+            Assert.Equal(39, buffer.CursorCol);
+            Assert.Equal(2, buffer.ScrollTop);
+            Assert.Equal(21, buffer.ScrollBottom);
+        }
+        finally { buffer.Lock.ExitReadLock(); }
+    }
+
+    /// <summary>
+    /// The same rule with no intermediate involved. Once the cap is hit we cannot know whether
+    /// what fell off was another digit or an intermediate, so the sequence goes rather than being
+    /// executed on what survived.
+    /// </summary>
+    [Fact]
+    public void TruncatedBareCsi_IsAlsoDiscarded()
+    {
+        var (buffer, parser) = NewTerminal();
+        parser.Process("\x1b[10;40H");
+
+        parser.Process("\x1b[" + new string('1', 70000) + "A");
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Equal(9, buffer.CursorRow);
+        }
+        finally { buffer.Lock.ExitReadLock(); }
+    }
+
+    /// <summary>A long but complete parameter run still executes: the cap is not a length limit.</summary>
+    [Fact]
+    public void CsiJustUnderTheCap_StillExecutes()
+    {
+        var (buffer, parser) = NewTerminal();
+        parser.Process("\x1b[10;40H");
+
+        // Leading zeros keep the value at 5 while making the parameter run long.
+        parser.Process("\x1b[" + new string('0', 65000) + "5A");
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Equal(4, buffer.CursorRow);
+        }
+        finally { buffer.Lock.ExitReadLock(); }
+    }
+
     // ---------------------------------------------------------------------------------------
 
     private static (TerminalBuffer Buffer, AnsiParser Parser) NewTerminal()
