@@ -17,9 +17,106 @@ $ErrorActionPreference = 'Stop'
 
 $env:DOTNET_CLI_USE_MSBUILD_SERVER = '0'
 
+# Refuse to run on a toolchain that cannot compile anything, because the exit code will not
+# say so. When global.json pins an SDK that is not installed, the host prints "A compatible
+# .NET SDK was not found" and has been seen exiting 0 (#347), so the wrapper propagates a
+# success for a build that produced nothing - satisfying a CI step, a && chain, and anyone
+# reading $LASTEXITCODE. It bit for real when main pinned a preview SDK that was later pulled
+# from the CDN: a fresh worktree could not build, and the wrapper said it had.
+#
+# The exit code is not the thing to fix. The same input on the machine this was written on
+# exits 155, so the code is a host implementation detail that varies by version and platform,
+# and the bug was reported from Linux. A guard keyed to 0 would be inert exactly where the
+# next variation shows up.
+#
+# Matching the error text is no better: that message is localized, so a scan for the English
+# spelling would be a silent no-op on a translated host - the mistake the test-abort guard
+# below had to be corrected for once already. So assert the *success* shape instead. On
+# success `dotnet --version` prints a bare version and nothing else; the failure output does
+# contain version-like lines - it lists the installed SDKs - but every one carries a trailing
+# " [path]", so anchoring both ends separates them in any language.
+function Assert-UsableSdk {
+    # Continue for the duration of the call, because with the preference set to Stop the
+    # native stderr this deliberately captures via 2>&1 is itself a terminating error - the
+    # same trap the test path documents below.
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $status = $null
+    $probe = @()
+    try {
+        $probe = @(& dotnet --version 2>&1 | ForEach-Object { [string]$_ })
+        $status = $LASTEXITCODE
+    }
+    catch {
+        # `dotnet` absent from PATH throws rather than returning a code.
+        $probe = @($_.Exception.Message)
+        $status = 1
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+
+    if ($status -eq 0 -and @($probe | Where-Object { $_ -match '^[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*$' }).Count -gt 0) {
+        return
+    }
+
+    Write-Output ''
+    Write-Output "build.ps1: NO USABLE .NET SDK. 'dotnet --version' did not report one, so nothing would"
+    Write-Output 'build.ps1: have been compiled - whatever exit code the command itself would have gone'
+    Write-Output "build.ps1: on to report. The resolver's own diagnosis follows."
+    Write-Output ''
+    $probe | ForEach-Object { Write-Output $_ }
+    exit 1
+}
+
 $dotnetArgs = @($args)
 if ($dotnetArgs.Count -eq 0) {
     $dotnetArgs = @('build')
+}
+
+# Which invocations need an SDK, decided by the first argument that is not an option.
+#
+# Two earlier drafts of this predicate were wrong in the same direction, both caught by local
+# codex review, and the shape of the mistake is worth keeping written down. The first listed
+# the verbs to guard, which let `vstest`, `watch`, `tool`, `format` and anything added later
+# reproduce the exact bug being guarded. The second inverted that but tested only the leading
+# token, so `--diagnostics build` - a documented SDK-global form - read as SDK-free because it
+# starts with a dash. An allowlist of a hazard's known spellings catches only the known
+# spellings, which is also what the architecture guard in #422 had to be corrected for.
+#
+# So skip leading options and judge what follows. The exemptions are the forms that need no
+# SDK at all: options alone (--info, --list-sdks, --version) are answered by the shared host,
+# and `exec` or a bare app.dll run on the runtime. Those keep working when nothing resolves,
+# and the first two are precisely what someone runs to find out why nothing does - a guard
+# that swallowed them would take the diagnosis away along with the failure.
+#
+# Over-guarding is close to free here: when an SDK does resolve, the probe costs ~150ms and
+# changes nothing. Under-guarding is what returns a green for a build that never happened, so
+# anything ambiguous is guarded.
+#
+# Known and deliberate limit: a host option that takes a VALUE (--roll-forward LatestMajor
+# app.dll, --fx-version, --additionalprobingpath) puts a non-option token in front of the
+# .dll, so this guards a runtime-only run that did not need guarding. Fixing it means a table
+# of which host options consume a value - the very allowlist-of-known-spellings shape that
+# produced both defects above, and one whose failure mode when incomplete is the silent green
+# this whole guard exists to stop. The trade is deliberate: this direction costs a loud, wrong
+# refusal on a form that appears nowhere in the repo or its docs, and the other direction
+# costs a build that reports success without building. No invocation like it exists today; if
+# one ever does, exempt it explicitly rather than teaching this predicate to parse the host's
+# option grammar.
+function Test-NeedsSdk([string[]] $arguments) {
+    foreach ($argument in $arguments) {
+        if ($argument.StartsWith('-')) { continue }
+        # -like and -eq are case-insensitive here, which is what we want for a file extension.
+        if ($argument -eq 'exec' -or $argument -like '*.dll') { return $false }
+        return $true
+    }
+
+    return $false
+}
+
+if (Test-NeedsSdk $dotnetArgs) {
+    Assert-UsableSdk
 }
 
 # Insert -nodeReuse:false immediately after the verb (build/test/publish/etc.) so it

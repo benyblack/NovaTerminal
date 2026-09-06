@@ -88,6 +88,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Both wrappers refuse to run on a toolchain that cannot compile, because the host does
+      # not reliably say so itself: an unresolvable global.json pin has been seen printing "A
+      # compatible .NET SDK was not found" and exiting 0 (#347), which used to reach CI steps
+      # and && chains as a success for a build that produced nothing. Every instruction in
+      # CLAUDE.md routes through these scripts, so this is the exit code the project's tooling
+      # rests on, and it is worth a couple of seconds to know it still works on both shells.
+      # Runs against a stub dotnet, so it needs no SDK and is placed before the toolchain setup.
+      - name: Self-test the build wrappers' SDK guard
+        shell: bash
+        run: |
+          py=python3
+          command -v "$py" >/dev/null 2>&1 || py=python
+          "$py" scripts/tests/build_wrapper_sdk_guard_tests.py
+
       # ── Rust native ────────────────────────────────────────────────────────────
       # Cache the compiled binary keyed on all Rust source files.
       # On a hit the toolchain install, Swatinem, and cargo build are all skipped.
