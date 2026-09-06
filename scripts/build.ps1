@@ -17,9 +17,67 @@ $ErrorActionPreference = 'Stop'
 
 $env:DOTNET_CLI_USE_MSBUILD_SERVER = '0'
 
+# Refuse to run on a toolchain that cannot compile anything, because the exit code will not
+# say so. When global.json pins an SDK that is not installed, the host prints "A compatible
+# .NET SDK was not found" and has been seen exiting 0 (#347), so the wrapper propagates a
+# success for a build that produced nothing - satisfying a CI step, a && chain, and anyone
+# reading $LASTEXITCODE. It bit for real when main pinned a preview SDK that was later pulled
+# from the CDN: a fresh worktree could not build, and the wrapper said it had.
+#
+# The exit code is not the thing to fix. The same input on the machine this was written on
+# exits 155, so the code is a host implementation detail that varies by version and platform,
+# and the bug was reported from Linux. A guard keyed to 0 would be inert exactly where the
+# next variation shows up.
+#
+# Matching the error text is no better: that message is localized, so a scan for the English
+# spelling would be a silent no-op on a translated host - the mistake the test-abort guard
+# below had to be corrected for once already. So assert the *success* shape instead. On
+# success `dotnet --version` prints a bare version and nothing else; the failure output does
+# contain version-like lines - it lists the installed SDKs - but every one carries a trailing
+# " [path]", so anchoring both ends separates them in any language.
+function Assert-UsableSdk {
+    # Continue for the duration of the call, because with the preference set to Stop the
+    # native stderr this deliberately captures via 2>&1 is itself a terminating error - the
+    # same trap the test path documents below.
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $status = $null
+    $probe = @()
+    try {
+        $probe = @(& dotnet --version 2>&1 | ForEach-Object { [string]$_ })
+        $status = $LASTEXITCODE
+    }
+    catch {
+        # `dotnet` absent from PATH throws rather than returning a code.
+        $probe = @($_.Exception.Message)
+        $status = 1
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+
+    if ($status -eq 0 -and @($probe | Where-Object { $_ -match '^[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*$' }).Count -gt 0) {
+        return
+    }
+
+    Write-Output ''
+    Write-Output "build.ps1: NO USABLE .NET SDK. 'dotnet --version' did not report one, so nothing would"
+    Write-Output 'build.ps1: have been compiled - whatever exit code the command itself would have gone'
+    Write-Output "build.ps1: on to report. The resolver's own diagnosis follows."
+    Write-Output ''
+    $probe | ForEach-Object { Write-Output $_ }
+    exit 1
+}
+
 $dotnetArgs = @($args)
 if ($dotnetArgs.Count -eq 0) {
     $dotnetArgs = @('build')
+}
+
+# Only the verbs that compile or run code. A host-level query (--info, --list-sdks) is
+# exactly what someone reaches for when the resolver is broken, so it stays unguarded.
+if (@('build','test','publish','pack','msbuild','clean','restore','run') -contains $dotnetArgs[0]) {
+    Assert-UsableSdk
 }
 
 # Insert -nodeReuse:false immediately after the verb (build/test/publish/etc.) so it

@@ -29,6 +29,45 @@ fi
 verb="$1"
 shift
 
+# Refuse to run on a toolchain that cannot compile anything, because the exit code will not
+# say so. When global.json pins an SDK that is not installed, the host prints "A compatible
+# .NET SDK was not found" and has been seen exiting 0 (#347): `set -e` and the `exec` below
+# then propagate a success for a build that produced nothing, which satisfies a CI step, an
+# && chain, and anyone reading $?. It bit for real when main pinned a preview SDK that was
+# later pulled from the CDN - a fresh worktree could not build, and this wrapper said it had.
+#
+# The exit code is not the thing to fix. The same input on the machine this was written on
+# exits 155, so the code is a host implementation detail that varies by version and platform,
+# and the bug was reported from Linux. A guard keyed to 0 would be inert exactly where the
+# next variation shows up.
+#
+# Matching the error text is no better: that message is localized, so a scan for the English
+# spelling would be a silent no-op on a translated host - the mistake the test-abort guard
+# below had to be corrected for once already. So assert the *success* shape instead. On
+# success `dotnet --version` prints a bare version and nothing else; the failure output does
+# contain version-like lines - it lists the installed SDKs - but every one carries a trailing
+# " [path]", so anchoring both ends separates them in any language.
+require_sdk() {
+    local probe status
+
+    set +e
+    probe="$(dotnet --version 2>&1)"
+    status=$?
+    set -e
+
+    if [ "$status" -eq 0 ] && printf '%s\n' "$probe" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*$'; then
+        return 0
+    fi
+
+    echo "" >&2
+    echo "build.sh: NO USABLE .NET SDK. 'dotnet --version' did not report one, so nothing would" >&2
+    echo "build.sh: have been compiled - whatever exit code the command itself would have gone" >&2
+    echo "build.sh: on to report. The resolver's own diagnosis follows." >&2
+    echo "" >&2
+    printf '%s\n' "$probe" >&2
+    exit 1
+}
+
 # Sweep processes that lock this tree's build output before compiling: MCP servers that
 # clients left running, and test hosts from an interrupted `test` run. On Windows those hold
 # the DLLs open, so the next run fails with "file is in use" or sits there looking hung
@@ -121,6 +160,12 @@ run_test_verb() {
     rm -f "$log"
     return "$status"
 }
+
+# Only the verbs that compile or run code. A host-level query (--info, --list-sdks) is
+# exactly what someone reaches for when the resolver is broken, so it stays unguarded.
+case "$verb" in
+    build|test|publish|pack|msbuild|clean|restore|run) require_sdk ;;
+esac
 
 case "$verb" in
     test)
