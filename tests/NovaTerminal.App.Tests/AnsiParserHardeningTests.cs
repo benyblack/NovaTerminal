@@ -405,6 +405,51 @@ public sealed class AnsiParserHardeningTests
         Assert.Equal("\x1b[5;9R", response);
     }
 
+    /// <summary>
+    /// DECOM makes cursor coordinates relative to the scrolling region, so a cursor report has to
+    /// answer in that frame - CUP added ScrollTop on the way in, and the report subtracts it on
+    /// the way out. Otherwise a client that homed to 1;1 inside a region is told it is at the
+    /// region's absolute row and lays everything out against the wrong origin.
+    ///
+    /// This was already wrong for plain CPR before DECXCPR existed; DECXCPR would have inherited
+    /// it, so both are pinned here.
+    /// </summary>
+    [Theory]
+    [InlineData("\x1b[6n", "\x1b[2;3R")]    // CPR
+    [InlineData("\x1b[?6n", "\x1b[?2;3R")]  // DECXCPR
+    public void CursorReports_AreRelativeToTheScrollingRegionUnderOriginMode(string request, string expected)
+    {
+        var (_, parser) = NewTerminal();
+        string? response = null;
+        parser.OnResponse = value => response = value;
+
+        parser.Process("\x1b[5;20r"); // scrolling region, rows 5..20 (1-based)
+        parser.Process("\x1b[?6h");   // DECOM on
+        parser.Process("\x1b[2;3H");  // row 2 OF THE REGION, column 3
+
+        parser.Process(request);
+
+        Assert.Equal(expected, response);
+    }
+
+    /// <summary>With DECOM off the same position reports absolutely.</summary>
+    [Theory]
+    [InlineData("\x1b[6n", "\x1b[2;3R")]
+    [InlineData("\x1b[?6n", "\x1b[?2;3R")]
+    public void CursorReports_AreAbsoluteWithoutOriginMode(string request, string expected)
+    {
+        var (_, parser) = NewTerminal();
+        string? response = null;
+        parser.OnResponse = value => response = value;
+
+        parser.Process("\x1b[5;20r");
+        parser.Process("\x1b[2;3H");
+
+        parser.Process(request);
+
+        Assert.Equal(expected, response);
+    }
+
     /// <summary>CSI &gt; Ps n is xterm's disable-key-modifiers, not a status request.</summary>
     [Fact]
     public void XtermDisableModifiers_IsNotAnswered()

@@ -1245,7 +1245,7 @@ namespace NovaTerminal.VT
                             else if (arg0 == 6) // CPR (bare) / DECXCPR (private)
                             {
                                 string cprLeader = isPrivate ? "?" : string.Empty;
-                                OnResponse?.Invoke($"\x1b[{cprLeader}{_buffer.CursorRow + 1};{_buffer.CursorCol + 1}R");
+                                OnResponse?.Invoke($"\x1b[{cprLeader}{ReportedCursorRow()};{_buffer.CursorCol + 1}R");
                             }
 
                             // arg0 == 0 is a DSR *response* arriving on the input stream: ignored.
@@ -1359,6 +1359,31 @@ namespace NovaTerminal.VT
                     _buffer.Modes.IsCursorBlinkEnabled = false;
                     break;
             }
+        }
+
+        /// <summary>
+        /// The cursor row as a report should state it, 1-based.
+        /// </summary>
+        /// <remarks>
+        /// DECOM makes cursor coordinates relative to the scrolling region, and a report has to
+        /// answer in the same frame the client used to set the position: CUP adds ScrollTop on the
+        /// way in (see case 'H'), so a report subtracts it on the way out. Without this a client
+        /// that homes to 1;1 inside a region is told it is at the region's absolute row, and will
+        /// place everything that follows relative to the wrong origin.
+        ///
+        /// This was already wrong for plain CPR before DECXCPR existed; both are answered from
+        /// here so the two can never disagree. Columns are unaffected because left/right margins
+        /// (DECLRMM) are not implemented, so the horizontal origin never moves.
+        /// </remarks>
+        private int ReportedCursorRow()
+        {
+            int row = _buffer.CursorRow;
+            if (_buffer.Modes.IsOriginMode)
+            {
+                row -= _buffer.ScrollTop;
+            }
+
+            return Math.Max(1, row + 1);
         }
 
         private int ClampRowForMode(int row)
