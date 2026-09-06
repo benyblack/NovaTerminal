@@ -158,10 +158,22 @@ cases = [
     ("healthy sdk, build proceeds",         HEALTHY,                    0,      ["build", "x.sln"], 0,    True),
     ("healthy sdk, publish proceeds",       HEALTHY,                    0,      ["publish"],        0,    True),
     ("healthy sdk, restore proceeds",       HEALTHY,                    0,      ["restore"],        0,    True),
-    # Host queries stay unguarded even when the resolver is broken: they are what someone runs
-    # to find out why it is broken, so a guard that blocked them would remove the diagnosis.
+    # Verbs the guard does not name individually. The first draft listed the verbs it covered
+    # and let every one of these through (local codex review); they are here so that a later
+    # return to an allowlist fails instead of silently reopening the hole.
+    ("broken resolver, vstest blocked",     RESOLVER_FAILURE,           0,      ["vstest", "x.dll"], 1,   False),
+    ("broken resolver, watch blocked",      RESOLVER_FAILURE,           0,      ["watch", "run"],   1,    False),
+    ("broken resolver, tool blocked",       RESOLVER_FAILURE,           0,      ["tool", "restore"], 1,   False),
+    ("broken resolver, format blocked",     RESOLVER_FAILURE,           0,      ["format"],         1,    False),
+    ("broken resolver, no args blocked",    RESOLVER_FAILURE,           0,      [],                 1,    False),
+    # The exempt forms need no SDK, so they must still work when none resolves - and the host
+    # queries among them are what someone runs to find out why none does. A guard that blocked
+    # these would take the diagnosis away along with the failure.
     ("broken resolver, --list-sdks passes", RESOLVER_FAILURE,           0,      ["--list-sdks"],    0,    True),
     ("broken resolver, --info passes",      RESOLVER_FAILURE,           0,      ["--info"],         0,    True),
+    ("broken resolver, --version passes",   RESOLVER_FAILURE,           0,      ["--version"],      0,    False),
+    ("broken resolver, exec passes",        RESOLVER_FAILURE,           0,      ["exec", "a.dll"],  0,    True),
+    ("broken resolver, a.dll passes",       RESOLVER_FAILURE,           0,      ["a.dll"],          0,    True),
 ]
 
 failures = 0

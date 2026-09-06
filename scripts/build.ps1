@@ -74,9 +74,16 @@ if ($dotnetArgs.Count -eq 0) {
     $dotnetArgs = @('build')
 }
 
-# Only the verbs that compile or run code. A host-level query (--info, --list-sdks) is
-# exactly what someone reaches for when the resolver is broken, so it stays unguarded.
-if (@('build','test','publish','pack','msbuild','clean','restore','run') -contains $dotnetArgs[0]) {
+# Everything except the forms that do not need an SDK in the first place. Listing the guarded
+# verbs instead was the first draft, and it left `vstest`, `watch`, `tool`, `format` and every
+# future addition able to reproduce the exact bug this guards (local codex review) - an
+# allowlist of a hazard's known spellings catches only the known spellings.
+#
+# The exemptions run on the shared host or the runtime alone, so they still work when no SDK
+# resolves, and the first two are what someone reaches for to find out why none does. A guard
+# that swallowed `--info` would take away the diagnosis along with the failure.
+$firstArg = [string]$dotnetArgs[0]
+if (-not ($firstArg.StartsWith('-') -or $firstArg -eq 'exec' -or $firstArg.EndsWith('.dll'))) {
     Assert-UsableSdk
 }
 
