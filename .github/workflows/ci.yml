@@ -1261,7 +1261,29 @@ jobs:
           # StripSymbols leaves the dSYM beside the binary; the rm + --exclude above keep
           # it out of the bundle users download. Pin that: no dSYM entry may appear in
           # the Portable zip at all, not even an empty directory skeleton.
-          if unzip -l artifacts/velopack-dryrun/NovaTerminalApp-osx-Portable.zip | grep -q "dSYM"; then
+          #
+          # THIS CHECK COULD PASS WITHOUT INSPECTING ANYTHING (#390), in the same shape the
+          # linux lane's .dbg assertion was hardened out of in #386 - the long note there
+          # explains it in full. The short version, because it is counter-intuitive: the
+          # `set -euo pipefail` at the top of this step is NOT enough on its own. A non-zero
+          # pipeline used as an `if` CONDITION is simply "false"; set -e never sees it. So
+          # with unzip absent, or this zip renamed by a vpk change, the old
+          #   if unzip -l <zip> | grep -q "dSYM"; then
+          # went false and the step passed green having looked at nothing - while a ~94 MB
+          # dSYM shipped inside the bundle users download, with a tick next to it.
+          #
+          # Three things prevent that now: an explicit unzip preflight, an explicit test that
+          # the zip is actually there, and running unzip in a command substitution FIRST -
+          # where set -e does see it fail - then matching the captured listing.
+          command -v unzip >/dev/null             || { echo "unzip is not installed, so the dSYM leak assertion cannot run - do not let this check silently no-op." >&2; exit 1; }
+          # Named exactly, not globbed: vpk emits the version in the nupkg name but not in
+          # this one (verified against the macos-packaging-dryrun artifact), and if that ever
+          # changes this must fail loudly rather than quietly inspect nothing. The sibling
+          # glob assertion above would still pass on a renamed zip, so it cannot cover this.
+          portable_zip=artifacts/velopack-dryrun/NovaTerminalApp-osx-Portable.zip
+          test -f "$portable_zip"             || { echo "$portable_zip is missing, so the dSYM leak assertion cannot run - vpk's output naming has changed." >&2; exit 1; }
+          portable_listing="$(unzip -l "$portable_zip")"
+          if grep -q "dSYM" <<<"$portable_listing"; then
             echo "NovaTerminal.dSYM leaked into the Portable bundle" >&2
             exit 1
           fi
