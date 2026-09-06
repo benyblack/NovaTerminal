@@ -85,6 +85,12 @@ def write_stub(directory: Path, version_output: str, version_status: int):
     would quietly stop resembling what a real host prints.
     """
     directory.mkdir(parents=True, exist_ok=True)
+    # Default newline translation, deliberately: on Windows this writes CRLF, so the healthy
+    # cases there really do feed the guard a Windows host's actual output. That is the one
+    # input that could make the anchored version match reject a good SDK and stop every build
+    # on the machine, and it holds - Git Bash's command substitution drops the CR before the
+    # match sees it. Passing newline="\n" here would look tidier and silently drop the only
+    # coverage of that path.
     (directory / "version.txt").write_text(version_output + "\n", encoding="utf-8")
 
     sh = directory / "dotnet"
