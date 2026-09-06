@@ -90,6 +90,25 @@ public static class VtTools
         ["APC"] = "Application Program Command — used by NovaTerminal for Kitty graphics (ESC _ G … ST).",
     };
 
+    /// <summary>
+    /// Final bytes that keep a defined meaning when a leader or an intermediate byte is present,
+    /// mapped to the qualifiers they accept. Mirrors the per-case guards in
+    /// <c>AnsiParser.HandleCsi</c> - see the <c>bare</c> local there. A final byte absent from
+    /// this table is only itself in its bare form.
+    /// </summary>
+    private static readonly Dictionary<char, string> QualifiedFinalBytes = new()
+    {
+        ['h'] = "?",    // DECSET
+        ['l'] = "?",    // DECRST
+        ['n'] = "?",    // DECXCPR
+        ['J'] = "?",    // DECSED
+        ['K'] = "?",    // DECSEL
+        ['c'] = ">",    // DA2 - secondary device attributes
+        ['u'] = "?><=", // kitty keyboard protocol
+        ['q'] = " ",    // DECSCUSR (space intermediate)
+        ['p'] = "$?",   // DECRQM
+    };
+
     [McpServerTool(Name = "novaterminal.explain_escape_sequence"),
      Description("Explains a VT/ANSI escape sequence (standard meaning). Accepts forms like 'ESC[2J', '\\x1b[2J', 'CSI 2 J', 'CSI ?25h', 'OSC 7', or 'ESC c'. Entries note where NovaTerminal does NOT handle a sequence; for the authoritative support matrix use novaterminal.get_vt_conformance_summary.")]
     public static string ExplainEscapeSequence(
@@ -130,15 +149,29 @@ public static class VtTools
                 : string.Empty;
 
             string key = "CSI:" + finalByte;
-            // A leader or an intermediate byte selects a different function, so only a plain
-            // parameter list may be explained using the contract table's description of the
-            // bare final byte. CHA used to be special-cased here as a "qualified form ...
-            // currently processed as CHA", mirroring the parser's missing leader guard; #274
-            // added that guard, so the qualified forms are ignored now and describing them as
-            // CHA would be wrong.
-            bool hasStandardParameterList = prefix.All(c => (c >= '0' && c <= '9') || c is ';' or ':');
+            // A leader or an intermediate byte selects a DIFFERENT function, so neither table's
+            // description of the bare final byte may be used for a qualified spelling unless that
+            // spelling is itself defined. CSI ? 1;1;0 S is XTSMGRAPHICS and CSI > 2 T is XTRMTITLE;
+            // the parser ignores both (#274), so calling them SU and SD tells the reader the
+            // opposite of what NovaTerminal does.
+            //
+            // CHA used to be special-cased here as a "qualified form ... currently processed as
+            // CHA", mirroring the parser's missing leader guard. That guard now exists, and the
+            // special case is replaced by the general rule below.
+            string qualifiers = new string(prefix.Where(c => !((c >= '0' && c <= '9') || c is ';' or ':')).ToArray());
+            bool hasStandardParameterList = qualifiers.Length == 0;
+            bool isDefinedQualifiedForm = !hasStandardParameterList
+                && QualifiedFinalBytes.TryGetValue(finalByte, out string? accepted)
+                && qualifiers.All(accepted.Contains);
 
-            return ((hasStandardParameterList && ContractSequenceTable.TryGetValue(key, out var desc))
+            if (!hasStandardParameterList && !isDefinedQualifiedForm)
+            {
+                return $"CSI sequence with final byte '{finalByte}'{note}: the leader/intermediate "
+                     + $"'{qualifiers}' selects a different function than the bare final byte, and that "
+                     + "form is not in the curated table. NovaTerminal's parser ignores it.";
+            }
+
+            return ((ContractSequenceTable.TryGetValue(key, out var desc))
                     || SequenceTable.TryGetValue(key, out desc))
                 ? $"CSI sequence, final byte '{finalByte}'{note}: {desc}"
                 : $"CSI sequence with final byte '{finalByte}'{note}: not in the curated table. Params/intermediates: '{prefix}'.";

@@ -80,6 +80,43 @@ public class ExplainEscapeSequenceTests
     }
 
     /// <summary>
+    /// #274: the curated fallback table is keyed by final byte alone, so it used to describe
+    /// XTSMGRAPHICS as SU and XTRMTITLE as SD. The parser ignores both, so those answers told the
+    /// reader the opposite of what NovaTerminal does.
+    /// </summary>
+    [Theory]
+    [InlineData("CSI ?1;1;0S", "SU")] // XTSMGRAPHICS, not Scroll Up
+    [InlineData("CSI >2T", "SD")]     // XTRMTITLE, not Scroll Down
+    [InlineData("CSI <1P", "DCH")]
+    [InlineData("CSI =1d", "VPA")]
+    // Only leaders are covered here. ExplainEscapeSequence strips whitespace the user added
+    // for readability ("CSI 2 J"), so a space intermediate cannot be expressed in its input
+    // syntax at all - CSI Pn SP @ (SL) is indistinguishable from a legibly-typed ICH. That is
+    // a deliberate trade in the tool's input handling, not something this change alters.
+    public void QualifiedForms_AreNotExplainedAsTheBareFinalByte(string sequence, string bareName)
+    {
+        string result = VtTools.ExplainEscapeSequence(sequence);
+
+        Assert.DoesNotContain(bareName, result, System.StringComparison.Ordinal);
+        Assert.Contains("selects a different function", result, System.StringComparison.Ordinal);
+    }
+
+    /// <summary>The qualified forms that ARE defined must keep resolving.</summary>
+    [Theory]
+    [InlineData("CSI ?25h", "DECSET")]
+    [InlineData("CSI ?1049l", "DECRST")]
+    [InlineData("CSI >c", "DA")]
+    [InlineData("CSI 6 q", "DECSCUSR")]
+    [InlineData("CSI ?2J", "ED")]      // DECSED, still aliased to ED while DECSCA is unimplemented
+    [InlineData("CSI ?6n", "DSR")]     // DECXCPR
+    public void DefinedQualifiedForms_StillResolve(string sequence, string expected)
+    {
+        string result = VtTools.ExplainEscapeSequence(sequence);
+
+        Assert.Contains(expected, result, System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// #274: a leader or an intermediate selects a different function, so the explainer must not
     /// describe these as CHA. It used to, reporting them as a "qualified form" that NovaTerminal
     /// processed as CHA - which mirrored the parser's missing leader guard. The parser ignores
