@@ -166,6 +166,10 @@ cases = [
     ("broken resolver, tool blocked",       RESOLVER_FAILURE,           0,      ["tool", "restore"], 1,   False),
     ("broken resolver, format blocked",     RESOLVER_FAILURE,           0,      ["format"],         1,    False),
     ("broken resolver, no args blocked",    RESOLVER_FAILURE,           0,      [],                 1,    False),
+    # SDK-global options come BEFORE the verb, and a predicate that judged only the leading
+    # token read these as SDK-free because they start with a dash (local codex review).
+    ("broken resolver, -d build blocked",   RESOLVER_FAILURE,           0,      ["-d", "build"],    1,    False),
+    ("broken resolver, --diagnostics build", RESOLVER_FAILURE,          0,      ["--diagnostics", "build"], 1, False),
     # The exempt forms need no SDK, so they must still work when none resolves - and the host
     # queries among them are what someone runs to find out why none does. A guard that blocked
     # these would take the diagnosis away along with the failure.
@@ -174,6 +178,8 @@ cases = [
     ("broken resolver, --version passes",   RESOLVER_FAILURE,           0,      ["--version"],      0,    False),
     ("broken resolver, exec passes",        RESOLVER_FAILURE,           0,      ["exec", "a.dll"],  0,    True),
     ("broken resolver, a.dll passes",       RESOLVER_FAILURE,           0,      ["a.dll"],          0,    True),
+    ("broken resolver, -d exec passes",     RESOLVER_FAILURE,           0,      ["-d", "exec", "a.dll"], 0, True),
+    ("broken resolver, upper A.DLL passes", RESOLVER_FAILURE,           0,      ["A.DLL"],          0,    True),
 ]
 
 failures = 0

@@ -74,16 +74,37 @@ if ($dotnetArgs.Count -eq 0) {
     $dotnetArgs = @('build')
 }
 
-# Everything except the forms that do not need an SDK in the first place. Listing the guarded
-# verbs instead was the first draft, and it left `vstest`, `watch`, `tool`, `format` and every
-# future addition able to reproduce the exact bug this guards (local codex review) - an
-# allowlist of a hazard's known spellings catches only the known spellings.
+# Which invocations need an SDK, decided by the first argument that is not an option.
 #
-# The exemptions run on the shared host or the runtime alone, so they still work when no SDK
-# resolves, and the first two are what someone reaches for to find out why none does. A guard
-# that swallowed `--info` would take away the diagnosis along with the failure.
-$firstArg = [string]$dotnetArgs[0]
-if (-not ($firstArg.StartsWith('-') -or $firstArg -eq 'exec' -or $firstArg.EndsWith('.dll'))) {
+# Two earlier drafts of this predicate were wrong in the same direction, both caught by local
+# codex review, and the shape of the mistake is worth keeping written down. The first listed
+# the verbs to guard, which let `vstest`, `watch`, `tool`, `format` and anything added later
+# reproduce the exact bug being guarded. The second inverted that but tested only the leading
+# token, so `--diagnostics build` - a documented SDK-global form - read as SDK-free because it
+# starts with a dash. An allowlist of a hazard's known spellings catches only the known
+# spellings, which is also what the architecture guard in #422 had to be corrected for.
+#
+# So skip leading options and judge what follows. The exemptions are the forms that need no
+# SDK at all: options alone (--info, --list-sdks, --version) are answered by the shared host,
+# and `exec` or a bare app.dll run on the runtime. Those keep working when nothing resolves,
+# and the first two are precisely what someone runs to find out why nothing does - a guard
+# that swallowed them would take the diagnosis away along with the failure.
+#
+# Over-guarding is close to free here: when an SDK does resolve, the probe costs ~150ms and
+# changes nothing. Under-guarding is what returns a green for a build that never happened, so
+# anything ambiguous is guarded.
+function Test-NeedsSdk([string[]] $arguments) {
+    foreach ($argument in $arguments) {
+        if ($argument.StartsWith('-')) { continue }
+        # -like and -eq are case-insensitive here, which is what we want for a file extension.
+        if ($argument -eq 'exec' -or $argument -like '*.dll') { return $false }
+        return $true
+    }
+
+    return $false
+}
+
+if (Test-NeedsSdk $dotnetArgs) {
     Assert-UsableSdk
 }
 
