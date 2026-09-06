@@ -93,6 +93,17 @@ if ($dotnetArgs.Count -eq 0) {
 # Over-guarding is close to free here: when an SDK does resolve, the probe costs ~150ms and
 # changes nothing. Under-guarding is what returns a green for a build that never happened, so
 # anything ambiguous is guarded.
+#
+# Known and deliberate limit: a host option that takes a VALUE (--roll-forward LatestMajor
+# app.dll, --fx-version, --additionalprobingpath) puts a non-option token in front of the
+# .dll, so this guards a runtime-only run that did not need guarding. Fixing it means a table
+# of which host options consume a value - the very allowlist-of-known-spellings shape that
+# produced both defects above, and one whose failure mode when incomplete is the silent green
+# this whole guard exists to stop. The trade is deliberate: this direction costs a loud, wrong
+# refusal on a form that appears nowhere in the repo or its docs, and the other direction
+# costs a build that reports success without building. No invocation like it exists today; if
+# one ever does, exempt it explicitly rather than teaching this predicate to parse the host's
+# option grammar.
 function Test-NeedsSdk([string[]] $arguments) {
     foreach ($argument in $arguments) {
         if ($argument.StartsWith('-')) { continue }

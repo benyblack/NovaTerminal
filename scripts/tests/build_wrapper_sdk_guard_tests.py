@@ -180,6 +180,14 @@ cases = [
     ("broken resolver, a.dll passes",       RESOLVER_FAILURE,           0,      ["a.dll"],          0,    True),
     ("broken resolver, -d exec passes",     RESOLVER_FAILURE,           0,      ["-d", "exec", "a.dll"], 0, True),
     ("broken resolver, upper A.DLL passes", RESOLVER_FAILURE,           0,      ["A.DLL"],          0,    True),
+    # Documented limit, pinned so it is a known trade rather than a surprise: a host option
+    # that takes a value puts a non-option token in front of the .dll, so the predicate
+    # guards a runtime-only run. Telling them apart needs a table of which host options
+    # consume a value - the allowlist shape that caused both defects this guard was already
+    # corrected for, and one that fails silent-green when incomplete. Erring loud is the
+    # trade. Change this case only alongside an explicit exemption, never by teaching the
+    # predicate the host's option grammar.
+    ("--roll-forward + dll guarded (known)", RESOLVER_FAILURE,         0,      ["--roll-forward", "LatestMajor", "a.dll"], 1, False),
 ]
 
 failures = 0
