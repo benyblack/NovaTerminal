@@ -427,7 +427,9 @@ public class AgentObserveIndicatorTests : IDisposable
     {
         var exited = (bool)typeof(MainWindow)
             .GetMethod("ExitPaneZoom", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(window, new object[] { tab, true })!;
+            // forTeardown: false spelled out, because MethodInfo.Invoke does not fill in an
+            // optional parameter - a two-argument call throws TargetParameterCountException.
+            .Invoke(window, new object[] { tab, true, false })!;
         Assert.True(exited, "Test setup failed: ExitPaneZoom refused to un-zoom the tab.");
     }
 
