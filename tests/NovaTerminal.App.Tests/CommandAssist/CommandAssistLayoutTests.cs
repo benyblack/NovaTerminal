@@ -278,7 +278,14 @@ public sealed class CommandAssistLayoutTests
         ConfigureCommandAssist(pane);
         await AtAnIntegratedPromptAsync(pane, "frobnicate");
         pane.OpenCommandAssistHelp();
-        await Task.Delay(50);
+
+        // Waited on the surface rather than on the clock, for the reason in AssistWait: Help awaits
+        // its providers before posting, and a fixed delay is a bet on that round trip fitting inside
+        // it. This test was losing that bet about once per full run (#424).
+        await AssistWait.UntilAsync(
+            () => (pane.FindControl<CommandAssistPopupView>("CommandAssistPopup")?.DataContext
+                       as CommandAssistPopupViewModel)?.IsVisible == true,
+            "the empty-state Help result reached the popup");
 
         CommandAssistPopupView popupView = Assert.IsType<CommandAssistPopupView>(pane.FindControl<CommandAssistPopupView>("CommandAssistPopup"));
         CommandAssistPopupViewModel vm = Assert.IsType<CommandAssistPopupViewModel>(popupView.DataContext);
