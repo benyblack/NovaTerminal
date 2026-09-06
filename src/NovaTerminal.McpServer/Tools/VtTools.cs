@@ -130,14 +130,15 @@ public static class VtTools
                 : string.Empty;
 
             string key = "CSI:" + finalByte;
+            // A leader or an intermediate byte selects a different function, so only a plain
+            // parameter list may be explained using the contract table's description of the
+            // bare final byte. CHA used to be special-cased here as a "qualified form ...
+            // currently processed as CHA", mirroring the parser's missing leader guard; #274
+            // added that guard, so the qualified forms are ignored now and describing them as
+            // CHA would be wrong.
             bool hasStandardParameterList = prefix.All(c => (c >= '0' && c <= '9') || c is ';' or ':');
-            bool isQualifiedCha = finalByte == 'G' && !hasStandardParameterList;
-            if (isQualifiedCha)
-            {
-                note += " [qualified form — NovaTerminal currently processes it as CHA]";
-            }
 
-            return (((hasStandardParameterList || isQualifiedCha) && ContractSequenceTable.TryGetValue(key, out var desc))
+            return ((hasStandardParameterList && ContractSequenceTable.TryGetValue(key, out var desc))
                     || SequenceTable.TryGetValue(key, out desc))
                 ? $"CSI sequence, final byte '{finalByte}'{note}: {desc}"
                 : $"CSI sequence with final byte '{finalByte}'{note}: not in the curated table. Params/intermediates: '{prefix}'.";

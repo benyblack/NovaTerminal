@@ -87,9 +87,16 @@ public sealed class VtCapabilityContractTests
         AssertPosition("\x1b[4G", expectedRow: 3, expectedCol: 3);
         AssertPosition("\x1b[2;3G", expectedRow: 3, expectedCol: 1);
         AssertPosition("\x1b[2:3G", expectedRow: 3, expectedCol: 1);
-        AssertPosition("\x1b[?2G", expectedRow: 3, expectedCol: 1);
-        AssertPosition("\x1b[2$G", expectedRow: 3, expectedCol: 1);
         AssertPosition("\x1b[999G", expectedRow: 3, expectedCol: 11);
+
+        // #274: these two used to assert that CHA runs for the '?' leader and the '$'
+        // intermediate. That was a transcription of what the parser happened to do - CHA had no
+        // leader guard - rather than a decision, and it contradicted the identical shapes three
+        // lines up in AssertCursorNextLine and AssertCursorPreviousLine, whose finals had already
+        // been guarded by #264. A leader or an intermediate makes it a different sequence, so it
+        // is ignored, exactly as CSI ? 2 E and CSI 2 $ F are.
+        AssertIgnored("\x1b[?2G");
+        AssertIgnored("\x1b[2$G");
     }
 
     private static void AssertPosition(string sequence, int expectedRow, int expectedCol)

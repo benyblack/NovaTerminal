@@ -79,15 +79,21 @@ public class ExplainEscapeSequenceTests
         Assert.Contains(mnemonic, VtTools.ExplainEscapeSequence(sequence), System.StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// #274: a leader or an intermediate selects a different function, so the explainer must not
+    /// describe these as CHA. It used to, reporting them as a "qualified form" that NovaTerminal
+    /// processed as CHA - which mirrored the parser's missing leader guard. The parser ignores
+    /// them now, so claiming CHA would send a reader looking for a cursor move that never happens.
+    /// </summary>
     [Theory]
     [InlineData("CSI ?2G")]
     [InlineData("CSI 2$G")]
-    public void QualifiedChaForms_ReportCurrentParserBehavior(string sequence)
+    public void QualifiedChaForms_AreNotExplainedAsCha(string sequence)
     {
         string result = VtTools.ExplainEscapeSequence(sequence);
 
-        Assert.Contains("CHA", result, System.StringComparison.Ordinal);
-        Assert.Contains("qualified form", result, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("CHA", result, System.StringComparison.Ordinal);
+        Assert.Contains("not in the curated table", result, System.StringComparison.Ordinal);
     }
 
     [Fact]
