@@ -670,7 +670,7 @@ namespace NovaTerminal.Controls
             TermView.ScrollStateChanged += (offset, max) =>
             {
                 // Dispatch to UI thread to update ScrollBar value
-                Dispatcher.UIThread.Post(() =>
+                this.Dispatcher.Post(() =>
                 {
                     _isUpdatingScroll = true;
                     try
@@ -741,13 +741,13 @@ namespace NovaTerminal.Controls
                 () => Buffer?.CommandOutputStartMark,
                 dispatch: action =>
                 {
-                    if (Dispatcher.UIThread.CheckAccess())
+                    if (this.Dispatcher.CheckAccess())
                     {
                         action();
                     }
                     else
                     {
-                        Dispatcher.UIThread.Post(action);
+                        this.Dispatcher.Post(action);
                     }
                 },
                 onUpdate: (text, streaming) => _agentOutput.SetUpdate(text, streaming),
@@ -1352,9 +1352,9 @@ namespace NovaTerminal.Controls
         /// </remarks>
         private void BindCommandAssistViews(CommandAssistBarViewModel? viewModel)
         {
-            if (!Dispatcher.UIThread.CheckAccess())
+            if (!this.Dispatcher.CheckAccess())
             {
-                Dispatcher.UIThread.Post(() => BindCommandAssistViews(viewModel));
+                this.Dispatcher.Post(() => BindCommandAssistViews(viewModel));
                 return;
             }
 
@@ -1396,9 +1396,9 @@ namespace NovaTerminal.Controls
         /// </remarks>
         private void ClearCommandAssistBindings()
         {
-            if (!Dispatcher.UIThread.CheckAccess())
+            if (!this.Dispatcher.CheckAccess())
             {
-                Dispatcher.UIThread.Post(ClearCommandAssistBindings);
+                this.Dispatcher.Post(ClearCommandAssistBindings);
                 return;
             }
 
@@ -2107,10 +2107,10 @@ namespace NovaTerminal.Controls
                 _sshAssistCorrectionPassCount++;
 
                 // Re-evaluate on the next render pass; keep host hidden until settled.
-                Dispatcher.UIThread.Post(UpdateCommandAssistOverlayPlacement, DispatcherPriority.Render);
+                this.Dispatcher.Post(UpdateCommandAssistOverlayPlacement, DispatcherPriority.Render);
             }
 
-            Dispatcher.UIThread.Post(CorrectPlacement, DispatcherPriority.Render);
+            this.Dispatcher.Post(CorrectPlacement, DispatcherPriority.Render);
         }
 
         /// <summary>
@@ -2140,7 +2140,7 @@ namespace NovaTerminal.Controls
 
         private void OnBufferScreenSwitched(bool isAltScreen)
         {
-            Dispatcher.UIThread.Post(() => HandleAltScreenChanged(isAltScreen));
+            this.Dispatcher.Post(() => HandleAltScreenChanged(isAltScreen));
         }
 
         private void HandleAltScreenChanged(bool isAltScreen)
@@ -2483,7 +2483,7 @@ namespace NovaTerminal.Controls
             }
 
             _hasObservedShellIntegrationMark = true;
-            Dispatcher.UIThread.Post(UpdateCommandAssistContext);
+            this.Dispatcher.Post(UpdateCommandAssistContext);
         }
 
         private void UpdateCommandAssistContext()
@@ -3028,7 +3028,7 @@ namespace NovaTerminal.Controls
 
             Parser.OnBell += () =>
             {
-                Dispatcher.UIThread.Post(() =>
+                this.Dispatcher.Post(() =>
                 {
                     TermView.TriggerBell();
                     BellReceived?.Invoke(this);
@@ -3065,7 +3065,7 @@ namespace NovaTerminal.Controls
                 // on the PTY thread: it is a single-writer test seam, not a metric, so don't read
                 // it as one.
                 _clipboardWriteAttemptsForTest++;
-                Dispatcher.UIThread.Post(() =>
+                this.Dispatcher.Post(() =>
                 {
                     _ = TermView.SetClipboardTextAsync(text);
                 });
@@ -3073,14 +3073,14 @@ namespace NovaTerminal.Controls
             Parser.OnWorkingDirectoryChanged += cwd =>
             {
                 _shellLifecycleTracker?.HandleWorkingDirectoryChanged(cwd);
-                Dispatcher.UIThread.Post(() =>
+                this.Dispatcher.Post(() =>
                 {
                     HandleWorkingDirectoryChanged(cwd);
                 });
             };
             Parser.OnTitleChanged += title =>
             {
-                Dispatcher.UIThread.Post(() =>
+                this.Dispatcher.Post(() =>
                 {
                     CurrentOscTitle = title;
                     TitleChanged?.Invoke(this, title);
@@ -3131,7 +3131,7 @@ namespace NovaTerminal.Controls
                 _agentRegistration?.StatusMachine.NotifyCommandAccepted(commandText);
                 _agentRegistration?.StatusMachine.NotifyCommandStarted();
                 _lastCommandStartedAtUtc = DateTimeOffset.UtcNow;
-                Dispatcher.UIThread.Post(() =>
+                this.Dispatcher.Post(() =>
                 {
                     LastExitCode = null;
                     CommandStarted?.Invoke(this);
@@ -3178,7 +3178,7 @@ namespace NovaTerminal.Controls
                 string? outputTail = TryCaptureFailureOutputTail(exitCode);
                 _lastFailureOutputTailForTest = outputTail;
 
-                Dispatcher.UIThread.Post(() =>
+                this.Dispatcher.Post(() =>
                 {
                     if (exitCode.HasValue)
                     {
@@ -3222,7 +3222,7 @@ namespace NovaTerminal.Controls
                 if (duration is { } d && LongCommandNotificationPolicy.QualifiesAsLong(d))
                 {
                     var commandText = _lastRelevantCommandText;
-                    Dispatcher.UIThread.Post(() => LongCommandCompleted?.Invoke(this, commandText, exitCode, d));
+                    this.Dispatcher.Post(() => LongCommandCompleted?.Invoke(this, commandText, exitCode, d));
                 }
             };
         }
@@ -3336,7 +3336,7 @@ namespace NovaTerminal.Controls
                 ITerminalSession session = Session;
                 session.OnExit += code =>
                 {
-                    Dispatcher.UIThread.Post(() =>
+                    this.Dispatcher.Post(() =>
                     {
                         HandleSessionExit(session, code);
                     });
@@ -3359,7 +3359,7 @@ namespace NovaTerminal.Controls
                     Task.Run(() =>
                     {
                         var hasChildren = agentReg.ProbeHasActiveChildProcesses();
-                        Dispatcher.UIThread.Post(
+                        this.Dispatcher.Post(
                             () => agentReg.StatusMachine.Sweep(hasChildren),
                             DispatcherPriority.Background);
                     });
@@ -3381,7 +3381,7 @@ namespace NovaTerminal.Controls
                 // After Parse, not before: the flag's contract is "the grid may be behind the
                 // keyboard", so it may only be cleared once these bytes are actually painted.
                 NoteSessionOutputApplied();
-                Dispatcher.UIThread.Post(() =>
+                this.Dispatcher.Post(() =>
                 {
                     UpdateScrollUI();
                     OutputReceived?.Invoke(this);
@@ -3579,7 +3579,7 @@ namespace NovaTerminal.Controls
 
             // When new output arrives, ensure the cursor is visible
             // If we just switched from alt screen (like after exiting mc), ensure we're scrolled to show the cursor
-            Dispatcher.UIThread.Post(async () =>
+            this.Dispatcher.Post(async () =>
             {
 
                 if (TermView.JustSwitchedFromAltScreen)
@@ -3623,7 +3623,7 @@ namespace NovaTerminal.Controls
 
             TermView.SearchStateChanged += (idx, total) =>
             {
-                Dispatcher.UIThread.Post(() => SearchCount.Text = $"{idx}/{total}");
+                this.Dispatcher.Post(() => SearchCount.Text = $"{idx}/{total}");
             };
         }
 
@@ -4107,7 +4107,7 @@ namespace NovaTerminal.Controls
             }
 
             // Force initial render availability
-            Dispatcher.UIThread.Post(() =>
+            this.Dispatcher.Post(() =>
             {
                 UpdateFocusVisuals(IsKeyboardFocusWithin);
                 TermView.InvalidateVisual();
@@ -4138,7 +4138,7 @@ namespace NovaTerminal.Controls
             // mid-teardown after _disposed was set, every later Dispose() would return
             // early and the session would leak permanently — the exact bug this method
             // exists to prevent.
-            Dispatcher.UIThread.VerifyAccess();
+            this.Dispatcher.VerifyAccess();
 
             if (_disposed) return null;
             _disposed = true;
@@ -4205,11 +4205,36 @@ namespace NovaTerminal.Controls
             ActiveSshSessionRegistry.Instance.Unregister(session.Id);
         }
 
+        // Every dispatch in this class goes to this.Dispatcher - the pane's own, captured by
+        // AvaloniaObject at construction - and never to the Dispatcher.UIThread static (#423).
+        //
+        // The static's getter binds UI-thread identity to *the calling thread* whenever its
+        // backing field is null. Under the headless lane's PerTest isolation that field is nulled
+        // at every test boundary, and again inside HeadlessUnitTestSession.EnsureIsolatedApplication
+        // immediately before AppBuilder.SetupUnsafe() runs. A background thread that reads the
+        // static inside that window becomes the UI thread, after which SetupUnsafe's
+        // Compositor ctor -> DefaultRenderLoop.Add -> VerifyAccess() throws - outside the try in
+        // DispatchCore, so it unwinds the one dispatcher loop the assembly shares and every
+        // remaining test blocks forever. Two dumps caught exactly that, one local and one on CI's
+        // ubuntu lane, both with five live RustPtySessions still running.
+        //
+        // Half this class's dispatches are raised on threads that are not the UI thread and say so
+        // in their own comments: the agent-attention and actability handlers on the endpoint's IPC
+        // or timer thread, the SFTP job handler on a transfer worker, the parser mark callbacks on
+        // the PTY read thread, the exit paths on the PTY exit watcher. Any of them firing on a pane
+        // that outlived its test is a candidate reader.
+        //
+        // this.Dispatcher costs nothing on either count. It is assigned by AvaloniaObject's own
+        // field initializer (= Dispatcher.CurrentDispatcher), so the pane already holds it before
+        // any of this runs: reading it binds nothing that `new TerminalPane()` had not already
+        // bound. It is also the more correct reading in production, where a pane belongs to one
+        // dispatcher for its whole life. PR #416 made this argument for the Command Assist
+        // dispatch and it applies unchanged to the rest of the class.
         private void Sftp_JobUpdated(object? sender, TransferJob job)
         {
             if (job.SessionId != Session?.Id) return;
 
-            Dispatcher.UIThread.Post(() =>
+            this.Dispatcher.Post(() =>
             {
                 var activeJobs = SftpService.Instance.Jobs
                     .Where(j => j.SessionId == Session?.Id && j.State == TransferState.Running)
@@ -4371,7 +4396,7 @@ namespace NovaTerminal.Controls
             if (registration == null) return;
             try
             {
-                Dispatcher.UIThread.Post(() => ApplyAgentAttention(snapshot, registration.IsAgentActable));
+                this.Dispatcher.Post(() => ApplyAgentAttention(snapshot, registration.IsAgentActable));
             }
             catch (Exception)
             {
@@ -4409,7 +4434,7 @@ namespace NovaTerminal.Controls
             if (registration == null) return;
             try
             {
-                Dispatcher.UIThread.Post(() =>
+                this.Dispatcher.Post(() =>
                     ApplyAgentAttention(registration.AttentionMachine.Snapshot(), registration.IsAgentActable));
             }
             catch (Exception)
