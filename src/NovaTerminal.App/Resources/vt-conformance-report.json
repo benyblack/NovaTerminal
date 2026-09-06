@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "867c7e97816e712c8b0c44b26c125e01418a8bbd306cd80ad42fe9491f3548d6",
+  "matrixSha256": "f15350c887cde9366089f014bb3a1d14c237b7aed43da9afa3e542ad36e91311",
   "summary": {
-    "totalRows": 60,
-    "supportedCount": 23,
+    "totalRows": 61,
+    "supportedCount": 24,
     "partialCount": 31,
     "experimentalCount": 1,
     "notSupportedCount": 4,
     "wontSupportCount": 1,
-    "rowsWithLinkedEvidence": 38,
-    "supportedRowsWithLinkedEvidence": 23,
+    "rowsWithLinkedEvidence": 39,
+    "supportedRowsWithLinkedEvidence": 24,
     "errorCount": 0,
     "warningCount": 0
   },
@@ -47,56 +47,56 @@
       "order": 4,
       "title": "5) Screen buffers \u0026 modes (DEC private modes)",
       "startLine": 108,
-      "endLine": 118,
-      "rowCount": 9
+      "endLine": 119,
+      "rowCount": 10
     },
     {
       "order": 5,
       "title": "6) SGR attributes \u0026 colors",
-      "startLine": 124,
-      "endLine": 130,
+      "startLine": 125,
+      "endLine": 131,
       "rowCount": 5
     },
     {
       "order": 6,
       "title": "7) Tabs",
-      "startLine": 136,
-      "endLine": 139,
+      "startLine": 137,
+      "endLine": 140,
       "rowCount": 2
     },
     {
       "order": 7,
       "title": "8) OSC sequences",
-      "startLine": 145,
-      "endLine": 154,
+      "startLine": 146,
+      "endLine": 155,
       "rowCount": 8
     },
     {
       "order": 8,
       "title": "9) Kitty graphics / APC",
-      "startLine": 160,
-      "endLine": 163,
+      "startLine": 161,
+      "endLine": 164,
       "rowCount": 2
     },
     {
       "order": 9,
       "title": "10) SIXEL",
-      "startLine": 169,
-      "endLine": 172,
+      "startLine": 170,
+      "endLine": 173,
       "rowCount": 2
     },
     {
       "order": 10,
       "title": "11) Clipboard, selection, and hyperlinking",
-      "startLine": 178,
-      "endLine": 182,
+      "startLine": 179,
+      "endLine": 183,
       "rowCount": 3
     },
     {
       "order": 11,
       "title": "12) Unicode width, graphemes, and font behavior",
-      "startLine": 188,
-      "endLine": 192,
+      "startLine": 189,
+      "endLine": 193,
       "rowCount": 3
     }
   ],
@@ -826,6 +826,32 @@
       "sourceLine": 118
     },
     {
+      "section": "5) Screen buffers \u0026 modes (DEC private modes)",
+      "feature": "DSR / CPR / DECXCPR",
+      "status": "\u2705 Supported",
+      "specOrNotes": "Operating status (\u0060CSI 5 n\u0060 -\u003E \u0060CSI 0 n\u0060) and cursor position. The bare request answers \u0060CSI r ; c R\u0060; the DEC private request \u0060CSI ? 6 n\u0060 (DECXCPR) answers in the private form \u0060CSI ? r ; c R\u0060, because a client that asked the private question parses for a private answer and would otherwise drop the reply or mistake it for an unsolicited CPR. Both frames honour DECOM: with origin mode set the row is reported relative to the top of the scrolling region, matching the frame CUP used to set it",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/VttestScenarioTests.cs\u0060",
+      "evidenceKinds": [
+        "external",
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
+          "exists": true
+        },
+        {
+          "path": "tests/NovaTerminal.App.Tests/VttestScenarioTests.cs",
+          "exists": true
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser",
+      "knownDeviations": "DEC\u0027s page parameter is omitted from the DECXCPR reply (\u0060CSI ? r ; c R\u0060, not \u0060CSI ? r ; c ; p R\u0060), as xterm omits it. The other private status reports - \u0060?15\u0060 printer, \u0060?25\u0060 UDK, \u0060?26\u0060 keyboard, \u0060?53\u0060 locator - are not implemented and stay silent rather than guessing. \u0060CSI \u003E Ps n\u0060 (xterm disable-key-modifiers) is not a status request and is ignored",
+      "sourceLine": 119
+    },
+    {
       "section": "6) SGR attributes \u0026 colors",
       "feature": "Basic SGR (0,1,2,3,4,5,7,9,22,23,24,25,27,29)",
       "status": "\u26A0 Partial",
@@ -845,7 +871,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BBuffer\u002BRenderer",
       "knownDeviations": "Underline style/color tracked separately",
-      "sourceLine": 126
+      "sourceLine": 127
     },
     {
       "section": "6) SGR attributes \u0026 colors",
@@ -861,7 +887,7 @@
       "hasLinkedEvidence": false,
       "ownership": "Parser\u002BBuffer",
       "knownDeviations": "",
-      "sourceLine": 127
+      "sourceLine": 128
     },
     {
       "section": "6) SGR attributes \u0026 colors",
@@ -877,7 +903,7 @@
       "hasLinkedEvidence": false,
       "ownership": "Parser\u002BBuffer",
       "knownDeviations": "",
-      "sourceLine": 128
+      "sourceLine": 129
     },
     {
       "section": "6) SGR attributes \u0026 colors",
@@ -893,7 +919,7 @@
       "hasLinkedEvidence": false,
       "ownership": "Parser\u002BBuffer",
       "knownDeviations": "",
-      "sourceLine": 129
+      "sourceLine": 130
     },
     {
       "section": "6) SGR attributes \u0026 colors",
@@ -907,7 +933,7 @@
       "hasLinkedEvidence": false,
       "ownership": "Buffer",
       "knownDeviations": "",
-      "sourceLine": 130
+      "sourceLine": 131
     },
     {
       "section": "7) Tabs",
@@ -928,7 +954,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BBuffer",
       "knownDeviations": "Custom tab stops are clipped on width shrink; columns exposed by width growth start with default 8-column tab stops",
-      "sourceLine": 138
+      "sourceLine": 139
     },
     {
       "section": "7) Tabs",
@@ -949,7 +975,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BBuffer",
       "knownDeviations": "\u0060CSI g\u0060 supports current-stop clear (\u00600\u0060/default) and clear-all (\u00603\u0060); other parameters are ignored",
-      "sourceLine": 139
+      "sourceLine": 140
     },
     {
       "section": "8) OSC sequences",
@@ -966,7 +992,7 @@
       "hasLinkedEvidence": false,
       "ownership": "App/UI",
       "knownDeviations": "",
-      "sourceLine": 147
+      "sourceLine": 148
     },
     {
       "section": "8) OSC sequences",
@@ -987,7 +1013,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BApp",
       "knownDeviations": "",
-      "sourceLine": 148
+      "sourceLine": 149
     },
     {
       "section": "8) OSC sequences",
@@ -1008,7 +1034,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BApp",
       "knownDeviations": "Query form (\u0060?\u0060) only; set form is ignored safely, no runtime palette change. Colors sourced from \u0060AnsiParser.DefaultForeground\u0060/\u0060DefaultBackground\u0060, wired from the active theme at parser creation and on \u0060TerminalPane.ApplySettings\u0060; falls back to fg C0C0C0 / bg 000000 when unset",
-      "sourceLine": 149
+      "sourceLine": 150
     },
     {
       "section": "8) OSC sequences",
@@ -1033,7 +1059,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BApp",
       "knownDeviations": "Write-only (issue #268): valid base64 decodes and raises \u0060AnsiParser.OnClipboardWrite\u0060, capped at 1 MiB decoded (rejected on encoded length before decoding, re-checked after); invalid base64 dropped silently; a sequence with no payload separator at all is ignored rather than clearing the clipboard. Targets \u0060c\u0060/\u0060p\u0060 both map to the system clipboard, other selection chars ignored. Query (\u0060?\u0060) always gets an empty-payload denial reply, never real clipboard contents \u2014 clipboard READ is unsupported by design (security). The echoed selection parameter is whitelisted to \u0060c p q s 0-7\u0060 and length-capped first: responses go to the child process\u0027s stdin, so an unsanitized echo was a command-injection primitive (PR #280 review). Gated by \u0060TerminalSettings.AllowOsc52ClipboardWrite\u0060 (default true, single global setting; per-profile/SSH-scoped opt-in is future work)",
-      "sourceLine": 150
+      "sourceLine": 151
     },
     {
       "section": "8) OSC sequences",
@@ -1054,7 +1080,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BRenderer\u002BUI",
       "knownDeviations": "Ctrl-click open path is app-level",
-      "sourceLine": 151
+      "sourceLine": 152
     },
     {
       "section": "8) OSC sequences",
@@ -1075,7 +1101,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BCommand Assist",
       "knownDeviations": "Supports A/B/C/D markers; broader semantic prompt extensions not audited",
-      "sourceLine": 152
+      "sourceLine": 153
     },
     {
       "section": "8) OSC sequences",
@@ -1101,7 +1127,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BRenderer",
       "knownDeviations": "Requires \u0060inline=1\u0060 and the \u0060File=\u0060 arg shape; no \u0060name=\u0060/\u0060size=\u0060 enforcement",
-      "sourceLine": 153
+      "sourceLine": 154
     },
     {
       "section": "8) OSC sequences",
@@ -1117,7 +1143,7 @@
       "hasLinkedEvidence": false,
       "ownership": "Parser\u002BWin",
       "knownDeviations": "",
-      "sourceLine": 154
+      "sourceLine": 155
     },
     {
       "section": "9) Kitty graphics / APC",
@@ -1146,7 +1172,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BRenderer",
       "knownDeviations": "",
-      "sourceLine": 162
+      "sourceLine": 163
     },
     {
       "section": "9) Kitty graphics / APC",
@@ -1162,7 +1188,7 @@
       "hasLinkedEvidence": false,
       "ownership": "Buffer\u002BRenderer",
       "knownDeviations": "Pruned images\u0027 bitmaps are retired by the buffer; the owning view disposes them once no in-flight snapshot session predates the retire (#166)",
-      "sourceLine": 163
+      "sourceLine": 164
     },
     {
       "section": "10) SIXEL",
@@ -1187,7 +1213,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Decoder\u002BRenderer",
       "knownDeviations": "",
-      "sourceLine": 171
+      "sourceLine": 172
     },
     {
       "section": "10) SIXEL",
@@ -1201,7 +1227,7 @@
       "hasLinkedEvidence": false,
       "ownership": "Buffer\u002BRenderer",
       "knownDeviations": "",
-      "sourceLine": 172
+      "sourceLine": 173
     },
     {
       "section": "11) Clipboard, selection, and hyperlinking",
@@ -1217,7 +1243,7 @@
       "hasLinkedEvidence": false,
       "ownership": "UI",
       "knownDeviations": "",
-      "sourceLine": 180
+      "sourceLine": 181
     },
     {
       "section": "11) Clipboard, selection, and hyperlinking",
@@ -1231,7 +1257,7 @@
       "hasLinkedEvidence": false,
       "ownership": "UI",
       "knownDeviations": "",
-      "sourceLine": 181
+      "sourceLine": 182
     },
     {
       "section": "11) Clipboard, selection, and hyperlinking",
@@ -1252,7 +1278,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BUI",
       "knownDeviations": "Ctrl-click open path is app-level",
-      "sourceLine": 182
+      "sourceLine": 183
     },
     {
       "section": "12) Unicode width, graphemes, and font behavior",
@@ -1282,7 +1308,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Buffer\u002BRenderer",
       "knownDeviations": "Deterministic 0/1/2-cell model for combining marks, emoji modifiers, ZWJ emoji, variation selectors, and regional-indicator flags. No Unicode-version pin or full UAX #11 conformance table is documented yet.",
-      "sourceLine": 190
+      "sourceLine": 191
     },
     {
       "section": "12) Unicode width, graphemes, and font behavior",
@@ -1315,7 +1341,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Buffer\u002BRenderer",
       "knownDeviations": "Combining/variation attachment is covered for common terminal cases, including pending-wrap boundaries. Full extended-grapheme-cluster conformance is not claimed.",
-      "sourceLine": 191
+      "sourceLine": 192
     },
     {
       "section": "12) Unicode width, graphemes, and font behavior",
@@ -1344,7 +1370,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Buffer\u002BRenderer",
       "knownDeviations": "Chunked ZWJ families, emoji modifiers, VS15/VS16, and chunked regional-indicator flag pairs are covered. Remaining gaps: cursor-addressing CSI remains cell-oriented, and width-changing selectors that arrive after a base glyph already placed at the last column are not guaranteed to retroactively reflow.",
-      "sourceLine": 192
+      "sourceLine": 193
     }
   ],
   "errors": [],
