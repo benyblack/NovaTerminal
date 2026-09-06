@@ -101,6 +101,26 @@ public class ExplainEscapeSequenceTests
         Assert.Contains("selects a different function", result, System.StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A private-parameter byte outside the leader position, or a parameter byte after an
+    /// intermediate, is malformed - the parser discards the whole sequence. The explainer has to
+    /// say that rather than describe it as another function, which would be a different wrong
+    /// answer to the same question.
+    /// </summary>
+    [Theory]
+    [InlineData("CSI 1?2A")]
+    [InlineData("CSI 1>2A")]
+    [InlineData("CSI 2$3r")]
+    public void MalformedQualifierPositions_AreReportedAsMalformed(string sequence)
+    {
+        string result = VtTools.ExplainEscapeSequence(sequence);
+
+        Assert.Contains("malformed", result, System.StringComparison.Ordinal);
+        Assert.Contains("discards the whole sequence", result, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("CUU", result, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("DECSTBM", result, System.StringComparison.Ordinal);
+    }
+
     /// <summary>The qualified forms that ARE defined must keep resolving.</summary>
     [Theory]
     [InlineData("CSI ?25h", "DECSET")]

@@ -164,6 +164,37 @@ public static class VtTools
                 && QualifiedFinalBytes.TryGetValue(finalByte, out string? accepted)
                 && qualifiers.All(accepted.Contains);
 
+            // A private-parameter byte is a leader only in the FIRST position, and no parameter
+            // byte may follow an intermediate. AnsiParser.HandleCsi discards both shapes outright
+            // (the VT500 state machine sends them to csi_ignore), so they are malformed rather
+            // than "some other function", and saying the latter would be a different wrong answer.
+            bool privateByteOutOfPlace = false;
+            for (int i = 1; i < prefix.Length; i++)
+            {
+                if (prefix[i] >= '\x3C' && prefix[i] <= '\x3F') { privateByteOutOfPlace = true; break; }
+            }
+
+            int firstIntermediateIndex = -1;
+            for (int i = 0; i < prefix.Length; i++)
+            {
+                if (prefix[i] >= '\x21' && prefix[i] <= '\x2F') { firstIntermediateIndex = i; break; }
+            }
+
+            bool parameterAfterIntermediate = false;
+            for (int i = firstIntermediateIndex + 1; firstIntermediateIndex >= 0 && i < prefix.Length; i++)
+            {
+                if (prefix[i] >= '\x30' && prefix[i] <= '\x3F') { parameterAfterIntermediate = true; break; }
+            }
+
+            if (privateByteOutOfPlace || parameterAfterIntermediate)
+            {
+                return $"CSI sequence with final byte '{finalByte}': malformed. "
+                     + (privateByteOutOfPlace
+                         ? "A private-parameter byte ('<', '=', '>', '?') is only meaningful as the leader, in the first position. "
+                         : "No parameter byte may follow an intermediate byte. ")
+                     + "NovaTerminal's parser discards the whole sequence.";
+            }
+
             if (!hasStandardParameterList && !isDefinedQualifiedForm)
             {
                 return $"CSI sequence with final byte '{finalByte}'{note}: the leader/intermediate "

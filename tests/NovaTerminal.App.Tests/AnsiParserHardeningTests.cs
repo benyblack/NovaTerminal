@@ -670,6 +670,65 @@ public sealed class AnsiParserHardeningTests
     }
 
     /// <summary>
+    /// A private-parameter byte (0x3C-0x3F) is only meaningful as the leader, and no parameter
+    /// byte may follow an intermediate. The VT500 state machine sends both to csi_ignore.
+    /// </summary>
+    /// <remarks>
+    /// This is the identity guard's back door. HandleCsi reads a leader only in the first
+    /// position, so CSI 1 ? 2 A had no leader, reached the parameter loop, had its '?' swallowed
+    /// as a hard separator, and executed a bare CUU - a malformed private sequence running the
+    /// bare meaning of a final byte.
+    /// </remarks>
+    [Theory]
+    [InlineData("\x1b[1?2A")]  // private byte after a parameter
+    [InlineData("\x1b[1>2A")]
+    [InlineData("\x1b[1<2A")]
+    [InlineData("\x1b[1=2A")]
+    [InlineData("\x1b[2 3A")]  // parameter byte after an intermediate
+    [InlineData("\x1b[2$3r")]
+    public void MisplacedQualifierBytes_DiscardTheSequence(string sequence)
+    {
+        var (buffer, parser) = NewTerminal();
+        parser.Process("\x1b[3;22r");
+        parser.Process("\x1b[10;40H");
+
+        parser.Process(sequence);
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Equal(9, buffer.CursorRow);
+            Assert.Equal(39, buffer.CursorCol);
+            Assert.Equal(2, buffer.ScrollTop);
+            Assert.Equal(21, buffer.ScrollBottom);
+        }
+        finally { buffer.Lock.ExitReadLock(); }
+    }
+
+    /// <summary>
+    /// Sub-parameters use ':' (0x3A) and separators ';' (0x3B), both below the private range, so
+    /// the guard above must not touch them.
+    /// </summary>
+    [Theory]
+    [InlineData("\x1b[2;3H", 1, 2)]
+    [InlineData("\x1b[2:3H", 1, 2)] // ':' is a separator here, as VtCapabilityContractTests pins for CHA
+    public void OrdinaryParameterSeparators_StillParse(string sequence, int expectedRow, int expectedCol)
+    {
+        var (buffer, parser) = NewTerminal();
+        parser.Process("\x1b[10;40H");
+
+        parser.Process(sequence);
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Equal(expectedRow, buffer.CursorRow);
+            Assert.Equal(expectedCol, buffer.CursorCol);
+        }
+        finally { buffer.Lock.ExitReadLock(); }
+    }
+
+    /// <summary>
     /// A CSI whose parameter run hits the 64 KiB safety cap stops collecting bytes, but the final
     /// byte still arrives - and used to dispatch on the truncated prefix. An intermediate sitting
     /// past the cap is therefore invisible, so CSI &lt;64 KiB of digits&gt; SP A, which is SR, was

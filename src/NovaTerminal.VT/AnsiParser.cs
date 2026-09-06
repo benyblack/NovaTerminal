@@ -760,6 +760,34 @@ namespace NovaTerminal.VT
             ReadOnlySpan<char> intermediates = firstIntermediate >= 0 ? csiBody.Slice(firstIntermediate) : ReadOnlySpan<char>.Empty;
             bool isPrivate = leader == '?';
 
+            // A private-parameter byte (0x3C-0x3F) is only meaningful as the leader, and once
+            // intermediates have begun no parameter byte may follow. The VT500 state machine
+            // sends both cases to csi_ignore, and so do we: the sequence is discarded, not
+            // parsed leniently.
+            //
+            // Leniency here would walk straight past the identity guards below. CSI 1 ? 2 A
+            // has no leader by the rule above, so it used to reach the parameter loop, which
+            // swallowed the '?' as a hard separator and executed a bare CUU - a malformed
+            // private sequence running the bare meaning of a final byte, which is exactly what
+            // those guards exist to stop.
+            foreach (char pc in paramPart)
+            {
+                if (pc >= '\x3C' && pc <= '\x3F')
+                {
+                    TerminalLogger.Log($"[ANSI_PARSER] Discarded CSI with a misplaced private-parameter byte: final '{finalByte}', params '{new string(parameters)}'.");
+                    return;
+                }
+            }
+
+            foreach (char ic in intermediates)
+            {
+                if (ic >= '\x30' && ic <= '\x3F')
+                {
+                    TerminalLogger.Log($"[ANSI_PARSER] Discarded CSI with a parameter byte after an intermediate: final '{finalByte}', params '{new string(parameters)}'.");
+                    return;
+                }
+            }
+
             int[]? rentedArgs = null;
             char[]? rentedSeparators = null;
             Span<int> args;
