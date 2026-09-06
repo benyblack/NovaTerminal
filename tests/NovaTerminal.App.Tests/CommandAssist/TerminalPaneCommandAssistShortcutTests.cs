@@ -131,7 +131,13 @@ public sealed class TerminalPaneCommandAssistShortcutTests
         await TypeAtAnIntegratedPromptAsync(pane, "Get-ChildItem");
 
         bool handled = pane.OpenCommandAssistHelp();
-        await Task.Delay(50);
+
+        // Waited on the surface rather than on the clock. Help awaits its providers and then posts
+        // the write to the pane's dispatcher, so a fixed delay is a bet on that round trip fitting
+        // inside it - a bet this test was losing about once per full run (#424).
+        await AssistWait.UntilAsync(
+            () => pane.CommandAssistViewModel?.IsVisible == true,
+            "the Help pass published to the assist surface");
 
         CommandAssistBarViewModel vm = AssertViewModel(pane);
         Assert.True(handled);
