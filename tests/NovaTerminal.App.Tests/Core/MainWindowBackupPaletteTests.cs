@@ -5,6 +5,8 @@ using NovaTerminal.Shell;
 using NovaTerminal.Backup;
 using NovaTerminal.Tests.Backup;
 
+using Xunit;
+
 namespace NovaTerminal.Tests.Core;
 
 /// <summary>
@@ -17,7 +19,17 @@ namespace NovaTerminal.Tests.Core;
 /// <c>SetupCommandPalette()</c>, which is lazy (runs on palette-open / settings-save) - starting it
 /// there would mean automatic snapshots only begin after the user's first palette open.
 /// </summary>
-public sealed class MainWindowBackupPaletteTests : IDisposable
+/// <remarks>
+/// The <see cref="TestAppDataRoot"/> class fixture is taken for its lifetime, not its value,
+/// which is why nothing here reads it. This class redirects the app-data root inside individual
+/// tests already, but the tests that only close a window did so against whatever root was
+/// current - so it still wrote a session into the developer's real profile and left a file behind
+/// that steers the startup path of every window built later in the process (#434). The fixture
+/// covers the whole class; the narrower per-test overrides nest inside it safely, since disposing
+/// one restores the previous value rather than clearing the variable. Scoped per class to match
+/// <c>VerticalTabStripTests</c>, whose remarks explain why per-test roots were rejected.
+/// </remarks>
+public sealed class MainWindowBackupPaletteTests : IDisposable, IClassFixture<TestAppDataRoot>
 {
     /// <summary>
     /// Disposes the panes of every window this class asked for, and with them the real shells

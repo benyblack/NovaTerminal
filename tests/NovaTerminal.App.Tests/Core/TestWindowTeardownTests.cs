@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 using Avalonia.Controls;
@@ -33,53 +32,17 @@ namespace NovaTerminal.Tests.Core;
 /// snapshot rather than asserting a total, the same way <c>AgentIndicatorTabRollupTests</c> does.
 /// </para>
 /// <para>
-/// Each test also points <c>NOVATERM_APPDATA_ROOT</c> at a fresh scratch directory, and that is
-/// load-bearing rather than tidy — it is the fix for #434. Without it,
-/// <c>TestMainWindowFactory.Create()</c> runs the real startup path against the machine's real
-/// profile, so what the constructor does depends on a file on disk. With no saved session it
-/// calls <c>AddTab</c> and one pane registers synchronously; with one, it takes the restore path
-/// instead — and there the only tab built eagerly is the *selected* one, every other tab being a
-/// placeholder that holds no <c>TerminalPane</c> until the Background-priority
-/// <c>DrainDeferred</c> post runs. So a saved session whose selected tab does not materialize
-/// (<c>Root: null</c>, which <c>CaptureSession</c> persists for any tab whose content is not a
-/// pane tree) restores to placeholders alone, and the window registers no pane at all before
-/// <c>Create()</c> returns. That is what reddened the gate: the two tests below that rely on the
-/// window's own startup tab failed their *precondition*, reading as a teardown regression when
-/// teardown was never reached. Tests in this assembly close real <c>MainWindow</c>s, and
-/// <c>OnClosing</c> saves the session, so the poisoning file is one the suite writes itself.
+/// Each test also takes a <see cref="TestAppDataRoot"/>, and that is load-bearing rather than
+/// tidy — it is the fix for #434. Without it <c>TestMainWindowFactory.Create()</c> runs the real
+/// startup path against the machine's real profile, so whether the constructor builds a pane
+/// synchronously depends on a file on disk; that helper's remarks carry the mechanism. What it
+/// cost here was the two tests below that rely on the window's own startup tab failing their
+/// *precondition*, reading as a teardown regression when teardown was never reached.
 /// </para>
 /// </remarks>
 public sealed class TestWindowTeardownTests : IDisposable
 {
-    private readonly string _appDataRoot =
-        Path.Combine(Path.GetTempPath(), $"novaterm_teardown_test_{Guid.NewGuid():N}");
-
-    private readonly string? _previousAppDataRoot =
-        Environment.GetEnvironmentVariable(AppDataRootEnvVar);
-
-    private const string AppDataRootEnvVar = "NOVATERM_APPDATA_ROOT";
-
-    public TestWindowTeardownTests()
-    {
-        Directory.CreateDirectory(_appDataRoot);
-        Environment.SetEnvironmentVariable(AppDataRootEnvVar, _appDataRoot);
-
-        // Setting the variable is not by itself enough to make the root empty, and the gap is not
-        // hypothetical: AppPaths.EnsureInitialized migrates a legacy roaming last_session.json to
-        // whatever SessionFilePath currently resolves to, and it runs once per process behind an
-        // _initialized flag. So if this fixture is what first touches AppPaths - which it is
-        // whenever the class runs alone rather than after the rest of the assembly - the migration
-        // lands a real session inside the directory that is supposed to have none, and the failure
-        // this class exists to stop comes back on exactly the machines that still have that file.
-        // Forcing the initialization here pins it to a known point and lets the sweep below undo
-        // it; the call is a no-op once anything else in the process has already run it.
-        AppPaths.EnsureInitialized();
-
-        // settings.json goes too, not just the session: a migrated one chooses the default
-        // profile the startup tab is built from. This fixture wants defaults, from nothing.
-        try { Directory.Delete(Path.Combine(_appDataRoot, "sessions"), recursive: true); } catch { /* best effort */ }
-        try { File.Delete(Path.Combine(_appDataRoot, "settings.json")); } catch { /* best effort */ }
-    }
+    private readonly TestAppDataRoot _appDataRoot = new();
 
     /// <remarks>
     /// The windows go first: disposing them is what the tests are about, and it must happen while
@@ -89,8 +52,7 @@ public sealed class TestWindowTeardownTests : IDisposable
     public void Dispose()
     {
         TestMainWindowFactory.DisposeCreatedWindows();
-        Environment.SetEnvironmentVariable(AppDataRootEnvVar, _previousAppDataRoot);
-        try { Directory.Delete(_appDataRoot, recursive: true); } catch { /* best effort */ }
+        _appDataRoot.Dispose();
     }
 
     /// <summary>
