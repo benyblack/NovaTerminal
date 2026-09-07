@@ -84,6 +84,35 @@ namespace NovaTerminal.Shell
                     tabSession.BroadcastInputEnabled = mainWindow.IsBroadcastEnabledForTab(tabItem);
                 }
 
+                // A tab that cannot produce a pane tree keeps the one it was restored with, rather
+                // than persisting BuildPaneTree's null over it (#327).
+                //
+                // Startup restore materializes every saved tab up front - the selected one live,
+                // the rest as placeholders whose Content is a bare Border - and hydrates the
+                // placeholders on a later Background-priority pass (MainWindow's
+                // CreateStartupPlaceholderTab / HydrateDeferredStartupTab). BuildPaneTree returns
+                // null for anything that is neither a TerminalPane nor a split Grid, so a capture
+                // inside that window wrote one real tab and N tabs saying "no panes" - and because
+                // the write replaces the previous session, the layout it erased was not
+                // recoverable. Quitting straight after launch is enough to reach it, since the
+                // close path saves the session.
+                //
+                // Only the pane-shaped fields are carried through, because they are the only ones
+                // that lose anything: GetTabId and GetOrCreateTabState both seed from this same Tag,
+                // and a placeholder's header text is the saved title, so the rest already
+                // round-trips. Deliberately keyed on "no pane tree" rather than on a startup phase
+                // - a failed hydration leaves the same blank tab long after restore is over, and
+                // keeping what was restored is right whenever the live tree cannot say otherwise.
+                // There is no competing case to protect: closing a tab's last pane closes the tab
+                // (ClosePaneAsync falls back to CloseTabAsync) instead of leaving an empty one.
+                if (tabSession.Root == null && tabItem.Tag is TabSession restored && restored.Root != null)
+                {
+                    tabSession.Root = restored.Root;
+                    tabSession.ActivePaneId = restored.ActivePaneId;
+                    tabSession.ZoomedPaneId = restored.ZoomedPaneId;
+                    tabSession.BroadcastInputEnabled = restored.BroadcastInputEnabled;
+                }
+
                 session.Tabs.Add(tabSession);
             }
 

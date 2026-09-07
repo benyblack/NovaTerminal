@@ -96,6 +96,110 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         Assert.NotNull(window.Icon);
     }
 
+    /// <summary>
+    /// A capture taken while startup restore still has unhydrated placeholders must round-trip
+    /// their panes, not persist "no panes" over them (#327).
+    /// </summary>
+    /// <remarks>
+    /// This is a data-loss bug, which is why the assertion is on the pane id rather than merely on
+    /// "not null": restore materializes every saved tab up front but hydrates all but the selected
+    /// one on a Background-priority pass, and the capture path replaces the session file - so a
+    /// capture inside that window used to erase the layout it was about to restore, irrecoverably.
+    /// Quitting straight after launch reaches it, because the close path saves the session.
+    ///
+    /// The window is driven through the real startup path (a session file plus
+    /// TestMainWindowFactory.Create) rather than by hand-building placeholders, because the
+    /// hand-built version would assert against this test's idea of a placeholder instead of the
+    /// one MainWindow actually produces. Nothing pumps the dispatcher here, so the deferred pass
+    /// has provably not run - the precondition below states that rather than assuming it.
+    /// </remarks>
+    [AvaloniaFact]
+    public void CaptureSession_DuringDeferredRestore_KeepsTheUnhydratedTabsPanes()
+    {
+        using var appData = new TestAppDataRoot();
+        WriteSavedSession(appData.RootPath, secondTabPaneId: "9f2c7a41-0000-4000-8000-000000000001");
+
+        var window = TestMainWindowFactory.Create();
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+
+        // Preconditions: restore ran, and the second tab is still a placeholder. Without both, the
+        // capture below would be asserting on nothing.
+        Assert.Equal(2, tabs.Items.Count);
+        var placeholder = (TabItem)tabs.Items[1]!;
+        Assert.IsNotType<NovaTerminal.Controls.TerminalPane>(placeholder.Content);
+        Assert.IsNotType<Grid>(placeholder.Content);
+
+        NovaSession captured = SessionManager.CaptureSession(window, tabs);
+
+        Assert.Equal(2, captured.Tabs.Count);
+        TabSession capturedPlaceholder = captured.Tabs[1];
+        Assert.NotNull(capturedPlaceholder.Root);
+        Assert.Equal("9f2c7a41-0000-4000-8000-000000000001", capturedPlaceholder.Root!.PaneId);
+    }
+
+    /// <summary>
+    /// The other direction, so the fallback above cannot pass by simply always preferring the
+    /// restored tree: a tab that DID hydrate is captured from its live panes. The selected tab is
+    /// built eagerly by restore, so it is hydrated by the time Create() returns.
+    /// </summary>
+    [AvaloniaFact]
+    public void CaptureSession_CapturesTheLivePaneTree_ForATabThatHydrated()
+    {
+        using var appData = new TestAppDataRoot();
+        WriteSavedSession(appData.RootPath, secondTabPaneId: "9f2c7a41-0000-4000-8000-000000000002");
+
+        var window = TestMainWindowFactory.Create();
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var live = (TabItem)tabs.Items[0]!;
+        var pane = Assert.IsType<NovaTerminal.Controls.TerminalPane>(live.Content);
+
+        NovaSession captured = SessionManager.CaptureSession(window, tabs);
+
+        // The live pane's own id, which restore assigned from the file - so this also pins that the
+        // capture read the control rather than the Tag.
+        Assert.Equal(pane.PaneId.ToString(), captured.Tabs[0].Root!.PaneId);
+    }
+
+    /// <summary>
+    /// Two tabs, so restore builds the selected one live and leaves the other a placeholder. The
+    /// command has to be runnable on this platform or RestorePaneTree substitutes a default and the
+    /// pane ids stop being a useful assertion.
+    /// </summary>
+    private static void WriteSavedSession(string appDataRoot, string secondTabPaneId)
+    {
+        string shell = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh";
+        var session = new NovaSession
+        {
+            ActiveTabIndex = 0,
+            Tabs =
+            {
+                NewTab("Live", "9f2c7a41-0000-4000-8000-00000000000a", shell),
+                NewTab("Deferred", secondTabPaneId, shell),
+            },
+        };
+
+        string sessionsDirectory = System.IO.Path.Combine(appDataRoot, "sessions");
+        System.IO.Directory.CreateDirectory(sessionsDirectory);
+        System.IO.File.WriteAllText(
+            System.IO.Path.Combine(sessionsDirectory, "last_session.json"),
+            System.Text.Json.JsonSerializer.Serialize(
+                session, SessionSerializationContext.Default.NovaSession));
+    }
+
+    private static TabSession NewTab(string title, string paneId, string shell) => new()
+    {
+        TabId = Guid.NewGuid().ToString(),
+        Title = title,
+        Root = new PaneNode
+        {
+            Type = NodeType.Leaf,
+            PaneId = paneId,
+            Command = shell,
+            Arguments = string.Empty,
+        },
+        ActivePaneId = paneId,
+    };
+
     [AvaloniaFact]
     public void RegisterPaneOwners_TraversesDecoratorWrappedPane()
     {
