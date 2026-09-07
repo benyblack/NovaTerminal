@@ -2,6 +2,31 @@ using NovaTerminal.VtContract;
 
 namespace NovaTerminal.VT.Tests;
 
+/// <summary>
+/// One executable contract per capability the catalog advertises as
+/// <see cref="VtSupport.Supported"/>: proof that something in the parser actually implements what
+/// the catalog claims, rather than the claim standing alone.
+/// </summary>
+/// <remarks>
+/// <para>
+/// These assertions are <b>descriptive</b> - they record what the parser does today, not what a
+/// specification says it ought to do. So when a change alters accepted behaviour on purpose,
+/// updating the affected lines here is part of that change, not a warning sign. What must not
+/// happen is the reverse: an assertion edited to make a build pass without the behaviour change
+/// being intended and stated.
+/// </para>
+/// <para>
+/// The distinction has bitten once, which is why it is written down. 816489b added
+/// <c>AssertPosition("\x1b[?2G", ...)</c> and <c>AssertPosition("\x1b[2$G", ...)</c> by
+/// transcribing what the parser happened to do at the time - CHA had no leader guard - while the
+/// identical shapes for CNL and CPL three lines up had said <c>AssertIgnored</c> since b7a00dc.
+/// The file contradicted itself for eight days. #433 changed the G lines to match, because a
+/// leader or an intermediate makes a sequence a different sequence and neither
+/// <c>CSI ? Ps G</c> nor <c>CSI Ps $ G</c> is defined. Behaviour here is also swept
+/// systematically over every final byte in <c>AnsiParserHardeningTests</c>, so a contract line and
+/// the sweep disagreeing is a real signal worth stopping for.
+/// </para>
+/// </remarks>
 public sealed class VtCapabilityContractTests
 {
     private static readonly Dictionary<string, Action> ContractCases =
