@@ -127,16 +127,33 @@ public class ExplainEscapeSequenceTests
     /// as a plain parameter list so the qualifier gate cannot see it. It used to be described
     /// as SD.
     /// </summary>
-    [Theory]
-    [InlineData("CSI 1;2;3;4;5T")]
-    [InlineData("CSI 1;2T")]
-    public void ParameterDiscriminatedForms_AreNotExplainedAsTheSingleParameterSequence(string sequence)
+    [Fact]
+    public void FiveParameterT_IsExplainedAsHighlightMouseTracking()
     {
-        string result = VtTools.ExplainEscapeSequence(sequence);
+        string result = VtTools.ExplainEscapeSequence("CSI 1;2;3;4;5T");
 
         Assert.DoesNotContain("Scroll Down Ps lines", result, System.StringComparison.Ordinal);
         Assert.Contains("highlight-mouse-tracking", result, System.StringComparison.Ordinal);
         Assert.Contains("ignores it", result, System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Two to four parameters on 'T' is neither SD (one parameter) nor highlight-mouse-tracking
+    /// (exactly five). The parser ignores it, and the explainer must not pick either name -
+    /// trading one wrong answer for another is not an improvement.
+    /// </summary>
+    [Theory]
+    [InlineData("CSI 1;2T")]
+    [InlineData("CSI 1;2;3T")]
+    [InlineData("CSI 1;2;3;4T")]
+    [InlineData("CSI 1;2;3;4;5;6T")]
+    public void ParameterCountsMatchingNoDefinedForm_AreNotGivenOne(string sequence)
+    {
+        string result = VtTools.ExplainEscapeSequence(sequence);
+
+        Assert.DoesNotContain("Scroll Down Ps lines", result, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("highlight-mouse-tracking", result, System.StringComparison.Ordinal);
+        Assert.Contains("matches no defined form", result, System.StringComparison.Ordinal);
     }
 
     /// <summary>The single-parameter and no-parameter spellings are still SD.</summary>

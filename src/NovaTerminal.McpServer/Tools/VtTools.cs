@@ -92,15 +92,20 @@ public static class VtTools
 
     /// <summary>
     /// Final bytes whose bare form is bounded by parameter COUNT as well, because a longer
-    /// parameter list selects a different function entirely. Maps the final byte to the largest
-    /// parameter count that is still the bare sequence, and to what the longer spelling actually
-    /// is. Mirrors the argCount identity guards in <c>AnsiParser.HandleCsi</c>.
+    /// parameter list selects a different function. <c>MaxBareParameters</c> is the largest count
+    /// that is still the bare sequence; <c>ExactForms</c> names the counts that are a different
+    /// DEFINED sequence. A count that is neither is simply not a form anyone defined, and saying
+    /// which sequence it is would be a guess. Mirrors the argCount identity guards in
+    /// <c>AnsiParser.HandleCsi</c>.
     /// </summary>
-    private static readonly Dictionary<char, (int MaxParameters, string LongerForm)> BareParameterCountLimits = new()
+    private static readonly Dictionary<char, (int MaxBareParameters, Dictionary<int, string> ExactForms)> ParameterDiscriminatedFinals = new()
     {
-        // CSI Ps T is SD. CSI Ps;Ps;Ps;Ps;Ps T is xterm's initiate-highlight-mouse-tracking, and
-        // SD takes one parameter, so the parameter count alone proves which sequence this is.
-        ['T'] = (1, "xterm initiate-highlight-mouse-tracking, not SD (Scroll Down takes a single parameter)"),
+        // CSI Ps T is SD, one parameter. CSI Ps;Ps;Ps;Ps;Ps T is xterm's
+        // initiate-highlight-mouse-tracking, exactly five. Two to four is neither.
+        ['T'] = (1, new Dictionary<int, string>
+        {
+            [5] = "xterm initiate-highlight-mouse-tracking",
+        }),
     };
 
     /// <summary>
@@ -214,11 +219,21 @@ public static class VtTools
             // parser deliberately ignores.
             if (hasStandardParameterList
                 && prefix.Length > 0
-                && BareParameterCountLimits.TryGetValue(finalByte, out var countLimit)
-                && prefix.Split(';').Length > countLimit.MaxParameters)
+                && ParameterDiscriminatedFinals.TryGetValue(finalByte, out var discriminated))
             {
-                return $"CSI sequence with final byte '{finalByte}': "
-                     + $"{countLimit.LongerForm}. Not implemented; NovaTerminal's parser ignores it.";
+                int parameterCount = prefix.Split(';').Length;
+                if (parameterCount > discriminated.MaxBareParameters)
+                {
+                    // Only an exactly-matching count names another sequence. A count in between
+                    // matches nothing anyone defined, and naming a sequence for it would trade
+                    // one wrong answer for another.
+                    return discriminated.ExactForms.TryGetValue(parameterCount, out string? exactForm)
+                        ? $"CSI sequence with final byte '{finalByte}': {exactForm} ({parameterCount} parameters), "
+                          + "not the single-parameter form. Not implemented; NovaTerminal's parser ignores it."
+                        : $"CSI sequence with final byte '{finalByte}': {parameterCount} parameters matches no "
+                          + $"defined form for this final byte (the bare sequence takes at most "
+                          + $"{discriminated.MaxBareParameters}). NovaTerminal's parser ignores it.";
+                }
             }
 
             if (!hasStandardParameterList && !isDefinedQualifiedForm)

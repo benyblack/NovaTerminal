@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -105,6 +106,98 @@ public sealed class CsiFormReplayTests
         Assert.Equal("alpha", lines[0]);
         Assert.Equal("BRAVO", lines[1]);
         Assert.Equal("charlie", lines[2]);
+    }
+
+    /// <summary>
+    /// Cursor reports through the replay path: the private DECXCPR form, and the DECOM-relative
+    /// coordinates both forms now use.
+    /// </summary>
+    /// <remarks>
+    /// A report is the one place the parser writes back to the stream, so a recording that
+    /// contains a query is only faithful if the reply is too. The DECOM conversion is what makes
+    /// this worth replaying rather than only unit-testing: the scroll region, the mode and the
+    /// cursor move are three separate sequences, so the reply depends on state accumulated across
+    /// the recording rather than on the query alone.
+    /// </remarks>
+    [Fact]
+    [Trait("Category", "Replay")]
+    public async Task Replay_CursorReports_UnderOriginMode_AreRegionRelative()
+    {
+        var responses = await ReplayResponsesAsync(
+            "\x1b[5;20r",  // scroll region rows 5..20
+            "\x1b[?6h",    // DECOM on
+            "\x1b[2;3H",   // row 2 OF THE REGION
+            "\x1b[6n",     // CPR
+            "\x1b[?6n");   // DECXCPR
+
+        Assert.Equal(new[] { "\x1b[2;3R", "\x1b[?2;3R" }, responses);
+    }
+
+    [Fact]
+    [Trait("Category", "Replay")]
+    public async Task Replay_CursorReports_WithoutOriginMode_AreAbsolute()
+    {
+        var responses = await ReplayResponsesAsync(
+            "\x1b[5;20r",
+            "\x1b[2;3H",
+            "\x1b[6n",
+            "\x1b[?6n");
+
+        Assert.Equal(new[] { "\x1b[2;3R", "\x1b[?2;3R" }, responses);
+    }
+
+    /// <summary>
+    /// The private query split across a chunk boundary still answers in the private form: the
+    /// leader arrives in one chunk and the final byte in the next.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Replay")]
+    public async Task Replay_DecXcprSplitAcrossChunks_StillAnswersPrivately()
+    {
+        var responses = await ReplayResponsesAsync(
+            "\x1b[3;7H",
+            "\x1b[?",
+            "6n");
+
+        Assert.Equal(new[] { "\x1b[?3;7R" }, responses);
+    }
+
+    private static async Task<string[]> ReplayResponsesAsync(params string[] chunks)
+    {
+        string recPath = Path.Combine(Path.GetTempPath(), $"nova-csi-cpr-{Path.GetRandomFileName()}.rec");
+
+        try
+        {
+            using (var recorder = new PtyRecorder(recPath, 20, 8))
+            {
+                foreach (string chunk in chunks)
+                {
+                    byte[] data = Encoding.UTF8.GetBytes(chunk);
+                    recorder.RecordChunk(data, data.Length);
+                }
+            }
+
+            var buffer = new TerminalBuffer(20, 8);
+            var parser = new AnsiParser(buffer);
+            var responses = new List<string>();
+            parser.OnResponse = responses.Add;
+
+            var runner = new ReplayRunner(recPath);
+            await runner.RunAsync(async data =>
+            {
+                parser.Process(Encoding.UTF8.GetString(data));
+                await Task.CompletedTask;
+            });
+
+            return responses.ToArray();
+        }
+        finally
+        {
+            if (File.Exists(recPath))
+            {
+                File.Delete(recPath);
+            }
+        }
     }
 
     private static async Task<string[]> ReplayAsync(params string[] chunks)
