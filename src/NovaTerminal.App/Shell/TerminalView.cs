@@ -876,6 +876,9 @@ namespace NovaTerminal.Shell
             _metrics.CellHeight = cellHeight;
         }
 
+        /// <summary>The measured cell size, so a test can recompute the grid the view is drawing.</summary>
+        internal (double Width, double Height) CellSizeForTest => (_metrics.CellWidth, _metrics.CellHeight);
+
         public void ApplySettings(TerminalSettings settings)
         {
             try
@@ -1020,6 +1023,14 @@ namespace NovaTerminal.Shell
             // Ensure char metrics are available immediately upon attachment
             MeasureCharSize();
 
+            // Deliberately here and not in RefreshUiTimerState above, which is where the
+            // renderable/not decision is made. Re-attaching can land the view on a top level
+            // with a different render scale, and the cell metrics for it are not known until
+            // the MeasureCharSize on the line above - reconciling before that point would
+            // compute the grid from the old monitor and dispatch it, and if the new bounds
+            // happen to match in DIPs no later OnSizeChanged would ever correct it.
+            ReconcileDispatchedGrid();
+
             _isDirty = true;
             if (_isUiRenderable)
             {
@@ -1054,6 +1065,12 @@ namespace NovaTerminal.Shell
             if (change.Property == IsVisibleProperty || change.Property == BoundsProperty)
             {
                 RefreshUiTimerState();
+
+                // A dispatch cancelled when this view stopped being renderable is re-sent when
+                // it starts again (#432). Metrics are already current on this path - nothing
+                // here changes the top level - so unlike the attach path it can follow the
+                // renderable decision directly.
+                ReconcileDispatchedGrid();
             }
             else if (change.Property == IsKeyboardFocusWithinProperty)
             {
@@ -1589,10 +1606,22 @@ namespace NovaTerminal.Shell
         /// Overriding the decision rather than the clock removes the race instead of narrowing it.
         /// Both branches remain real code; this only chooses which one runs.
         /// </remarks>
+        // Set when StopUiTimers cancels a dispatch that was armed and waiting. Reconciliation
+        // is gated on it so that restoring a pane re-sends only a grid that was genuinely
+        // dropped, and never becomes a second, unasked-for resize path (#432).
+        private bool _resizeDispatchCancelled;
+
         private bool? _throttleElapsedForTest;
 
         /// <summary>Forces the next dispatch onto the throttle timer rather than the inline path.</summary>
         internal void HoldResizeThrottleForTest() => _throttleElapsedForTest = false;
+
+        /// <summary>Forces the next dispatch inline rather than onto the timer.</summary>
+        /// <remarks>
+        /// Needed because the headless harness never ticks a DispatcherTimer, so a test that
+        /// waited on one would sleep or hang.
+        /// </remarks>
+        internal void ReleaseResizeThrottleForTest() => _throttleElapsedForTest = true;
 
         /// <summary>Whether a resize has been computed and is still waiting on the throttle.</summary>
         internal bool ResizeDispatchPendingForTest => _resizeThrottleTimer?.IsEnabled == true;
@@ -1813,34 +1842,7 @@ namespace NovaTerminal.Shell
 
                     if (dimensionsChanged)
                     {
-                        // STRICT INTERVAL THROTTLE: Limit resize dispatch to 60ms
-                        var now = DateTime.UtcNow;
-                        if (_pendingResizeStartedAt == DateTime.MinValue)
-                        {
-                            _pendingResizeStartedAt = now;
-                        }
-
-                        if (_resizeThrottleTimer == null)
-                        {
-                            _resizeThrottleTimer = new DispatcherTimer(DispatcherPriority.Normal)
-                            {
-                                Interval = TimeSpan.FromMilliseconds(60)
-                            };
-                            _resizeThrottleTimer.Tick += OnResizeThrottleTick;
-                        }
-
-                        bool intervalElapsed =
-                            _throttleElapsedForTest ?? ((now - _lastPtyResizeTime).TotalMilliseconds >= 60);
-
-                        if (intervalElapsed && !_resizeThrottleTimer.IsEnabled)
-                        {
-                            // Enough time passed and no pending timer - send immediately
-                            SendThrottledResize();
-                        }
-                        else if (!_resizeThrottleTimer.IsEnabled)
-                        {
-                            _resizeThrottleTimer.Start();
-                        }
+                        QueueResizeDispatch();
                     }
                 }
             }
@@ -1860,11 +1862,100 @@ namespace NovaTerminal.Shell
         /// first draft of this change, and an unrecorded dispatch there would have left the
         /// field describing a grid that had since been superseded. A fourth site added later
         /// gets the whole of the bookkeeping or none of it, not half.
+        ///
+        /// Clearing the cancellation flag belongs here for the same reason. A dispatch that has
+        /// happened supersedes one that was dropped, so there is nothing left to repair - and a
+        /// stale flag is not harmless, because the next restore would then reconcile against a
+        /// grid the font path had legitimately chosen and resize away from it.
         /// </remarks>
         private void RecordDispatchedGrid(int cols, int rows)
         {
             _lastDispatchedCols = cols;
             _lastDispatchedRows = rows;
+            _resizeDispatchCancelled = false;
+        }
+
+        /// <summary>
+        /// Sends the pending grid to the buffer and the PTY, now if the throttle interval has
+        /// elapsed and on the timer otherwise.
+        /// </summary>
+        private void QueueResizeDispatch()
+        {
+            // STRICT INTERVAL THROTTLE: Limit resize dispatch to 60ms
+            var now = DateTime.UtcNow;
+            if (_pendingResizeStartedAt == DateTime.MinValue)
+            {
+                _pendingResizeStartedAt = now;
+            }
+
+            if (_resizeThrottleTimer == null)
+            {
+                _resizeThrottleTimer = new DispatcherTimer(DispatcherPriority.Normal)
+                {
+                    Interval = TimeSpan.FromMilliseconds(60)
+                };
+                _resizeThrottleTimer.Tick += OnResizeThrottleTick;
+            }
+
+            bool intervalElapsed =
+                _throttleElapsedForTest ?? ((now - _lastPtyResizeTime).TotalMilliseconds >= 60);
+
+            if (intervalElapsed && !_resizeThrottleTimer.IsEnabled)
+            {
+                // Enough time passed and no pending timer - send immediately
+                SendThrottledResize();
+            }
+            else if (!_resizeThrottleTimer.IsEnabled)
+            {
+                _resizeThrottleTimer.Start();
+            }
+        }
+
+        /// <summary>
+        /// Re-dispatches the current grid if the buffer and the PTY are not on it. Called when the
+        /// view becomes renderable again.
+        /// </summary>
+        /// <remarks>
+        /// StopUiTimers cancels a dispatch that was waiting on the throttle - collapsing a pane,
+        /// hiding it, or detaching it all reach it - and StartUiTimers deliberately does not
+        /// restart that timer. Honest bookkeeping alone does not recover from that: OnSizeChanged
+        /// fires on a size *change*, and a pane that is collapsed and restored comes back at the
+        /// size it left at, so no further event ever arrives to notice the disagreement. Measured,
+        /// not assumed - the bookkeeping half of #432 was tested on its own first and the pane was
+        /// still stranded on its old grid.
+        ///
+        /// Nothing is sent when the grids already agree, so the ordinary show/hide of a pane whose
+        /// size never changed costs a comparison.
+        /// </remarks>
+        private void ReconcileDispatchedGrid()
+        {
+            // Only ever a repair for a dispatch that was actually cancelled. Reconciling on
+            // every restore would make this a second resize path with a different opinion:
+            // the font branch of ApplySettings derives its grid as Bounds.Width / CellWidth
+            // while TryComputeGrid subtracts the padding the draw operation reserves, so the
+            // two disagree by a column at some widths - and an ungated reconcile would turn
+            // that standing disagreement into a reflow and a SIGWINCH every time someone
+            // collapsed and reopened a pane. Repairing a cancellation is this method's job;
+            // arbitrating between two grid calculations is not.
+            if (!_resizeDispatchCancelled) return;
+            if (!_isUiRenderable) return;
+            if (_buffer == null || !_isReady) return;
+            if (_metrics.CellWidth <= 0 || _metrics.CellHeight <= 0) return;
+
+            if (!TryComputeGrid(Bounds.Size, _metrics.CellWidth, _metrics.CellHeight, out int cols, out int rows))
+            {
+                // Nothing usable to reconcile against; keep the flag and let a real layout
+                // pass, or the next restore, try again.
+                return;
+            }
+
+            _resizeDispatchCancelled = false;
+
+            if (cols == _lastDispatchedCols && rows == _lastDispatchedRows) return;
+
+            _pendingCols = cols;
+            _pendingRows = rows;
+            QueueResizeDispatch();
         }
 
         private void SendThrottledResize()
@@ -1974,6 +2065,21 @@ namespace NovaTerminal.Shell
             _cursorBlinkTimer.Stop();
             _scrollAnimationTimer.Stop();
             _autoScrollTimer?.Stop();
+
+            // A resize computed but not yet dispatched dies here, and nothing restarts this
+            // timer - StartUiTimers deliberately does not. Remember that it happened so the
+            // grid can be re-sent when the view becomes renderable again.
+            if (_resizeThrottleTimer?.IsEnabled == true)
+            {
+                _resizeDispatchCancelled = true;
+
+                // The latency clock dies with the dispatch it was timing. QueueResizeDispatch
+                // only starts one when there is none, so leaving this set would bill the whole
+                // hidden interval - seconds, or minutes - to the resize that eventually runs,
+                // and RendererStatistics would report it as dispatch latency.
+                _pendingResizeStartedAt = DateTime.MinValue;
+            }
+
             _resizeThrottleTimer?.Stop();
             _uiTimersRunning = false;
             RendererStatistics.RecordTerminalViewTimersStopped();
