@@ -63,6 +63,22 @@ public sealed class TestWindowTeardownTests : IDisposable
     {
         Directory.CreateDirectory(_appDataRoot);
         Environment.SetEnvironmentVariable(AppDataRootEnvVar, _appDataRoot);
+
+        // Setting the variable is not by itself enough to make the root empty, and the gap is not
+        // hypothetical: AppPaths.EnsureInitialized migrates a legacy roaming last_session.json to
+        // whatever SessionFilePath currently resolves to, and it runs once per process behind an
+        // _initialized flag. So if this fixture is what first touches AppPaths - which it is
+        // whenever the class runs alone rather than after the rest of the assembly - the migration
+        // lands a real session inside the directory that is supposed to have none, and the failure
+        // this class exists to stop comes back on exactly the machines that still have that file.
+        // Forcing the initialization here pins it to a known point and lets the sweep below undo
+        // it; the call is a no-op once anything else in the process has already run it.
+        AppPaths.EnsureInitialized();
+
+        // settings.json goes too, not just the session: a migrated one chooses the default
+        // profile the startup tab is built from. This fixture wants defaults, from nothing.
+        try { Directory.Delete(Path.Combine(_appDataRoot, "sessions"), recursive: true); } catch { /* best effort */ }
+        try { File.Delete(Path.Combine(_appDataRoot, "settings.json")); } catch { /* best effort */ }
     }
 
     /// <remarks>
