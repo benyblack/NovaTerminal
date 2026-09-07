@@ -376,6 +376,39 @@ public sealed class AnsiParserHardeningTests
     }
 
     /// <summary>
+    /// SD is discriminated by parameter COUNT, and ':' separates parameters exactly as ';' does
+    /// in this parser - so a colon spelling is two parameters and is not SD either. Pinned
+    /// because the MCP explainer mirrors this rule, and a mirror of an unverified belief is worth
+    /// nothing.
+    /// </summary>
+    [Theory]
+    [InlineData("\x1b[1:2T")]
+    [InlineData("\x1b[1:2:3T")]
+    [InlineData("\x1b[1;2:3T")]
+    public void ColonSeparatedMultiParameterT_IsNotScrollDown(string sequence)
+    {
+        var (buffer, parser) = NewTerminal();
+        parser.Process("line-one\r\nline-two");
+
+        parser.Process(sequence);
+
+        Assert.Equal("line-one\nline-two", VisibleText(buffer));
+    }
+
+    /// <summary>The single-parameter spellings are still SD, colon or not.</summary>
+    [Fact]
+    public void SingleParameterT_StillScrollsDown()
+    {
+        var (buffer, parser) = NewTerminal();
+        parser.Process("line-one\r\nline-two");
+
+        parser.Process("\x1b[1T");
+
+        // SD pushes the content down a row, so the first line is now blank.
+        Assert.Equal("\nline-one\nline-two", VisibleText(buffer));
+    }
+
+    /// <summary>
     /// DECXCPR must be answered in the private form. A plain CPR is not a partial answer to it
     /// but a malformed one - the client is parsing for "CSI ? r ; c R".
     /// </summary>

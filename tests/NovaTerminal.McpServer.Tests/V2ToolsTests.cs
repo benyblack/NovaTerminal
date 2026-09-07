@@ -146,6 +146,9 @@ public class ExplainEscapeSequenceTests
     [InlineData("CSI 1;2T")]
     [InlineData("CSI 1;2;3T")]
     [InlineData("CSI 1;2;3;4T")]
+    [InlineData("CSI 1:2T")]
+    [InlineData("CSI 1:2:3T")]
+    [InlineData("CSI 1;2:3T")]
     [InlineData("CSI 1;2;3;4;5;6T")]
     public void ParameterCountsMatchingNoDefinedForm_AreNotGivenOne(string sequence)
     {

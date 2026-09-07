@@ -221,7 +221,11 @@ public static class VtTools
                 && prefix.Length > 0
                 && ParameterDiscriminatedFinals.TryGetValue(finalByte, out var discriminated))
             {
-                int parameterCount = prefix.Split(';').Length;
+                // Both ';' and ':' separate parameters as far as AnsiParser's parameter loop is
+                // concerned (see the estimatedArgs scan and the ':' case in HandleCsi), so
+                // CSI 1:2 T is two parameters there and must be two here. Counting only ';' left
+                // the colon spelling described as SD while the parser ignored it.
+                int parameterCount = prefix.Split(';', ':').Length;
                 if (parameterCount > discriminated.MaxBareParameters)
                 {
                     // Only an exactly-matching count names another sequence. A count in between
