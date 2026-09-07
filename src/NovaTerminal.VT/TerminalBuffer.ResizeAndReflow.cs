@@ -93,11 +93,19 @@ namespace NovaTerminal.VT
 
                         if (newRows < oldRows)
                         {
-                            // Shrink height: push top of viewport to scrollback
+                            // Shrink height: give up the blank padding below the cursor first,
+                            // and only push the top of the viewport into scrollback for whatever
+                            // the padding could not cover. Taking every row off the top
+                            // unconditionally is what #404 was: splitting a pane halves the height
+                            // of a viewport whose lower rows are usually empty, so a transcript
+                            // sitting in the top half was evicted in its entirety while the blank
+                            // half was kept - the pane came back holding nothing.
                             int diff = oldRows - newRows;
+                            int droppedFromBottom = CountDroppableTrailingRowsNoLock(diff);
+                            int evictedFromTop = diff - droppedFromBottom;
                             long prevEvicted = _scrollback.TotalRowsEvicted;
 
-                            for (int i = 0; i < diff; i++)
+                            for (int i = 0; i < evictedFromTop; i++)
                             {
                                 // Preserve wrap flag and side tables (extended text,
                                 // hyperlinks), matching the WritePath eviction; dropping
@@ -111,9 +119,9 @@ namespace NovaTerminal.VT
                             }
 
                             var newVp = new TerminalRow[newRows];
-                            Array.Copy(_viewport, diff, newVp, 0, newRows);
+                            Array.Copy(_viewport, evictedFromTop, newVp, 0, newRows);
                             _viewport = newVp;
-                            _cursorRow -= diff;
+                            _cursorRow -= evictedFromTop;
 
                             long newlyEvicted = _scrollback.TotalRowsEvicted - prevEvicted;
                             if (newlyEvicted > 0)
@@ -306,6 +314,16 @@ namespace NovaTerminal.VT
             else
             {
                 // SHRINK: Push lines to scrollback
+                //
+                // Deliberately NOT the padding-first rule Resize's height-shrink branch uses for
+                // #404, even though the transcript here can be blanked the same way. Reshape only
+                // ever runs against the *detached* main screen while the alt screen is live, and
+                // its two halves are a matched pair: the grow above pops exactly as many rows off
+                // scrollback as it adds. Shedding padding instead of pushing would leave the grow
+                // popping rows this shrink never pushed - real transcript dragged out of history
+                // and everything below it shifted down on every resize round trip an alt-screen
+                // app sits through. Correcting that means changing the pair, not one side of it,
+                // and nothing has reported the blanking on this path.
                 int linesToPush = oldRows - newRows;
                 long prevEvicted = _scrollback.TotalRowsEvicted;
 
@@ -339,6 +357,98 @@ namespace NovaTerminal.VT
             _viewport = newViewport;
             _cursorRow = Math.Clamp(_cursorRow, 0, newRows - 1);
             _cursorCol = Math.Clamp(_cursorCol, 0, Cols);
+        }
+
+        /// <summary>
+        /// How many rows at the bottom of the viewport a height shrink may discard outright,
+        /// capped at <paramref name="wanted"/>: trailing rows that are padding, hold no image,
+        /// and sit strictly below the cursor, which is never walked over so a shrink cannot
+        /// discard the input line.
+        /// </summary>
+        /// <remarks>
+        /// The walk stops at the first row with content, so this can only ever name padding: rows
+        /// the viewport was drawing as empty and that carry nothing to scroll into history.
+        /// Discarding those instead of the top of the transcript is the whole of the #404 fix.
+        ///
+        /// A row an image is drawn over counts as occupied even though its cells are blank -
+        /// image geometry lives in absolute (scrollback + viewport) coordinates, and dropping the
+        /// row underneath one would leave it anchored past the end of the buffer.
+        /// </remarks>
+        private int CountDroppableTrailingRowsNoLock(int wanted)
+        {
+            if (wanted <= 0) return 0;
+
+            int viewportBaseAbsoluteRow = _scrollback.Count;
+            int droppable = 0;
+
+            for (int i = _viewport.Length - 1; i > _cursorRow && droppable < wanted; i--)
+            {
+                if (!IsRowPadding(_viewport[i])) break;
+                if (MainScreenImageCoversRowNoLock(viewportBaseAbsoluteRow + i)) break;
+                droppable++;
+            }
+
+            return droppable;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="row"/> is padding: nothing on it that a reader would see.
+        /// </summary>
+        /// <remarks>
+        /// Starts from the notion of content the reflow engine uses to measure a row's length,
+        /// and for the same reasons. A space over a non-default background is a visible bar - the
+        /// kind a TUI paints - not an empty row. An OSC 8 span routinely covers trailing spaces
+        /// whose cells carry no signal of their own, and the extended-text side table likewise
+        /// hangs off cells that read as blank.
+        ///
+        /// It then goes further than reflow does, because the stakes differ: reflow is deciding
+        /// where to trim a row, this is deciding whether to throw the row away. Inverse swaps
+        /// foreground and background, so a run of inverse spaces paints a solid bar while every
+        /// cell still reports the default background; underline and strikethrough draw a rule
+        /// through blank cells. All three are visible, so none of them is padding. Bold, italic,
+        /// faint, blink and a non-default foreground draw nothing at all on a space, so they are
+        /// not consulted.
+        /// </remarks>
+        private static bool IsRowPadding(TerminalRow row)
+        {
+            bool rowHasLinks = row.GetHyperlinkMap() is { Count: > 0 };
+            var cells = row.Cells;
+
+            for (int c = 0; c < cells.Length; c++)
+            {
+                var cell = cells[c];
+                if ((cell.Character != ' ' && cell.Character != '\0')
+                    || !cell.IsDefaultBackground
+                    || cell.IsInverse
+                    || cell.IsUnderline
+                    || cell.IsStrikethrough
+                    || cell.HasExtendedText
+                    || (rowHasLinks && row.GetHyperlink(c) != null))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private bool MainScreenImageCoversRowNoLock(int absoluteRow)
+        {
+            for (int i = 0; i < _images.Count; i++)
+            {
+                var image = _images[i];
+
+                // Alt-screen images are viewport-relative and share no coordinate space with the
+                // absolute row asked about here.
+                if (image.IsAltScreenImage) continue;
+
+                if (absoluteRow >= image.CellY && absoluteRow < image.CellY + image.CellHeight)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void Reflow(int oldCols, int oldRows, int newCols, int newRows)

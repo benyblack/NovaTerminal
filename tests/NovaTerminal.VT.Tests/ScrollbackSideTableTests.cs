@@ -58,6 +58,18 @@ public class ScrollbackSideTableTests
         parser.Process("ok \U0001F44D done\r\n");
         parser.Process("plain row\r\n");
 
+        // Every row carries content, and deliberately so. A height shrink spends the blank
+        // padding below the transcript before it evicts anything (#404), so a buffer with room
+        // to spare would shed empty rows and never reach scrollback at all - leaving this test
+        // asserting a round trip that had not happened. Filling the viewport is what makes the
+        // eviction unavoidable, which is the thing being tested. The last line is written
+        // without a newline so the cursor stays on it and nothing has scrolled yet.
+        parser.Process("filler three\r\n");
+        parser.Process("filler four\r\n");
+        parser.Process("filler five\r\n");
+        parser.Process("filler six");
+        Assert.Equal(0, buffer.Scrollback.Count);
+
         parser.Process("\x1b[?1049h");   // enter alt screen (vim et al.)
         buffer.Resize(20, 2);            // Reshape shrink: emoji row → scrollback
         Assert.Contains("\U0001F44D", AllScrollbackExtendedText(buffer));
