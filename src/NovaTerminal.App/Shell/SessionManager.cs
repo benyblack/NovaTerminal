@@ -97,20 +97,31 @@ namespace NovaTerminal.Shell
                 // recoverable. Quitting straight after launch is enough to reach it, since the
                 // close path saves the session.
                 //
-                // Only the pane-shaped fields are carried through, because they are the only ones
-                // that lose anything: GetTabId and GetOrCreateTabState both seed from this same Tag,
-                // and a placeholder's header text is the saved title, so the rest already
-                // round-trips. Deliberately keyed on "no pane tree" rather than on a startup phase
-                // - a failed hydration leaves the same blank tab long after restore is over, and
-                // keeping what was restored is right whenever the live tree cannot say otherwise.
-                // There is no competing case to protect: closing a tab's last pane closes the tab
+                // Only the fields that describe the pane tree are carried through, because they are
+                // the only ones that lose anything. Everything else already round-trips: GetTabId
+                // and GetOrCreateTabState both seed from this same Tag, a placeholder's header text
+                // is the saved title, and InitializeRestoredTabs applies the saved broadcast flag to
+                // the placeholder itself - its Content is a Border, which passes that loop's
+                // "is Control" guard - so IsBroadcastEnabledForTab above is already right and must
+                // win. Overwriting it here would silently discard a toggle the user made on a tab
+                // that never finished hydrating, which hydration would otherwise have kept (the
+                // restore path only ever adds to the broadcast set, never removes).
+                //
+                // ActivePaneId and ZoomedPaneId do need the fallback: both are resolved by finding
+                // a pane inside the tab's content, which a placeholder has none of, so the live
+                // values are null and would otherwise be persisted against a restored tree that
+                // names real panes.
+                //
+                // Deliberately keyed on "no pane tree" rather than on a startup phase - a failed
+                // hydration leaves the same blank tab long after restore is over, and keeping what
+                // was restored is right whenever the live tree cannot say otherwise. There is no
+                // competing case to protect: closing a tab's last pane closes the tab
                 // (ClosePaneAsync falls back to CloseTabAsync) instead of leaving an empty one.
                 if (tabSession.Root == null && tabItem.Tag is TabSession restored && restored.Root != null)
                 {
                     tabSession.Root = restored.Root;
                     tabSession.ActivePaneId = restored.ActivePaneId;
                     tabSession.ZoomedPaneId = restored.ZoomedPaneId;
-                    tabSession.BroadcastInputEnabled = restored.BroadcastInputEnabled;
                 }
 
                 session.Tabs.Add(tabSession);

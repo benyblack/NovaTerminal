@@ -161,6 +161,44 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     }
 
     /// <summary>
+    /// The fallback must not reach past the pane tree: a broadcast toggle the user made on a tab
+    /// that has not hydrated yet survives the capture.
+    /// </summary>
+    /// <remarks>
+    /// Found by review of the first cut of this fix, which carried BroadcastInputEnabled through
+    /// from Tag along with the pane fields and so reverted the toggle. It is the one runtime flag
+    /// here that a placeholder genuinely owns: InitializeRestoredTabs applies the saved value to
+    /// the placeholder itself (its Content is a Border, which passes that loop's "is Control"
+    /// guard), so the live value is already correct before hydration, and the restore path only
+    /// ever adds to the broadcast set - so a toggle would otherwise have survived hydration too.
+    /// </remarks>
+    [AvaloniaFact]
+    public void CaptureSession_DuringDeferredRestore_KeepsALiveBroadcastToggleOnAPlaceholder()
+    {
+        using var appData = new TestAppDataRoot();
+        WriteSavedSession(appData.RootPath, secondTabPaneId: "9f2c7a41-0000-4000-8000-000000000003");
+
+        var window = TestMainWindowFactory.Create();
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var placeholder = (TabItem)tabs.Items[1]!;
+        Assert.IsNotType<NovaTerminal.Controls.TerminalPane>(placeholder.Content);
+        Assert.False(window.IsBroadcastEnabledForTab(placeholder));
+
+        // The user's toggle, through the same set ToggleBroadcastForCurrentTab drives.
+        var broadcastTabs = (System.Collections.Generic.HashSet<TabItem>)typeof(NovaTerminal.MainWindow)
+            .GetField("_broadcastEnabledTabs", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(window)!;
+        broadcastTabs.Add(placeholder);
+        Assert.True(window.IsBroadcastEnabledForTab(placeholder));
+
+        NovaSession captured = SessionManager.CaptureSession(window, tabs);
+
+        Assert.True(captured.Tabs[1].BroadcastInputEnabled);
+        // ...and the panes are still carried through, so this is not passing by skipping the fallback.
+        Assert.Equal("9f2c7a41-0000-4000-8000-000000000003", captured.Tabs[1].Root!.PaneId);
+    }
+
+    /// <summary>
     /// Two tabs, so restore builds the selected one live and leaves the other a placeholder. The
     /// command has to be runnable on this platform or RestorePaneTree substitutes a default and the
     /// pane ids stop being a useful assertion.
