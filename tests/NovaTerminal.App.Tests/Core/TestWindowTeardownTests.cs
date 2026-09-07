@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using Avalonia.Controls;
@@ -31,10 +32,67 @@ namespace NovaTerminal.Tests.Core;
 /// window that was never shown. The registry is process-wide, so each test diffs against a
 /// snapshot rather than asserting a total, the same way <c>AgentIndicatorTabRollupTests</c> does.
 /// </para>
+/// <para>
+/// Each test also points <c>NOVATERM_APPDATA_ROOT</c> at a fresh scratch directory, and that is
+/// load-bearing rather than tidy — it is the fix for #434. Without it,
+/// <c>TestMainWindowFactory.Create()</c> runs the real startup path against the machine's real
+/// profile, so what the constructor does depends on a file on disk. With no saved session it
+/// calls <c>AddTab</c> and one pane registers synchronously; with one, it takes the restore path
+/// instead — and there the only tab built eagerly is the *selected* one, every other tab being a
+/// placeholder that holds no <c>TerminalPane</c> until the Background-priority
+/// <c>DrainDeferred</c> post runs. So a saved session whose selected tab does not materialize
+/// (<c>Root: null</c>, which <c>CaptureSession</c> persists for any tab whose content is not a
+/// pane tree) restores to placeholders alone, and the window registers no pane at all before
+/// <c>Create()</c> returns. That is what reddened the gate: the two tests below that rely on the
+/// window's own startup tab failed their *precondition*, reading as a teardown regression when
+/// teardown was never reached. Tests in this assembly close real <c>MainWindow</c>s, and
+/// <c>OnClosing</c> saves the session, so the poisoning file is one the suite writes itself.
+/// </para>
 /// </remarks>
 public sealed class TestWindowTeardownTests : IDisposable
 {
-    public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
+    private readonly string _appDataRoot =
+        Path.Combine(Path.GetTempPath(), $"novaterm_teardown_test_{Guid.NewGuid():N}");
+
+    private readonly string? _previousAppDataRoot =
+        Environment.GetEnvironmentVariable(AppDataRootEnvVar);
+
+    private const string AppDataRootEnvVar = "NOVATERM_APPDATA_ROOT";
+
+    public TestWindowTeardownTests()
+    {
+        Directory.CreateDirectory(_appDataRoot);
+        Environment.SetEnvironmentVariable(AppDataRootEnvVar, _appDataRoot);
+    }
+
+    /// <remarks>
+    /// The windows go first: disposing them is what the tests are about, and it must happen while
+    /// the override is still in force so a window that saves anything saves it into the scratch
+    /// directory rather than the developer's real profile.
+    /// </remarks>
+    public void Dispose()
+    {
+        TestMainWindowFactory.DisposeCreatedWindows();
+        Environment.SetEnvironmentVariable(AppDataRootEnvVar, _previousAppDataRoot);
+        try { Directory.Delete(_appDataRoot, recursive: true); } catch { /* best effort */ }
+    }
+
+    /// <summary>
+    /// That the isolated root really does give the deterministic startup path the two
+    /// snapshot-diffing tests below assume: exactly one pane, registered before
+    /// <see cref="TestMainWindowFactory.Create()"/> returns. Named separately so a regression in
+    /// the isolation itself fails here, saying what broke, instead of surfacing as an unexplained
+    /// precondition failure in a test about teardown.
+    /// </summary>
+    [AvaloniaFact]
+    public void AFreshWindow_RegistersItsStartupPane_BeforeCreateReturns()
+    {
+        HashSet<Guid> before = RegisteredPaneIds();
+
+        TestMainWindowFactory.Create();
+
+        Assert.Single(RegisteredPaneIds().Except(before));
+    }
 
     [AvaloniaFact]
     public void AWindowsPanes_AreGoneAfterTeardown()
@@ -43,7 +101,7 @@ public sealed class TestWindowTeardownTests : IDisposable
         TestMainWindowFactory.Create();
 
         Guid[] added = RegisteredPaneIds().Except(before).ToArray();
-        Assert.NotEmpty(added);
+        AssertStartupPaneRegistered(added);
 
         TestMainWindowFactory.DisposeCreatedWindows();
 
@@ -87,7 +145,7 @@ public sealed class TestWindowTeardownTests : IDisposable
         MainWindow window = TestMainWindowFactory.Create();
 
         Guid[] added = RegisteredPaneIds().Except(before).ToArray();
-        Assert.NotEmpty(added);
+        AssertStartupPaneRegistered(added);
 
         window.FindControl<TabControl>("Tabs")!.Items.Clear();
 
@@ -151,6 +209,20 @@ public sealed class TestWindowTeardownTests : IDisposable
 
     private static HashSet<Guid> RegisteredPaneIds()
         => AgentSessionRegistry.Instance.GetRegistrations().Select(r => r.PaneId).ToHashSet();
+
+    /// <summary>
+    /// The precondition of a teardown test: the window registered something to tear down. Says so
+    /// in the failure message, because a bare <c>Assert.NotEmpty</c> here reads as "teardown left
+    /// panes behind" when it means the opposite — see #434 and this class's remarks.
+    /// </summary>
+    private static void AssertStartupPaneRegistered(Guid[] added)
+        => Assert.True(
+            added.Length > 0,
+            "Test setup failed: creating a window registered no new panes, so there is nothing for "
+            + "the teardown assertion below to be about. The window's startup path built no "
+            + "TerminalPane synchronously - check that NOVATERM_APPDATA_ROOT is still redirected "
+            + "to an empty scratch directory, since a saved session there sends the constructor "
+            + "down the restore path instead of AddTab.");
 
     /// <summary>Adds a two-pane split tab, the shape zoom needs. Mirrors AgentObserveIndicatorTests.</summary>
     private static (TabItem Tab, TerminalPane First, TerminalPane Second) AddSplitTab(MainWindow window)
