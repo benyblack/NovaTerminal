@@ -91,6 +91,19 @@ public static class VtTools
     };
 
     /// <summary>
+    /// Final bytes whose bare form is bounded by parameter COUNT as well, because a longer
+    /// parameter list selects a different function entirely. Maps the final byte to the largest
+    /// parameter count that is still the bare sequence, and to what the longer spelling actually
+    /// is. Mirrors the argCount identity guards in <c>AnsiParser.HandleCsi</c>.
+    /// </summary>
+    private static readonly Dictionary<char, (int MaxParameters, string LongerForm)> BareParameterCountLimits = new()
+    {
+        // CSI Ps T is SD. CSI Ps;Ps;Ps;Ps;Ps T is xterm's initiate-highlight-mouse-tracking, and
+        // SD takes one parameter, so the parameter count alone proves which sequence this is.
+        ['T'] = (1, "xterm initiate-highlight-mouse-tracking, not SD (Scroll Down takes a single parameter)"),
+    };
+
+    /// <summary>
     /// Final bytes that keep a defined meaning when a leader or an intermediate byte is present,
     /// mapped to the qualifiers they accept. Mirrors the per-case guards in
     /// <c>AnsiParser.HandleCsi</c> - see the <c>bare</c> local there. A final byte absent from
@@ -193,6 +206,19 @@ public static class VtTools
                          ? "A private-parameter byte ('<', '=', '>', '?') is only meaningful as the leader, in the first position. "
                          : "No parameter byte may follow an intermediate byte. ")
                      + "NovaTerminal's parser discards the whole sequence.";
+            }
+
+            // Parameter count can select a different function too, and the leader/intermediate
+            // gate below cannot see it: CSI 1;2;3;4;5 T has no qualifier bytes at all, so it
+            // reads as a plain parameter list and used to be described as SD - a sequence the
+            // parser deliberately ignores.
+            if (hasStandardParameterList
+                && prefix.Length > 0
+                && BareParameterCountLimits.TryGetValue(finalByte, out var countLimit)
+                && prefix.Split(';').Length > countLimit.MaxParameters)
+            {
+                return $"CSI sequence with final byte '{finalByte}': "
+                     + $"{countLimit.LongerForm}. Not implemented; NovaTerminal's parser ignores it.";
             }
 
             if (!hasStandardParameterList && !isDefinedQualifiedForm)

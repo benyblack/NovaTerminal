@@ -121,6 +121,35 @@ public class ExplainEscapeSequenceTests
         Assert.DoesNotContain("DECSTBM", result, System.StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Parameter count selects a function too, and no leader or intermediate is involved:
+    /// CSI 1;2;3;4;5 T is xterm highlight-mouse tracking, which the parser ignores, but it reads
+    /// as a plain parameter list so the qualifier gate cannot see it. It used to be described
+    /// as SD.
+    /// </summary>
+    [Theory]
+    [InlineData("CSI 1;2;3;4;5T")]
+    [InlineData("CSI 1;2T")]
+    public void ParameterDiscriminatedForms_AreNotExplainedAsTheSingleParameterSequence(string sequence)
+    {
+        string result = VtTools.ExplainEscapeSequence(sequence);
+
+        Assert.DoesNotContain("Scroll Down Ps lines", result, System.StringComparison.Ordinal);
+        Assert.Contains("highlight-mouse-tracking", result, System.StringComparison.Ordinal);
+        Assert.Contains("ignores it", result, System.StringComparison.Ordinal);
+    }
+
+    /// <summary>The single-parameter and no-parameter spellings are still SD.</summary>
+    [Theory]
+    [InlineData("CSI T")]
+    [InlineData("CSI 5T")]
+    public void ScrollDown_StillResolves(string sequence)
+    {
+        string result = VtTools.ExplainEscapeSequence(sequence);
+
+        Assert.Contains("Scroll Down Ps lines", result, System.StringComparison.Ordinal);
+    }
+
     /// <summary>The qualified forms that ARE defined must keep resolving.</summary>
     [Theory]
     [InlineData("CSI ?25h", "DECSET")]
