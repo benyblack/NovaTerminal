@@ -634,11 +634,17 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
         var tab = tabs.Items.Cast<TabItem>().First();
         // Clear it so the upcoming mode switch is the only possible source of "dirty" below.
         window.SetTabPreviewDirtyForTest(tab, false);
-        // Window startup's own initial tab-visuals pass may have armed the 250ms preview
-        // throttle - wait it out so the mode switch below isn't itself throttled into
-        // leaving the dirty flag set. (Startup uses deterministic default settings via
-        // AppServiceBundle.Settings, so that pass is always horizontal now.)
-        System.Threading.Thread.Sleep(300);
+
+        // The 250ms preview throttle has to be idle, or the pass below skips its recompute and
+        // leaves the flag set. This used to sleep 300ms on the theory that only window startup's
+        // own tab-visuals pass could have armed it. That theory was wrong and it is what made this
+        // test flaky: the window runs a real shell, this repo's prompt redraws a clock, every
+        // output burst marks the tab dirty via OnPaneOutputReceived, and the pass that then
+        // recomputes re-arms the throttle whenever it happens to land - so the sleep could end with
+        // it freshly armed. Backdating leaves no window for that: the test holds the UI thread from
+        // here to RunJobs, so no dispatcher job runs in between.
+        window.BackdateTabPreviewThrottleForTest(tab);
+        DateTime recomputedBefore = window.GetTabPreviewRecomputedAtForTest(tab);
 
         settings.TabStripOrientation = "Vertical";
         window.ApplyTabLayout();
@@ -650,7 +656,17 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
 
         var preview = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
         Assert.NotNull(preview);
-        Assert.False(window.GetTabPreviewDirtyForTest(tab), "the first vertical pass should have recomputed and cleared dirty");
+
+        // That the pass recomputed, not that the flag ended up clear. The flag is the wrong
+        // question here and was the second half of this test's flakiness: the pane has a live
+        // shell, OnPaneOutputReceived re-marks the tab dirty for every output burst, and a burst
+        // landing after the pass cleared it makes the flag true again through no fault of the code
+        // under test. The recompute timestamp only advances in the recompute branch, so it answers
+        // "did the first vertical pass repopulate the preview" - which is what the name claims -
+        // and no amount of shell output can move it back.
+        Assert.True(
+            window.GetTabPreviewRecomputedAtForTest(tab) > recomputedBefore,
+            "the first vertical pass should have recomputed the preview");
     }
 
     // ---- Drag-to-reorder (MainWindow.WireTabHeaderReorderDrag + Shell/TabDragModel) ----
