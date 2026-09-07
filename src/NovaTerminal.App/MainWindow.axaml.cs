@@ -552,6 +552,37 @@ namespace NovaTerminal
 
         internal void SetTabPreviewDirtyForTest(TabItem tab, bool dirty) => GetOrCreateTabState(tab).PreviewDirty = dirty;
 
+        /// <summary>
+        /// Test-only seam: backdates the preview recompute throttle so the next
+        /// <see cref="UpdateTabVisuals()"/> pass is guaranteed to recompute rather than skip.
+        /// </summary>
+        /// <remarks>
+        /// Waiting the interval out by wall clock does not work, and that is what made
+        /// <c>ApplyTabLayout_ModeSwitch_MarksPreviewDirty</c> flaky. A test window runs a real
+        /// shell, a prompt that redraws (a clock in it is enough) keeps producing output,
+        /// <c>OnPaneOutputReceived</c> marks the tab dirty for each burst, and the visual pass that
+        /// then recomputes re-arms this timestamp at a moment the test does not control - so a
+        /// sleep can end with the throttle freshly armed and the next pass skipping, leaving the
+        /// flag set. Backdating immediately before the pass removes the timing from the picture:
+        /// no dispatcher job can run between the two, because the test holds the UI thread.
+        /// </remarks>
+        internal void BackdateTabPreviewThrottleForTest(TabItem tab)
+            => GetOrCreateTabState(tab).LastPreviewUpdateUtc = DateTime.UtcNow - PreviewRefreshInterval;
+
+        /// <summary>
+        /// Test-only seam: when the preview was last actually recomputed. Advances only in the
+        /// recompute branch of <see cref="UpdateTabVisuals()"/>, so it says "a pass recomputed"
+        /// in a way the dirty flag cannot.
+        /// </summary>
+        /// <remarks>
+        /// The flag is the wrong thing for a test to assert on once a pane has a live shell behind
+        /// it: <c>OnPaneOutputReceived</c> re-marks it for every output burst, so it can be true
+        /// again a moment after a pass legitimately cleared it, and a test that reads it is racing
+        /// the shell's prompt. This timestamp is monotone through that - output never touches it.
+        /// </remarks>
+        internal DateTime GetTabPreviewRecomputedAtForTest(TabItem tab)
+            => GetOrCreateTabState(tab).LastPreviewUpdateUtc;
+
         /// <summary>Test-only seam: sets the marker inputs UpdateVerticalTabExtras resolves
         /// the chip visibilities and dot color from (same pattern as
         /// <see cref="SetTabPreviewDirtyForTest"/>), since driving real bell/agent events in

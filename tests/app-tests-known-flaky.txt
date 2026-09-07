@@ -14,9 +14,3 @@
 #   - Matching is by substring, so a name without theory arguments covers every case.
 #   - Removing a line is always in scope. Growing the list is a decision, not a chore.
 
-# 250ms preview-throttle window. The test sleeps 300ms to clear the throttle armed by
-# window startup, then asserts that the deferred UpdateTabVisuals pass has consumed the
-# dirty flag after one RunJobs(). On a loaded runner the deferred pass has not always been
-# queued yet, so the flag is still set. Deterministic fix is a seam that reports when the
-# pass has run, instead of a sleep plus a RunJobs() and a hope.
-NovaTerminal.Tests.Core.VerticalTabStripTests.ApplyTabLayout_ModeSwitch_MarksPreviewDirty_SoFirstPassRepopulatesIt
