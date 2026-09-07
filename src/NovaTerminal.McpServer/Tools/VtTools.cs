@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Text;
@@ -221,22 +222,36 @@ public static class VtTools
                 && prefix.Length > 0
                 && ParameterDiscriminatedFinals.TryGetValue(finalByte, out var discriminated))
             {
-                // Both ';' and ':' separate parameters as far as AnsiParser's parameter loop is
-                // concerned (see the estimatedArgs scan and the ':' case in HandleCsi), so
-                // CSI 1:2 T is two parameters there and must be two here. Counting only ';' left
-                // the colon spelling described as SD while the parser ignored it.
-                int parameterCount = prefix.Split(';', ':').Length;
-                if (parameterCount > discriminated.MaxBareParameters)
+                // Two different counts are needed, and conflating them is what the previous two
+                // revisions of this got wrong in turn.
+                //
+                // "Is it still the bare sequence?" is the parser's question, and AnsiParser's
+                // parameter loop treats ';' and ':' alike (see the estimatedArgs scan and the ':'
+                // case), so CSI 1:2 T is two parameters there and its argCount guard ignores it.
+                // That calls for the flattened count.
+                //
+                // "Then which sequence IS it?" is a different question, and only top-level
+                // parameters answer it: ':' introduces subparameters, and the xterm form below
+                // wants five semicolon-separated fields, not one field with five subparameters.
+                // So a colon anywhere disqualifies the named form even when the flattened count
+                // matches.
+                int flattenedCount = prefix.Split(';', ':').Length;
+                int topLevelCount = prefix.Split(';').Length;
+                bool hasSubParameters = prefix.Contains(':', StringComparison.Ordinal);
+
+                if (flattenedCount > discriminated.MaxBareParameters)
                 {
-                    // Only an exactly-matching count names another sequence. A count in between
-                    // matches nothing anyone defined, and naming a sequence for it would trade
-                    // one wrong answer for another.
-                    return discriminated.ExactForms.TryGetValue(parameterCount, out string? exactForm)
-                        ? $"CSI sequence with final byte '{finalByte}': {exactForm} ({parameterCount} parameters), "
+                    // Only an exact top-level match names another sequence. Anything else matches
+                    // nothing anyone defined, and naming one would trade one wrong answer for
+                    // another.
+                    return !hasSubParameters && discriminated.ExactForms.TryGetValue(topLevelCount, out string? exactForm)
+                        ? $"CSI sequence with final byte '{finalByte}': {exactForm} ({topLevelCount} parameters), "
                           + "not the single-parameter form. Not implemented; NovaTerminal's parser ignores it."
-                        : $"CSI sequence with final byte '{finalByte}': {parameterCount} parameters matches no "
+                        : $"CSI sequence with final byte '{finalByte}': this parameter list matches no "
                           + $"defined form for this final byte (the bare sequence takes at most "
-                          + $"{discriminated.MaxBareParameters}). NovaTerminal's parser ignores it.";
+                          + $"{discriminated.MaxBareParameters} parameter(s)"
+                          + (hasSubParameters ? ", and ':' subparameters are not part of any form here" : string.Empty)
+                          + "). NovaTerminal's parser ignores it.";
                 }
             }
 
