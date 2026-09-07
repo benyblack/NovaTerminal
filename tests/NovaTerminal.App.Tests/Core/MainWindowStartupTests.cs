@@ -96,6 +96,192 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         Assert.NotNull(window.Icon);
     }
 
+    /// <summary>
+    /// A capture taken while startup restore still has unhydrated placeholders must round-trip
+    /// their panes, not persist "no panes" over them (#327).
+    /// </summary>
+    /// <remarks>
+    /// This is a data-loss bug, which is why the assertion is on the pane id rather than merely on
+    /// "not null": restore materializes every saved tab up front but hydrates all but the selected
+    /// one on a Background-priority pass, and the capture path replaces the session file - so a
+    /// capture inside that window used to erase the layout it was about to restore, irrecoverably.
+    /// Quitting straight after launch reaches it, because the close path saves the session.
+    ///
+    /// The window is driven through the real startup path (a session file plus
+    /// TestMainWindowFactory.Create) rather than by hand-building placeholders, because the
+    /// hand-built version would assert against this test's idea of a placeholder instead of the
+    /// one MainWindow actually produces. Nothing pumps the dispatcher here, so the deferred pass
+    /// has provably not run - the precondition below states that rather than assuming it.
+    /// </remarks>
+    [AvaloniaFact]
+    public void CaptureSession_DuringDeferredRestore_KeepsTheUnhydratedTabsPanes()
+    {
+        using var appData = new TestAppDataRoot();
+        WriteSavedSession(appData.RootPath, secondTabPaneId: "9f2c7a41-0000-4000-8000-000000000001");
+
+        var window = TestMainWindowFactory.Create();
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+
+        // Preconditions: restore ran, and the second tab is still a placeholder. Without both, the
+        // capture below would be asserting on nothing.
+        Assert.Equal(2, tabs.Items.Count);
+        var placeholder = (TabItem)tabs.Items[1]!;
+        Assert.IsNotType<NovaTerminal.Controls.TerminalPane>(placeholder.Content);
+        Assert.IsNotType<Grid>(placeholder.Content);
+
+        NovaSession captured = SessionManager.CaptureSession(window, tabs);
+
+        Assert.Equal(2, captured.Tabs.Count);
+        TabSession capturedPlaceholder = captured.Tabs[1];
+        Assert.NotNull(capturedPlaceholder.Root);
+        Assert.Equal("9f2c7a41-0000-4000-8000-000000000001", capturedPlaceholder.Root!.PaneId);
+
+        DrainDeferredRestorePlan(window);
+    }
+
+    /// <summary>
+    /// The other direction, so the fallback above cannot pass by simply always preferring the
+    /// restored tree: a tab that DID hydrate is captured from its live panes. The selected tab is
+    /// built eagerly by restore, so it is hydrated by the time Create() returns.
+    /// </summary>
+    [AvaloniaFact]
+    public void CaptureSession_CapturesTheLivePaneTree_ForATabThatHydrated()
+    {
+        using var appData = new TestAppDataRoot();
+        WriteSavedSession(appData.RootPath, secondTabPaneId: "9f2c7a41-0000-4000-8000-000000000002");
+
+        var window = TestMainWindowFactory.Create();
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var live = (TabItem)tabs.Items[0]!;
+        var pane = Assert.IsType<NovaTerminal.Controls.TerminalPane>(live.Content);
+
+        NovaSession captured = SessionManager.CaptureSession(window, tabs);
+
+        // The live pane's own id, which restore assigned from the file - so this also pins that the
+        // capture read the control rather than the Tag.
+        Assert.Equal(pane.PaneId.ToString(), captured.Tabs[0].Root!.PaneId);
+
+        DrainDeferredRestorePlan(window);
+    }
+
+    /// <summary>
+    /// The fallback must not reach past the pane tree: a broadcast toggle the user made on a tab
+    /// that has not hydrated yet survives the capture.
+    /// </summary>
+    /// <remarks>
+    /// Found by review of the first cut of this fix, which carried BroadcastInputEnabled through
+    /// from Tag along with the pane fields and so reverted the toggle. It is the one runtime flag
+    /// here that a placeholder genuinely owns: InitializeRestoredTabs applies the saved value to
+    /// the placeholder itself (its Content is a Border, which passes that loop's "is Control"
+    /// guard), so the live value is already correct before hydration, and the restore path only
+    /// ever adds to the broadcast set - so a toggle would otherwise have survived hydration too.
+    /// </remarks>
+    [AvaloniaFact]
+    public void CaptureSession_DuringDeferredRestore_KeepsALiveBroadcastToggleOnAPlaceholder()
+    {
+        using var appData = new TestAppDataRoot();
+        WriteSavedSession(appData.RootPath, secondTabPaneId: "9f2c7a41-0000-4000-8000-000000000003");
+
+        var window = TestMainWindowFactory.Create();
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var placeholder = (TabItem)tabs.Items[1]!;
+        Assert.IsNotType<NovaTerminal.Controls.TerminalPane>(placeholder.Content);
+        Assert.False(window.IsBroadcastEnabledForTab(placeholder));
+
+        // The user's toggle, through the same set ToggleBroadcastForCurrentTab drives.
+        var broadcastTabs = (System.Collections.Generic.HashSet<TabItem>)typeof(NovaTerminal.MainWindow)
+            .GetField("_broadcastEnabledTabs", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(window)!;
+        broadcastTabs.Add(placeholder);
+        Assert.True(window.IsBroadcastEnabledForTab(placeholder));
+
+        NovaSession captured = SessionManager.CaptureSession(window, tabs);
+
+        Assert.True(captured.Tabs[1].BroadcastInputEnabled);
+        // ...and the panes are still carried through, so this is not passing by skipping the fallback.
+        Assert.Equal("9f2c7a41-0000-4000-8000-000000000003", captured.Tabs[1].Root!.PaneId);
+
+        DrainDeferredRestorePlan(window);
+    }
+
+    /// <summary>
+    /// Consumes the deferred restore plan so the Background-priority pass MainWindow left queued
+    /// has nothing to do if it ever runs.
+    /// </summary>
+    /// <remarks>
+    /// Not tidiness, and not optional. Nothing pumps the headless dispatcher between tests, so a
+    /// plan left pending here is materialized inside whichever later test next pumps it - by which
+    /// point <c>DisposeCreatedWindows</c> has cleared the factory's list, so hydration would build
+    /// a fresh TerminalPane and a real shell in a window nothing can reap. Work outliving its test
+    /// and contaminating the dispatcher this assembly shares is the failure mode behind #81, #416
+    /// and #417 (see CONTRIBUTING's App.Tests notes); these are the first tests here to drive the
+    /// deferred-restore path at all, so they are the first that could leak this way.
+    ///
+    /// Drains the plan rather than the dispatcher, and the distinction is the whole point. The
+    /// first version of this called <c>Dispatcher.UIThread.RunJobs()</c>, which hydrated the tab
+    /// but also ran every other job the shared queue happened to be holding: ten tests across
+    /// AgentObserveIndicatorTests, VerticalTabStripTests and the
+    /// <c>AvaloniaBootLocatorHygieneTests</c> dispatcher canary went red, against 641 of 641
+    /// passing on main. Pumping that queue from a test is the contamination, not the cure.
+    /// <c>DrainDeferred</c> returns immediately once the plan is gone, so consuming it here with a
+    /// materializer that does nothing leaves the queued callback inert - and builds no pane and no
+    /// shell at all, which is strictly less to reap than hydrating would have been.
+    /// </remarks>
+    private static void DrainDeferredRestorePlan(NovaTerminal.MainWindow window)
+    {
+        var startup = (StartupOrchestrator)typeof(NovaTerminal.MainWindow)
+            .GetField("_startup", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(window)!;
+
+        // Also the strongest available statement that these tests really are in the state they
+        // claim: restore deferred something, so the tab asserted on above is genuinely unhydrated.
+        Assert.True(startup.HasPendingDeferredRestore);
+
+        startup.DrainDeferred(_ => { });
+
+        Assert.False(startup.HasPendingDeferredRestore);
+    }
+
+    /// <summary>
+    /// Two tabs, so restore builds the selected one live and leaves the other a placeholder. The
+    /// command has to be runnable on this platform or RestorePaneTree substitutes a default and the
+    /// pane ids stop being a useful assertion.
+    /// </summary>
+    private static void WriteSavedSession(string appDataRoot, string secondTabPaneId)
+    {
+        string shell = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh";
+        var session = new NovaSession
+        {
+            ActiveTabIndex = 0,
+            Tabs =
+            {
+                NewTab("Live", Guid.NewGuid().ToString(), shell),
+                NewTab("Deferred", secondTabPaneId, shell),
+            },
+        };
+
+        string sessionsDirectory = System.IO.Path.Combine(appDataRoot, "sessions");
+        System.IO.Directory.CreateDirectory(sessionsDirectory);
+        System.IO.File.WriteAllText(
+            System.IO.Path.Combine(sessionsDirectory, "last_session.json"),
+            System.Text.Json.JsonSerializer.Serialize(
+                session, SessionSerializationContext.Default.NovaSession));
+    }
+
+    private static TabSession NewTab(string title, string paneId, string shell) => new()
+    {
+        TabId = Guid.NewGuid().ToString(),
+        Title = title,
+        Root = new PaneNode
+        {
+            Type = NodeType.Leaf,
+            PaneId = paneId,
+            Command = shell,
+            Arguments = string.Empty,
+        },
+        ActivePaneId = paneId,
+    };
+
     [AvaloniaFact]
     public void RegisterPaneOwners_TraversesDecoratorWrappedPane()
     {
