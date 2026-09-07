@@ -135,6 +135,8 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         TabSession capturedPlaceholder = captured.Tabs[1];
         Assert.NotNull(capturedPlaceholder.Root);
         Assert.Equal("9f2c7a41-0000-4000-8000-000000000001", capturedPlaceholder.Root!.PaneId);
+
+        DrainDeferredRestorePlan(window);
     }
 
     /// <summary>
@@ -158,6 +160,8 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         // The live pane's own id, which restore assigned from the file - so this also pins that the
         // capture read the control rather than the Tag.
         Assert.Equal(pane.PaneId.ToString(), captured.Tabs[0].Root!.PaneId);
+
+        DrainDeferredRestorePlan(window);
     }
 
     /// <summary>
@@ -196,6 +200,46 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         Assert.True(captured.Tabs[1].BroadcastInputEnabled);
         // ...and the panes are still carried through, so this is not passing by skipping the fallback.
         Assert.Equal("9f2c7a41-0000-4000-8000-000000000003", captured.Tabs[1].Root!.PaneId);
+
+        DrainDeferredRestorePlan(window);
+    }
+
+    /// <summary>
+    /// Consumes the deferred restore plan so the Background-priority pass MainWindow left queued
+    /// has nothing to do if it ever runs.
+    /// </summary>
+    /// <remarks>
+    /// Not tidiness, and not optional. Nothing pumps the headless dispatcher between tests, so a
+    /// plan left pending here is materialized inside whichever later test next pumps it - by which
+    /// point <c>DisposeCreatedWindows</c> has cleared the factory's list, so hydration would build
+    /// a fresh TerminalPane and a real shell in a window nothing can reap. Work outliving its test
+    /// and contaminating the dispatcher this assembly shares is the failure mode behind #81, #416
+    /// and #417 (see CONTRIBUTING's App.Tests notes); these are the first tests here to drive the
+    /// deferred-restore path at all, so they are the first that could leak this way.
+    ///
+    /// Drains the plan rather than the dispatcher, and the distinction is the whole point. The
+    /// first version of this called <c>Dispatcher.UIThread.RunJobs()</c>, which hydrated the tab
+    /// but also ran every other job the shared queue happened to be holding: ten tests across
+    /// AgentObserveIndicatorTests, VerticalTabStripTests and the
+    /// <c>AvaloniaBootLocatorHygieneTests</c> dispatcher canary went red, against 641 of 641
+    /// passing on main. Pumping that queue from a test is the contamination, not the cure.
+    /// <c>DrainDeferred</c> returns immediately once the plan is gone, so consuming it here with a
+    /// materializer that does nothing leaves the queued callback inert - and builds no pane and no
+    /// shell at all, which is strictly less to reap than hydrating would have been.
+    /// </remarks>
+    private static void DrainDeferredRestorePlan(NovaTerminal.MainWindow window)
+    {
+        var startup = (StartupOrchestrator)typeof(NovaTerminal.MainWindow)
+            .GetField("_startup", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(window)!;
+
+        // Also the strongest available statement that these tests really are in the state they
+        // claim: restore deferred something, so the tab asserted on above is genuinely unhydrated.
+        Assert.True(startup.HasPendingDeferredRestore);
+
+        startup.DrainDeferred(_ => { });
+
+        Assert.False(startup.HasPendingDeferredRestore);
     }
 
     /// <summary>
@@ -211,7 +255,7 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
             ActiveTabIndex = 0,
             Tabs =
             {
-                NewTab("Live", "9f2c7a41-0000-4000-8000-00000000000a", shell),
+                NewTab("Live", Guid.NewGuid().ToString(), shell),
                 NewTab("Deferred", secondTabPaneId, shell),
             },
         };
