@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Text;
@@ -90,6 +91,43 @@ public static class VtTools
         ["APC"] = "Application Program Command — used by NovaTerminal for Kitty graphics (ESC _ G … ST).",
     };
 
+    /// <summary>
+    /// Final bytes whose bare form is bounded by parameter COUNT as well, because a longer
+    /// parameter list selects a different function. <c>MaxBareParameters</c> is the largest count
+    /// that is still the bare sequence; <c>ExactForms</c> names the counts that are a different
+    /// DEFINED sequence. A count that is neither is simply not a form anyone defined, and saying
+    /// which sequence it is would be a guess. Mirrors the argCount identity guards in
+    /// <c>AnsiParser.HandleCsi</c>.
+    /// </summary>
+    private static readonly Dictionary<char, (int MaxBareParameters, Dictionary<int, string> ExactForms)> ParameterDiscriminatedFinals = new()
+    {
+        // CSI Ps T is SD, one parameter. CSI Ps;Ps;Ps;Ps;Ps T is xterm's
+        // initiate-highlight-mouse-tracking, exactly five. Two to four is neither.
+        ['T'] = (1, new Dictionary<int, string>
+        {
+            [5] = "xterm initiate-highlight-mouse-tracking",
+        }),
+    };
+
+    /// <summary>
+    /// Final bytes that keep a defined meaning when a leader or an intermediate byte is present,
+    /// mapped to the qualifiers they accept. Mirrors the per-case guards in
+    /// <c>AnsiParser.HandleCsi</c> - see the <c>bare</c> local there. A final byte absent from
+    /// this table is only itself in its bare form.
+    /// </summary>
+    private static readonly Dictionary<char, string> QualifiedFinalBytes = new()
+    {
+        ['h'] = "?",    // DECSET
+        ['l'] = "?",    // DECRST
+        ['n'] = "?",    // DECXCPR
+        ['J'] = "?",    // DECSED
+        ['K'] = "?",    // DECSEL
+        ['c'] = ">",    // DA2 - secondary device attributes
+        ['u'] = "?><=", // kitty keyboard protocol
+        ['q'] = " ",    // DECSCUSR (space intermediate)
+        ['p'] = "$?",   // DECRQM
+    };
+
     [McpServerTool(Name = "novaterminal.explain_escape_sequence"),
      Description("Explains a VT/ANSI escape sequence (standard meaning). Accepts forms like 'ESC[2J', '\\x1b[2J', 'CSI 2 J', 'CSI ?25h', 'OSC 7', or 'ESC c'. Entries note where NovaTerminal does NOT handle a sequence; for the authoritative support matrix use novaterminal.get_vt_conformance_summary.")]
     public static string ExplainEscapeSequence(
@@ -130,14 +168,101 @@ public static class VtTools
                 : string.Empty;
 
             string key = "CSI:" + finalByte;
-            bool hasStandardParameterList = prefix.All(c => (c >= '0' && c <= '9') || c is ';' or ':');
-            bool isQualifiedCha = finalByte == 'G' && !hasStandardParameterList;
-            if (isQualifiedCha)
+            // A leader or an intermediate byte selects a DIFFERENT function, so neither table's
+            // description of the bare final byte may be used for a qualified spelling unless that
+            // spelling is itself defined. CSI ? 1;1;0 S is XTSMGRAPHICS and CSI > 2 T is XTRMTITLE;
+            // the parser ignores both (#274), so calling them SU and SD tells the reader the
+            // opposite of what NovaTerminal does.
+            //
+            // CHA used to be special-cased here as a "qualified form ... currently processed as
+            // CHA", mirroring the parser's missing leader guard. That guard now exists, and the
+            // special case is replaced by the general rule below.
+            string qualifiers = new string(prefix.Where(c => !((c >= '0' && c <= '9') || c is ';' or ':')).ToArray());
+            bool hasStandardParameterList = qualifiers.Length == 0;
+            bool isDefinedQualifiedForm = !hasStandardParameterList
+                && QualifiedFinalBytes.TryGetValue(finalByte, out string? accepted)
+                && qualifiers.All(accepted.Contains);
+
+            // A private-parameter byte is a leader only in the FIRST position, and no parameter
+            // byte may follow an intermediate. AnsiParser.HandleCsi discards both shapes outright
+            // (the VT500 state machine sends them to csi_ignore), so they are malformed rather
+            // than "some other function", and saying the latter would be a different wrong answer.
+            bool privateByteOutOfPlace = false;
+            for (int i = 1; i < prefix.Length; i++)
             {
-                note += " [qualified form — NovaTerminal currently processes it as CHA]";
+                if (prefix[i] >= '\x3C' && prefix[i] <= '\x3F') { privateByteOutOfPlace = true; break; }
             }
 
-            return (((hasStandardParameterList || isQualifiedCha) && ContractSequenceTable.TryGetValue(key, out var desc))
+            int firstIntermediateIndex = -1;
+            for (int i = 0; i < prefix.Length; i++)
+            {
+                if (prefix[i] >= '\x21' && prefix[i] <= '\x2F') { firstIntermediateIndex = i; break; }
+            }
+
+            bool parameterAfterIntermediate = false;
+            for (int i = firstIntermediateIndex + 1; firstIntermediateIndex >= 0 && i < prefix.Length; i++)
+            {
+                if (prefix[i] >= '\x30' && prefix[i] <= '\x3F') { parameterAfterIntermediate = true; break; }
+            }
+
+            if (privateByteOutOfPlace || parameterAfterIntermediate)
+            {
+                return $"CSI sequence with final byte '{finalByte}': malformed. "
+                     + (privateByteOutOfPlace
+                         ? "A private-parameter byte ('<', '=', '>', '?') is only meaningful as the leader, in the first position. "
+                         : "No parameter byte may follow an intermediate byte. ")
+                     + "NovaTerminal's parser discards the whole sequence.";
+            }
+
+            // Parameter count can select a different function too, and the leader/intermediate
+            // gate below cannot see it: CSI 1;2;3;4;5 T has no qualifier bytes at all, so it
+            // reads as a plain parameter list and used to be described as SD - a sequence the
+            // parser deliberately ignores.
+            if (hasStandardParameterList
+                && prefix.Length > 0
+                && ParameterDiscriminatedFinals.TryGetValue(finalByte, out var discriminated))
+            {
+                // Two different counts are needed, and conflating them is what the previous two
+                // revisions of this got wrong in turn.
+                //
+                // "Is it still the bare sequence?" is the parser's question, and AnsiParser's
+                // parameter loop treats ';' and ':' alike (see the estimatedArgs scan and the ':'
+                // case), so CSI 1:2 T is two parameters there and its argCount guard ignores it.
+                // That calls for the flattened count.
+                //
+                // "Then which sequence IS it?" is a different question, and only top-level
+                // parameters answer it: ':' introduces subparameters, and the xterm form below
+                // wants five semicolon-separated fields, not one field with five subparameters.
+                // So a colon anywhere disqualifies the named form even when the flattened count
+                // matches.
+                int flattenedCount = prefix.Split(';', ':').Length;
+                int topLevelCount = prefix.Split(';').Length;
+                bool hasSubParameters = prefix.Contains(':', StringComparison.Ordinal);
+
+                if (flattenedCount > discriminated.MaxBareParameters)
+                {
+                    // Only an exact top-level match names another sequence. Anything else matches
+                    // nothing anyone defined, and naming one would trade one wrong answer for
+                    // another.
+                    return !hasSubParameters && discriminated.ExactForms.TryGetValue(topLevelCount, out string? exactForm)
+                        ? $"CSI sequence with final byte '{finalByte}': {exactForm} ({topLevelCount} parameters), "
+                          + "not the single-parameter form. Not implemented; NovaTerminal's parser ignores it."
+                        : $"CSI sequence with final byte '{finalByte}': this parameter list matches no "
+                          + $"defined form for this final byte (the bare sequence takes at most "
+                          + $"{discriminated.MaxBareParameters} parameter(s)"
+                          + (hasSubParameters ? ", and ':' subparameters are not part of any form here" : string.Empty)
+                          + "). NovaTerminal's parser ignores it.";
+                }
+            }
+
+            if (!hasStandardParameterList && !isDefinedQualifiedForm)
+            {
+                return $"CSI sequence with final byte '{finalByte}'{note}: the leader/intermediate "
+                     + $"'{qualifiers}' selects a different function than the bare final byte, and that "
+                     + "form is not in the curated table. NovaTerminal's parser ignores it.";
+            }
+
+            return ((ContractSequenceTable.TryGetValue(key, out var desc))
                     || SequenceTable.TryGetValue(key, out desc))
                 ? $"CSI sequence, final byte '{finalByte}'{note}: {desc}"
                 : $"CSI sequence with final byte '{finalByte}'{note}: not in the curated table. Params/intermediates: '{prefix}'.";

@@ -27,6 +27,12 @@ namespace NovaTerminal.VT
         // Zero-alloc buffers
         private char[] _paramBuffer = new char[256];
         private int _paramLen = 0;
+
+        // Set when a CSI's parameter/intermediate run overflows MaxCsiParamChars. What fell off
+        // the end may have been an INTERMEDIATE byte, and an intermediate is part of the
+        // sequence's identity rather than decoration - so the surviving prefix cannot be
+        // classified. See the final-byte branch in Process().
+        private bool _csiTruncated;
         private const int MaxCsiParamChars = 65536;
 
         // Upper bound on a single parsed CSI numeric parameter. Operations like Scroll Up/Down
@@ -331,6 +337,7 @@ namespace NovaTerminal.VT
         {
             _state = State.Csi;
             _paramLen = 0;
+            _csiTruncated = false;
         }
 
         private void BeginOsc()
@@ -647,11 +654,33 @@ namespace NovaTerminal.VT
                                     {
                                         _paramBuffer[_paramLen++] = c;
                                     }
+                                    else
+                                    {
+                                        _csiTruncated = true;
+                                    }
                                 }
                                 else if (c >= 0x40 && c <= 0x7E)
                                 {
-                                    HandleCsi(c, _paramBuffer.AsSpan(0, _paramLen));
+                                    // A sequence we could not read in full is discarded rather
+                                    // than acted on: we do not know what it was. The bytes past
+                                    // the cap are exactly where an intermediate would sit, so
+                                    // dispatching the prefix runs the BARE meaning of a final
+                                    // byte that was never bare - CSI <cap of digits> SP A is SR,
+                                    // and used to execute CUU. Truncation is already pathological
+                                    // input at 64 KiB of parameters; guessing at it is worse than
+                                    // dropping it.
+                                    if (_csiTruncated)
+                                    {
+                                        TerminalLogger.Log(
+                                            $"[ANSI_PARSER] Discarded a CSI truncated at {MaxCsiParamChars} parameter bytes (final byte '{c}').");
+                                    }
+                                    else
+                                    {
+                                        HandleCsi(c, _paramBuffer.AsSpan(0, _paramLen));
+                                    }
+
                                     _paramLen = 0;
+                                    _csiTruncated = false;
                                     _state = State.Normal;
                                 }
                                 else if (c == '\x18' || c == '\x1a')
@@ -731,6 +760,34 @@ namespace NovaTerminal.VT
             ReadOnlySpan<char> intermediates = firstIntermediate >= 0 ? csiBody.Slice(firstIntermediate) : ReadOnlySpan<char>.Empty;
             bool isPrivate = leader == '?';
 
+            // A private-parameter byte (0x3C-0x3F) is only meaningful as the leader, and once
+            // intermediates have begun no parameter byte may follow. The VT500 state machine
+            // sends both cases to csi_ignore, and so do we: the sequence is discarded, not
+            // parsed leniently.
+            //
+            // Leniency here would walk straight past the identity guards below. CSI 1 ? 2 A
+            // has no leader by the rule above, so it used to reach the parameter loop, which
+            // swallowed the '?' as a hard separator and executed a bare CUU - a malformed
+            // private sequence running the bare meaning of a final byte, which is exactly what
+            // those guards exist to stop.
+            foreach (char pc in paramPart)
+            {
+                if (pc >= '\x3C' && pc <= '\x3F')
+                {
+                    TerminalLogger.Log($"[ANSI_PARSER] Discarded CSI with a misplaced private-parameter byte: final '{finalByte}', params '{new string(parameters)}'.");
+                    return;
+                }
+            }
+
+            foreach (char ic in intermediates)
+            {
+                if (ic >= '\x30' && ic <= '\x3F')
+                {
+                    TerminalLogger.Log($"[ANSI_PARSER] Discarded CSI with a parameter byte after an intermediate: final '{finalByte}', params '{new string(parameters)}'.");
+                    return;
+                }
+            }
+
             int[]? rentedArgs = null;
             char[]? rentedSeparators = null;
             Span<int> args;
@@ -807,12 +864,30 @@ namespace NovaTerminal.VT
             ReadOnlySpan<char> validSeparators = separators.Slice(0, argCount);
             int arg0 = argCount > 0 ? validArgs[0] : 0;
 
+            // A control sequence is identified by its final byte TOGETHER with its leader and its
+            // intermediates. "CSI ? Pi;Pa;Pv S" is not "CSI Pn S" wearing a decoration - it is
+            // XTSMGRAPHICS, a different sequence that merely ends in the same byte. Executing the
+            // bare meaning for a prefixed spelling is therefore never "close enough"; it runs the
+            // wrong command on a caller that asked for something else entirely.
+            //
+            // So every case below whose final byte has exactly one defined form is gated on
+            // `bare`. The few finals that genuinely have several defined forms - u, c, h/l, n,
+            // J/K, p, q - branch on the leader and intermediates explicitly instead, and say so.
+            //
+            // This is deliberately a whitelist of accepted FORMS rather than a blacklist of the
+            // conflicting spellings we happen to know about. #264 guarded s/u/r; the review of
+            // its fix found eight more finals with the same hole (#274). Enumerating known-bad
+            // spellings is what let them through the first two times.
+            bool bare = leader == '\0' && intermediates.Length == 0;
+
 
             try
             {
                 switch (finalByte)
                 {
                     case 'A': // Cursor Up
+                              // CSI Pn SP A is SR (scroll right), not CUU.
+                        if (bare)
                         {
                             int dist = Math.Max(1, arg0);
                             if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
@@ -835,6 +910,8 @@ namespace NovaTerminal.VT
                         }
                         break;
                     case 'B': // Cursor Down
+                              // No prefixed form is defined; only the bare spelling is CUD.
+                        if (bare)
                         {
                             int dist = Math.Max(1, arg0);
                             if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
@@ -871,37 +948,56 @@ namespace NovaTerminal.VT
                         }
                         break;
                     case '@': // ICH - Insert Character
+                              // CSI Pn SP @ is SL (scroll left), not ICH.
+                        if (bare)
                         {
                             int ichCount = Math.Max(1, arg0);
                             _buffer.InsertCharacters(ichCount);
                         }
                         break;
                     case 'I': // CHT - Cursor Forward Tabulation
-                        if (!isPrivate)
+                              // Was guarded on !isPrivate alone, so '>' '<' '=' still reached it.
+                        if (bare)
                         {
                             _buffer.HorizontalTab(GetCsiParamOrDefaultOne(validArgs, 0));
                             _buffer.Invalidate();
                         }
                         break;
                     case 'P': // DCH - Delete Character
+                              // CSI Pn SP P is PPA (page position absolute), not DCH.
+                        if (bare)
                         {
                             int dchCount = Math.Max(1, arg0);
                             _buffer.DeleteCharacters(dchCount);
                         }
                         break;
                     case 'S': // SU - Scroll Up
+                              // CSI ? Pi ; Pa ; Pv S is XTSMGRAPHICS, not SU. This one is live
+                              // rather than theoretical: the DA1 reply below advertises sixel
+                              // (CSI ?62;4;22c), so sixel-capable clients probe XTSMGRAPHICS as a
+                              // matter of course - and every probe used to scroll the screen.
+                        if (bare)
                         {
                             int suCount = Math.Max(1, arg0);
                             for (int i = 0; i < suCount; i++) _buffer.ScrollUp();
                         }
                         break;
                     case 'T': // SD - Scroll Down
+                              // CSI > Ps T is XTRMTITLE, not SD.
+                              //
+                              // The five-parameter bare form is xterm's initiate-highlight-mouse-
+                              // tracking, also not SD. It is not implemented, but it must not
+                              // scroll: SD takes a single parameter, so a longer parameter list is
+                              // by itself proof that this is the other sequence.
+                        if (bare && argCount <= 1)
                         {
                             int sdCount = Math.Max(1, arg0);
                             for (int i = 0; i < sdCount; i++) _buffer.ScrollDown();
                         }
                         break;
                     case 'd': // VPA - Vertical Position Absolute
+                              // No prefixed form is defined; only the bare spelling is VPA.
+                        if (bare)
                         {
                             int vpaRow = GetCsiParamOrDefaultOne(validArgs, 0) - 1;
                             if (_buffer.Modes.IsOriginMode) vpaRow += _buffer.ScrollTop;
@@ -913,15 +1009,22 @@ namespace NovaTerminal.VT
                         break;
                     case 'C': // Cursor Forward
                     case 'a': // HPR - Horizontal Position Relative
-                        _buffer.CursorCol = Math.Min(_buffer.Cols - 1, _buffer.CursorCol + GetCsiParamOrDefaultOne(validArgs, 0));
-                        _buffer.Invalidate();
+                        if (bare)
+                        {
+                            _buffer.CursorCol = Math.Min(_buffer.Cols - 1, _buffer.CursorCol + GetCsiParamOrDefaultOne(validArgs, 0));
+                            _buffer.Invalidate();
+                        }
                         break;
                     case 'D': // Cursor Back
-                        _buffer.CursorCol = Math.Max(0, _buffer.CursorCol - Math.Max(1, arg0));
-                        _buffer.Invalidate();
+                        if (bare)
+                        {
+                            _buffer.CursorCol = Math.Max(0, _buffer.CursorCol - Math.Max(1, arg0));
+                            _buffer.Invalidate();
+                        }
                         break;
                     case 'Z': // CBT - Cursor Backward Tabulation
-                        if (!isPrivate)
+                              // Was guarded on !isPrivate alone, so '>' '<' '=' still reached it.
+                        if (bare)
                         {
                             _buffer.BackwardTab(GetCsiParamOrDefaultOne(validArgs, 0));
                             _buffer.Invalidate();
@@ -929,28 +1032,36 @@ namespace NovaTerminal.VT
                         break;
                     case 'H': // Cursor Position (row;col)
                     case 'f':
-                        int row = GetCsiParamOrDefaultOne(validArgs, 0) - 1;
-                        int col = GetCsiParamOrDefaultOne(validArgs, 1) - 1;
-
-                        if (_buffer.Modes.IsOriginMode)
+                        if (bare)
                         {
-                            row += _buffer.ScrollTop;
+                            int row = GetCsiParamOrDefaultOne(validArgs, 0) - 1;
+                            int col = GetCsiParamOrDefaultOne(validArgs, 1) - 1;
+
+                            if (_buffer.Modes.IsOriginMode)
+                            {
+                                row += _buffer.ScrollTop;
+                            }
+
+                            // NOTE: _verticalOffset intentionally NOT applied here — it is a ConPTY
+                            // image-rendering artifact that must not displace general TUI cursor positions.
+
+                            row = ClampRowForMode(row);
+                            _buffer.SetCursorPosition(col, row);
+                            _buffer.Invalidate();
                         }
-
-                        // NOTE: _verticalOffset intentionally NOT applied here — it is a ConPTY
-                        // image-rendering artifact that must not displace general TUI cursor positions.
-
-                        row = ClampRowForMode(row);
-                        _buffer.SetCursorPosition(col, row);
-                        _buffer.Invalidate();
                         break;
                     case 'G': // Cursor Horizontal Absolute (CHA)
                     case '`': // HPA - Horizontal Position Absolute
-                        int val = GetCsiParamOrDefaultOne(validArgs, 0) - 1;
-                        _buffer.CursorCol = Math.Clamp(val, 0, _buffer.Cols - 1);
-                        _buffer.Invalidate();
+                        if (bare)
+                        {
+                            int val = GetCsiParamOrDefaultOne(validArgs, 0) - 1;
+                            _buffer.CursorCol = Math.Clamp(val, 0, _buffer.Cols - 1);
+                            _buffer.Invalidate();
+                        }
                         break;
                     case 'e': // VPR - Vertical Position Relative
+                              // No prefixed form is defined; only the bare spelling is VPR.
+                        if (bare)
                         {
                             int dist = GetCsiParamOrDefaultOne(validArgs, 0);
                             if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
@@ -961,7 +1072,8 @@ namespace NovaTerminal.VT
                         }
                         break;
                     case 'g': // TBC - Tab Clear
-                        if (!isPrivate)
+                              // Was guarded on !isPrivate alone, so '>' '<' '=' still reached it.
+                        if (bare)
                         {
                             if (argCount > 0 && validArgs[0] == 3)
                             {
@@ -976,55 +1088,80 @@ namespace NovaTerminal.VT
                         }
                         break;
                     case 'J': // Erase in Display
-                        int displayMode = argCount > 0 ? validArgs[0] : 0;
+                              // CSI ? Ps J is DECSED, which erases only UNPROTECTED characters.
+                              // DECSCA (CSI Ps " q), the sequence that marks characters as
+                              // protected, is not implemented, so every character in the buffer is
+                              // unprotected and DECSED is exactly ED. The alias is therefore
+                              // correct today rather than merely convenient - and refusing the
+                              // private form instead would leave a client's screen uncleared,
+                              // which is a worse outcome than the nonconformance. If DECSCA is
+                              // ever implemented, this case has to split.
+                        if (intermediates.Length == 0 && (leader == '\0' || leader == '?'))
+                        {
+                            int displayMode = argCount > 0 ? validArgs[0] : 0;
 
-                        if (displayMode == 0) // Erase from cursor to end of screen
-                        {
-                            _buffer.EraseLineToEnd(); // Clear rest of current line
-                                                      // Clear all lines below cursor
-                            for (int r = _buffer.CursorRow + 1; r < _buffer.Rows; r++)
+                            if (displayMode == 0) // Erase from cursor to end of screen
                             {
-                                _buffer.EraseLineAll(r);
+                                _buffer.EraseLineToEnd(); // Clear rest of current line
+                                                          // Clear all lines below cursor
+                                for (int r = _buffer.CursorRow + 1; r < _buffer.Rows; r++)
+                                {
+                                    _buffer.EraseLineAll(r);
+                                }
                             }
-                        }
-                        else if (displayMode == 1) // Erase from start of screen to cursor
-                        {
-                            // Clear all lines above cursor
-                            for (int r = 0; r < _buffer.CursorRow; r++)
+                            else if (displayMode == 1) // Erase from start of screen to cursor
                             {
-                                _buffer.EraseLineAll(r);
+                                // Clear all lines above cursor
+                                for (int r = 0; r < _buffer.CursorRow; r++)
+                                {
+                                    _buffer.EraseLineAll(r);
+                                }
+                                _buffer.EraseLineFromStart(); // Clear start of current line
                             }
-                            _buffer.EraseLineFromStart(); // Clear start of current line
-                        }
-                        else if (displayMode == 2) // Erase entire screen (scrollback is preserved)
-                        {
-                            _buffer.ClearScreen(resetCursor: false);
-                            _verticalOffset = 0; // Reset offset on clear screen
-                        }
-                        else if (displayMode == 3) // Erase saved lines (scrollback only, xterm ED 3)
-                        {
-                            _buffer.ClearScrollbackHistory();
-                            _verticalOffset = 0; // Scrollback is gone; snap view to bottom
+                            else if (displayMode == 2) // Erase entire screen (scrollback is preserved)
+                            {
+                                _buffer.ClearScreen(resetCursor: false);
+                                _verticalOffset = 0; // Reset offset on clear screen
+                            }
+                            else if (displayMode == 3) // Erase saved lines (scrollback only, xterm ED 3)
+                            {
+                                _buffer.ClearScrollbackHistory();
+                                _verticalOffset = 0; // Scrollback is gone; snap view to bottom
+                            }
                         }
                         break;
                     case 'K': // Erase in Line
-                        int mode = argCount > 0 ? validArgs[0] : 0;
+                              // CSI ? Ps K is DECSEL. Aliased to EL for the same reason as DECSED
+                              // above: with DECSCA unimplemented, nothing is protected.
+                        if (intermediates.Length == 0 && (leader == '\0' || leader == '?'))
+                        {
+                            int mode = argCount > 0 ? validArgs[0] : 0;
 
-                        if (mode == 0) _buffer.EraseLineToEnd();
-                        else if (mode == 1) _buffer.EraseLineFromStart();
-                        else if (mode == 2) _buffer.EraseLineAll();
+                            if (mode == 0) _buffer.EraseLineToEnd();
+                            else if (mode == 1) _buffer.EraseLineFromStart();
+                            else if (mode == 2) _buffer.EraseLineAll();
+                        }
                         break;
                     case 'X': // Erase Character (ECH)
-                        int count = argCount > 0 ? validArgs[0] : 1;
-                        _buffer.EraseCharacters(count);
+                        if (bare)
+                        {
+                            int count = argCount > 0 ? validArgs[0] : 1;
+                            _buffer.EraseCharacters(count);
+                        }
                         break;
                     case 'L': // Insert Line (IL)
-                        int linesToInsert = argCount > 0 ? validArgs[0] : 1;
-                        _buffer.InsertLines(linesToInsert);
+                        if (bare)
+                        {
+                            int linesToInsert = argCount > 0 ? validArgs[0] : 1;
+                            _buffer.InsertLines(linesToInsert);
+                        }
                         break;
                     case 'M': // Delete Line (DL)
-                        int linesToDelete = argCount > 0 ? validArgs[0] : 1;
-                        _buffer.DeleteLines(linesToDelete);
+                        if (bare)
+                        {
+                            int linesToDelete = argCount > 0 ? validArgs[0] : 1;
+                            _buffer.DeleteLines(linesToDelete);
+                        }
                         break;
                     case 's': // Save Cursor (ANSI.SYS / SCO)
                               // Ignore leader-prefixed "...s" sequences, e.g. CSI ? Pm s (XTSAVE -
@@ -1062,11 +1199,15 @@ namespace NovaTerminal.VT
                     case 'h': // Set Mode
                     case 'l': // Reset Mode
                         bool enableMode = (finalByte == 'h');
-                        if (isPrivate)
+                        // Only two forms are defined: CSI Ps h/l (ANSI modes) and CSI ? Ps h/l
+                        // (DEC private modes). The '<', '=' and '>' leaders used to fall into the
+                        // else-branch and be applied as ANSI modes, so CSI > 4 h silently turned
+                        // on insert mode.
+                        if (intermediates.Length == 0 && isPrivate)
                         {
                             HandleDECPrivateMode(validArgs, enableMode);
                         }
-                        else
+                        else if (bare)
                         {
                             // Handle Standard Modes (ANSI)
                             foreach (int m in validArgs)
@@ -1089,13 +1230,18 @@ namespace NovaTerminal.VT
                         }
                         break;
                     case 'c': // DA - Device Attributes
-                        if (leader == '>')
+                              // CSI c is DA1 and CSI > c is DA2. CSI = c is DA3, which expects a
+                              // DECRPTUI unit-id report rather than a DA1 one; it is unimplemented
+                              // and stays silent instead of answering a different question than
+                              // the one that was asked. The !isPrivate test used to let both
+                              // CSI = c and CSI < c through to the DA1 reply.
+                        if (intermediates.Length == 0 && leader == '>')
                         {
                             // Secondary Device Attributes
                             // CSI > 1 ; 1 0 ; 0 c (standard for VT220-ish)
                             OnResponse?.Invoke("\x1b[>1;10;0c");
                         }
-                        else if (!isPrivate)
+                        else if (bare)
                         {
                             // Primary Device Attributes (CSI c)
                             // Respond with VT100/VT102 capability to satisfy vttest
@@ -1107,23 +1253,38 @@ namespace NovaTerminal.VT
                         }
                         break;
                     case 'n': // DSR - Device Status Report
-                        if (arg0 == 5) // Status Query
+                              // CSI ? 6 n is DECXCPR, and it has to be answered in the private
+                              // form CSI ? r ; c R. Replying with a plain CPR - which is what the
+                              // unguarded arg0 test did - is not a partial answer but a malformed
+                              // one: a client that asked the private question parses for a private
+                              // response, so it either drops ours or mistakes it for an
+                              // unsolicited CPR. DEC's page parameter is omitted, as xterm omits
+                              // it.
+                              //
+                              // The other private reports (?15 printer, ?25 UDK, ?26 keyboard,
+                              // ?53 locator) are unimplemented and stay silent, and CSI > Ps n
+                              // (xterm's disable-key-modifiers) is not a status request at all.
+                        if (intermediates.Length == 0 && (leader == '\0' || leader == '?'))
                         {
-                            OnResponse?.Invoke("\x1b[0n"); // OK
-                        }
-                        else if (arg0 == 6) // Cursor Position Report (CPR)
-                        {
-                            // CSI r ; c R
-                            string response = $"\x1b[{_buffer.CursorRow + 1};{_buffer.CursorCol + 1}R";
-                            OnResponse?.Invoke(response);
-                        }
-                        else if (arg0 == 0) // DSR response (ignore)
-                        {
+                            if (arg0 == 5 && !isPrivate) // DSR - operating status
+                            {
+                                OnResponse?.Invoke("\x1b[0n"); // OK
+                            }
+                            else if (arg0 == 6) // CPR (bare) / DECXCPR (private)
+                            {
+                                string cprLeader = isPrivate ? "?" : string.Empty;
+                                OnResponse?.Invoke($"\x1b[{cprLeader}{ReportedCursorRow()};{_buffer.CursorCol + 1}R");
+                            }
+
+                            // arg0 == 0 is a DSR *response* arriving on the input stream: ignored.
                         }
                         break;
                     case 'q':
-                        // DECSCUSR - Set Cursor Style (CSI Ps SP q)
-                        if (leader == '\0' && intermediates.Length > 0)
+                        // DECSCUSR - Set Cursor Style (CSI Ps SP q). The intermediate has to be
+                        // exactly one space. Accepting "any intermediate at all" meant that
+                        // CSI Ps " q (DECSCA, character protection) set the cursor shape - the
+                        // same class of mistake as the leader cases above, one column over.
+                        if (leader == '\0' && intermediates.Length == 1 && intermediates[0] == ' ')
                         {
                             ApplyCursorStyle(argCount > 0 ? validArgs[0] : 0);
                         }
@@ -1226,6 +1387,31 @@ namespace NovaTerminal.VT
                     _buffer.Modes.IsCursorBlinkEnabled = false;
                     break;
             }
+        }
+
+        /// <summary>
+        /// The cursor row as a report should state it, 1-based.
+        /// </summary>
+        /// <remarks>
+        /// DECOM makes cursor coordinates relative to the scrolling region, and a report has to
+        /// answer in the same frame the client used to set the position: CUP adds ScrollTop on the
+        /// way in (see case 'H'), so a report subtracts it on the way out. Without this a client
+        /// that homes to 1;1 inside a region is told it is at the region's absolute row, and will
+        /// place everything that follows relative to the wrong origin.
+        ///
+        /// This was already wrong for plain CPR before DECXCPR existed; both are answered from
+        /// here so the two can never disagree. Columns are unaffected because left/right margins
+        /// (DECLRMM) are not implemented, so the horizontal origin never moves.
+        /// </remarks>
+        private int ReportedCursorRow()
+        {
+            int row = _buffer.CursorRow;
+            if (_buffer.Modes.IsOriginMode)
+            {
+                row -= _buffer.ScrollTop;
+            }
+
+            return Math.Max(1, row + 1);
         }
 
         private int ClampRowForMode(int row)
