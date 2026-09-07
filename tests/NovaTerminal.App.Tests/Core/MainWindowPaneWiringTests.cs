@@ -22,7 +22,15 @@ namespace NovaTerminal.Tests.Core;
 /// throw into "[ERROR] Failed to spawn process", and the session was never created: restoring a
 /// workspace produced a window full of dead panes.
 /// </remarks>
-public sealed class MainWindowPaneWiringTests : IDisposable
+/// <remarks>
+/// The <see cref="TestAppDataRoot"/> class fixture is taken for its lifetime, not its value,
+/// which is why nothing here reads it. Tests in this class close a real <c>MainWindow</c>, and
+/// <c>OnClosing</c> saves the session - so without it the suite overwrites the developer's own
+/// saved session on a local run and leaves a file behind that steers the startup path of every
+/// window built later in the process, which is how #434 reddened main. Scoped per class to match
+/// <c>VerticalTabStripTests</c>, whose remarks explain why per-test roots were rejected.
+/// </remarks>
+public sealed class MainWindowPaneWiringTests : IDisposable, IClassFixture<TestAppDataRoot>
 {
     /// <summary>
     /// Disposes the panes of every window this class asked for, and with them the real shells

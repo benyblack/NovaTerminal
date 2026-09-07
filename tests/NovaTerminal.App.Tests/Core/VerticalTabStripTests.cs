@@ -13,7 +13,19 @@ using Xunit;
 
 namespace NovaTerminal.Tests.Core;
 
-public sealed class VerticalTabStripTests : IDisposable
+/// <remarks>
+/// The <see cref="TestAppDataRoot"/> class fixture is taken for its lifetime, not its value,
+/// which is why nothing here reads it. Tests in this class close a real <c>MainWindow</c>, and
+/// <c>OnClosing</c> saves the session - so without it the suite overwrites the developer's own
+/// saved session on a local run and leaves a file behind that steers the startup path of every
+/// window built later in the process, which is how #434 reddened main. Scoped per class rather
+/// than per test on purpose: a fresh root for every test is stronger isolation but it also makes
+/// every test pay a cold root, and this class has a test that only passes against a warm one
+/// (<c>ApplyTabLayout_ModeSwitch_MarksPreviewDirty</c>, already on the flake allowlist, fails
+/// three runs out of three when run cold - on unmodified main too). A per-class root keeps the
+/// behaviour these tests already had while moving it out of the real profile.
+/// </remarks>
+public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDataRoot>
 {
     /// <summary>
     /// Disposes the panes of every window this class asked for, and with them the real shells

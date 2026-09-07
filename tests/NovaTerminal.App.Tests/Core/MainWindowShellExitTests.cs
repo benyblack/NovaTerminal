@@ -53,7 +53,15 @@ namespace NovaTerminal.Tests.Core;
 /// <c>TabClosePolicyTests</c>), and the declined branch remains uncovered for the modal-deadlock
 /// reason described above.
 /// </remarks>
-public sealed class MainWindowShellExitTests : IDisposable
+/// <remarks>
+/// The <see cref="TestAppDataRoot"/> class fixture is taken for its lifetime, not its value,
+/// which is why nothing here reads it. Tests in this class close a real <c>MainWindow</c>, and
+/// <c>OnClosing</c> saves the session - so without it the suite overwrites the developer's own
+/// saved session on a local run and leaves a file behind that steers the startup path of every
+/// window built later in the process, which is how #434 reddened main. Scoped per class to match
+/// <c>VerticalTabStripTests</c>, whose remarks explain why per-test roots were rejected.
+/// </remarks>
+public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAppDataRoot>
 {
     /// <summary>
     /// Disposes the panes of every window this class asked for, and with them the real shells
