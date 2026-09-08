@@ -1305,6 +1305,245 @@ jobs:
           path: artifacts/publish/${{ matrix.rid }}
 
   # ===========================================================================
+  # AOT regression gate (#443 follow-up). Two jobs: a cheap change detector and a
+  # win-x64 NativeAOT publish that also launches the bundle it produced.
+  #
+  # WHY THIS EXISTS. Releases ship NativeAOT, and the failure mode that produces is
+  # silent: reflection whose target ILC trimmed away throws nothing and logs nothing,
+  # it just renders blank. #443 was the command palette - invisible row text in every
+  # released build, correct in every dev build and every test, because those run JIT
+  # with full metadata. ILC named the bug precisely, by file and line, in a warning
+  # nobody read.
+  #
+  # Nothing in CI could have caught it. `aot_publish` above is
+  # `if: github.event_name == 'workflow_dispatch'`, so no PR and no push to main has
+  # ever built the AOT bundle; and the only gate that launches a real published binary
+  # is the Linux packaging smoke (docker), so no Windows bundle had ever been started
+  # by CI at all.
+  #
+  # WHY NOT JUST RELAX `aot_publish`'s `if:`. That job is a three-OS matrix whose macOS
+  # leg waits synchronously on Apple's notarization queue inside `vpk pack` - hence its
+  # 90-minute timeout. Running that on every PR would be absurd. This job is the narrow
+  # slice worth paying for on a PR: one RID, no packaging, no signing.
+  #
+  # WHAT ACTUALLY FAILS THE BUILD. Not a log scan - `<WarningsAsErrors>IL2026;IL3050</>`
+  # in NovaTerminal.App.csproj, which ILC's own targets forward as `--warnaserr`. The
+  # publish step below therefore fails on a reintroduced reflection binding without this
+  # workflow knowing anything about it, and so does release.yml's publish. This job's
+  # contribution is *when*: on the PR, instead of on the tag.
+  #
+  # WHAT THE SMOKE STEP CAN AND CANNOT CATCH. It catches a bundle that cannot start:
+  # XAML that fails to load, a missing native, a trimmed-away type on the startup path -
+  # a broad class, and one nothing else in CI covers on Windows. It would NOT have
+  # caught #443, because that needed the palette opened. Do not read a green smoke as
+  # "the UI works"; the things that guard #443's actual class are the warning promotion
+  # above and CompiledBindingTests.
+  aot_gate_detect:
+    name: AOT Gate (detect)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      run: ${{ steps.detect.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the diff below needs the PR's merge base, and a pull_request
+          # event's default shallow checkout has no parents fetched - the diff would come
+          # back empty and silently disable the gate. Same reasoning as
+          # linux_packaging_detect, which this job deliberately mirrors.
+          fetch-depth: 0
+
+      # Dependency-free path filter, matching linux_packaging_detect rather than
+      # introducing a third-party action this repo uses nowhere.
+      #
+      # Scoped by DIRECTORY, not by file extension: anything under src/ can change the
+      # bundle, plus the build inputs that decide how it is compiled. The first draft of
+      # this listed extensions (.axaml, .csproj) and excluded .cs, on the argument that a
+      # reflection call in C# is already caught by the Roslyn analyzer on every ordinary
+      # build. That argument is true and still beside the point, and review caught it: it
+      # only covers the WARNING half of this gate. The smoke half - does the bundle start
+      # and build its UI - answers a question no analyzer asks, and a C#-only change is
+      # exactly the common case that was being skipped.
+      #
+      # It was also, in shape, the same mistake as the guard in #443 itself: an allowlist of
+      # a hazard's known spellings catches only the known spellings, and would have gone on
+      # to miss .rs (the native PTY and SSH crates the smoke step exercises), assets, and
+      # anything added later. A directory rule has no such list to keep current.
+      #
+      # The consequence is deliberate: this now runs on nearly every PR. That is the correct
+      # price for the only job that builds and starts the artifact users install, and it runs
+      # in parallel with lanes of comparable length.
+      - name: Detect changes that can affect AOT trimming
+        id: detect
+        # Values reach the script through env, never through `${{ }}` inside `run` - the
+        # rule release.yml documents and linux_packaging_detect follows.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "$EVENT_NAME: always runs the gate."
+            exit 0
+          fi
+          base="$BASE_SHA"
+          echo "Diffing against PR merge base: $base"
+          changed="$(git diff --name-only "$base"...HEAD)"
+          echo "Changed files vs merge base:"
+          echo "$changed"
+          # Here-string, not `echo | grep`: under pipefail a changed-file list bigger than
+          # the pipe buffer makes echo take SIGPIPE, the pipeline non-zero, this `if` false,
+          # and the gate skip itself SILENTLY. Same trap linux_packaging_detect calls out.
+          if grep -qE '^(src/|Directory\.(Build|Packages)\.props$|global\.json$|\.github/workflows/[^/]+\.ya?ml$)' <<<"$changed"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Production sources or build inputs changed - running the AOT gate."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing under src/ or the build inputs changed - skipping the AOT gate."
+          fi
+
+  aot_gate:
+    name: AOT Gate (windows-latest)
+    needs: aot_gate_detect
+    if: needs.aot_gate_detect.outputs.run == 'true'
+    runs-on: windows-latest
+    # NativeAOT's ILC pass plus the MSVC link is the bulk of this; 40 leaves room
+    # without inviting a hung job to sit for an hour.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/*.csproj"
+
+      - name: Restore
+        run: dotnet restore
+
+      # Deliberately the same invocation as release.yml's Publish AOT step and
+      # `aot_publish`'s above, minus the output path - testing a different publish shape
+      # than the one that ships would defeat the point. -p:SkipCliShim=true is required,
+      # not tidy; the long comment on `aot_publish`'s Publish AOT step explains why.
+      #
+      # -p:TrimmerSingleWarn=false so ILC reports every offending call site instead of
+      # one line per assembly. With the warning promotion in NovaTerminal.App.csproj, a
+      # reintroduced reflection binding fails HERE, naming the .axaml line.
+      - name: Publish AOT (win-x64)
+        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r win-x64 --self-contained true -p:PublishAot=true -p:SkipCliShim=true -p:TrimmerSingleWarn=false -o artifacts/publish/win-x64
+
+      # Start the bundle CI has never started. NOVATERM_APPDATA_ROOT points the app at an
+      # empty directory, so this runs from a pristine profile - no settings.json, no
+      # themes, no session to restore. That is deliberately the condition #443 was
+      # reported from ("installed the latest release on a new windows machine"), and it is
+      # the state least covered by tests, which always construct their own settings.
+      #
+      # "The process is alive" alone is weak - a managed startup failure is caught by
+      # Program.cs, which logs it, writes logs/startup_error.txt and rethrows - so the step
+      # asserts four things, each catching a different shape: no startup_error.txt, a live
+      # process, a Build: line proving managed Main got through startup, and a themed
+      # terminal view proving the UI itself came up. The last one is the half that matters
+      # for a trimming break, which typically survives startup and dies when the UI is
+      # constructed.
+      - name: Smoke launch the published bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'nova-smoke-profile'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $env:NOVATERM_APPDATA_ROOT = $root
+          $errorFile = Join-Path $root 'logs/startup_error.txt'
+          $debugLog  = Join-Path $root 'logs/debug.log'
+
+          $exe = Join-Path $PWD 'artifacts/publish/win-x64/NovaTerminal.exe'
+          if (-not (Test-Path $exe)) { throw "The publish produced no NovaTerminal.exe at $exe." }
+
+          $proc = Start-Process -FilePath $exe -PassThru
+          Write-Output "Started pid $($proc.Id); watching for 45s."
+
+          # Poll rather than sleep-then-look, so a fast crash is reported as a crash
+          # instead of waiting out the full window first.
+          $deadline = (Get-Date).AddSeconds(45)
+          while ((Get-Date) -lt $deadline) {
+            if ($proc.HasExited -or (Test-Path $errorFile)) { break }
+            Start-Sleep -Seconds 2
+          }
+
+          # Diagnostics BEFORE the assertions: whatever the outcome, the log is what a
+          # human needs, and an assertion that throws first would take it away.
+          foreach ($f in @($debugLog, $errorFile)) {
+            if (Test-Path $f) {
+              Write-Output "---- $f ----"
+              Get-Content $f -Tail 60
+            }
+          }
+
+          if (Test-Path $errorFile) {
+            throw "The bundle failed during startup and wrote startup_error.txt (contents above). Read the exception before retrying: a trimmed-away type or a missing native is a real AOT break and reruns will not clear it. The one environmental cause to rule out is the runner being unable to host a desktop window at all, which shows up as an Avalonia/windowing exception on StartWithClassicDesktopLifetime rather than as anything about types or files."
+          }
+          if ($proc.HasExited) {
+            throw "The bundle exited on its own within 45s (exit code $($proc.ExitCode)) without writing startup_error.txt, so it died outside Program.cs's own try/catch - suspect the native side or the host."
+          }
+          if (-not (Test-Path $debugLog)) {
+            throw "The process is alive but never wrote $debugLog, so managed Main did not reach its startup logging. Suspect a failure before the log sink is wired, in the AOT host itself."
+          }
+
+          # Program.cs logs three lines at startup, and this asserts on the THIRD, not the
+          # first. The first ("NovaTerminal started with args: ...") never reaches the file -
+          # not in CI and not in a local install either - so the obvious assertion is a
+          # guaranteed false failure. That is its own bug, worth fixing separately; it is not
+          # this gate's job to depend on it.
+          #
+          # Build: is the better anchor anyway. It proves managed Main got through its startup
+          # sequence, and it proves DescribeBuild resolved the executable path - the one
+          # remaining IL3000 in the tree is Assembly.Location in that very method, and
+          # `path=...NovaTerminal.exe` appearing here is the standing proof that
+          # Environment.ProcessPath carries it and the warned fallback never runs.
+          if (-not (Select-String -Path $debugLog -Pattern 'Build:.*path=.*NovaTerminal\.exe' -Quiet)) {
+            throw "$debugLog carries no 'Build: ... path=...NovaTerminal.exe' line. Either managed Main did not reach its startup logging, or DescribeBuild could not resolve the executable path - which in an AOT bundle means Environment.ProcessPath came back empty and the Assembly.Location fallback (IL3000) was reached after all."
+          }
+
+          # One assertion beyond "Main ran": the window and a terminal view actually came up.
+          # This is the half that matters for a trimming break, which typically survives startup
+          # and dies when the UI is constructed. Both lines are emitted on a pristine profile -
+          # the default pane is created and themed before anything is interactive.
+          #
+          # If a log-message reword breaks this, re-anchor it to whatever the renderer now says
+          # on first paint. Do not delete the check: without it this step only proves the
+          # process launched, which the palette bug did too.
+          foreach ($pattern in @('\[TerminalView\] Theme applied', '\[RustPtySession\] Spawning')) {
+            if (-not (Select-String -Path $debugLog -Pattern $pattern -Quiet)) {
+              throw "$debugLog has no line matching '$pattern', so the bundle started but its UI never finished coming up. A trimmed-away type reached only while building the terminal view looks exactly like this."
+            }
+          }
+
+          Write-Output "Bundle started from a pristine profile, brought up its UI, and stayed up."
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+
+      # The logs are the whole diagnostic value when this job fails, and a failed GUI
+      # launch on a runner is exactly the case nobody can reproduce locally.
+      - name: Upload smoke logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aot-gate-smoke-logs
+          retention-days: 7
+          path: ${{ runner.temp }}/nova-smoke-profile/logs
+          if-no-files-found: ignore
+
+  # ===========================================================================
   # Linux packaging: dry run + smoke gate (#91 Linux leg). Two callers of the same
   # scripts release.yml uses, so packaging breaks land on a PR rather than on a tag.
   #

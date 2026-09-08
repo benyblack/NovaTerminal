@@ -162,6 +162,40 @@ public class CompiledBindingTests
             $"NativeAOT release. Found: {value ?? "(property absent)"}.");
     }
 
+    /// <summary>
+    /// The publish must fail, not warn, on the two diagnostics that name a release-only
+    /// breakage.
+    /// </summary>
+    /// <remarks>
+    /// This test and <see cref="No_shipped_axaml_uses_reflection_bindings"/> cover different
+    /// halves and neither subsumes the other. The scan catches the XAML spelling of the hazard
+    /// on any ordinary <c>dotnet test</c> run, seconds after someone writes it. This property
+    /// catches everything else - a reflection API in C#, a reflection-based serializer - at the
+    /// only moment the whole program is visible, and it is what makes a release <em>refuse to
+    /// build</em> rather than ship something blank. Dropping it would restore the exact
+    /// condition #443 shipped under: the warning still emitted, in a log nobody reads.
+    /// </remarks>
+    [Fact]
+    public void App_must_fail_the_publish_on_trim_and_aot_warnings()
+    {
+        var csproj = XDocument.Load(Path.Combine(RepoRoot(), "src", "NovaTerminal.App", "NovaTerminal.App.csproj"));
+        var value = csproj.Descendants("WarningsAsErrors").Select(e => e.Value).FirstOrDefault() ?? string.Empty;
+
+        var promoted = value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (var code in new[] { "IL2026", "IL3050" })
+        {
+            Assert.True(
+                promoted.Contains(code, StringComparer.OrdinalIgnoreCase),
+                $"NovaTerminal.App.csproj must promote {code} to an error via <WarningsAsErrors>. It is " +
+                "what makes `dotnet publish -p:PublishAot=true` refuse to produce a bundle whose " +
+                "reflection has been trimmed away - a failure that is silent in the installed app and " +
+                "invisible in every dev build and test. ILC's targets forward this property as " +
+                $"--warnaserr, so it covers the XamlX-generated IL that no Roslyn analyzer sees. Found: " +
+                $"\"{value}\".");
+        }
+    }
+
     [Fact]
     public void No_shipped_axaml_uses_reflection_bindings()
     {

@@ -8,6 +8,31 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <PublishAot>true</PublishAot>
     <StripSymbols>true</StripSymbols>
+    <!-- The two warnings that name a breakage which is invisible everywhere except an
+         installed release, promoted to errors so a publish cannot produce one.
+
+         IL2026 (trim) and IL3050 (AOT) fire on members annotated
+         RequiresUnreferencedCode / RequiresDynamicCode - reflection whose target ILC has
+         already trimmed. The failure they predict is silent: no exception and no log line,
+         just a control that renders blank, or a serializer that returns nothing, in the
+         shipped bundle while behaving perfectly in every dev build and every test, because
+         those run JIT with full metadata. #443 was exactly that - the command palette's rows
+         were invisible in every released build for as long as the warning sat in the release
+         log unread.
+
+         Not merely `TreatWarningsAsErrors`: that is deliberately off repo-wide (see
+         Directory.Build.props) and this is a targeted exception, not a reversal of it.
+         `$(WarningsAsErrors)` is the property ILC's own targets forward as
+         its `warnaserr` switch (Microsoft.NETCore.Native.targets), so this covers BOTH halves
+         of the signal: the Roslyn analyzers, which see annotated calls in C#, and ILC's
+         whole-program pass, which is the only thing that sees a reflection binding in
+         XamlX-generated IL. The palette bug produced no Roslyn warning at all - so a
+         C#-only gate would have missed it entirely.
+
+         If a future call genuinely needs a reflection API, do not widen this list: annotate
+         the call site with [UnconditionalSuppressMessage] and a justification, so the
+         decision is reviewable where it is made. CompiledBindingTests pins this property. -->
+    <WarningsAsErrors>IL2026;IL3050</WarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
