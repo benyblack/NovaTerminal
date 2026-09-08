@@ -386,6 +386,48 @@ public class PaneRemoteShellIntegrationTests
     }
 
     /// <summary>
+    /// With shell integration turned off, an instrumented remote's <c>133;B</c> does not make the
+    /// grid readable.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Codex P2 on #448. The parser writes the command-input window for every session that emits
+    /// marks - the callbacks are wired unconditionally, because they also feed the agent status
+    /// machine and the overlay anchor, neither of which this switch governs. Reading that window
+    /// straight off the buffer therefore handed grid-backed queries and Enter capture to a user who
+    /// had opted out, where previously the un-armed tracker meant the controller's gate never opened
+    /// at all.
+    /// </para>
+    /// <para>
+    /// The setting is the user's "do not participate in the OSC 133 contract" control, and a remote
+    /// host is the one place they cannot simply uninstall the emitter instead - so the App boundary
+    /// combines the window with <c>IsShellIntegrationConsumptionEnabled</c>, which is the same thing
+    /// the integrated-session latch and the <c>133;C</c> payload already do.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task WithShellIntegrationOff_AnInstrumentedRemoteDoesNotOpenTheGridToQueries()
+    {
+        using var fixture = await Fixture.CreateAsync(ConnectionType.SSH, shellIntegrationEnabled: false);
+        fixture.Pane.ArmRemoteShellIntegrationTracker();
+        fixture.Pane.CreateAndWireParser();
+
+        // The remote emits a perfectly good mark stream regardless of our setting, so the parser
+        // opens the window on the buffer either way.
+        await fixture.PromptAsync("git status");
+
+        // Enter is what makes the consequence observable, and it is also what builds Command Assist
+        // in the first place - asserting on the gated read before anything has initialized the
+        // controller would pass for the wrong reason.
+        fixture.PressEnter();
+        await fixture.BareAcceptAsync();
+        await fixture.FinishAsync(exitCode: 0, durationMs: 10);
+
+        Assert.Null(fixture.Pane.TryReadGatedAssistQuerySnapshotForTest());
+        Assert.True(await fixture.NothingWasCapturedAsync());
+    }
+
+    /// <summary>
     /// The whole parser-to-capture path with no <c>await</c> anywhere: a command submitted in the
     /// same synchronous burst as the prompt that invited it is still captured.
     /// </summary>

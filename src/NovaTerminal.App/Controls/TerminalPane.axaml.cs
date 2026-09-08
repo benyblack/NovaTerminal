@@ -1257,9 +1257,17 @@ namespace NovaTerminal.Controls
 
                 // The lifecycle half of the same pair, and it has to come from the same place the
                 // mark does or the two can disagree - which is exactly what #448 cost. The buffer
-                // owns both and the parser applies both in one statement block, so this controller
-                // reads the window rather than keeping its own opinion of it.
-                commandInputGateProbe: () => Buffer?.IsAcceptingCommandInput ?? false,
+                // owns both and the parser publishes both in one step, so this controller reads the
+                // window rather than keeping its own opinion of it.
+                //
+                // Combined with the consumption switch, which is the third path that needs it
+                // (Codex P2 on #448). The parser writes the window for every session that emits
+                // marks, tracker or no tracker, so without this an instrumented remote host would
+                // hand grid-backed queries and Enter capture to a user who had turned shell
+                // integration off - and a remote host is exactly where they cannot uninstall the
+                // emitter instead.
+                commandInputGateProbe: () =>
+                    IsShellIntegrationConsumptionEnabled && (Buffer?.IsAcceptingCommandInput ?? false),
 
                 // The other seam the controller cannot see for itself: whether the overlay it believes
                 // is up is actually on screen. This pane hides it (no layout) and dims it (placement
@@ -2519,10 +2527,10 @@ namespace NovaTerminal.Controls
         /// settings object yet is treated as enabled, which is what the arming paths do).
         /// </summary>
         /// <remarks>
-        /// Consulted by the two consumption paths that hang off the raw parser callbacks rather than
-        /// off the tracker - the integrated-session latch and the <c>133;C</c> payload - because
-        /// those callbacks are wired unconditionally and would otherwise keep consuming remote marks
-        /// with the setting off. The callbacks themselves stay wired: they also feed the agent status
+        /// Consulted by the three consumption paths that hang off the raw parser callbacks rather
+        /// than off the tracker - the integrated-session latch, the <c>133;C</c> payload, and the
+        /// command-input window the grid read is gated on - because those callbacks are wired
+        /// unconditionally and would otherwise keep consuming remote marks with the setting off. The callbacks themselves stay wired: they also feed the agent status
         /// machine and the overlay anchor, neither of which this switch governs.
         /// </remarks>
         private bool IsShellIntegrationConsumptionEnabled =>
@@ -3204,9 +3212,11 @@ namespace NovaTerminal.Controls
                 // a resize triggers rather than waiting to be replaced; see
                 // TerminalBuffer.CommandStartMark, which is where this now lives.
                 NoteShellIntegrationMarkObserved();
-                LatestCommandStartMark = mark;
 
-
+                // The mark is not written here any more: AnsiParser publishes it into the buffer
+                // together with the command-input window, before this callback runs, so the pair can
+                // never be observed half-updated (Codex P2 on #448). LatestCommandStartMark remains
+                // as the pane's reader of it.
                 _shellLifecycleTracker?.HandleCommandStarted(new ShellMarkPosition(
                     Row: mark.Row,
                     Column: mark.Column,

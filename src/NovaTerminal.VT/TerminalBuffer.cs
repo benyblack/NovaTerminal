@@ -217,24 +217,39 @@ namespace NovaTerminal.VT
             get { lock (_trackedMarkGate) { return _isAcceptingCommandInput; } }
         }
 
-        /// <summary><c>OSC 133;B</c>: the prompt finished printing and the line editor is the user's.</summary>
+        /// <summary>
+        /// <c>OSC 133;B</c>: the prompt finished printing and the line editor is the user's. Publishes
+        /// the new mark and opens the window as one step.
+        /// </summary>
         /// <remarks>
-        /// Refused while the alt screen is up, so the invariant "the gate is never open during an
-        /// alt screen" holds whichever order the two facts arrive in: a full-screen TUI drawing its
-        /// own prompt may legally emit <c>133;B</c>, and that must not open a window onto the TUI's
-        /// grid. Re-opening an already-open gate is idempotent by design - prompt frameworks repaint
+        /// <para>
+        /// One step, under one lock, because the pair has to become visible together (Codex P2 on
+        /// #448). A <c>B</c> that follows <c>C</c> with no intervening <c>D</c> arrives while the
+        /// previous command's mark is still live - deliberately, since the mark survives <c>C</c> -
+        /// so opening the window first and replacing the mark afterwards leaves an instant where a
+        /// reader sees an open window pointing at the <em>previous</em> command's mark. That does not
+        /// lose a capture, it fabricates one: the text read back is the last command's line or its
+        /// output, recorded as the command the user just submitted. Recording no command is
+        /// recoverable; recording a command the user never ran is not.
+        /// </para>
+        /// <para>
+        /// The mark is published even on the alt screen - consumers refuse it on other grounds and it
+        /// is what the reflow re-anchors - but the window is not: a full-screen TUI drawing its own
+        /// prompt may legally emit <c>133;B</c>, and that must not open a window onto the TUI's grid.
+        /// Re-opening an already-open window is idempotent by design, since prompt frameworks repaint
         /// constantly and every repaint carries the mark.
+        /// </para>
         /// </remarks>
-        public void OpenCommandInputWindow()
+        public void BeginCommandInput(ShellIntegrationMark mark)
         {
             lock (_trackedMarkGate)
             {
-                if (_isAltScreen)
-                {
-                    return;
-                }
+                _commandStartMark = mark;
 
-                _isAcceptingCommandInput = true;
+                if (!_isAltScreen)
+                {
+                    _isAcceptingCommandInput = true;
+                }
             }
         }
 

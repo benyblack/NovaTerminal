@@ -31,13 +31,7 @@ public class Osc133CommandInputWindowTests
     private static (AnsiParser Parser, TerminalBuffer Buffer) Make(int cols = 40, int rows = 5)
     {
         var buffer = new TerminalBuffer(cols, rows);
-        var parser = new AnsiParser(buffer);
-
-        // The window is written to the buffer by the parser; the mark is handed to a subscriber and
-        // written by the host (TerminalPane's OnCommandStarted). Wiring it the way the App does is
-        // what lets the "mark survives C, window does not" asymmetry be asserted here at all.
-        parser.OnCommandStarted = mark => buffer.CommandStartMark = mark;
-        return (parser, buffer);
+        return (new AnsiParser(buffer), buffer);
     }
 
     [Fact]
@@ -161,6 +155,51 @@ public class Osc133CommandInputWindowTests
         parser.Process("\x1b[?1049l");
 
         Assert.False(buffer.IsAcceptingCommandInput);
+    }
+
+    /// <summary>
+    /// Both halves are already published when the first subscriber runs.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Codex P2 on #448, and the sharper half of the bug. The window used to be opened here while
+    /// the mark was written by a subscriber (<c>TerminalPane.OnCommandStarted</c>), so for the length
+    /// of that callback chain a reader could see an open window pointing at the mark of the
+    /// <em>previous</em> command - which survives <c>C</c> on purpose. That does not lose a capture,
+    /// it fabricates one: the text read back is the last command's line or its output, recorded as
+    /// the command the user just submitted. Recording no command is recoverable; recording a command
+    /// the user never ran is not.
+    /// </para>
+    /// <para>
+    /// Asserted from inside the subscriber, which is the earliest an outside observer can look, and
+    /// against a <c>B</c> that follows <c>C</c> with no <c>D</c> - the shape that leaves a stale mark
+    /// live to be caught with.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ByTheTimeASubscriberRuns_TheNewMarkAndTheOpenWindowAreBothVisible()
+    {
+        var (parser, buffer) = Make();
+        parser.Process(PromptStart + "user@host:~$ " + PromptEnd + "first");
+        parser.Process(CommandAccepted);
+
+        ShellIntegrationMark? staleMark = buffer.CommandStartMark;
+        Assert.NotNull(staleMark);
+
+        ShellIntegrationMark? seenMark = null;
+        bool seenWindowOpen = false;
+        parser.OnCommandStarted = _ =>
+        {
+            seenMark = buffer.CommandStartMark;
+            seenWindowOpen = buffer.IsAcceptingCommandInput;
+        };
+
+        // A second prompt on the row below, so the new mark cannot coincide with the stale one.
+        parser.Process("\r\n" + PromptStart + "user@host:~$ " + PromptEnd);
+
+        Assert.True(seenWindowOpen);
+        Assert.NotNull(seenMark);
+        Assert.NotEqual(staleMark!.Value.AbsoluteRow, seenMark!.Value.AbsoluteRow);
     }
 
     /// <summary>A replaced session must not inherit the old one's open window.</summary>

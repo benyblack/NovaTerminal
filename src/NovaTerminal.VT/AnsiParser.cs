@@ -2295,13 +2295,16 @@ namespace NovaTerminal.VT
                 }
                 else if (string.Equals(marker, "B", StringComparison.Ordinal))
                 {
-                    // The command-input window and the mark are one fact in two parts, so they move
-                    // together, here, before any subscriber runs. Splitting them is what #448 cost:
-                    // the mark was written by the parser while the gate was written a queue hop
-                    // later, and a consumer reading both at once got a fresh mark with a stale gate,
-                    // refused the grid read, and dropped a submitted command from history.
-                    _buffer.OpenCommandInputWindow();
-                    OnCommandStarted?.Invoke(CaptureCursorMark());
+                    // The command-input window and the mark are one fact in two parts, so they are
+                    // published together, here, under the buffer's tracked-mark lock and before any
+                    // subscriber runs. Splitting them is what #448 cost twice over: first the window
+                    // lagged the mark by a queue hop and a submitted command was dropped from
+                    // history; then, with the window moved here but the mark still written by a
+                    // subscriber, the window briefly pointed at the *previous* command's mark - which
+                    // fabricates a capture rather than losing one.
+                    ShellIntegrationMark mark = CaptureCursorMark();
+                    _buffer.BeginCommandInput(mark);
+                    OnCommandStarted?.Invoke(mark);
                 }
                 else if (string.Equals(marker, "C", StringComparison.Ordinal))
                 {
