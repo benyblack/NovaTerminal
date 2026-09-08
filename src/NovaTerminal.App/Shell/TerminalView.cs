@@ -958,6 +958,20 @@ namespace NovaTerminal.Shell
                             _buffer.Resize(cols, rows);
                             ResetMouseMotionTracking(); // Issue #269: grid reflowed, cell coords are stale.
                             OnResize?.Invoke(cols, rows);
+
+                            // The third place a dispatch happens, and the one easiest to miss:
+                            // a font change re-grids the buffer and the PTY straight from the
+                            // new metrics, bypassing the throttle entirely. Leaving it
+                            // unrecorded would make the field describe a grid that had since
+                            // been superseded, which is the same defect this change is about.
+                            //
+                            // Note this path derives its own grid rather than using
+                            // TryComputeGrid, so it does not subtract the padding the draw
+                            // operation reserves and can land a column wider than the layout
+                            // path would. That predates this change and is left alone here;
+                            // recording what it actually dispatched is what keeps the field
+                            // honest either way.
+                            RecordDispatchedGrid(cols, rows);
                         }
                     }
                 }
@@ -1548,9 +1562,13 @@ namespace NovaTerminal.Shell
         public event Action<int, int>? OnResize;
         private bool _isReady;
 
-        // Discrete resize: track last sent dimensions to avoid redundant PTY resizes
-        private int _lastSentCols = 0;
-        private int _lastSentRows = 0;
+        // Discrete resize: the grid the buffer and the PTY were last actually told about, so a
+        // redundant dispatch can be skipped. Written where the dispatch happens and nowhere else
+        // (#432): recording a grid at the moment it was *computed* meant a dispatch cancelled
+        // before the throttle ran still counted as sent, and the buffer was then described as
+        // being on a grid it had never been given.
+        private int _lastDispatchedCols = 0;
+        private int _lastDispatchedRows = 0;
 
         // Throttle resize: limit how often we send resize to PTY (interval-based, not debounce)
         private DateTime _lastPtyResizeTime = DateTime.MinValue;
@@ -1558,6 +1576,32 @@ namespace NovaTerminal.Shell
         private int _pendingCols = 0;
         private int _pendingRows = 0;
         private DateTime _pendingResizeStartedAt = DateTime.MinValue;
+
+        /// <summary>
+        /// Overrides the throttle interval check for a test: <c>false</c> forces the next dispatch
+        /// onto the timer, null defers to the clock.
+        /// </summary>
+        /// <remarks>
+        /// A test about a deferred dispatch has to be certain the dispatch really was deferred,
+        /// and that is decided by a wall-clock comparison. A seam that only nudged the timestamp
+        /// would still be racing it - a worker that stalled for 60ms between arranging the setup
+        /// and pumping the dispatcher would take the other branch and fail on its own scheduling.
+        /// Overriding the decision rather than the clock removes the race instead of narrowing it.
+        /// Both branches remain real code; this only chooses which one runs.
+        /// </remarks>
+        private bool? _throttleElapsedForTest;
+
+        /// <summary>Forces the next dispatch onto the throttle timer rather than the inline path.</summary>
+        internal void HoldResizeThrottleForTest() => _throttleElapsedForTest = false;
+
+        /// <summary>Whether a resize has been computed and is still waiting on the throttle.</summary>
+        internal bool ResizeDispatchPendingForTest => _resizeThrottleTimer?.IsEnabled == true;
+
+        /// <summary>The grid the buffer and the PTY were last actually told about.</summary>
+        internal (int Cols, int Rows) LastDispatchedGridForTest => (_lastDispatchedCols, _lastDispatchedRows);
+
+        /// <summary>The grid a queued dispatch will send when it runs.</summary>
+        internal (int Cols, int Rows) PendingGridForTest => (_pendingCols, _pendingRows);
 
         private void StartAutoScroll(int direction)
         {
@@ -1741,15 +1785,16 @@ namespace NovaTerminal.Shell
                         return;
                     }
 
-                    // DISCRETE RESIZE: Only trigger actual resize when cell dimensions change
-                    bool dimensionsChanged = (cols != _lastSentCols || rows != _lastSentRows);
+                    // The grid the view is now drawing. Recorded unconditionally, even when no
+                    // dispatch is needed, so that a dispatch already waiting on the throttle sends
+                    // the size the view actually ended up at rather than the one that armed it -
+                    // a resize that goes 80 -> 70 -> 80 inside one 60ms window would otherwise
+                    // leave 70 queued behind a view that is back at 80.
+                    _pendingCols = cols;
+                    _pendingRows = rows;
 
-                    if (dimensionsChanged)
-                    {
-                        // Update tracking
-                        _lastSentCols = cols;
-                        _lastSentRows = rows;
-                    }
+                    // DISCRETE RESIZE: Only trigger actual resize when cell dimensions change
+                    bool dimensionsChanged = (cols != _lastDispatchedCols || rows != _lastDispatchedRows);
 
                     if (!_isReady)
                     {
@@ -1760,13 +1805,15 @@ namespace NovaTerminal.Shell
 
                         // Also trigger initial PTY resize to sync with layout
                         OnResize?.Invoke(cols, rows);
+
+                        // This path dispatches inline rather than through the throttle, so it
+                        // records the dispatch itself.
+                        RecordDispatchedGrid(cols, rows);
                     }
 
                     if (dimensionsChanged)
                     {
                         // STRICT INTERVAL THROTTLE: Limit resize dispatch to 60ms
-                        _pendingCols = cols;
-                        _pendingRows = rows;
                         var now = DateTime.UtcNow;
                         if (_pendingResizeStartedAt == DateTime.MinValue)
                         {
@@ -1782,9 +1829,10 @@ namespace NovaTerminal.Shell
                             _resizeThrottleTimer.Tick += OnResizeThrottleTick;
                         }
 
-                        var elapsed = (now - _lastPtyResizeTime).TotalMilliseconds;
+                        bool intervalElapsed =
+                            _throttleElapsedForTest ?? ((now - _lastPtyResizeTime).TotalMilliseconds >= 60);
 
-                        if (elapsed >= 60 && !_resizeThrottleTimer.IsEnabled)
+                        if (intervalElapsed && !_resizeThrottleTimer.IsEnabled)
                         {
                             // Enough time passed and no pending timer - send immediately
                             SendThrottledResize();
@@ -1803,6 +1851,22 @@ namespace NovaTerminal.Shell
         }
 
 
+        /// <summary>
+        /// Records the grid just handed to the buffer and the PTY.
+        /// </summary>
+        /// <remarks>
+        /// One method rather than two assignments at each of the three dispatch sites, because
+        /// the sites are easy to miss: the font branch of ApplySettings was overlooked in the
+        /// first draft of this change, and an unrecorded dispatch there would have left the
+        /// field describing a grid that had since been superseded. A fourth site added later
+        /// gets the whole of the bookkeeping or none of it, not half.
+        /// </remarks>
+        private void RecordDispatchedGrid(int cols, int rows)
+        {
+            _lastDispatchedCols = cols;
+            _lastDispatchedRows = rows;
+        }
+
         private void SendThrottledResize()
         {
             try
@@ -1815,6 +1879,11 @@ namespace NovaTerminal.Shell
                     // THEN notify PTY (triggers SIGWINCH, new output uses new size)
                     // This prevents race where PTY sends data for new dimensions while buffer is mid-reflow
                     _buffer.Resize(_pendingCols, _pendingRows);
+
+                    // Recorded here, where the dispatch actually happens, and not where the grid
+                    // was computed - see the field declarations and #432.
+                    RecordDispatchedGrid(_pendingCols, _pendingRows);
+
                     ResetMouseMotionTracking(); // Issue #269: grid reflowed, cell coords are stale.
                     _rowCache.MaxEntries = Math.Max(_pendingRows * 3, 50);
                     _rowCache.RequestClear();
