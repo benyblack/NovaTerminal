@@ -195,7 +195,33 @@ namespace NovaTerminal.Shell
                         // TerminalPane.OnKeyDown, which owns the reconnect-on-Enter logic.
                         return false;
                     }
-                    SendUserInput("\r");
+                    // Two phases around the carriage return, and which side each lands on is
+                    // load-bearing (Codex P1 and P2 on #448).
+                    //
+                    // EnterObserving must precede the CR. It is where the command line is read out
+                    // of the grid, and that read is only truthful while the line is still on screen:
+                    // the moment the CR reaches the PTY the shell may repaint over it, and - since
+                    // the OSC 133 command-input window closes synchronously on the parse thread - a
+                    // fast shell answering with a bare 133;C can shut the window before this method's
+                    // next statement runs, at which point the read is refused and the command is
+                    // lost from history silently. Cost is one grid read under the buffer's read lock.
+                    //
+                    // EnterObserved must NOT. It is where history persistence starts, and
+                    // JsonlHistoryStore.AppendAsync does redaction, migration checks, directory
+                    // creation and a file open synchronously before its first incomplete await.
+                    // Slow storage has no business sitting between a keypress and the shell.
+                    //
+                    // finally, so a throwing observer cannot swallow the user's Enter: the keystroke
+                    // reaches the shell either way, and the exception still propagates behind it.
+                    try
+                    {
+                        EnterObserving?.Invoke();
+                    }
+                    finally
+                    {
+                        SendUserInput("\r");
+                    }
+
                     EnterObserved?.Invoke();
                     return true;
                 case Key.Back:
@@ -518,6 +544,15 @@ namespace NovaTerminal.Shell
             !string.IsNullOrEmpty(toastMessage);
         public event Action<string>? TextInputObserved;
         public event Action? BackspaceObserved;
+        /// <summary>
+        /// Enter, before the carriage return reaches the PTY: the grid still holds the command line
+        /// exactly as the user submitted it. For reads only - see the <c>Key.Enter</c> case.
+        /// </summary>
+        public event Action? EnterObserving;
+
+        /// <summary>
+        /// Enter, after the carriage return has gone. For work that must not delay the keystroke.
+        /// </summary>
         public event Action? EnterObserved;
         public event Action<string>? PasteObserved;
 

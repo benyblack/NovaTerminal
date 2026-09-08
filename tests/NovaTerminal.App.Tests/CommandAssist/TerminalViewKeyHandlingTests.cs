@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System;
 using NovaTerminal.Shell;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -25,6 +27,71 @@ public sealed class TerminalViewKeyHandlingTests
         {
             OnLostFocus(new FocusChangedEventArgs(InputElement.LostFocusEvent));
         }
+    }
+
+    /// <summary>
+    /// Enter is two phases either side of the carriage return, and the sequence is the contract.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Codex P1 and P2 on #448. <c>EnterObserving</c> is where the pane reads the command line out
+    /// of the grid, and that read is only truthful while the line is still on screen - sending the
+    /// CR first handed the shell the chance to repaint over it, or, once the OSC 133 command-input
+    /// window began closing synchronously on the parse thread, to shut the window with a bare
+    /// <c>133;C</c> and make the read refuse outright. Either way the command vanishes from history
+    /// with nothing logged.
+    /// </para>
+    /// <para>
+    /// <c>EnterObserved</c> is where persistence starts, and it has to be on the far side:
+    /// <c>JsonlHistoryStore.AppendAsync</c> does redaction, migration checks, directory creation and
+    /// a file open synchronously before its first incomplete await, and slow storage has no business
+    /// sitting between a keypress and the shell.
+    /// </para>
+    /// <para>
+    /// Ordering, not timing: the assertion is on the sequence the three calls actually happened in,
+    /// so there is nothing here for a loaded machine to change its mind about.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public void HandleKeyDownCore_OnEnter_ReadsTheGridBeforeTheCarriageReturnAndPersistsAfterIt()
+    {
+        var order = new List<string>();
+        var session = new Mock<ITerminalSession>();
+        session.SetupGet(x => x.IsProcessRunning).Returns(true);
+        session.Setup(x => x.SendInput("\r")).Callback(() => order.Add("carriage-return"));
+
+        var view = new TerminalView();
+        view.SetSession(session.Object);
+        view.EnterObserving += () => order.Add("grid-read");
+        view.EnterObserved += () => order.Add("persist");
+
+        Assert.True(view.HandleKeyDownCore(Key.Enter, KeyModifiers.None));
+
+        Assert.Equal(new[] { "grid-read", "carriage-return", "persist" }, order);
+    }
+
+    /// <summary>
+    /// A throwing pre-CR observer must not swallow the user's Enter.
+    /// </summary>
+    /// <remarks>
+    /// The cost of reading before the CR: an exception in that phase now sits between the keypress
+    /// and the shell. The CR goes out from a <c>finally</c>, so the keystroke lands either way and
+    /// the exception still propagates behind it rather than being quietly eaten.
+    /// </remarks>
+    [AvaloniaFact]
+    public void HandleKeyDownCore_OnEnter_StillSendsTheCarriageReturnWhenThePreSendObserverThrows()
+    {
+        var session = new Mock<ITerminalSession>();
+        session.SetupGet(x => x.IsProcessRunning).Returns(true);
+
+        var view = new TerminalView();
+        view.SetSession(session.Object);
+        view.EnterObserving += () => throw new InvalidOperationException("an observer failed");
+
+        Assert.Throws<InvalidOperationException>(
+            () => view.HandleKeyDownCore(Key.Enter, KeyModifiers.None));
+
+        session.Verify(x => x.SendInput("\r"), Times.Once);
     }
 
     [AvaloniaFact]

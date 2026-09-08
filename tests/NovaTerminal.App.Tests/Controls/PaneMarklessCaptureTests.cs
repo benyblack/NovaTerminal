@@ -600,6 +600,9 @@ public class PaneMarklessCaptureTests
         public void PressEnter()
         {
             PressKey(Key.Enter);
+            // Both phases, in TerminalView's order: the grid read happens before the carriage
+            // return reaches the PTY, the persistence after it (#448).
+            Pane.OnCommandAssistEnterObserving();
             Pane.OnCommandAssistEnterObserved();
         }
 

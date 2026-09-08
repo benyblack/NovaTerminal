@@ -123,6 +123,7 @@ public sealed class CommandAssistController : IDisposable
         CommandAssistModeRouter? modeRouter,
         CommandAssistResultBuilder? resultBuilder,
         Func<AssistQuerySnapshot?>? queryProvider = null,
+        Func<bool>? commandInputGateProbe = null,
         Func<bool>? renderedSurfaceProbe = null,
         Action<Action>? dispatch = null,
         TimeSpan? passiveRefreshDebounce = null,
@@ -160,6 +161,15 @@ public sealed class CommandAssistController : IDisposable
             InsertionAvailableProbe = () => _isInsertionAvailable && SelectedRowCanBeInserted()
         };
         _dispatch = dispatch ?? (action => action());
+
+        // The gate the grid read is legal under. Defaults to closed for the same reason
+        // queryProvider defaults to "no truth available": a host with no terminal buffer has no
+        // lifecycle to report, and degraded is the honest answer.
+        if (commandInputGateProbe != null)
+        {
+            _context.SetCommandInputGateProbe(commandInputGateProbe);
+        }
+
         _capturePipeline = new CapturePipeline(historyStore, secretsFilter, _context);
         _suggestionOrchestrator = new SuggestionOrchestrator(
             historyStore,
@@ -1102,18 +1112,17 @@ public sealed class CommandAssistController : IDisposable
     /// </remarks>
     public async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
     {
+        // No lifecycle gate here any more. B/C/D move TerminalBuffer.IsAcceptingCommandInput
+        // synchronously on the parse thread, beside the 133;B mark it pairs with; see
+        // AssistSessionContext.SetCommandInputGateProbe for why this object is the wrong owner.
+        // What is left is the work that genuinely belongs on the pane's serialized dispatcher.
         switch (shellEvent.Type)
         {
             case ShellIntegrationEventType.CommandStarted:
-                _context.OpenCommandInputWindow();
                 _state.BeginCommandLine();
                 break;
             case ShellIntegrationEventType.CommandAccepted:
-                _context.CloseCommandInputWindow();
                 DispatchSurfaceWrite(ResetSubmissionState);
-                break;
-            case ShellIntegrationEventType.CommandFinished:
-                _context.CloseCommandInputWindow();
                 break;
         }
 

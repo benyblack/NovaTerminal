@@ -35,6 +35,8 @@ public class PaneRemoteShellIntegrationTests
 {
     private const string PromptStart = "\x1b]133;A\x07";
     private const string PromptEnd = "\x1b]133;B\x07";
+    private const string BareAccept = "\x1b]133;C\x07";
+    private const string Finished = "\x1b]133;D;0;10\x07";
 
     // ---- arming ------------------------------------------------------------------------------
 
@@ -383,6 +385,101 @@ public class PaneRemoteShellIntegrationTests
         Assert.All(entries, e => Assert.Equal(CommandCaptureSource.Heuristic, e.Source));
     }
 
+    /// <summary>
+    /// With shell integration turned off, an instrumented remote's <c>133;B</c> does not make the
+    /// grid readable.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Codex P2 on #448. The parser writes the command-input window for every session that emits
+    /// marks - the callbacks are wired unconditionally, because they also feed the agent status
+    /// machine and the overlay anchor, neither of which this switch governs. Reading that window
+    /// straight off the buffer therefore handed grid-backed queries and Enter capture to a user who
+    /// had opted out, where previously the un-armed tracker meant the controller's gate never opened
+    /// at all.
+    /// </para>
+    /// <para>
+    /// The setting is the user's "do not participate in the OSC 133 contract" control, and a remote
+    /// host is the one place they cannot simply uninstall the emitter instead - so the App boundary
+    /// combines the window with <c>IsShellIntegrationConsumptionEnabled</c>, which is the same thing
+    /// the integrated-session latch and the <c>133;C</c> payload already do.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task WithShellIntegrationOff_AnInstrumentedRemoteDoesNotOpenTheGridToQueries()
+    {
+        using var fixture = await Fixture.CreateAsync(ConnectionType.SSH, shellIntegrationEnabled: false);
+        fixture.Pane.ArmRemoteShellIntegrationTracker();
+        fixture.Pane.CreateAndWireParser();
+
+        // The remote emits a perfectly good mark stream regardless of our setting, so the parser
+        // opens the window on the buffer either way.
+        await fixture.PromptAsync("git status");
+
+        // Enter is what makes the consequence observable, and it is also what builds Command Assist
+        // in the first place - asserting on the gated read before anything has initialized the
+        // controller would pass for the wrong reason.
+        fixture.PressEnter();
+        await fixture.BareAcceptAsync();
+        await fixture.FinishAsync(exitCode: 0, durationMs: 10);
+
+        Assert.Null(fixture.Pane.TryReadGatedAssistQuerySnapshotForTest());
+        Assert.True(await fixture.NothingWasCapturedAsync());
+    }
+
+    /// <summary>
+    /// The whole parser-to-capture path with no <c>await</c> anywhere: a command submitted in the
+    /// same synchronous burst as the prompt that invited it is still captured.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The production shape is an agent-sent or broadcast command, or a pasted line ending in a
+    /// newline - submissions that arrive microseconds after the prompt paints, which is exactly what
+    /// <c>CommandAssistController.HandleShellIntegrationEventAsync</c> already documents <c>C</c>
+    /// arriving for. Enter reads the <c>133;B</c> mark and the command-input gate together and
+    /// discards the command outright when they disagree, so the gate has to be as current as the
+    /// mark, and the mark is applied by the parser synchronously.
+    /// </para>
+    /// <para>
+    /// <b>Honest about what this does and does not catch.</b> It passed before the gate was moved
+    /// onto the parse thread, because <c>OrderedAsyncEventDispatcher</c>'s semaphore is uncontended
+    /// here: <c>SemaphoreSlim.WaitAsync</c> returns an already-completed task and the handler runs
+    /// inline on the calling thread anyway. The gate only lands late when a previous event is
+    /// mid-<c>await</c> in the history store, and that is not reachable from this side of the seam
+    /// without a store slow enough to be its own flake. So this test pins the end-to-end path;
+    /// <c>CommandAssistGridTruthTests.TheLifecycleGateOpensWithoutTheAsyncHalfOfTheEventHavingRun</c>
+    /// is what actually bites on the defect, and
+    /// <see cref="OnAnSshPaneEmittingABareC_EveryCommandIsStillCaptured"/> is the test that was
+    /// failing on CI.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task WhenEnterIsObservedBeforeTheEventDispatcherDrains_TheCommandIsStillCaptured()
+    {
+        using var fixture = await Fixture.CreateAsync(ConnectionType.SSH);
+        fixture.Pane.ArmRemoteShellIntegrationTracker();
+        fixture.Pane.CreateAndWireParser();
+
+        // Both rounds with no await anywhere, which is what makes this deterministic. An idle
+        // serialized dispatcher runs an enqueued handler inline as far as its first await, so a
+        // lone unsettled prompt would still open the gate in time. What the flake needs is a
+        // dispatcher already busy: round one's D is mid-await inside the history store when round
+        // two's B is enqueued behind it, so the gate is still closed when Enter reads it.
+        fixture.Echo(PromptStart + "user@ubuntu:~$ " + PromptEnd + "whoami");
+        fixture.PressEnter();
+        fixture.Echo(BareAccept);
+        fixture.Echo(Finished);
+
+        fixture.Echo(PromptStart + "user@ubuntu:~$ " + PromptEnd + "hostname");
+        fixture.PressEnter();
+        fixture.Echo(BareAccept);
+        fixture.Echo(Finished);
+
+        IReadOnlyList<CommandHistoryEntry> entries = await fixture.WaitForEntriesAsync(2);
+        Assert.Contains(entries, e => e.CommandText == "whoami");
+        Assert.Contains(entries, e => e.CommandText == "hostname");
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly string _directory;
@@ -499,6 +596,9 @@ public class PaneRemoteShellIntegrationTests
         public void PressEnter()
         {
             Pane.TryHandleCommandAssistKey(Key.Enter, KeyModifiers.None);
+            // Both phases, in TerminalView's order: the grid read happens before the carriage
+            // return reaches the PTY, the persistence after it (#448).
+            Pane.OnCommandAssistEnterObserving();
             Pane.OnCommandAssistEnterObserved();
         }
 

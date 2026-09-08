@@ -2295,10 +2295,24 @@ namespace NovaTerminal.VT
                 }
                 else if (string.Equals(marker, "B", StringComparison.Ordinal))
                 {
-                    OnCommandStarted?.Invoke(CaptureCursorMark());
+                    // The command-input window and the mark are one fact in two parts, so they are
+                    // published together, here, under the buffer's tracked-mark lock and before any
+                    // subscriber runs. Splitting them is what #448 cost twice over: first the window
+                    // lagged the mark by a queue hop and a submitted command was dropped from
+                    // history; then, with the window moved here but the mark still written by a
+                    // subscriber, the window briefly pointed at the *previous* command's mark - which
+                    // fabricates a capture rather than losing one.
+                    ShellIntegrationMark mark = CaptureCursorMark();
+                    _buffer.BeginCommandInput(mark);
+                    OnCommandStarted?.Invoke(mark);
                 }
                 else if (string.Equals(marker, "C", StringComparison.Ordinal))
                 {
+                    // The line has been submitted. The mark deliberately survives C - the input line
+                    // is still on screen at this instant - so closing the window is the only thing
+                    // that stops the cells below it being served as a command line once the output
+                    // starts arriving.
+                    _buffer.CloseCommandInputWindow();
                     OnCommandAccepted?.Invoke(DecodeAcceptedCommandPayload(parts));
                 }
                 else if (string.Equals(marker, "D", StringComparison.Ordinal))
@@ -2316,6 +2330,11 @@ namespace NovaTerminal.VT
                     {
                         durationMs = parsedDuration;
                     }
+
+                    // Closed at D as well as C: a shell can reach D with no intervening C, and
+                    // leaving the window open for a command's whole run is the failure it exists to
+                    // prevent.
+                    _buffer.CloseCommandInputWindow();
 
                     OnCommandFinished?.Invoke(exitCode);
                     OnCommandFinishedDetailed?.Invoke(exitCode, durationMs);

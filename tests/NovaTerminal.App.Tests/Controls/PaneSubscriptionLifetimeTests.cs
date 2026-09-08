@@ -145,9 +145,12 @@ public class PaneSubscriptionLifetimeTests
             "BackspaceObserved=1",
             "CommandAssistAnchorHintChanged=1",
             "DropNotice=1",
-            // 2: the assist Enter accumulator plus the Agent Output markless region capture. Both
-            // construction-time pane-owned handlers; TermView dies with the pane.
-            "EnterObserved=2",
+            // Enter is two events now, either side of the carriage return (#448). Both reads sit
+            // on the pre-CR one - the assist grid read and the Agent Output markless region
+            // capture - and only the assist persistence sits after it. Both construction-time
+            // pane-owned handlers; TermView dies with the pane.
+            "EnterObserved=1",
+            "EnterObserving=2",
             "PasteObserved=1",
             "Ready=1",
             "ScrollStateChanged=1",

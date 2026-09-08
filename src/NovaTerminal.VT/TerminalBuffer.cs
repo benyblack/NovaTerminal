@@ -156,6 +156,7 @@ namespace NovaTerminal.VT
         private readonly object _trackedMarkGate = new();
         private ShellIntegrationMark? _commandStartMark;
         private ShellIntegrationMark? _commandOutputStartMark;
+        private bool _isAcceptingCommandInput;
 
         /// <summary>
         /// The newest <c>OSC 133;B</c> mark (prompt end / start of the user's input), or
@@ -181,13 +182,100 @@ namespace NovaTerminal.VT
             set { lock (_trackedMarkGate) { _commandOutputStartMark = value; } }
         }
 
-        /// <summary>Drops both tracked marks. Used when a session is replaced.</summary>
+        /// <summary>
+        /// Whether the shell is sitting in its line editor waiting for the user: opened by
+        /// <c>OSC 133;B</c>, closed by <c>OSC 133;C</c>, <c>OSC 133;D</c>, an alt-screen switch, or
+        /// a session replacement.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is the other half of <see cref="CommandStartMark"/>, and it lives here for the same
+        /// reason. Whether the cells between the mark and the cursor are a command line the user is
+        /// editing or the output of a command that already ran is a fact about the shell's
+        /// lifecycle, carried only by the OSC 133 stream - so both halves are facts about this
+        /// session's byte stream, and a consumer that reads one without the other gets an answer it
+        /// cannot trust.
+        /// </para>
+        /// <para>
+        /// It used to live on Command Assist's <c>AssistSessionContext</c>, written after a hop onto
+        /// the pane's serialized event dispatcher while the mark was written synchronously by the
+        /// parser. Under a busy dispatcher the two disagreed - a fresh mark, a stale-closed gate -
+        /// and a submitted command was dropped from history outright, silently and permanently
+        /// (#448). Here the parser applies both in the same statement block, so no queue can reorder
+        /// them and no consumer can be handed half of the answer.
+        /// </para>
+        /// <para>
+        /// Not a coordinate, so unlike the marks it needs no reflow re-anchoring: a resize that
+        /// cannot re-place the mark leaves this alone, and the consumer's "no mark" answer is what
+        /// refuses the read. Guarded by <see cref="_trackedMarkGate"/> rather than
+        /// <see cref="Lock"/> for the same reason the marks are - the UI thread reads it on every
+        /// Enter and must not queue behind a parse.
+        /// </para>
+        /// </remarks>
+        public bool IsAcceptingCommandInput
+        {
+            get { lock (_trackedMarkGate) { return _isAcceptingCommandInput; } }
+        }
+
+        /// <summary>
+        /// <c>OSC 133;B</c>: the prompt finished printing and the line editor is the user's. Publishes
+        /// the new mark and opens the window as one step.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// One step, under one lock, because the pair has to become visible together (Codex P2 on
+        /// #448). A <c>B</c> that follows <c>C</c> with no intervening <c>D</c> arrives while the
+        /// previous command's mark is still live - deliberately, since the mark survives <c>C</c> -
+        /// so opening the window first and replacing the mark afterwards leaves an instant where a
+        /// reader sees an open window pointing at the <em>previous</em> command's mark. That does not
+        /// lose a capture, it fabricates one: the text read back is the last command's line or its
+        /// output, recorded as the command the user just submitted. Recording no command is
+        /// recoverable; recording a command the user never ran is not.
+        /// </para>
+        /// <para>
+        /// The mark is published even on the alt screen - consumers refuse it on other grounds and it
+        /// is what the reflow re-anchors - but the window is not: a full-screen TUI drawing its own
+        /// prompt may legally emit <c>133;B</c>, and that must not open a window onto the TUI's grid.
+        /// Re-opening an already-open window is idempotent by design, since prompt frameworks repaint
+        /// constantly and every repaint carries the mark.
+        /// </para>
+        /// </remarks>
+        public void BeginCommandInput(ShellIntegrationMark mark)
+        {
+            lock (_trackedMarkGate)
+            {
+                _commandStartMark = mark;
+
+                if (!_isAltScreen)
+                {
+                    _isAcceptingCommandInput = true;
+                }
+            }
+        }
+
+        /// <summary><c>OSC 133;C</c> / <c>OSC 133;D</c>: the line editor is closed.</summary>
+        /// <remarks>
+        /// <c>D</c> closes it as well as <c>C</c> because a shell can reach <c>D</c> with no
+        /// intervening <c>C</c>, and leaving the gate open for a command's whole run is exactly the
+        /// failure it exists to prevent.
+        /// </remarks>
+        public void CloseCommandInputWindow()
+        {
+            lock (_trackedMarkGate)
+            {
+                _isAcceptingCommandInput = false;
+            }
+        }
+
+        /// <summary>Drops both tracked marks and closes the command-input window. Used when a
+        /// session is replaced.</summary>
         public void ClearTrackedShellMarks()
         {
             lock (_trackedMarkGate)
             {
                 _commandStartMark = null;
                 _commandOutputStartMark = null;
+                _isAcceptingCommandInput = false;
             }
         }
 

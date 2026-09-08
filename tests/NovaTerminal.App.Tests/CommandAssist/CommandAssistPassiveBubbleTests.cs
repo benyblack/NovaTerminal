@@ -1061,6 +1061,7 @@ public sealed class CommandAssistPassiveBubbleTests
             modeRouter: null,
             resultBuilder: null,
             queryProvider: queryProvider ?? grid.Read,
+            commandInputGateProbe: () => grid.IsAcceptingCommandInput,
             renderedSurfaceProbe: null,
             dispatch: dispatch,
             passiveRefreshDebounce: debounce ?? (delay == null ? TimeSpan.Zero : CommandAssistController_DefaultDebounce),
@@ -1158,6 +1159,7 @@ public sealed class CommandAssistPassiveBubbleTests
     {
         private readonly object _gate = new();
         private AssistQuerySnapshot? _snapshot;
+        private bool _acceptingCommandInput;
 
         public AssistQuerySnapshot? Read()
         {
@@ -1165,6 +1167,15 @@ public sealed class CommandAssistPassiveBubbleTests
             {
                 return _snapshot;
             }
+        }
+
+        /// <summary>
+        /// The command-input gate. The terminal owns it alongside the mark since #448, so this
+        /// stand-in owns both halves instead of leaving one to the controller.
+        /// </summary>
+        public bool IsAcceptingCommandInput
+        {
+            get { lock (_gate) { return _acceptingCommandInput; } }
         }
 
         /// <summary>
@@ -1190,9 +1201,22 @@ public sealed class CommandAssistPassiveBubbleTests
         }
 
         /// <summary><c>OSC 133;B</c>: the prompt is printed and the line editor is the user's.</summary>
+        /// <summary><c>OSC 133;B</c> - the prompt finished printing and the line editor is live.</summary>
+        /// <remarks>
+        /// Both halves, in production's order (#448): the gate moves on the terminal first and
+        /// synchronously - TerminalPane's parser callback opens it on the buffer beside the mark
+        /// write - and only then does the event reach the controller, which still owns what belongs
+        /// on the pane's serialized dispatcher (here, the <c>BeginCommandLine</c> that ends per-command
+        /// Escape suppression).
+        /// </remarks>
         public void OpenPrompt(CommandAssistController controller)
         {
             SetLine(string.Empty);
+            lock (_gate)
+            {
+                _acceptingCommandInput = true;
+            }
+
             controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
                 Type: ShellIntegrationEventType.CommandStarted,
                 Timestamp: DateTimeOffset.UtcNow,

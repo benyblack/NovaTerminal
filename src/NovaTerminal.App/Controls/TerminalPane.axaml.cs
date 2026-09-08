@@ -722,6 +722,7 @@ namespace NovaTerminal.Controls
             // the grid cannot serve. See NotifyTypedTextObserved and friends.
             TermView.TextInputObserved += NotifyTypedTextObserved;
             TermView.BackspaceObserved += NotifyBackspaceObserved;
+            TermView.EnterObserving += OnCommandAssistEnterObserving;
             TermView.EnterObserved += OnCommandAssistEnterObserved;
             TermView.PasteObserved += NotifyPasteObserved;
 
@@ -769,7 +770,7 @@ namespace NovaTerminal.Controls
                     SetAgentOutputPanelOpen(AgentOutputToggle.IsChecked ?? false);
                 }
             };
-            TermView.EnterObserved += OnAgentOutputEnterObserved;
+            TermView.EnterObserving += OnAgentOutputEnterObserved;
 
             // Load Settings
             ApplySettings(initialSettings ?? TerminalSettings.Load());
@@ -1253,6 +1254,20 @@ namespace NovaTerminal.Controls
                 // assist assembly's own AssistQuerySnapshot right here, at the one boundary that
                 // can see both types. Everything downstream sees plain data.
                 queryProvider: TryReadAssistQuerySnapshot,
+
+                // The lifecycle half of the same pair, and it has to come from the same place the
+                // mark does or the two can disagree - which is exactly what #448 cost. The buffer
+                // owns both and the parser publishes both in one step, so this controller reads the
+                // window rather than keeping its own opinion of it.
+                //
+                // Combined with the consumption switch, which is the third path that needs it
+                // (Codex P2 on #448). The parser writes the window for every session that emits
+                // marks, tracker or no tracker, so without this an instrumented remote host would
+                // hand grid-backed queries and Enter capture to a user who had turned shell
+                // integration off - and a remote host is exactly where they cannot uninstall the
+                // emitter instead.
+                commandInputGateProbe: () =>
+                    IsShellIntegrationConsumptionEnabled && (Buffer?.IsAcceptingCommandInput ?? false),
 
                 // The other seam the controller cannot see for itself: whether the overlay it believes
                 // is up is actually on screen. This pane hides it (no layout) and dims it (placement
@@ -2235,8 +2250,9 @@ namespace NovaTerminal.Controls
         /// <summary>
         /// Enter observed with shell integration inactive: pin the output-region start from the
         /// cursor, the markless fallback. Without this, sessions without shell integration have
-        /// no region to track at all. Runs after <see cref="OnCommandAssistEnterObserved"/>,
-        /// synchronously on the UI thread, for the same narrow-window reason that method does.
+        /// no region to track at all. Runs after <see cref="OnCommandAssistEnterObserving"/> and,
+        /// like it, before the carriage return reaches the PTY: this records a grid row, and the row
+        /// only means what it says while the line the user submitted is still the one on screen.
         /// </summary>
         private void OnAgentOutputEnterObserved()
         {
@@ -2257,8 +2273,35 @@ namespace NovaTerminal.Controls
         /// widens the window in which the shell has begun repainting over it. This is as close to
         /// the keypress as the pane can get.
         /// </remarks>
-        internal void OnCommandAssistEnterObserved()
+        // What OnCommandAssistEnterObserving read out of the grid, waiting for the post-CR phase to
+        // persist it. Two fields rather than one, because null is a meaningful answer here: "the
+        // line was observed empty" and "there was nothing to observe" are different, and only the
+        // first should reach the pipeline.
+        private string? _pendingEnterSubmission;
+        private bool _hasPendingEnterSubmission;
+
+        /// <summary>
+        /// Enter's grid read, before the carriage return goes to the PTY.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is as close to the keypress as the pane can get, and closer than it used to be:
+        /// <c>TerminalView</c> sent the carriage return first, so the shell had already been handed
+        /// the chance to repaint over the line this reads. Worse, once the OSC 133 command-input
+        /// window began closing synchronously on the parse thread, a bare <c>133;C</c> could shut it
+        /// between the CR and this method - and a refused read here means the command is never
+        /// persisted at all (Codex P1 on #448).
+        /// </para>
+        /// <para>
+        /// Reads only. The persistence it feeds runs in <see cref="OnCommandAssistEnterObserved"/>,
+        /// after the CR, so a slow history store cannot sit between the keypress and the shell.
+        /// </para>
+        /// </remarks>
+        internal void OnCommandAssistEnterObserving()
         {
+            _pendingEnterSubmission = null;
+            _hasPendingEnterSubmission = false;
+
             // The reset is owed even when Command Assist is off or uninitialized: the accumulator
             // is fed from TermView events that fire regardless, and a line left in it would be
             // carried into the next one.
@@ -2278,9 +2321,27 @@ namespace NovaTerminal.Controls
                 ? grid.Text
                 : ReadEchoedMarklessSubmission();
 
-            // After the read, before the await: Enter is both the capture point and the start of
-            // the next line.
+            // After the read: Enter is both the capture point and the start of the next line.
             _marklessSubmission.Reset();
+
+            _pendingEnterSubmission = submitted;
+            _hasPendingEnterSubmission = true;
+        }
+
+        /// <summary>
+        /// Persists what <see cref="OnCommandAssistEnterObserving"/> read, after the carriage return
+        /// has already reached the shell.
+        /// </summary>
+        internal void OnCommandAssistEnterObserved()
+        {
+            if (!_hasPendingEnterSubmission)
+            {
+                return;
+            }
+
+            _hasPendingEnterSubmission = false;
+            string? submitted = _pendingEnterSubmission;
+            _pendingEnterSubmission = null;
 
             _ = HandleCommandAssistEnterObservedAsync(submitted);
         }
@@ -2466,10 +2527,10 @@ namespace NovaTerminal.Controls
         /// settings object yet is treated as enabled, which is what the arming paths do).
         /// </summary>
         /// <remarks>
-        /// Consulted by the two consumption paths that hang off the raw parser callbacks rather than
-        /// off the tracker - the integrated-session latch and the <c>133;C</c> payload - because
-        /// those callbacks are wired unconditionally and would otherwise keep consuming remote marks
-        /// with the setting off. The callbacks themselves stay wired: they also feed the agent status
+        /// Consulted by the three consumption paths that hang off the raw parser callbacks rather
+        /// than off the tracker - the integrated-session latch, the <c>133;C</c> payload, and the
+        /// command-input window the grid read is gated on - because those callbacks are wired
+        /// unconditionally and would otherwise keep consuming remote marks with the setting off. The callbacks themselves stay wired: they also feed the agent status
         /// machine and the overlay anchor, neither of which this switch governs.
         /// </remarks>
         private bool IsShellIntegrationConsumptionEnabled =>
@@ -3096,6 +3157,7 @@ namespace NovaTerminal.Controls
             {
                 NoteShellIntegrationMarkObserved();
 
+
                 // OSC 133;C is the only moment the output region's *start* can be established: the
                 // input line is still on screen and the mark that describes it is still live, so
                 // "the row after the last row of the input" is answerable. One frame later the
@@ -3150,8 +3212,11 @@ namespace NovaTerminal.Controls
                 // a resize triggers rather than waiting to be replaced; see
                 // TerminalBuffer.CommandStartMark, which is where this now lives.
                 NoteShellIntegrationMarkObserved();
-                LatestCommandStartMark = mark;
 
+                // The mark is not written here any more: AnsiParser publishes it into the buffer
+                // together with the command-input window, before this callback runs, so the pair can
+                // never be observed half-updated (Codex P2 on #448). LatestCommandStartMark remains
+                // as the pane's reader of it.
                 _shellLifecycleTracker?.HandleCommandStarted(new ShellMarkPosition(
                     Row: mark.Row,
                     Column: mark.Column,
