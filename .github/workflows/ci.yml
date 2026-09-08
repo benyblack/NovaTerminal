@@ -1438,11 +1438,13 @@ jobs:
       # reported from ("installed the latest release on a new windows machine"), and it is
       # the state least covered by tests, which always construct their own settings.
       #
-      # The assertion is three-part, because "the process is alive" alone is weak: a
-      # managed startup failure is caught by Program.cs, which logs it, writes
-      # logs/startup_error.txt and rethrows. So require the startup log line to prove
-      # managed Main ran, require no startup_error.txt, and require the process to still
-      # be up - each catches a different shape of failure.
+      # "The process is alive" alone is weak - a managed startup failure is caught by
+      # Program.cs, which logs it, writes logs/startup_error.txt and rethrows - so the step
+      # asserts four things, each catching a different shape: no startup_error.txt, a live
+      # process, a Build: line proving managed Main got through startup, and a themed
+      # terminal view proving the UI itself came up. The last one is the half that matters
+      # for a trimming break, which typically survives startup and dies when the UI is
+      # constructed.
       - name: Smoke launch the published bundle
         shell: pwsh
         run: |
@@ -1483,13 +1485,39 @@ jobs:
             throw "The bundle exited on its own within 45s (exit code $($proc.ExitCode)) without writing startup_error.txt, so it died outside Program.cs's own try/catch - suspect the native side or the host."
           }
           if (-not (Test-Path $debugLog)) {
-            throw "The process is alive but never wrote $debugLog, so managed Main did not reach its startup logging. Suspect a failure before TerminalLogger, in the AOT host itself."
-          }
-          if (-not (Select-String -Path $debugLog -Pattern 'NovaTerminal started with args' -Quiet)) {
-            throw "$debugLog exists but carries no startup line; managed Main did not get as far as logging."
+            throw "The process is alive but never wrote $debugLog, so managed Main did not reach its startup logging. Suspect a failure before the log sink is wired, in the AOT host itself."
           }
 
-          Write-Output "Bundle started from a pristine profile and stayed up."
+          # Program.cs logs three lines at startup, and this asserts on the THIRD, not the
+          # first. The first ("NovaTerminal started with args: ...") never reaches the file -
+          # not in CI and not in a local install either - so the obvious assertion is a
+          # guaranteed false failure. That is its own bug, worth fixing separately; it is not
+          # this gate's job to depend on it.
+          #
+          # Build: is the better anchor anyway. It proves managed Main got through its startup
+          # sequence, and it proves DescribeBuild resolved the executable path - the one
+          # remaining IL3000 in the tree is Assembly.Location in that very method, and
+          # `path=...NovaTerminal.exe` appearing here is the standing proof that
+          # Environment.ProcessPath carries it and the warned fallback never runs.
+          if (-not (Select-String -Path $debugLog -Pattern 'Build:.*path=.*NovaTerminal\.exe' -Quiet)) {
+            throw "$debugLog carries no 'Build: ... path=...NovaTerminal.exe' line. Either managed Main did not reach its startup logging, or DescribeBuild could not resolve the executable path - which in an AOT bundle means Environment.ProcessPath came back empty and the Assembly.Location fallback (IL3000) was reached after all."
+          }
+
+          # One assertion beyond "Main ran": the window and a terminal view actually came up.
+          # This is the half that matters for a trimming break, which typically survives startup
+          # and dies when the UI is constructed. Both lines are emitted on a pristine profile -
+          # the default pane is created and themed before anything is interactive.
+          #
+          # If a log-message reword breaks this, re-anchor it to whatever the renderer now says
+          # on first paint. Do not delete the check: without it this step only proves the
+          # process launched, which the palette bug did too.
+          foreach ($pattern in @('\[TerminalView\] Theme applied', '\[RustPtySession\] Spawning')) {
+            if (-not (Select-String -Path $debugLog -Pattern $pattern -Quiet)) {
+              throw "$debugLog has no line matching '$pattern', so the bundle started but its UI never finished coming up. A trimmed-away type reached only while building the terminal view looks exactly like this."
+            }
+          }
+
+          Write-Output "Bundle started from a pristine profile, brought up its UI, and stayed up."
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 
       # The logs are the whole diagnostic value when this job fails, and a failed GUI
