@@ -527,7 +527,7 @@ namespace NovaTerminal.Pty
                 try
                 {
                     PROCESSENTRY32 pe32 = new PROCESSENTRY32();
-                    pe32.dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32));
+                    pe32.dwSize = (uint)Marshal.SizeOf<PROCESSENTRY32>();
 
                     if (Process32First(snapshot, ref pe32))
                     {
