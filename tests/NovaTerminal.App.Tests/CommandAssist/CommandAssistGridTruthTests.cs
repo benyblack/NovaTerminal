@@ -538,11 +538,18 @@ public sealed class CommandAssistGridTruthTests
 
     private sealed class Harness
     {
-        private Harness(CommandAssistController controller, FakeGrid grid, InMemoryHistoryStore history)
+        private readonly TestDispatcher _dispatcher;
+
+        private Harness(
+            CommandAssistController controller,
+            FakeGrid grid,
+            InMemoryHistoryStore history,
+            TestDispatcher dispatcher)
         {
             Controller = controller;
             Grid = grid;
             History = history;
+            _dispatcher = dispatcher;
         }
 
         public CommandAssistController Controller { get; }
@@ -566,6 +573,8 @@ public sealed class CommandAssistGridTruthTests
                 history.Seed(seed);
             }
 
+            var dispatcher = new TestDispatcher();
+
             var controller = new CommandAssistController(
                 history,
                 new SecretsFilter(),
@@ -576,9 +585,13 @@ public sealed class CommandAssistGridTruthTests
                 errorInsightService: null,
                 modeRouter: null,
                 resultBuilder: null,
-                queryProvider: grid == null ? null : grid.Read);
+                queryProvider: grid == null ? null : grid.Read,
 
-            return new Harness(controller, grid ?? new FakeGrid(), history);
+                // The pane's dispatcher, modelled rather than omitted - and that is what makes the
+                // reads below safe. See TestDispatcher.
+                dispatch: dispatcher.Post);
+
+            return new Harness(controller, grid ?? new FakeGrid(), history, dispatcher);
         }
 
         public Task PromptReadyAsync() => EmitAsync(ShellIntegrationEventType.CommandStarted, null, null);
@@ -589,15 +602,16 @@ public sealed class CommandAssistGridTruthTests
         public Task CommandFinishedAsync(int exitCode)
             => EmitAsync(ShellIntegrationEventType.CommandFinished, null, exitCode);
 
-        private Task EmitAsync(ShellIntegrationEventType type, string? commandText, int? exitCode)
+        private async Task EmitAsync(ShellIntegrationEventType type, string? commandText, int? exitCode)
         {
-            return Controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            await Controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
                 Type: type,
                 Timestamp: DateTimeOffset.UtcNow,
                 CommandText: commandText,
                 WorkingDirectory: null,
                 ExitCode: exitCode,
                 Duration: null));
+            _dispatcher.Drain();
         }
 
         /// <summary>
@@ -610,7 +624,11 @@ public sealed class CommandAssistGridTruthTests
         /// the debounce landed. Several tests here assert that nothing appeared, and those are the ones
         /// a too-short settle would pass for the wrong reason.
         /// </remarks>
-        public Task SettleAsync() => Task.Delay(250);
+        public async Task SettleAsync()
+        {
+            await Task.Delay(250);
+            _dispatcher.Drain();
+        }
 
         public Task WaitForQueryAsync(string expected)
             => WaitForConditionAsync(() => Controller.ViewModel.QueryText == expected);
@@ -618,6 +636,7 @@ public sealed class CommandAssistGridTruthTests
         public async Task WaitForConditionAsync(Func<bool> predicate, int timeoutMs = 2000)
         {
             int elapsed = 0;
+            _dispatcher.Drain();
             while (!predicate())
             {
                 if (elapsed >= timeoutMs)
@@ -629,6 +648,65 @@ public sealed class CommandAssistGridTruthTests
 
                 await Task.Delay(10);
                 elapsed += 10;
+                _dispatcher.Drain();
+            }
+        }
+
+        /// <summary>
+        /// The pane dispatcher's stand-in: queues the ranking pass's publish instead of running it
+        /// on whatever thread finished the pass, and hands it to the test thread at the next
+        /// <see cref="WaitForConditionAsync"/>, <see cref="SettleAsync"/> or event emit.
+        /// </summary>
+        /// <remarks>
+        /// Omitting <c>dispatch</c> left the controller on its <c>action => action()</c> default,
+        /// which is not what the App does: <c>TerminalPane</c> passes a dispatch that posts to the
+        /// pane thread, so in production <c>ApplyRefreshOutcome</c> and every selection read are the
+        /// same thread and cannot interleave. Inline meant the publish ran on the pass's threadpool
+        /// thread while the test thread read the results - a race the harness invented rather than
+        /// modelled.
+        ///
+        /// It bit as a rare CI failure in <c>AcceptReplacesTypedQuery_IsTrueOnlyForExplicitHistorySearch</c>,
+        /// whose <c>Suggestions.Count > 0</c> wait is satisfied by the rows already on screen from
+        /// the preceding <c>ToggleAssist</c>: the test walked on into the accept while a Search pass
+        /// was mid-publish, and <c>ApplyRefreshOutcome</c> clears the list before it refills it, so
+        /// an accept landing between the two saw no rows and refused. Under stress the same window
+        /// throws outright, from the check-then-index in <c>GetSelectedSuggestion</c>.
+        ///
+        /// Fixed here rather than by lengthening that one wait, because the race was available to
+        /// every test in this file and a sleep only makes it rarer. Keep the reads on the test
+        /// thread: anything that adds a new await point should drain here too.
+        /// </remarks>
+        private sealed class TestDispatcher
+        {
+            private readonly object _gate = new();
+            private readonly Queue<Action> _pending = new();
+
+            public void Post(Action action)
+            {
+                lock (_gate)
+                {
+                    _pending.Enqueue(action);
+                }
+            }
+
+            /// <summary>Runs everything queued so far on the calling thread.</summary>
+            public void Drain()
+            {
+                while (true)
+                {
+                    Action next;
+                    lock (_gate)
+                    {
+                        if (_pending.Count == 0)
+                        {
+                            return;
+                        }
+
+                        next = _pending.Dequeue();
+                    }
+
+                    next();
+                }
             }
         }
     }
