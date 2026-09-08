@@ -1356,11 +1356,23 @@ jobs:
       # Dependency-free path filter, matching linux_packaging_detect rather than
       # introducing a third-party action this repo uses nowhere.
       #
-      # The trigger list is "anything that can change what ILC sees": XAML (where a
-      # reflection binding is written), any project or props file (trimming settings,
-      # package versions, the warning promotion itself), and the workflows. Deliberately
-      # NOT gated on .cs - a reflection call in C# is caught by the Roslyn analyzer on
-      # every ordinary build, so it needs no publish to surface.
+      # Scoped by DIRECTORY, not by file extension: anything under src/ can change the
+      # bundle, plus the build inputs that decide how it is compiled. The first draft of
+      # this listed extensions (.axaml, .csproj) and excluded .cs, on the argument that a
+      # reflection call in C# is already caught by the Roslyn analyzer on every ordinary
+      # build. That argument is true and still beside the point, and review caught it: it
+      # only covers the WARNING half of this gate. The smoke half - does the bundle start
+      # and build its UI - answers a question no analyzer asks, and a C#-only change is
+      # exactly the common case that was being skipped.
+      #
+      # It was also, in shape, the same mistake as the guard in #443 itself: an allowlist of
+      # a hazard's known spellings catches only the known spellings, and would have gone on
+      # to miss .rs (the native PTY and SSH crates the smoke step exercises), assets, and
+      # anything added later. A directory rule has no such list to keep current.
+      #
+      # The consequence is deliberate: this now runs on nearly every PR. That is the correct
+      # price for the only job that builds and starts the artifact users install, and it runs
+      # in parallel with lanes of comparable length.
       - name: Detect changes that can affect AOT trimming
         id: detect
         # Values reach the script through env, never through `${{ }}` inside `run` - the
@@ -1383,12 +1395,12 @@ jobs:
           # Here-string, not `echo | grep`: under pipefail a changed-file list bigger than
           # the pipe buffer makes echo take SIGPIPE, the pipeline non-zero, this `if` false,
           # and the gate skip itself SILENTLY. Same trap linux_packaging_detect calls out.
-          if grep -qE '(\.axaml$|\.csproj$|^Directory\.(Build|Packages)\.props$|^global\.json$|^\.github/workflows/[^/]+\.ya?ml$)' <<<"$changed"; then
+          if grep -qE '^(src/|Directory\.(Build|Packages)\.props$|global\.json$|\.github/workflows/[^/]+\.ya?ml$)' <<<"$changed"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "XAML, project or workflow files changed - running the AOT gate."
+            echo "Production sources or build inputs changed - running the AOT gate."
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "No XAML/project/workflow changes detected - skipping the AOT gate."
+            echo "Nothing under src/ or the build inputs changed - skipping the AOT gate."
           fi
 
   aot_gate:
