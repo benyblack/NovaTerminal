@@ -569,6 +569,116 @@ jobs:
           RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
         run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true "-p:Version=$RELEASE_VERSION" "-p:InformationalVersion=$RELEASE_VERSION" -o artifacts/publish/${{ matrix.rid }}
 
+      # ---- BLOCKING release gate for the Windows bundle, and deliberately placed here:
+      # ---- everything below (Archive bundle, Upload release asset, vpk pack, Upload
+      # ---- installer) is downstream, so a bundle that cannot start never reaches the
+      # ---- release page or the update feed.
+      #
+      # WHY THIS EXISTS. Until now nothing ever started the Windows bundle. Linux has had a
+      # blocking smoke gate since #91 (packaging/linux/smoke-test.sh, in pristine docker
+      # containers); Windows went compiler -> zip -> release page with no execution in
+      # between. #443 is what that costs: a NativeAOT trimming break renders blank instead
+      # of throwing, so it survives every dev build and every test - all JIT, full metadata -
+      # and ships. ci.yml's AOT Gate now catches that shape pre-merge, but a PR gate cannot
+      # protect a tag: this job publishes with -p:Version, downloads prebuilt native
+      # artifacts it did not compile, and runs on a different commit than any PR did.
+      #
+      # THE NATIVES ARE THE ADDED VALUE OVER ci.yml. `Download Native Artifact` above puts
+      # rusty_pty/rusty_ssh here from a separate job, with SKIP_RUST_NATIVE_BUILD=1 - so this
+      # is the only place that proves the *shipped* combination of managed bundle and
+      # downloaded natives actually loads. The `Spawned ... pid=` assertion below is what
+      # exercises them: no working PTY, no spawn line, red gate.
+      #
+      # NOVATERM_APPDATA_ROOT points the app at an empty directory, so it starts from a
+      # pristine profile - no settings.json, no themes, no session to restore. That is the
+      # state a new install is in, and #443 was reported from exactly there.
+      #
+      # WHAT IT DOES NOT COVER, so nobody reads more into a green run than is there: it
+      # opens no palette, no settings window and no dialog. It proves the bundle starts and
+      # brings up its terminal UI. The command palette's own class of bug is guarded by
+      # WarningsAsErrors=IL2026;IL3050 in NovaTerminal.App.csproj (which makes the publish
+      # step above fail outright) and by CompiledBindingTests.
+      #
+      # IF THIS GOES RED ON A TAG. Do not disable it to get the release out; that reinstates
+      # the exact hole #443 shipped through. Read the log it prints, which distinguishes a
+      # startup exception from a silent exit from a UI that never finished coming up.
+      - name: Smoke launch the Windows bundle (blocking)
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'nova-release-smoke-profile'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $env:NOVATERM_APPDATA_ROOT = $root
+          $errorFile = Join-Path $root 'logs/startup_error.txt'
+          $debugLog  = Join-Path $root 'logs/debug.log'
+
+          $exe = Join-Path $PWD 'artifacts/publish/win-x64/NovaTerminal.exe'
+          if (-not (Test-Path $exe)) { throw "The publish produced no NovaTerminal.exe at $exe." }
+
+          $proc = Start-Process -FilePath $exe -PassThru
+          Write-Output "Started pid $($proc.Id); watching for 45s."
+
+          # Poll rather than sleep-then-look, so a fast crash is reported as a crash instead
+          # of waiting out the full window first.
+          $deadline = (Get-Date).AddSeconds(45)
+          while ((Get-Date) -lt $deadline) {
+            if ($proc.HasExited -or (Test-Path $errorFile)) { break }
+            Start-Sleep -Seconds 2
+          }
+
+          # Diagnostics BEFORE the assertions: on a tag build this log is the whole
+          # diagnosis, and an assertion that throws first would take it away.
+          foreach ($f in @($debugLog, $errorFile)) {
+            if (Test-Path $f) {
+              Write-Output "---- $f ----"
+              Get-Content $f -Tail 60
+            }
+          }
+
+          if (Test-Path $errorFile) {
+            throw "The bundle failed during startup and wrote startup_error.txt (contents above). A trimmed-away type or a native that will not load is a real break in the artifact about to be released - do not retry it away."
+          }
+          if ($proc.HasExited) {
+            throw "The bundle exited on its own within 45s (exit code $($proc.ExitCode)) without writing startup_error.txt, so it died outside Program.cs's own try/catch - suspect the native side or the host."
+          }
+          if (-not (Test-Path $debugLog)) {
+            throw "The process is alive but never wrote $debugLog, so managed Main did not reach its startup logging. Suspect a failure before the log sink is wired, in the AOT host itself."
+          }
+
+          # Asserts on the THIRD line Program.cs logs at startup, not the first: the first
+          # ("NovaTerminal started with args: ...") never reaches the file, on any machine, so
+          # the obvious assertion is a guaranteed false failure. Build: is the better anchor
+          # anyway - it proves managed Main got through startup AND that DescribeBuild
+          # resolved the executable path, the one remaining IL3000 in the tree.
+          if (-not (Select-String -Path $debugLog -Pattern 'Build:.*path=.*NovaTerminal\.exe' -Quiet)) {
+            throw "$debugLog carries no 'Build: ... path=...NovaTerminal.exe' line. Either managed Main did not reach its startup logging, or DescribeBuild could not resolve the executable path - which in an AOT bundle means Environment.ProcessPath came back empty and the Assembly.Location fallback (IL3000) was reached after all."
+          }
+
+          # Beyond "Main ran": the window and a terminal view came up, and the downloaded
+          # native PTY loaded and spawned a shell with a live child. Both lines are emitted on
+          # a pristine profile. If a log reword breaks this, re-anchor to whatever the renderer
+          # and the PTY now say on first paint - do not delete the check, or this step goes
+          # back to proving only that a process launched, which #443 also did.
+          #
+          # `Spawned ... pid=<n>`, NOT the `Spawning` line this step first shipped with:
+          # RustPtySession logs `Spawning` BEFORE calling pty_spawn, so a rusty_pty that is
+          # missing, ABI-incompatible, or simply unable to spawn writes it and then throws
+          # into TerminalPane.InitializeSessionCore's catch, which shows an error banner and
+          # leaves the process alive and themed. Every assertion in this step would pass and
+          # the PTY-less bundle would be published - the precise failure this gate exists to
+          # stop, since this job's natives come from `Download Native Artifact` and are never
+          # compiled or run anywhere else. `Spawned` sits after the IsInvalid check and carries
+          # the child pid, so it cannot be reached without a working native. (Codex P1 on #445.)
+          foreach ($pattern in @('\[TerminalView\] Theme applied', '\[RustPtySession\] Spawned .*pid=\d+')) {
+            if (-not (Select-String -Path $debugLog -Pattern $pattern -Quiet)) {
+              throw "$debugLog has no line matching '$pattern', so the bundle started but its UI never finished coming up. A trimmed-away type reached only while building the terminal view, or a native that failed to load, looks exactly like this."
+            }
+          }
+
+          Write-Output "Bundle started from a pristine profile, brought up its UI, and stayed up."
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+
       # win-x64 only. osx-arm64's user-facing zip is the Velopack Portable bundle
       # (NovaTerminal.app inside a ditto zip) built by the macOS Velopack steps below and
       # uploaded under this same NovaTerminal-osx-arm64-<tag>.zip name; archiving the raw
