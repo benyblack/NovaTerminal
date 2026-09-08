@@ -139,7 +139,15 @@ namespace NovaTerminal.Controls
         private readonly SshDiagnosticsLevel _sshDiagnosticsLevel;
         private string? _pendingPasteFilePath;
         private string? _pendingEscapedPath;
-        private CommandAssistController? _commandAssistController;
+        // Volatile because the parse thread reads it to apply the OSC 133 lifecycle gate
+        // (OnShellIntegrationEventObserved) while it is assigned from the UI thread. That read only
+        // ever touches AssistSessionContext's own volatile flag, so the reference is all it needs to
+        // see; volatile is what makes "non-null implies fully constructed" something the memory
+        // model actually promises rather than something x64 happens to give us. It does not
+        // serialize InitializeCommandAssist - two threads finding null can still both build one -
+        // which is a pre-existing hazard this field's readers now tolerate rather than fix: see
+        // HandleShellIntegrationEventAsync for how the gate stays correct across a swap.
+        private volatile CommandAssistController? _commandAssistController;
         private CommandAssistServices? _commandAssistServices;
 
         /// <summary>
@@ -4907,7 +4915,7 @@ namespace NovaTerminal.Controls
             _ = _shellIntegrationEventDispatcher
                 .EnqueueAsync(() => HandleShellIntegrationEventAsync(
                     shellEvent,
-                    applyLifecycle: assist == null))
+                    lifecycleAppliedTo: assist))
                 .ContinueWith(
                     static task => TerminalLogger.Log(
                         LogLevel.Error,
@@ -5155,20 +5163,37 @@ namespace NovaTerminal.Controls
             await _commandAssistController.HandleCommandFailureAsync(context);
         }
 
+        /// <param name="lifecycleAppliedTo">
+        /// The controller <see cref="OnShellIntegrationEventObserved"/> already applied this event's
+        /// lifecycle gate to, or <see langword="null"/> if it could not.
+        /// </param>
+        /// <remarks>
+        /// The identity comparison rather than a bool is Codex P1 on #448. Nothing serializes
+        /// <c>InitializeCommandAssist</c>, so a first mark racing a UI entry point can leave the
+        /// synchronous application on one controller and this handler holding another: a bool would
+        /// then say "already applied" about an instance whose gate had never been touched, and the
+        /// event would be skipped on the controller that actually matters - the original dropped
+        /// command, by a new route. Comparing instances answers the question that was always being
+        /// asked. A fresh controller's context has no gate history, so replaying the event onto it
+        /// is right; the same instance twice is what must not happen.
+        /// </remarks>
         private async Task HandleShellIntegrationEventAsync(
             ShellIntegrationEvent shellEvent,
-            bool applyLifecycle)
+            CommandAssistController? lifecycleAppliedTo)
         {
             if (!EnsureCommandAssistInitialized())
             {
                 return;
             }
 
+            // Read once: re-reading the field could hand the two calls below different instances.
+            CommandAssistController controller = _commandAssistController!;
+
             try
             {
-                await _commandAssistController.HandleShellIntegrationEventAsync(
+                await controller.HandleShellIntegrationEventAsync(
                     shellEvent,
-                    applyLifecycle);
+                    applyLifecycle: !ReferenceEquals(controller, lifecycleAppliedTo));
             }
             catch (Exception ex)
             {

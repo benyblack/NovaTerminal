@@ -195,8 +195,28 @@ namespace NovaTerminal.Shell
                         // TerminalPane.OnKeyDown, which owns the reconnect-on-Enter logic.
                         return false;
                     }
-                    SendUserInput("\r");
-                    EnterObserved?.Invoke();
+                    // Observers run BEFORE the carriage return, not after (Codex P1 on #448).
+                    // OnCommandAssistEnterObserved reads the command line out of the grid here, and
+                    // the read is only truthful while the line is still on screen: the moment the CR
+                    // reaches the PTY the shell may repaint over it, and - since the OSC 133
+                    // lifecycle gate is now applied synchronously on the parse thread - a fast shell
+                    // answering with a bare 133;C can close that gate before this method's next
+                    // statement runs, at which point the capture is refused and the command is lost
+                    // from history silently. Sending afterwards costs one grid read of input latency,
+                    // taken under the buffer's read lock over at most GridQueryReader.MaxSpanRows
+                    // rows, and buys an unambiguous ordering.
+                    //
+                    // finally, so a throwing observer cannot swallow the user's Enter: the keystroke
+                    // reaches the shell either way, and the exception still propagates behind it.
+                    try
+                    {
+                        EnterObserved?.Invoke();
+                    }
+                    finally
+                    {
+                        SendUserInput("\r");
+                    }
+
                     return true;
                 case Key.Back:
                     SendUserInput("\x7f");
