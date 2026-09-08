@@ -43,7 +43,7 @@ const releases = [
       'chmod +x NovaTerminal-linux-<x64|arm64>-<tag>.AppImage\n' +
       './NovaTerminal-linux-<x64|arm64>-<tag>.AppImage',
     extraNote:
-      'The .deb adds a desktop entry, icons, the nova command on your PATH, and a man page, and updates via your package manager. Its filename carries both the version and the architecture and changes every release — copy the exact one for your machine (amd64 or arm64) from the release page. A portable .tar.gz is there too.',
+      'The .deb adds a desktop entry, icons, the nova command on your PATH, and a man page. It does not update itself: there is no APT repository yet, so apt upgrade will not see new releases — download and reinstall each one. Its filename carries both the version and the architecture and changes every release — copy the exact one for your machine (amd64 or arm64) from the release page. A portable .tar.gz is there too.',
   },
 ];
 
