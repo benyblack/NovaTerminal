@@ -56,7 +56,7 @@ internal sealed class AssistSessionContext
     /// decide whether it is legal to touch the terminal grid at all. The others are already
     /// atomic-by-width and would only gain ordering guarantees nothing depends on.
     /// </summary>
-    private volatile bool _isAcceptingCommandInput;
+    private Func<bool> _commandInputGateProbe = static () => false;
 
     /// <summary>Shell kind reported by the host ("pwsh", "bash", ...), or null when unknown.</summary>
     public string? ShellKind { get; private set; }
@@ -208,7 +208,26 @@ internal sealed class AssistSessionContext
     /// served as a command line.
     /// </para>
     /// </remarks>
-    public bool IsAcceptingCommandInput => _isAcceptingCommandInput;
+    public bool IsAcceptingCommandInput => _commandInputGateProbe();
+
+    /// <summary>
+    /// Points <see cref="IsAcceptingCommandInput"/> at the host's terminal buffer, which owns the
+    /// gate (<c>TerminalBuffer.IsAcceptingCommandInput</c>).
+    /// </summary>
+    /// <remarks>
+    /// A probe rather than a flag this object maintains, because this object was the wrong owner
+    /// (#448). Its writes arrived after a hop onto the pane's serialized event dispatcher, while the
+    /// <c>133;B</c> mark this gate pairs with was written synchronously by the parser - so under a
+    /// busy dispatcher the two halves disagreed and a submitted command was dropped from history
+    /// outright. Owning only one half also left "which of these two objects is authoritative" a live
+    /// question, and answering it per event turned out to be unanswerable: nothing serializes
+    /// <c>TerminalPane.InitializeCommandAssist</c>, so two threads that both find the field null can
+    /// each build a controller, and the instance a queued event lands on need not be the one the
+    /// synchronous half touched - which makes "was this already applied?" the wrong question. Both
+    /// halves now live on the buffer, which belongs to the session and is written on the parse
+    /// thread, so neither question arises.
+    /// </remarks>
+    public void SetCommandInputGateProbe(Func<bool> probe) => _commandInputGateProbe = probe;
 
     /// <summary>Replaces the host-reported session facts.</summary>
     /// <remarks>
@@ -268,44 +287,7 @@ internal sealed class AssistSessionContext
     /// torn down, and that repaint re-emits <c>B</c>, so the gate reopens on evidence rather than
     /// on assumption.
     /// </remarks>
-    public void SetAltScreenActive(bool isActive)
-    {
-        IsAltScreenActive = isActive;
-        if (isActive)
-        {
-            _isAcceptingCommandInput = false;
-        }
-    }
-
-    /// <summary><c>OSC 133;B</c>: the prompt finished printing and the line editor is the user's.</summary>
-    /// <remarks>
-    /// <para>
-    /// Refused while the alt screen is up, so that the invariant "the gate is never open during an
-    /// alt screen" holds no matter which order the two facts arrive in.
-    /// <see cref="SetAltScreenActive"/> closes the gate on the way in, but a full-screen TUI is free
-    /// to emit <c>133;B</c> of its own afterwards - it is a perfectly legal thing for a program that
-    /// draws its own prompt to do - and that would reopen a window onto the TUI's grid. Consumers
-    /// already check alt-screen separately, so this is belt and braces; without it the two flags can
-    /// disagree, and a self-contradicting invariant is one refactor away from being load-bearing.
-    /// </para>
-    /// <para>
-    /// Re-emitting <c>B</c> while the gate is already open is idempotent by construction. Prompt
-    /// frameworks repaint constantly and each repaint carries the mark; the pane keeps the newest
-    /// mark and this keeps the gate open, which is exactly the intent.
-    /// </para>
-    /// </remarks>
-    public void OpenCommandInputWindow()
-    {
-        if (IsAltScreenActive)
-        {
-            return;
-        }
-
-        _isAcceptingCommandInput = true;
-    }
-
-    /// <summary><c>OSC 133;C</c> / <c>OSC 133;D</c>: the line editor is closed.</summary>
-    public void CloseCommandInputWindow() => _isAcceptingCommandInput = false;
+    public void SetAltScreenActive(bool isActive) => IsAltScreenActive = isActive;
 
     /// <summary>Records a working-directory change reported by a shell-integration event.</summary>
     public void SetWorkingDirectory(string workingDirectory) => WorkingDirectory = workingDirectory;

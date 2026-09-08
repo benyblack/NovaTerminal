@@ -123,6 +123,7 @@ public sealed class CommandAssistController : IDisposable
         CommandAssistModeRouter? modeRouter,
         CommandAssistResultBuilder? resultBuilder,
         Func<AssistQuerySnapshot?>? queryProvider = null,
+        Func<bool>? commandInputGateProbe = null,
         Func<bool>? renderedSurfaceProbe = null,
         Action<Action>? dispatch = null,
         TimeSpan? passiveRefreshDebounce = null,
@@ -160,6 +161,15 @@ public sealed class CommandAssistController : IDisposable
             InsertionAvailableProbe = () => _isInsertionAvailable && SelectedRowCanBeInserted()
         };
         _dispatch = dispatch ?? (action => action());
+
+        // The gate the grid read is legal under. Defaults to closed for the same reason
+        // queryProvider defaults to "no truth available": a host with no terminal buffer has no
+        // lifecycle to report, and degraded is the honest answer.
+        if (commandInputGateProbe != null)
+        {
+            _context.SetCommandInputGateProbe(commandInputGateProbe);
+        }
+
         _capturePipeline = new CapturePipeline(historyStore, secretsFilter, _context);
         _suggestionOrchestrator = new SuggestionOrchestrator(
             historyStore,
@@ -1100,17 +1110,12 @@ public sealed class CommandAssistController : IDisposable
     /// dispatcher, which is not the UI thread, and the view-model is bound.
     /// </para>
     /// </remarks>
-    public async Task HandleShellIntegrationEventAsync(
-        ShellIntegrationEvent shellEvent,
-        bool applyLifecycle = true)
+    public async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
     {
-        // Only when the caller could not do it synchronously - see ApplyShellIntegrationLifecycle
-        // for why applying it in both places would be worse than applying it late.
-        if (applyLifecycle)
-        {
-            ApplyShellIntegrationLifecycle(shellEvent);
-        }
-
+        // No lifecycle gate here any more. B/C/D move TerminalBuffer.IsAcceptingCommandInput
+        // synchronously on the parse thread, beside the 133;B mark it pairs with; see
+        // AssistSessionContext.SetCommandInputGateProbe for why this object is the wrong owner.
+        // What is left is the work that genuinely belongs on the pane's serialized dispatcher.
         switch (shellEvent.Type)
         {
             case ShellIntegrationEventType.CommandStarted:
@@ -1122,59 +1127,6 @@ public sealed class CommandAssistController : IDisposable
         }
 
         await _capturePipeline.HandleShellIntegrationEventAsync(shellEvent);
-    }
-
-    /// <summary>
-    /// The command-input lifecycle gate alone, applied synchronously: <c>B</c> opens the window,
-    /// <c>C</c> and <c>D</c> close it.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Split out of <see cref="HandleShellIntegrationEventAsync"/> so the host can apply it on the
-    /// thread the bytes arrived on, ahead of the dispatcher hop. The gate is one half of a pair, and
-    /// the other half is the <c>OSC 133;B</c> mark the parser writes into the buffer synchronously.
-    /// Enter reads both at once - <c>TerminalPane.OnCommandAssistEnterObserved</c>, on the UI thread
-    /// - and refuses grid truth unless they agree, so a gate that moves on a different schedule from
-    /// the mark is a window in which a submitted command is discarded outright: no grid snapshot,
-    /// the markless accumulator empty because the shell echoed the line rather than the user typing
-    /// it, and nothing persisted. Silent and permanent, and only for the command whose prompt lost
-    /// the race.
-    /// </para>
-    /// <para>
-    /// <c>OrderedAsyncEventDispatcher</c> hides how narrow that window is. Its semaphore is
-    /// uncontended almost always, and <c>SemaphoreSlim.WaitAsync</c> then returns an already
-    /// completed task, so the handler runs inline on the parse thread and the gate does move with
-    /// the mark. It only defers when a previous event is still awaiting - a history append or an
-    /// exit-code patch - and then the whole handler lands on a thread-pool thread afterwards. That
-    /// is why this reproduced as a rare CI flake
-    /// (<c>PaneRemoteShellIntegrationTests.OnAnSshPaneEmittingABareC_EveryCommandIsStillCaptured</c>,
-    /// once in ~150 runs) rather than as a broken feature: it needs a busy dispatcher.
-    /// </para>
-    /// <para>
-    /// <b>Why the caller passes <c>applyLifecycle: false</c> rather than this being additive.</b>
-    /// Leaving the async handler to move the gate as well would let a lagging replay clobber the
-    /// fresher answer: B and C applied here in order leaves the gate closed, and the dispatcher
-    /// then catching up on B would reopen it while the command is actually running - which is the
-    /// precise failure <see cref="AssistSessionContext.IsAcceptingCommandInput"/> exists to
-    /// prevent. Exactly one of the two paths owns each event.
-    /// </para>
-    /// <para>
-    /// Safe off the UI thread: the flag is a <c>volatile bool</c> on the context, and nothing here
-    /// touches the state machine, the view-model or the pipeline.
-    /// </para>
-    /// </remarks>
-    public void ApplyShellIntegrationLifecycle(ShellIntegrationEvent shellEvent)
-    {
-        switch (shellEvent.Type)
-        {
-            case ShellIntegrationEventType.CommandStarted:
-                _context.OpenCommandInputWindow();
-                break;
-            case ShellIntegrationEventType.CommandAccepted:
-            case ShellIntegrationEventType.CommandFinished:
-                _context.CloseCommandInputWindow();
-                break;
-        }
     }
 
     public async Task<bool> TogglePinSelectionAsync()

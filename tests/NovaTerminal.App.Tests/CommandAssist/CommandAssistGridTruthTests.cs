@@ -112,50 +112,44 @@ public sealed class CommandAssistGridTruthTests
     /// command is dropped silently and permanently.
     /// </para>
     /// <para>
-    /// The pane now applies the lifecycle half on the thread the bytes arrived on, so the two halves
-    /// move together no matter how far behind the event dispatcher is.
-    /// <c>OrderedAsyncEventDispatcher</c> hid this for a long time: its semaphore is uncontended
-    /// almost always, <c>WaitAsync</c> then returns an already-completed task, and the handler runs
-    /// inline on the parse thread anyway. It only defers when a previous event is mid-await in the
-    /// history store, which is why
-    /// <c>PaneRemoteShellIntegrationTests.OnAnSshPaneEmittingABareC_EveryCommandIsStillCaptured</c>
-    /// failed roughly once in 150 CI runs and never locally until the machine was fully saturated.
+    /// Both halves now live on <c>TerminalBuffer</c> and are written by the parser on the thread the
+    /// bytes arrive on, so no amount of dispatcher backlog can put them out of step. Here that is
+    /// the terminal opening the window with no controller event emitted at all.
     /// </para>
     /// </remarks>
     [Fact]
-    public void TheLifecycleGateOpensWithoutTheAsyncHalfOfTheEventHavingRun()
+    public void TheGateOpensWithoutAnyOfTheAsyncEventPathHavingRun()
     {
         var harness = Harness.Create();
 
-        harness.Controller.ApplyShellIntegrationLifecycle(Mark(ShellIntegrationEventType.CommandStarted));
+        harness.Grid.OpenCommandInputWindow();
         harness.Grid.SetLine("hostname");
 
         Assert.Equal("hostname", harness.Controller.TryReadQuerySnapshot()?.Text);
     }
 
     /// <summary>
-    /// The cost of moving the gate off the dispatcher: a lagging replay must not undo it.
+    /// A shell-integration event arriving late cannot move the gate, in either direction.
     /// </summary>
     /// <remarks>
-    /// Exactly one of the two paths owns each event, which is what <c>applyLifecycle: false</c> is
-    /// for. Were the async handler to keep moving the gate as well, this sequence would reopen the
-    /// window while the command is actually running - the dispatcher catching up on <c>B</c> after
-    /// <c>C</c> has already been applied - and output would be served as a command line, which is
-    /// the one thing <c>AssistSessionContext.IsAcceptingCommandInput</c> exists to prevent.
+    /// The whole point of moving the gate onto the buffer. While the controller owned it, an event
+    /// replayed off the pane's serialized dispatcher could contradict the terminal's own newer
+    /// answer - reopening a window onto a running command's output, which is the one thing the gate
+    /// exists to prevent. The controller is no longer a writer, so a backlogged event is now inert
+    /// with respect to the gate and only the terminal's account of the byte stream counts.
     /// </remarks>
     [Fact]
-    public async Task ALaggingReplayOfAnOlderMark_DoesNotReopenTheGate()
+    public async Task ALateShellIntegrationEvent_CannotMoveTheGate()
     {
         var harness = Harness.Create();
 
-        harness.Controller.ApplyShellIntegrationLifecycle(Mark(ShellIntegrationEventType.CommandStarted));
-        harness.Controller.ApplyShellIntegrationLifecycle(Mark(ShellIntegrationEventType.CommandAccepted));
+        harness.Grid.OpenCommandInputWindow();
+        harness.Grid.CloseCommandInputWindow();
         harness.Grid.SetLine("on branch main");
 
-        // The dispatcher finally gets to the B whose lifecycle was applied synchronously above.
+        // The dispatcher finally gets to the B the terminal has long since superseded.
         await harness.Controller.HandleShellIntegrationEventAsync(
-            Mark(ShellIntegrationEventType.CommandStarted),
-            applyLifecycle: false);
+            Mark(ShellIntegrationEventType.CommandStarted));
 
         Assert.Null(harness.Controller.TryReadQuerySnapshot());
     }
@@ -265,7 +259,7 @@ public sealed class CommandAssistGridTruthTests
     public async Task WhileTheAltScreenIsUp_APromptMarkDoesNotOpenTheGate()
     {
         var harness = Harness.Create();
-        harness.Controller.HandleAltScreenChanged(true);
+        harness.SetAltScreen(true);
 
         await harness.PromptReadyAsync();
         harness.Grid.SetLine("git status");
@@ -273,7 +267,7 @@ public sealed class CommandAssistGridTruthTests
         Assert.Null(harness.Controller.TryReadQuerySnapshot());
 
         // Leaving the alt screen does not reopen it either: the shell's own prompt repaint does.
-        harness.Controller.HandleAltScreenChanged(false);
+        harness.SetAltScreen(false);
 
         Assert.Null(harness.Controller.TryReadQuerySnapshot());
     }
@@ -655,6 +649,7 @@ public sealed class CommandAssistGridTruthTests
                 modeRouter: null,
                 resultBuilder: null,
                 queryProvider: grid == null ? null : grid.Read,
+                commandInputGateProbe: grid == null ? null : () => grid.IsAcceptingCommandInput,
 
                 // The pane's dispatcher, modelled rather than omitted - and that is what makes the
                 // reads below safe. See TestDispatcher.
@@ -663,13 +658,41 @@ public sealed class CommandAssistGridTruthTests
             return new Harness(controller, grid ?? new FakeGrid(), history, dispatcher);
         }
 
-        public Task PromptReadyAsync() => EmitAsync(ShellIntegrationEventType.CommandStarted, null, null);
+        /// <remarks>
+        /// The gate moves first and synchronously, then the event goes to the controller - the exact
+        /// order the production path has since #448: TerminalPane's parser callback opens the window
+        /// on the buffer beside the mark write, and only then enqueues the event onto the pane's
+        /// serialized dispatcher. A harness that moved the gate via the controller would be testing
+        /// a seam that no longer exists.
+        /// </remarks>
+        public Task PromptReadyAsync()
+        {
+            Grid.OpenCommandInputWindow();
+            return EmitAsync(ShellIntegrationEventType.CommandStarted, null, null);
+        }
 
         public Task CommandAcceptedAsync(string commandText)
-            => EmitAsync(ShellIntegrationEventType.CommandAccepted, commandText, null);
+        {
+            Grid.CloseCommandInputWindow();
+            return EmitAsync(ShellIntegrationEventType.CommandAccepted, commandText, null);
+        }
 
         public Task CommandFinishedAsync(int exitCode)
-            => EmitAsync(ShellIntegrationEventType.CommandFinished, null, exitCode);
+        {
+            Grid.CloseCommandInputWindow();
+            return EmitAsync(ShellIntegrationEventType.CommandFinished, null, exitCode);
+        }
+
+        /// <summary>An alt-screen switch, moved on the terminal and reported to the controller.</summary>
+        /// <remarks>
+        /// Both, because they are two different facts now: the buffer owns the gate, while the
+        /// context keeps <c>IsAltScreenActive</c> for the consumers that check it separately.
+        /// </remarks>
+        public void SetAltScreen(bool isActive)
+        {
+            Grid.SetAltScreenActive(isActive);
+            Controller.HandleAltScreenChanged(isActive);
+        }
 
         private async Task EmitAsync(ShellIntegrationEventType type, string? commandText, int? exitCode)
         {
@@ -784,10 +807,19 @@ public sealed class CommandAssistGridTruthTests
     /// The provider seam's stand-in. Locked rather than volatile because the real provider is read
     /// from the refresh pass's worker thread, not from the thread that set the line.
     /// </summary>
+    /// <summary>
+    /// Stands in for the terminal: both halves of the OSC 133 pair, because that is where they live
+    /// now. <c>TerminalBuffer</c> owns the <c>133;B</c> mark the line is read from <em>and</em> the
+    /// command-input gate that says the read is legal (#448); a harness that owned one and let the
+    /// controller own the other would be modelling a split that no longer exists, and would keep
+    /// passing if the two came apart again.
+    /// </summary>
     private sealed class FakeGrid
     {
         private readonly object _gate = new();
         private AssistQuerySnapshot? _snapshot;
+        private bool _acceptingCommandInput;
+        private bool _altScreenActive;
 
         public AssistQuerySnapshot? Read()
         {
@@ -795,6 +827,50 @@ public sealed class CommandAssistGridTruthTests
             {
                 return _snapshot;
             }
+        }
+
+        /// <summary>The probe the controller reads, as <c>TerminalBuffer.IsAcceptingCommandInput</c>.</summary>
+        public bool IsAcceptingCommandInput
+        {
+            get { lock (_gate) { return _acceptingCommandInput; } }
+        }
+
+        /// <summary><c>OSC 133;B</c>, as the parser applies it to the buffer.</summary>
+        /// <remarks>
+        /// Refused on the alt screen, mirroring <c>TerminalBuffer.OpenCommandInputWindow</c>: a
+        /// full-screen TUI may legally draw its own prompt and emit <c>133;B</c>, and that must not
+        /// open a window onto the TUI's grid.
+        /// </remarks>
+        public void OpenCommandInputWindow()
+        {
+            lock (_gate)
+            {
+                if (_altScreenActive)
+                {
+                    return;
+                }
+
+                _acceptingCommandInput = true;
+            }
+        }
+
+        /// <summary>Entering the alt screen closes the window; leaving does not reopen it.</summary>
+        public void SetAltScreenActive(bool isActive)
+        {
+            lock (_gate)
+            {
+                _altScreenActive = isActive;
+                if (isActive)
+                {
+                    _acceptingCommandInput = false;
+                }
+            }
+        }
+
+        /// <summary><c>OSC 133;C</c> / <c>D</c>, likewise.</summary>
+        public void CloseCommandInputWindow()
+        {
+            lock (_gate) { _acceptingCommandInput = false; }
         }
 
         public void SetLine(string text, int? cursorOffset = null)

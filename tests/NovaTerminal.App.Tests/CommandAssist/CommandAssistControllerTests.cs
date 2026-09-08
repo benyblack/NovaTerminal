@@ -1987,6 +1987,7 @@ public sealed class CommandAssistControllerTests
             modeRouter: null,
             resultBuilder: null,
             queryProvider: grid == null ? null : grid.Read,
+            commandInputGateProbe: grid == null ? null : () => grid.IsAcceptingCommandInput,
             renderedSurfaceProbe: renderedSurfaceProbe);
 
         if (grid != null)
@@ -2016,6 +2017,7 @@ public sealed class CommandAssistControllerTests
         // worker thread, not from the thread that set the line.
         private readonly object _gate = new();
         private AssistQuerySnapshot? _snapshot;
+        private bool _acceptingCommandInput;
 
         public AssistQuerySnapshot? Read()
         {
@@ -2023,6 +2025,15 @@ public sealed class CommandAssistControllerTests
             {
                 return _snapshot;
             }
+        }
+
+        /// <summary>
+        /// The command-input gate, which the terminal owns alongside the mark since #448 - so this
+        /// stand-in owns both halves rather than leaving one to the controller.
+        /// </summary>
+        public bool IsAcceptingCommandInput
+        {
+            get { lock (_gate) { return _acceptingCommandInput; } }
         }
 
         public void SetLine(
@@ -2047,9 +2058,20 @@ public sealed class CommandAssistControllerTests
         }
 
         /// <summary><c>OSC 133;B</c> - the prompt finished printing and the line editor is live.</summary>
+        /// <remarks>
+        /// Both halves, in production's order (#448): the gate moves on the terminal first and
+        /// synchronously, beside the mark write on the parse thread, and only then does the event
+        /// reach the controller, which still owns the work that belongs on the pane's serialized
+        /// dispatcher. The controller is no longer a writer of the gate.
+        /// </remarks>
         public void OpenPrompt(CommandAssistController controller)
         {
             SetLine(string.Empty);
+            lock (_gate)
+            {
+                _acceptingCommandInput = true;
+            }
+
             controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
                 Type: ShellIntegrationEventType.CommandStarted,
                 Timestamp: DateTimeOffset.UtcNow,

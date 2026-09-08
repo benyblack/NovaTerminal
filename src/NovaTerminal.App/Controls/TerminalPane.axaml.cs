@@ -139,15 +139,7 @@ namespace NovaTerminal.Controls
         private readonly SshDiagnosticsLevel _sshDiagnosticsLevel;
         private string? _pendingPasteFilePath;
         private string? _pendingEscapedPath;
-        // Volatile because the parse thread reads it to apply the OSC 133 lifecycle gate
-        // (OnShellIntegrationEventObserved) while it is assigned from the UI thread. That read only
-        // ever touches AssistSessionContext's own volatile flag, so the reference is all it needs to
-        // see; volatile is what makes "non-null implies fully constructed" something the memory
-        // model actually promises rather than something x64 happens to give us. It does not
-        // serialize InitializeCommandAssist - two threads finding null can still both build one -
-        // which is a pre-existing hazard this field's readers now tolerate rather than fix: see
-        // HandleShellIntegrationEventAsync for how the gate stays correct across a swap.
-        private volatile CommandAssistController? _commandAssistController;
+        private CommandAssistController? _commandAssistController;
         private CommandAssistServices? _commandAssistServices;
 
         /// <summary>
@@ -730,6 +722,7 @@ namespace NovaTerminal.Controls
             // the grid cannot serve. See NotifyTypedTextObserved and friends.
             TermView.TextInputObserved += NotifyTypedTextObserved;
             TermView.BackspaceObserved += NotifyBackspaceObserved;
+            TermView.EnterObserving += OnCommandAssistEnterObserving;
             TermView.EnterObserved += OnCommandAssistEnterObserved;
             TermView.PasteObserved += NotifyPasteObserved;
 
@@ -777,7 +770,7 @@ namespace NovaTerminal.Controls
                     SetAgentOutputPanelOpen(AgentOutputToggle.IsChecked ?? false);
                 }
             };
-            TermView.EnterObserved += OnAgentOutputEnterObserved;
+            TermView.EnterObserving += OnAgentOutputEnterObserved;
 
             // Load Settings
             ApplySettings(initialSettings ?? TerminalSettings.Load());
@@ -1261,6 +1254,12 @@ namespace NovaTerminal.Controls
                 // assist assembly's own AssistQuerySnapshot right here, at the one boundary that
                 // can see both types. Everything downstream sees plain data.
                 queryProvider: TryReadAssistQuerySnapshot,
+
+                // The lifecycle half of the same pair, and it has to come from the same place the
+                // mark does or the two can disagree - which is exactly what #448 cost. The buffer
+                // owns both and the parser applies both in one statement block, so this controller
+                // reads the window rather than keeping its own opinion of it.
+                commandInputGateProbe: () => Buffer?.IsAcceptingCommandInput ?? false,
 
                 // The other seam the controller cannot see for itself: whether the overlay it believes
                 // is up is actually on screen. This pane hides it (no layout) and dims it (placement
@@ -2243,8 +2242,9 @@ namespace NovaTerminal.Controls
         /// <summary>
         /// Enter observed with shell integration inactive: pin the output-region start from the
         /// cursor, the markless fallback. Without this, sessions without shell integration have
-        /// no region to track at all. Runs after <see cref="OnCommandAssistEnterObserved"/>,
-        /// synchronously on the UI thread, for the same narrow-window reason that method does.
+        /// no region to track at all. Runs after <see cref="OnCommandAssistEnterObserving"/> and,
+        /// like it, before the carriage return reaches the PTY: this records a grid row, and the row
+        /// only means what it says while the line the user submitted is still the one on screen.
         /// </summary>
         private void OnAgentOutputEnterObserved()
         {
@@ -2265,8 +2265,35 @@ namespace NovaTerminal.Controls
         /// widens the window in which the shell has begun repainting over it. This is as close to
         /// the keypress as the pane can get.
         /// </remarks>
-        internal void OnCommandAssistEnterObserved()
+        // What OnCommandAssistEnterObserving read out of the grid, waiting for the post-CR phase to
+        // persist it. Two fields rather than one, because null is a meaningful answer here: "the
+        // line was observed empty" and "there was nothing to observe" are different, and only the
+        // first should reach the pipeline.
+        private string? _pendingEnterSubmission;
+        private bool _hasPendingEnterSubmission;
+
+        /// <summary>
+        /// Enter's grid read, before the carriage return goes to the PTY.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is as close to the keypress as the pane can get, and closer than it used to be:
+        /// <c>TerminalView</c> sent the carriage return first, so the shell had already been handed
+        /// the chance to repaint over the line this reads. Worse, once the OSC 133 command-input
+        /// window began closing synchronously on the parse thread, a bare <c>133;C</c> could shut it
+        /// between the CR and this method - and a refused read here means the command is never
+        /// persisted at all (Codex P1 on #448).
+        /// </para>
+        /// <para>
+        /// Reads only. The persistence it feeds runs in <see cref="OnCommandAssistEnterObserved"/>,
+        /// after the CR, so a slow history store cannot sit between the keypress and the shell.
+        /// </para>
+        /// </remarks>
+        internal void OnCommandAssistEnterObserving()
         {
+            _pendingEnterSubmission = null;
+            _hasPendingEnterSubmission = false;
+
             // The reset is owed even when Command Assist is off or uninitialized: the accumulator
             // is fed from TermView events that fire regardless, and a line left in it would be
             // carried into the next one.
@@ -2286,9 +2313,27 @@ namespace NovaTerminal.Controls
                 ? grid.Text
                 : ReadEchoedMarklessSubmission();
 
-            // After the read, before the await: Enter is both the capture point and the start of
-            // the next line.
+            // After the read: Enter is both the capture point and the start of the next line.
             _marklessSubmission.Reset();
+
+            _pendingEnterSubmission = submitted;
+            _hasPendingEnterSubmission = true;
+        }
+
+        /// <summary>
+        /// Persists what <see cref="OnCommandAssistEnterObserving"/> read, after the carriage return
+        /// has already reached the shell.
+        /// </summary>
+        internal void OnCommandAssistEnterObserved()
+        {
+            if (!_hasPendingEnterSubmission)
+            {
+                return;
+            }
+
+            _hasPendingEnterSubmission = false;
+            string? submitted = _pendingEnterSubmission;
+            _pendingEnterSubmission = null;
 
             _ = HandleCommandAssistEnterObservedAsync(submitted);
         }
@@ -3104,6 +3149,7 @@ namespace NovaTerminal.Controls
             {
                 NoteShellIntegrationMarkObserved();
 
+
                 // OSC 133;C is the only moment the output region's *start* can be established: the
                 // input line is still on screen and the mark that describes it is still live, so
                 // "the row after the last row of the input" is answerable. One frame later the
@@ -3159,6 +3205,7 @@ namespace NovaTerminal.Controls
                 // TerminalBuffer.CommandStartMark, which is where this now lives.
                 NoteShellIntegrationMarkObserved();
                 LatestCommandStartMark = mark;
+
 
                 _shellLifecycleTracker?.HandleCommandStarted(new ShellMarkPosition(
                     Row: mark.Row,
@@ -4895,27 +4942,8 @@ namespace NovaTerminal.Controls
             // cross-thread Avalonia write inside Command Assist initialization could break the assist
             // overlay's content with no error anywhere (the post-3a blank-overlay regression, fixed in
             // BindCommandAssistViews). One log line is the difference between that and a mystery.
-            // The lifecycle gate moves here, synchronously, on the thread the bytes arrived on -
-            // ahead of the dispatcher hop below rather than inside it. It has to, because it is one
-            // half of a pair: the other half is the OSC 133;B mark the parser has just written into
-            // the buffer, and OnCommandAssistEnterObserved reads both at once and discards the
-            // command outright when they disagree. Applying it after the hop meant the two halves
-            // moved on different schedules, and a submission landing in that window was lost from
-            // history silently and permanently. See
-            // CommandAssistController.ApplyShellIntegrationLifecycle for the full mechanism and for
-            // why exactly one of the two paths may own each event.
-            //
-            // Snapshotted into a local rather than re-read, same as the other non-UI-thread readers
-            // of this field: the parse thread may not initialize Command Assist (that builds views),
-            // so when the controller does not exist yet the gate stays the dispatcher's job, which
-            // is where EnsureCommandAssistInitialized can run.
-            CommandAssistController? assist = _commandAssistController;
-            assist?.ApplyShellIntegrationLifecycle(shellEvent);
-
             _ = _shellIntegrationEventDispatcher
-                .EnqueueAsync(() => HandleShellIntegrationEventAsync(
-                    shellEvent,
-                    lifecycleAppliedTo: assist))
+                .EnqueueAsync(() => HandleShellIntegrationEventAsync(shellEvent))
                 .ContinueWith(
                     static task => TerminalLogger.Log(
                         LogLevel.Error,
@@ -5163,37 +5191,16 @@ namespace NovaTerminal.Controls
             await _commandAssistController.HandleCommandFailureAsync(context);
         }
 
-        /// <param name="lifecycleAppliedTo">
-        /// The controller <see cref="OnShellIntegrationEventObserved"/> already applied this event's
-        /// lifecycle gate to, or <see langword="null"/> if it could not.
-        /// </param>
-        /// <remarks>
-        /// The identity comparison rather than a bool is Codex P1 on #448. Nothing serializes
-        /// <c>InitializeCommandAssist</c>, so a first mark racing a UI entry point can leave the
-        /// synchronous application on one controller and this handler holding another: a bool would
-        /// then say "already applied" about an instance whose gate had never been touched, and the
-        /// event would be skipped on the controller that actually matters - the original dropped
-        /// command, by a new route. Comparing instances answers the question that was always being
-        /// asked. A fresh controller's context has no gate history, so replaying the event onto it
-        /// is right; the same instance twice is what must not happen.
-        /// </remarks>
-        private async Task HandleShellIntegrationEventAsync(
-            ShellIntegrationEvent shellEvent,
-            CommandAssistController? lifecycleAppliedTo)
+        private async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
         {
             if (!EnsureCommandAssistInitialized())
             {
                 return;
             }
 
-            // Read once: re-reading the field could hand the two calls below different instances.
-            CommandAssistController controller = _commandAssistController!;
-
             try
             {
-                await controller.HandleShellIntegrationEventAsync(
-                    shellEvent,
-                    applyLifecycle: !ReferenceEquals(controller, lifecycleAppliedTo));
+                await _commandAssistController.HandleShellIntegrationEventAsync(shellEvent);
             }
             catch (Exception ex)
             {
