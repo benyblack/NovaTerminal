@@ -100,6 +100,75 @@ public sealed class CommandAssistGridTruthTests
     }
 
     /// <summary>
+    /// The gate opens on the <c>B</c> itself, with none of the event's asynchronous half having run.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is what a lost history entry on CI came down to. The gate is one half of a pair - the
+    /// other is the <c>OSC 133;B</c> mark the parser writes into the buffer synchronously - and
+    /// <c>TerminalPane.OnCommandAssistEnterObserved</c> reads both at once on the UI thread. When
+    /// they disagree it refuses grid truth, falls through to the markless accumulator (empty,
+    /// because the shell echoed the line rather than the user typing it), and persists nothing. The
+    /// command is dropped silently and permanently.
+    /// </para>
+    /// <para>
+    /// The pane now applies the lifecycle half on the thread the bytes arrived on, so the two halves
+    /// move together no matter how far behind the event dispatcher is.
+    /// <c>OrderedAsyncEventDispatcher</c> hid this for a long time: its semaphore is uncontended
+    /// almost always, <c>WaitAsync</c> then returns an already-completed task, and the handler runs
+    /// inline on the parse thread anyway. It only defers when a previous event is mid-await in the
+    /// history store, which is why
+    /// <c>PaneRemoteShellIntegrationTests.OnAnSshPaneEmittingABareC_EveryCommandIsStillCaptured</c>
+    /// failed roughly once in 150 CI runs and never locally until the machine was fully saturated.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void TheLifecycleGateOpensWithoutTheAsyncHalfOfTheEventHavingRun()
+    {
+        var harness = Harness.Create();
+
+        harness.Controller.ApplyShellIntegrationLifecycle(Mark(ShellIntegrationEventType.CommandStarted));
+        harness.Grid.SetLine("hostname");
+
+        Assert.Equal("hostname", harness.Controller.TryReadQuerySnapshot()?.Text);
+    }
+
+    /// <summary>
+    /// The cost of moving the gate off the dispatcher: a lagging replay must not undo it.
+    /// </summary>
+    /// <remarks>
+    /// Exactly one of the two paths owns each event, which is what <c>applyLifecycle: false</c> is
+    /// for. Were the async handler to keep moving the gate as well, this sequence would reopen the
+    /// window while the command is actually running - the dispatcher catching up on <c>B</c> after
+    /// <c>C</c> has already been applied - and output would be served as a command line, which is
+    /// the one thing <c>AssistSessionContext.IsAcceptingCommandInput</c> exists to prevent.
+    /// </remarks>
+    [Fact]
+    public async Task ALaggingReplayOfAnOlderMark_DoesNotReopenTheGate()
+    {
+        var harness = Harness.Create();
+
+        harness.Controller.ApplyShellIntegrationLifecycle(Mark(ShellIntegrationEventType.CommandStarted));
+        harness.Controller.ApplyShellIntegrationLifecycle(Mark(ShellIntegrationEventType.CommandAccepted));
+        harness.Grid.SetLine("on branch main");
+
+        // The dispatcher finally gets to the B whose lifecycle was applied synchronously above.
+        await harness.Controller.HandleShellIntegrationEventAsync(
+            Mark(ShellIntegrationEventType.CommandStarted),
+            applyLifecycle: false);
+
+        Assert.Null(harness.Controller.TryReadQuerySnapshot());
+    }
+
+    private static ShellIntegrationEvent Mark(ShellIntegrationEventType type) => new(
+        Type: type,
+        Timestamp: DateTimeOffset.UtcNow,
+        CommandText: null,
+        WorkingDirectory: null,
+        ExitCode: null,
+        Duration: null);
+
+    /// <summary>
     /// A prompt repaint re-emits <c>B</c>, so the window reopens on evidence. This is the path back
     /// from every closer: next command, alt screen teardown, resize.
     /// </summary>

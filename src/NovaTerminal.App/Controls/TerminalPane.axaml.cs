@@ -4887,8 +4887,27 @@ namespace NovaTerminal.Controls
             // cross-thread Avalonia write inside Command Assist initialization could break the assist
             // overlay's content with no error anywhere (the post-3a blank-overlay regression, fixed in
             // BindCommandAssistViews). One log line is the difference between that and a mystery.
+            // The lifecycle gate moves here, synchronously, on the thread the bytes arrived on -
+            // ahead of the dispatcher hop below rather than inside it. It has to, because it is one
+            // half of a pair: the other half is the OSC 133;B mark the parser has just written into
+            // the buffer, and OnCommandAssistEnterObserved reads both at once and discards the
+            // command outright when they disagree. Applying it after the hop meant the two halves
+            // moved on different schedules, and a submission landing in that window was lost from
+            // history silently and permanently. See
+            // CommandAssistController.ApplyShellIntegrationLifecycle for the full mechanism and for
+            // why exactly one of the two paths may own each event.
+            //
+            // Snapshotted into a local rather than re-read, same as the other non-UI-thread readers
+            // of this field: the parse thread may not initialize Command Assist (that builds views),
+            // so when the controller does not exist yet the gate stays the dispatcher's job, which
+            // is where EnsureCommandAssistInitialized can run.
+            CommandAssistController? assist = _commandAssistController;
+            assist?.ApplyShellIntegrationLifecycle(shellEvent);
+
             _ = _shellIntegrationEventDispatcher
-                .EnqueueAsync(() => HandleShellIntegrationEventAsync(shellEvent))
+                .EnqueueAsync(() => HandleShellIntegrationEventAsync(
+                    shellEvent,
+                    applyLifecycle: assist == null))
                 .ContinueWith(
                     static task => TerminalLogger.Log(
                         LogLevel.Error,
@@ -5136,7 +5155,9 @@ namespace NovaTerminal.Controls
             await _commandAssistController.HandleCommandFailureAsync(context);
         }
 
-        private async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
+        private async Task HandleShellIntegrationEventAsync(
+            ShellIntegrationEvent shellEvent,
+            bool applyLifecycle)
         {
             if (!EnsureCommandAssistInitialized())
             {
@@ -5145,7 +5166,9 @@ namespace NovaTerminal.Controls
 
             try
             {
-                await _commandAssistController.HandleShellIntegrationEventAsync(shellEvent);
+                await _commandAssistController.HandleShellIntegrationEventAsync(
+                    shellEvent,
+                    applyLifecycle);
             }
             catch (Exception ex)
             {
