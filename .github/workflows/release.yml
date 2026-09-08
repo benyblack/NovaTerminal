@@ -586,8 +586,8 @@ jobs:
       # THE NATIVES ARE THE ADDED VALUE OVER ci.yml. `Download Native Artifact` above puts
       # rusty_pty/rusty_ssh here from a separate job, with SKIP_RUST_NATIVE_BUILD=1 - so this
       # is the only place that proves the *shipped* combination of managed bundle and
-      # downloaded natives actually loads. The `Spawning` assertion below is what exercises
-      # them: no PTY, no spawn line, red gate.
+      # downloaded natives actually loads. The `Spawned ... pid=` assertion below is what
+      # exercises them: no working PTY, no spawn line, red gate.
       #
       # NOVATERM_APPDATA_ROOT points the app at an empty directory, so it starts from a
       # pristine profile - no settings.json, no themes, no session to restore. That is the
@@ -656,11 +656,21 @@ jobs:
           }
 
           # Beyond "Main ran": the window and a terminal view came up, and the downloaded
-          # native PTY loaded and spawned a shell. Both lines are emitted on a pristine
-          # profile. If a log reword breaks this, re-anchor to whatever the renderer and the
-          # PTY now say on first paint - do not delete the check, or this step goes back to
-          # proving only that a process launched, which #443 also did.
-          foreach ($pattern in @('\[TerminalView\] Theme applied', '\[RustPtySession\] Spawning')) {
+          # native PTY loaded and spawned a shell with a live child. Both lines are emitted on
+          # a pristine profile. If a log reword breaks this, re-anchor to whatever the renderer
+          # and the PTY now say on first paint - do not delete the check, or this step goes
+          # back to proving only that a process launched, which #443 also did.
+          #
+          # `Spawned ... pid=<n>`, NOT the `Spawning` line this step first shipped with:
+          # RustPtySession logs `Spawning` BEFORE calling pty_spawn, so a rusty_pty that is
+          # missing, ABI-incompatible, or simply unable to spawn writes it and then throws
+          # into TerminalPane.InitializeSessionCore's catch, which shows an error banner and
+          # leaves the process alive and themed. Every assertion in this step would pass and
+          # the PTY-less bundle would be published - the precise failure this gate exists to
+          # stop, since this job's natives come from `Download Native Artifact` and are never
+          # compiled or run anywhere else. `Spawned` sits after the IsInvalid check and carries
+          # the child pid, so it cannot be reached without a working native. (Codex P1 on #445.)
+          foreach ($pattern in @('\[TerminalView\] Theme applied', '\[RustPtySession\] Spawned .*pid=\d+')) {
             if (-not (Select-String -Path $debugLog -Pattern $pattern -Quiet)) {
               throw "$debugLog has no line matching '$pattern', so the bundle started but its UI never finished coming up. A trimmed-away type reached only while building the terminal view, or a native that failed to load, looks exactly like this."
             }

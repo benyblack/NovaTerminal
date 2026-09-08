@@ -764,6 +764,23 @@ namespace NovaTerminal.Pty
                         : $"Failed to create Rust PTY session for '{effectiveShell}': {reason}");
             }
 
+            // LOAD-BEARING FOR THE RELEASE GATE. The smoke launches in release.yml and ci.yml
+            // assert this line to prove the SHIPPED rusty_pty actually created a session with a
+            // live child. The `Spawning` line above cannot carry that claim: it is written
+            // BEFORE pty_spawn, so a native that is missing, ABI-incompatible, or simply fails
+            // to spawn logs it and then throws into TerminalPane.InitializeSessionCore's catch,
+            // which writes an error banner and leaves the process alive and themed - every gate
+            // assertion green, and a bundle with no working PTY published. (Codex P1 on #445.)
+            //
+            // The pid comes from pty_get_pid, which on Windows is GetProcessId on the handle
+            // ConPTY returned, so `pid=<n>` is only reachable with a real child behind it; the
+            // Pid property yields null (printing `unknown`) when the native reports <= 0, and
+            // the gates match `pid=\d+` so that case stays red. Reword this and re-anchor both
+            // workflows - do not delete it, or those gates go back to proving only that a
+            // process launched, which is what #443 shipped through.
+            PtyLogger.Info(
+                $"[RustPtySession] Spawned '{effectiveShell}' pid={(Pid is int spawnedPid ? spawnedPid.ToString(System.Globalization.CultureInfo.InvariantCulture) : "unknown")}");
+
             // Start reading and processing on DEDICATED background threads, not the
             // threadpool. These loops make blocking native calls (pty_read) and an
             // outright-blocking consuming enumerator, so on the threadpool a leaked or

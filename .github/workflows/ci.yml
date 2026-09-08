@@ -1523,7 +1523,15 @@ jobs:
           # If a log-message reword breaks this, re-anchor it to whatever the renderer now says
           # on first paint. Do not delete the check: without it this step only proves the
           # process launched, which the palette bug did too.
-          foreach ($pattern in @('\[TerminalView\] Theme applied', '\[RustPtySession\] Spawning')) {
+          #
+          # `Spawned ... pid=<n>` rather than the `Spawning` line this step first shipped with:
+          # RustPtySession logs `Spawning` BEFORE calling pty_spawn, so a PTY that fails to
+          # spawn writes it anyway and then throws into TerminalPane.InitializeSessionCore's
+          # catch, which shows an error banner and leaves the process alive and themed - all
+          # four assertions green over a terminal that cannot open a shell. `Spawned` is
+          # emitted after the IsInvalid check and carries the child pid, so it is only
+          # reachable with a real session behind it. (Codex P1 on #445.)
+          foreach ($pattern in @('\[TerminalView\] Theme applied', '\[RustPtySession\] Spawned .*pid=\d+')) {
             if (-not (Select-String -Path $debugLog -Pattern $pattern -Quiet)) {
               throw "$debugLog has no line matching '$pattern', so the bundle started but its UI never finished coming up. A trimmed-away type reached only while building the terminal view looks exactly like this."
             }
