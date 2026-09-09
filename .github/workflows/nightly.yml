@@ -53,11 +53,11 @@ jobs:
 
       - name: Install Rust
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - name: Rust incremental build cache
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/NovaTerminal.App/native
 
@@ -65,7 +65,7 @@ jobs:
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
         run: |
           cd src/NovaTerminal.App/native
-          cargo build --release
+          cargo build --release --locked
           mkdir -p target_linux/release
           cp target/release/librusty_pty.so target_linux/release/
 
@@ -114,9 +114,11 @@ jobs:
       - name: Install SharpFuzz tool
         run: dotnet tool install --global SharpFuzz.CommandLine
 
+      # --max-redirect=0 (githubactions:S6506): fail closed instead of following a
+      # redirect that could move the fetch off the pinned origin.
       - name: Build libfuzzer-dotnet driver
         run: |
-          wget -q https://raw.githubusercontent.com/Metalnem/libfuzzer-dotnet/master/libfuzzer-dotnet.cc
+          wget -q --max-redirect=0 https://raw.githubusercontent.com/Metalnem/libfuzzer-dotnet/master/libfuzzer-dotnet.cc
           clang -fsanitize=fuzzer libfuzzer-dotnet.cc -o libfuzzer-dotnet
 
       - name: Publish fuzz project
@@ -191,17 +193,17 @@ jobs:
 
       - name: Install Rust
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - name: Rust incremental build cache
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/NovaTerminal.App/native
 
       - name: Build Rust (Windows)
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
-        run: cd src/NovaTerminal.App/native && cargo build --release
+        run: cd src/NovaTerminal.App/native && cargo build --release --locked
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4

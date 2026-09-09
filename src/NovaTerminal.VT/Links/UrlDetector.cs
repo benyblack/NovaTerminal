@@ -7,6 +7,11 @@ namespace NovaTerminal.VT.Links
     /// <summary>Detects links in a single line of text by applying an ordered list of LinkRules.</summary>
     public sealed class UrlDetector
     {
+        // Generous ceiling for pathological input (csharpsquid:S6444); ordinary lines match in
+        // microseconds. On timeout the Regex APIs throw RegexMatchTimeoutException, which Detect
+        // treats as "no links from this rule" rather than stalling the render path.
+        private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(100);
+
         private readonly IReadOnlyList<LinkRule> _rules;
 
         public UrlDetector(IReadOnlyList<LinkRule>? rules = null) => _rules = rules ?? DefaultRules;
@@ -15,12 +20,12 @@ namespace NovaTerminal.VT.Links
         {
             new LinkRule(
                 "scheme",
-                new Regex(@"[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s]+", RegexOptions.Compiled),
+                new Regex(@"[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s]+", RegexOptions.Compiled, MatchTimeout),
                 text => text,
                 trimTrailingPunctuation: true),
             new LinkRule(
                 "email",
-                new Regex(@"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b", RegexOptions.Compiled),
+                new Regex(@"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b", RegexOptions.Compiled, MatchTimeout),
                 text => "mailto:" + text,
                 trimTrailingPunctuation: false),
         };
@@ -32,14 +37,22 @@ namespace NovaTerminal.VT.Links
             var spans = new List<LinkSpan>();
             foreach (var rule in _rules)
             {
-                foreach (Match m in rule.Pattern.Matches(line))
+                try
                 {
-                    int start = m.Index;
-                    int end = m.Index + m.Length; // exclusive
-                    if (rule.TrimTrailingPunctuation) end = TrimTrailingEnd(line, start, end);
-                    if (end <= start) continue;
-                    string text = line.Substring(start, end - start);
-                    spans.Add(new LinkSpan(start, end, rule.Resolve(text)));
+                    foreach (Match m in rule.Pattern.Matches(line))
+                    {
+                        int start = m.Index;
+                        int end = m.Index + m.Length; // exclusive
+                        if (rule.TrimTrailingPunctuation) end = TrimTrailingEnd(line, start, end);
+                        if (end <= start) continue;
+                        string text = line.Substring(start, end - start);
+                        spans.Add(new LinkSpan(start, end, rule.Resolve(text)));
+                    }
+                }
+                catch (RegexMatchTimeoutException)
+                {
+                    // Pathological line: keep what earlier rules found and drop this rule's
+                    // matches rather than hanging the caller.
                 }
             }
 

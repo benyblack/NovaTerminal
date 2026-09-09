@@ -16,9 +16,6 @@ on:
         default: "main"
         type: string
 
-permissions:
-  contents: write
-
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -37,6 +34,10 @@ jobs:
   release_metadata:
     name: Resolve Release Metadata
     runs-on: ubuntu-latest
+    # Every job declares its own permissions (githubactions:S8233): there is no
+    # workflow-level default, so each GITHUB_TOKEN states exactly what it may do.
+    permissions:
+      contents: read
     outputs:
       release_tag: ${{ steps.meta.outputs.release_tag }}
       release_version: ${{ steps.meta.outputs.release_version }}
@@ -73,6 +74,8 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     needs: [release_metadata]
+    permissions:
+      contents: write
     steps:
       - name: Create or update release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
@@ -98,6 +101,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     needs: [release_metadata]
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -118,10 +123,12 @@ jobs:
           ref: ${{ needs.release_metadata.outputs.checkout_ref }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        # Pinned to a full commit SHA (githubactions:S7637); the stable branch
+        # still resolves the latest stable toolchain at run time.
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/NovaTerminal.App/native
 
@@ -129,17 +136,17 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           cd src/NovaTerminal.App/native
-          cargo build --release
+          cargo build --release --locked
           cd rusty_ssh
-          cargo build --release
+          cargo build --release --locked
 
       - name: Build Rust (macOS)
         if: matrix.os == 'macos-latest'
         run: |
           cd src/NovaTerminal.App/native
-          cargo build --release
+          cargo build --release --locked
           cd rusty_ssh
-          cargo build --release
+          cargo build --release --locked
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
@@ -190,6 +197,8 @@ jobs:
     # a warm, fully preinstalled runner image.
     timeout-minutes: 40
     needs: [release_metadata]
+    permissions:
+      contents: read
     # ARM64 GATES LIKE EVERY OTHER PLATFORM NOW - no more `continue-on-error` here.
     # `fail-fast: false` below still stops a red arm64 leg cancelling its x64
     # sibling, but a JOB failure still propagates: release_tests `needs:
@@ -387,6 +396,8 @@ jobs:
     # build_native_linux as well as build_native: the ubuntu legs' native-* artifacts
     # now come from that job, so needing only build_native would race the download.
     needs: [release_metadata, build_native, build_native_linux]
+    permissions:
+      contents: read
     # ARM64 GATES LIKE EVERY OTHER PLATFORM NOW - no more `continue-on-error`
     # here. `fail-fast: true` below still means a failing leg CANCELS its
     # in-flight siblings, and every publish job needs this one - so a red
@@ -484,6 +495,8 @@ jobs:
     # slow day — 40 was cutting the job down mid-wait.
     timeout-minutes: 90
     needs: [release_metadata, create_release, build_native, release_tests]
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -1190,6 +1203,8 @@ jobs:
     # to fall back on. Not 90 like publish_aot - there is no notarization wait here.
     timeout-minutes: 60
     needs: [release_metadata, create_release, build_native_linux, release_tests]
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -1721,6 +1736,8 @@ jobs:
     # compilation happens here.
     timeout-minutes: 30
     needs: [release_metadata, publish_linux]
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -1812,6 +1829,8 @@ jobs:
     name: Submit to winget-pkgs
     runs-on: windows-latest
     needs: [release_metadata, publish_aot]
+    permissions:
+      contents: read
     # Never submit a prerelease to the community repo. Same contains('-') test as the
     # prerelease flag on create_release: winget-pkgs is for stable versions, and a
     # `-beta`/`-test` tag reaching it is a public retraction, not a private mistake. The step

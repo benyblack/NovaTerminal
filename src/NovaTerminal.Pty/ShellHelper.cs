@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -422,12 +423,37 @@ namespace NovaTerminal.Pty
         {
             if (string.IsNullOrWhiteSpace(command)) return false;
 
-            var path = Environment.GetEnvironmentVariable("PATH");
-            if (string.IsNullOrEmpty(path)) return false;
+            foreach (var fullPath in EnumeratePathCandidates(Environment.GetEnvironmentVariable("PATH"), command))
+            {
+                if (File.Exists(fullPath)) return true;
 
-            var dirs = path.Split(Path.PathSeparator);
+                if (OperatingSystem.IsWindows() &&
+                    !Path.HasExtension(fullPath) &&
+                    File.Exists(fullPath + ".exe"))
+                {
+                    return true;
+                }
+            }
 
-            foreach (var dir in dirs)
+            return false;
+        }
+
+        /// <summary>
+        /// The single definition of how <c>PATH</c> is split into candidate paths for
+        /// <paramref name="command"/>, shared by <see cref="InPath"/> and by
+        /// <c>RustPtySession.ResolveSystemTool</c> so the two cannot drift.
+        /// </summary>
+        /// <remarks>
+        /// Candidates are yielded as-is: whether a relative entry is acceptable is the caller's
+        /// question, and the two callers answer it differently. <see cref="InPath"/> is only asking
+        /// whether a shell would find the command, so it takes PATH at its word;
+        /// <c>ResolveSystemTool</c> is choosing an executable to launch, so it requires a rooted one.
+        /// </remarks>
+        internal static IEnumerable<string> EnumeratePathCandidates(string? pathValue, string command)
+        {
+            if (string.IsNullOrEmpty(pathValue)) yield break;
+
+            foreach (var dir in pathValue.Split(Path.PathSeparator))
             {
                 if (string.IsNullOrWhiteSpace(dir)) continue;
 
@@ -442,17 +468,8 @@ namespace NovaTerminal.Pty
                     continue;
                 }
 
-                if (File.Exists(fullPath)) return true;
-
-                if (OperatingSystem.IsWindows() &&
-                    !Path.HasExtension(fullPath) &&
-                    File.Exists(fullPath + ".exe"))
-                {
-                    return true;
-                }
+                yield return fullPath;
             }
-
-            return false;
         }
 
         /// <summary>Strips one layer of surrounding double quotes.</summary>

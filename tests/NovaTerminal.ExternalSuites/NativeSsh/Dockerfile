@@ -1,5 +1,7 @@
 # Native SSH end-to-end fixture image.
 #
+# v4 moves sshd host-key generation out of the image build (docker:S6437); the entrypoint
+# runs `ssh-keygen -A` at container start instead.
 # v3 exists to make the auth rows of docs/native-ssh/Native_SSH_Test_Matrix.md automatable. v2 set
 # `PubkeyAuthentication no` and `KbdInteractiveAuthentication no`, so private-key, encrypted-key and
 # keyboard-interactive auth could only ever be checked by hand — the matrix listed them as "pending
@@ -54,8 +56,6 @@ RUN mkdir -p /var/run/sshd \
         '    KbdInteractiveAuthentication yes' \
         > /etc/ssh/sshd_config.d/novaterm.conf
 
-RUN ssh-keygen -A
-
 RUN printf "export PS1='nova$ '\n" > /home/nova/.bashrc \
     && printf "PROMPT='nova$ '\n" > /home/nova/.zshrc \
     && mkdir -p /home/nova/.config/fish \
@@ -69,14 +69,22 @@ RUN printf "export PS1='nova$ '\n" > /home/nova/.bashrc \
 # sshd stays PID 1 via exec, so container stop signals still reach it. The echo service is a
 # background child rather than a second supervised process: if it dies the forwarding tests fail
 # loudly, which is the correct outcome, and nothing else depends on it.
+#
+# No host keys are generated at build time either (docker:S6437 - a key baked
+# into an image layer is a secret that travels with every copy of the image).
+# The entrypoint below runs `ssh-keygen -A` at container start, so every test
+# run gets fresh host keys that live and die with the --rm container.
 RUN printf '%s\n' \
         '#!/bin/sh' \
         'set -e' \
+        'ssh-keygen -A' \
         'socat TCP-LISTEN:9001,fork,reuseaddr EXEC:/bin/cat &' \
         'exec /usr/sbin/sshd -D -e' \
         > /usr/local/bin/novaterm-entrypoint.sh \
     && chmod +x /usr/local/bin/novaterm-entrypoint.sh
 
-EXPOSE 22
+# No EXPOSE (docker:S6473 - sshd is an administration service). EXPOSE is
+# documentation only; DockerSshFixture publishes the port explicitly with
+# `-p 127.0.0.1::22`, which never depended on this line.
 
 CMD ["/usr/local/bin/novaterm-entrypoint.sh"]
