@@ -1853,13 +1853,19 @@ namespace NovaTerminal.Shell
 
         private float GetColEdge(float[] colEdges, int colIndex, float paddingLeft)
         {
-            if ((uint)colIndex < (uint)colEdges.Length) return colEdges[colIndex];
+            // Bounds-check the USED count, not the pooled array's Length: EnsureCellEdgeGrid
+            // rents from ArrayPool, so Length is capacity and slots past _colEdgesCount hold
+            // stale values. An image wider than the grid (colEdges[122] on an 86-col pane)
+            // read one of those zeros as an edge, flipped the rect width negative, and the
+            // frame silently painted nothing. Beyond the valid edges the geometry is linear,
+            // so fall through to the pixel grid.
+            if ((uint)colIndex < (uint)_colEdgesCount) return colEdges[colIndex];
             return FromDevicePx(_pixelGrid.XForCol(colIndex));
         }
 
         private float GetRowEdge(float[] rowEdges, int rowIndex, float paddingTop)
         {
-            if ((uint)rowIndex < (uint)rowEdges.Length) return rowEdges[rowIndex];
+            if ((uint)rowIndex < (uint)_rowEdgesCount) return rowEdges[rowIndex];
             return FromDevicePx(_pixelGrid.YForRowTop(rowIndex));
         }
 
