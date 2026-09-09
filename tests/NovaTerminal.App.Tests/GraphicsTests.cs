@@ -138,15 +138,37 @@ namespace NovaTerminal.Tests
         {
             // The reply must reflect what the transmit path will actually accept: answering OK
             // to a t=s probe would send the client into a mode where every frame disappears.
+            // The reader stub makes t=f probes OK - the probe checks presence, not read success.
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer, forceConPtyFiltering: true)
+            {
+                AllowNativeKittyGraphics = true,
+                ReadFileBytes = _ => null,
+            };
+            string? response = null;
+            parser.OnResponse = r => response = r;
+
+            parser.Process($"\x1b_Ga=q,i=31,{transport}\x1b\\");
+
+            Assert.NotNull(response);
+            Assert.Contains($";{expectedStatus}", response!, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void KittyQuery_TfProbe_WithoutReader_RespondsErr()
+        {
+            // SSH panes leave ReadFileBytes unwired: a t=f probe must answer ERR so a remote
+            // client falls back to inline payloads instead of a transport where every frame
+            // is skipped.
             var buffer = new TerminalBuffer(80, 24);
             var parser = new AnsiParser(buffer, forceConPtyFiltering: true) { AllowNativeKittyGraphics = true };
             string? response = null;
             parser.OnResponse = r => response = r;
 
-            parser.Process($"_Ga=q,i=31,{transport}\\");
+            parser.Process("\x1b_Ga=q,i=31,t=f\x1b\\");
 
             Assert.NotNull(response);
-            Assert.Contains($";{expectedStatus}", response!, StringComparison.Ordinal);
+            Assert.Contains(";ERR", response!, StringComparison.Ordinal);
         }
 
         [Fact]

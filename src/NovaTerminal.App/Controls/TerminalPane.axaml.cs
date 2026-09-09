@@ -3096,7 +3096,14 @@ namespace NovaTerminal.Controls
             // the user's temp directory (where clients like terminal-browser stage raw frames),
             // with a hard size cap - the path arrives from the remote stream, so it is
             // attacker-controlled input, not a filename to trust.
-            Parser.ReadFileBytes = ReadKittyTransportFile;
+            //
+            // Local sessions only: on an SSH pane the path names a file on the REMOTE host, and
+            // reading a same-named local file would fabricate frames (or just fail). Leaving
+            // the delegate null makes t=f probes answer ERR, so remote clients fall back to
+            // inline payloads, which are self-contained.
+            Parser.ReadFileBytes = Profile is { Type: ConnectionType.SSH }
+                ? null
+                : ReadKittyTransportFile;
 
             Parser.OnBell += () =>
             {
@@ -3532,6 +3539,15 @@ namespace NovaTerminal.Controls
                 // Cell geometry just changed, so the agent-host's copy of this
                 // pane's render inputs is stale (A5 captureScreen).
                 UpdateAgentRenderParameters();
+
+                // Kitty in-band resize (mode 2048): a font or monitor-scaling change can alter
+                // the pane's pixel geometry WITHOUT changing the integer grid, so OnResize
+                // never fires and this is the only path that notices. A mode-2048 client keeps
+                // rendering at the stale pixel dimensions until it is told.
+                if (Parser is { InBandResizeReportsEnabled: true } && Buffer != null && cwMetric > 0 && chMetric > 0)
+                {
+                    Parser.SendInBandResize(Buffer.Rows, Buffer.Cols, (int)Math.Round(Buffer.Cols * cwMetric), (int)Math.Round(Buffer.Rows * chMetric));
+                }
             };
             TermView.MetricsChanged -= _onTermViewMetricsChanged;
             TermView.MetricsChanged += _onTermViewMetricsChanged;

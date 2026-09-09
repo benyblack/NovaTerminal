@@ -2892,11 +2892,15 @@ namespace NovaTerminal.VT
                         "31");
                     // A capability probe names the transport it intends to use (`t=`), and the
                     // reply must reflect what the transmit path will actually accept - the
-                    // whitelist below is exactly d and f. Answering OK to anything else (s,
-                    // t, or a future value) would send the client into a mode where every
-                    // frame is skipped.
+                    // whitelist below is exactly d and f. For f the host must also have wired
+                    // a file reader: without one (e.g. an SSH pane, where the path names a
+                    // remote file) every f-transport frame would be skipped, so the probe
+                    // answers ERR and the client falls back to inline payloads. Answering OK
+                    // to anything else (s, t, or a future value) would send the client into a
+                    // mode where every frame is skipped.
                     string probeTransport = _kittyPendingParams.TryGetValue("t", out var probeT) ? probeT : "d";
-                    bool transportSupported = probeTransport is "d" or "f";
+                    bool transportSupported = probeTransport == "d"
+                        || (probeTransport == "f" && ReadFileBytes != null);
                     string status = (_isConPtyFilteringLikely && !isTunneled && !AllowNativeKittyGraphics) || !transportSupported
                         ? "ERR"
                         : "OK";

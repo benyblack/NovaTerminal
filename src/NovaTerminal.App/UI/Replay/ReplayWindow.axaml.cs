@@ -65,13 +65,16 @@ namespace NovaTerminal.UI.Replay
             _parser = new AnsiParser(_buffer);
             // Replays of sessions that drew inline images must render the same way live panes do.
             _parser.ImageDecoder = new NovaTerminal.Rendering.SkiaImageDecoder();
-            // Replays carry the native-APC policy so inline payloads (f=100 / f=32+t=d) decode
-            // the same as live. Deliberately NOT wiring ReadFileBytes: a t=f frame's payload is
-            // only a path, and reading whatever sits there NOW would make replay output depend
-            // on external filesystem state instead of the recorded byte stream (the staging
-            // files are deleted or reused once the recorded process exits). Replay stays
-            // self-contained; t=f frames are logged and skipped during playback.
-            _parser.AllowNativeKittyGraphics = true;
+            // Native-APC policy is deliberately left at the parser default (off): the recording
+            // does not carry the setting the live pane ran with, and forcing it on would
+            // fabricate inline images a policy-off session never displayed. Fail towards
+            // hiding, not inventing: inline payloads recorded under an on-policy pane are
+            // skipped at replay, while tunneled OSC 1339 payloads (never policy-gated) replay
+            // as recorded. A future recording format that persists the effective policy can
+            // initialize this from the file.
+            // ReadFileBytes is likewise not wired: a t=f frame's payload is only a path, and
+            // reading what sits there NOW would make replay depend on external filesystem
+            // state instead of the recorded byte stream. t=f frames log-skip during playback.
             var termView = this.FindControl<TerminalView>("TermView");
             if (termView != null)
             {
