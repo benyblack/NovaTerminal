@@ -2891,11 +2891,12 @@ namespace NovaTerminal.VT
                         KittyMaxEchoedIdChars,
                         "31");
                     // A capability probe names the transport it intends to use (`t=`), and the
-                    // reply must reflect what the transmit path will actually accept - answering
-                    // OK to a `t=s` probe would send the client into a mode where every frame
-                    // is skipped. Shared memory is not implemented, so it probes ERR.
+                    // reply must reflect what the transmit path will actually accept - the
+                    // whitelist below is exactly d and f. Answering OK to anything else (s,
+                    // t, or a future value) would send the client into a mode where every
+                    // frame is skipped.
                     string probeTransport = _kittyPendingParams.TryGetValue("t", out var probeT) ? probeT : "d";
-                    bool transportSupported = probeTransport != "s";
+                    bool transportSupported = probeTransport is "d" or "f";
                     string status = (_isConPtyFilteringLikely && !isTunneled && !AllowNativeKittyGraphics) || !transportSupported
                         ? "ERR"
                         : "OK";
@@ -2928,12 +2929,15 @@ namespace NovaTerminal.VT
                 byte[] data = Convert.FromBase64String(combinedPayload);
 
                 // Transport (kitty key `t`): d = inline payload (default), f = file whose path
-                // is the payload, s = shared memory. Reading a file is host-injected I/O - the
-                // VT layer never touches disk itself (see ReadFileBytes).
+                // is the payload. Whitelist: any other value (s = shared memory, t = temporary
+                // file, or something newer) must skip rather than fall through to inline
+                // decoding - a t=t payload is a pathname, and decoding it as image bytes drops
+                // every frame while the probe already advertised support. Reading a file is
+                // host-injected I/O - the VT layer never touches disk itself (ReadFileBytes).
                 string transport = _kittyPendingParams.TryGetValue("t", out var tVal) ? tVal : "d";
-                if (transport == "s")
+                if (transport != "d" && transport != "f")
                 {
-                    TerminalLogger.Log("[ANSI_PARSER] Kitty t=s (shared memory) transport not supported, skipping.");
+                    TerminalLogger.Log($"[ANSI_PARSER] Kitty transport '{transport}' not supported, skipping.");
                     ClearKittyState();
                     return;
                 }

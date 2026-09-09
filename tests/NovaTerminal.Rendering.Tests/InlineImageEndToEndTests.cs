@@ -248,6 +248,23 @@ public class InlineImageEndToEndTests
     }
 
     /// <summary>
+    /// Only t=d and t=f are implemented: any other transport (kitty's t=t or something
+    /// newer) must skip the frame instead of decoding its payload as inline bytes - a t=t
+    /// payload is a pathname, and decoding it as an image just drops frames.
+    /// </summary>
+    [Fact]
+    public void KittyUnknownTransport_IsSkipped()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer, forceConPtyFiltering: false) { ImageDecoder = new SkiaImageDecoder() };
+
+        string base64 = Convert.ToBase64String(EncodePng3x5());
+        parser.Process("_Ga=T,t=t,f=100,m=0;" + base64 + "\\");
+
+        Assert.Empty(buffer.Images);
+    }
+
+    /// <summary>
     /// A tiny o=z container payload that inflates past the ceiling must be discarded before
     /// any large allocation, not after decode - the compression-bomb bound.
     /// </summary>

@@ -132,6 +132,8 @@ namespace NovaTerminal.Tests
         [InlineData("t=d", "OK")]
         [InlineData("t=f", "OK")]
         [InlineData("t=s", "ERR")]
+        [InlineData("t=t", "ERR")]
+        [InlineData("t=weird", "ERR")]
         public void KittyQuery_ProbeReplyReflectsRequestedTransport(string transport, string expectedStatus)
         {
             // The reply must reflect what the transmit path will actually accept: answering OK
