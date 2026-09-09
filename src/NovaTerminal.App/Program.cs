@@ -146,6 +146,31 @@ class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            // MainWindow is a client-side-decorated window: ExtendClientAreaToDecorationsHint plus
+            // NovaWindowDecorationsTheme (App.axaml) draw our own min/max/close buttons, and the
+            // title bar overlay reserves a 140px right margin for them. On Windows and macOS that
+            // opt-in is enough. On X11 - which is what Linux gets from UsePlatformDetect, including
+            // under Wayland compositors via XWayland - Avalonia 12 gates drawn decorations behind
+            // this backend option, default false: without it IsExtendedIntoWindowDecorations stays
+            // false, the decorations theme is never instantiated, and the caption buttons simply do
+            // not exist. Under a compositor that draws no titlebar of its own (Hyprland, Sway) the
+            // window then has no close/maximize/minimize affordance at all, and the reserved 140px
+            // sits empty. Not Force*: only windows that opt in should get CSD, so SettingsWindow,
+            // AboutWindow, ConnectionManagerWindow and ReplayWindow keep their WM decorations.
+            //
+            // Expect close ALONE on a tiling compositor, and that is correct rather than a leftover
+            // of the bug: the theme hides minimize/maximize on :not(:has-minimize)/:not(:has-maximize),
+            // and X11 sets neither pseudoclass unless the window manager advertises the action. On
+            // Hyprland it does not, and measured behaviour agrees - setting WindowState to Maximized
+            // or Minimized there leaves it at Normal, so those two buttons would be inert. The same
+            // theme shows all three under a WM that does advertise them.
+            //
+            // Experimental in 12.0.4 ("used mostly for testing"), hence the suppression. Recheck on
+            // the next Avalonia bump: if the flag graduates, drop the pragma; if it is removed,
+            // this call is what has to be replaced, not the XAML.
+#pragma warning disable AVALONIA_X11_CSD
+            .With(new X11PlatformOptions { EnableDrawnDecorations = true })
+#pragma warning restore AVALONIA_X11_CSD
             .WithInterFont()
             .With(new FontManagerOptions
             {
