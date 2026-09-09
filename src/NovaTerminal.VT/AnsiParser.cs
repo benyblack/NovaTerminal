@@ -162,6 +162,14 @@ namespace NovaTerminal.VT
         private const int KittyMaxEchoedIdChars = 10;
 
         /// <summary>
+        /// Inflation ceiling for <c>o=z</c> container payloads (f absent or encoded): the
+        /// inflated bytes are an encoded image the decoder will bound at 2000×2000, and no
+        /// legitimate encoded container of that geometry approaches 32 MiB. Raw payloads
+        /// (f=24/32) bypass this constant — they are bounded by their exact declared size.
+        /// </summary>
+        private const long KittyMaxInflatedContainerBytes = 32L * 1024 * 1024;
+
+        /// <summary>
         /// Host-settable kill switch for the kitty keyboard protocol (issue #266 / PR #277
         /// review, Blocker 2), wired the same way <see cref="DefaultForeground"/> was in
         /// PR #275: the App layer sets this from <c>TerminalSettings.EnableKittyKeyboardProtocol</c>
@@ -2930,10 +2938,52 @@ namespace NovaTerminal.VT
                     data = fileData;
                 }
 
-                // Compression (kitty key `o`): z = zlib-wrapped deflate over the pixel/encoded data.
+                // Format (kitty key `f`) is parsed BEFORE decompression: 24/32 are raw RGB/RGBA
+                // pixel data sized by s=/v=, and the declared dimensions give the inflate step
+                // an exact bound. Anything else (including the absent default) goes through the
+                // container decoder, which sniffs PNG/JPEG/etc. terminal-browser sends f=32
+                // with o=z.
+                int format = 0;
+                if (_kittyPendingParams.TryGetValue("f", out var fVal))
+                {
+                    int.TryParse(fVal, out format);
+                }
+
+                bool isRaw = format == 24 || format == 32;
+                int rawWidth = 0;
+                int rawHeight = 0;
+                if (isRaw)
+                {
+                    if (!_kittyPendingParams.TryGetValue("s", out var sVal) ||
+                        !_kittyPendingParams.TryGetValue("v", out var vVal) ||
+                        !int.TryParse(sVal, out rawWidth) || !int.TryParse(vVal, out rawHeight) ||
+                        rawWidth <= 0 || rawHeight <= 0)
+                    {
+                        TerminalLogger.Log("[ANSI_PARSER] Kitty raw payload missing valid s=/v= dimensions, skipping.");
+                        ClearKittyState();
+                        return;
+                    }
+                }
+
+                // Compression (kitty key `o`): z = zlib-wrapped deflate over the pixel/encoded
+                // data. Bounded: raw payloads may inflate to exactly their declared size, and
+                // container payloads to a ceiling far above any legitimate encoded image - a
+                // small compression bomb must not allocate gigabytes before the size guardrails
+                // ever run.
                 if (_kittyPendingParams.TryGetValue("o", out var oVal) && oVal == "z")
                 {
-                    data = InflateZlib(data);
+                    long expected = isRaw
+                        ? (long)rawWidth * rawHeight * (format == 24 ? 3 : 4)
+                        : KittyMaxInflatedContainerBytes;
+                    int limit = (int)Math.Min(expected, int.MaxValue);
+                    byte[]? inflated = InflateZlib(data, limit);
+                    if (inflated == null)
+                    {
+                        ClearKittyState();
+                        return;
+                    }
+
+                    data = inflated;
                 }
 
                 if (data.Length >= 8)
@@ -2948,30 +2998,11 @@ namespace NovaTerminal.VT
                     return;
                 }
 
-                // Format (kitty key `f`): 24/32 are raw RGB/RGBA pixel data sized by s=/v=;
-                // anything else (including the absent default) goes through the container
-                // decoder, which sniffs PNG/JPEG/etc. terminal-browser sends f=32 with o=z.
-                int format = 0;
-                if (_kittyPendingParams.TryGetValue("f", out var fVal))
-                {
-                    int.TryParse(fVal, out format);
-                }
-
                 object? imageHandle;
                 int pixelWidth;
                 int pixelHeight;
-                if (format == 24 || format == 32)
+                if (isRaw)
                 {
-                    if (!_kittyPendingParams.TryGetValue("s", out var sVal) ||
-                        !_kittyPendingParams.TryGetValue("v", out var vVal) ||
-                        !int.TryParse(sVal, out int rawWidth) || !int.TryParse(vVal, out int rawHeight) ||
-                        rawWidth <= 0 || rawHeight <= 0)
-                    {
-                        TerminalLogger.Log("[ANSI_PARSER] Kitty raw payload missing valid s=/v= dimensions, skipping.");
-                        ClearKittyState();
-                        return;
-                    }
-
                     imageHandle = ImageDecoder.DecodeRawImage(data, format == 24 ? 3 : 4, rawWidth, rawHeight, out pixelWidth, out pixelHeight);
                 }
                 else
@@ -3112,25 +3143,42 @@ namespace NovaTerminal.VT
 
         /// <summary>
         /// Inflates a zlib-wrapped deflate stream (kitty graphics <c>o=z</c>). Called on
-        /// attacker-controlled remote input, so failures surface as a zero-length array for the
-        /// caller to reject rather than an exception mid-parse; output is bounded by the declared
-        /// pixel guardrails in the caller path (a valid raw frame can't exceed the decode caps).
+        /// attacker-controlled remote input, so the output is hard-bounded at
+        /// <paramref name="maxBytes"/> — a small compression bomb cannot balloon the
+        /// allocation before anything validates the payload — and any failure or overage
+        /// returns null for the caller to reject, rather than an exception mid-parse.
         /// Pure CPU work — no I/O, keeping VT a leaf.
         /// </summary>
-        private static byte[] InflateZlib(byte[] compressed)
+        private static byte[]? InflateZlib(byte[] compressed, int maxBytes)
         {
             try
             {
                 using var source = new System.IO.MemoryStream(compressed);
                 using var zlib = new System.IO.Compression.ZLibStream(source, System.IO.Compression.CompressionMode.Decompress);
-                using var output = new System.IO.MemoryStream(compressed.Length * 4);
-                zlib.CopyTo(output, 81920);
+                using var output = new System.IO.MemoryStream();
+                var buffer = new byte[81920];
+                int total = 0;
+                while (total <= maxBytes)
+                {
+                    // One byte past the bound is read deliberately, so a stream that is
+                    // exactly the limit is accepted and anything longer is detected.
+                    int n = zlib.Read(buffer, 0, Math.Min(buffer.Length, maxBytes + 1 - total));
+                    if (n <= 0) break;
+                    output.Write(buffer, 0, n);
+                    total += n;
+                    if (total > maxBytes)
+                    {
+                        TerminalLogger.Log($"[ANSI_PARSER] Kitty o=z inflate exceeded its {maxBytes} byte bound; discarding.");
+                        return null;
+                    }
+                }
+
                 return output.ToArray();
             }
             catch (Exception ex)
             {
                 TerminalLogger.Log($"[ANSI_PARSER] Kitty o=z inflate failed: {ex.Message}");
-                return Array.Empty<byte>();
+                return null;
             }
         }
 

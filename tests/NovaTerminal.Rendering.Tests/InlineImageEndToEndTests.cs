@@ -247,6 +247,38 @@ public class InlineImageEndToEndTests
         }
     }
 
+    /// <summary>
+    /// A tiny o=z container payload that inflates past the ceiling must be discarded before
+    /// any large allocation, not after decode - the compression-bomb bound.
+    /// </summary>
+    [Fact]
+    public void KittyOzContainer_InflatingPastCeiling_IsDiscarded()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer, forceConPtyFiltering: false) { ImageDecoder = new SkiaImageDecoder() };
+
+        // ~33 MiB of zeros compresses to a few KB, but inflates past the 32 MiB ceiling.
+        byte[] bomb = ZlibCompress(new byte[33 * 1024 * 1024]);
+        Assert.True(bomb.Length < 1024 * 1024, "test precondition: the bomb should compress small");
+        parser.Process("_Ga=T,o=z,t=d,m=0;" + Convert.ToBase64String(bomb) + "\\");
+
+        Assert.Empty(buffer.Images);
+    }
+
+    [Fact]
+    public void KittyOzRawPayload_LongerThanDeclaredDimensions_IsSkipped()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer, forceConPtyFiltering: false) { ImageDecoder = new SkiaImageDecoder() };
+
+        // Declares 4x2 RGBA (32 bytes) but inflates to 64 - a mismatch is rejected.
+        byte[] inflated = new byte[64];
+        byte[] compressed = ZlibCompress(inflated);
+        parser.Process("_Ga=T,f=32,o=z,s=4,v=2,t=d,i=7,q=2,m=0;" + Convert.ToBase64String(compressed) + "\\");
+
+        Assert.Empty(buffer.Images);
+    }
+
     [Fact]
     public void KittyFileTransport_RawRgba_PlacesDecodedBitmapViaInjectedReader()
     {

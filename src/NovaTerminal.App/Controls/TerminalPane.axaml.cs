@@ -3593,7 +3593,14 @@ namespace NovaTerminal.Controls
             }
 
             string tempRoot = System.IO.Path.GetFullPath(System.IO.Path.GetTempPath());
-            if (!candidate.StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase))
+            // Casing follows the platform's filesystem rules: ignore-case is only correct where
+            // the filesystem itself is case-insensitive - on Unix, /TMP/frame.rgba is a
+            // different directory from /tmp/frame.rgba, and accepting it as "under temp" would
+            // let a case-variant path escape the confinement boundary.
+            var pathComparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            if (!candidate.StartsWith(tempRoot, pathComparison))
             {
                 return null;
             }
@@ -3615,6 +3622,15 @@ namespace NovaTerminal.Controls
                     System.IO.FileMode.Open,
                     System.IO.FileAccess.Read,
                     System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete);
+
+                // Re-check the cap on the OPENED handle: the file can grow between the
+                // FileInfo probe above and this open, and the allocation below trusts the
+                // length blindly.
+                if (stream.Length > KittyTransportMaxFileBytes)
+                {
+                    return null;
+                }
+
                 var bytes = new byte[stream.Length];
                 int read = 0;
                 while (read < bytes.Length)
