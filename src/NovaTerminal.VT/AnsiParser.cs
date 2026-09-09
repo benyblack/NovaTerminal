@@ -2986,9 +2986,29 @@ namespace NovaTerminal.VT
 
                 TerminalLogger.Log($"[ANSI_PARSER] Kitty image placement: CursorCol={_buffer.CursorCol}, CursorRow={_buffer.CursorRow}, absRow={absRow}, widthCells={width}, heightCells={height}, effectiveCellW={effectiveCellWidth}, effectiveCellH={effectiveCellHeight}");
                 var img = new TerminalImage(imageHandle, _buffer.CursorCol, absRow, width, height);
-                _buffer.AddImage(img);
 
-                if (action == "T" || action == "t")
+                // `i=` numbers the image; a later frame reusing the number replaces this one
+                // (kitty animation semantics — the shape terminal-browser's 30 fps stream uses).
+                int? kittyImageId = _kittyPendingParams.TryGetValue("i", out var iVal)
+                    && int.TryParse(iVal, out int parsedId) && parsedId >= 0
+                        ? parsedId : null;
+
+                // `C=1` (with cursor placement): do not move the cursor after displaying. The
+                // default advance reserves the image's cells so following text flows below it,
+                // but a frame stream re-emits at the same spot every frame — advancing would
+                // scroll each frame off the top before it can be seen.
+                bool keepCursor = _kittyPendingParams.TryGetValue("C", out var cFlag) && cFlag == "1";
+
+                if (kittyImageId.HasValue)
+                {
+                    _buffer.AddKittyFrame(img, kittyImageId.Value);
+                }
+                else
+                {
+                    _buffer.AddImage(img);
+                }
+
+                if ((action == "T" || action == "t") && !keepCursor)
                 {
                     bool oldHidden = _buffer.IsHidden;
                     _buffer.IsHidden = true;

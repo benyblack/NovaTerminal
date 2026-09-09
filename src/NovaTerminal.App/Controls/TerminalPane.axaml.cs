@@ -3592,7 +3592,25 @@ namespace NovaTerminal.Controls
                     return null;
                 }
 
-                return System.IO.File.ReadAllBytes(candidate);
+                // The writer (e.g. terminal-browser's frame ring) keeps the file open while it
+                // cycles frames, so a plain File.ReadAllBytes' FileShare.Read gets rejected with
+                // a sharing violation. Open tolerating concurrent writers: the path is only sent
+                // after the frame write completes, so the bytes read are the finished frame.
+                using var stream = new System.IO.FileStream(
+                    candidate,
+                    System.IO.FileMode.Open,
+                    System.IO.FileAccess.Read,
+                    System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete);
+                var bytes = new byte[stream.Length];
+                int read = 0;
+                while (read < bytes.Length)
+                {
+                    int n = stream.Read(bytes, read, bytes.Length - read);
+                    if (n <= 0) break;
+                    read += n;
+                }
+
+                return read == bytes.Length ? bytes : null;
             }
             catch (Exception)
             {

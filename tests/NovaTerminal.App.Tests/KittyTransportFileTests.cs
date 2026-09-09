@@ -57,6 +57,37 @@ public class KittyTransportFileTests
         }
     }
 
+    /// <summary>
+    /// Regression: terminal-browser's frame ring keeps the file open in the writer while it
+    /// cycles frames, so a File.ReadAllBytes share-read open was rejected with a sharing
+    /// violation ("being used by another process") and every frame was skipped. The reader
+    /// must tolerate a concurrent write handle (FileShare.ReadWrite).
+    /// </summary>
+    [Fact]
+    public void ReadKittyTransportFile_FileHeldOpenByWriter_IsStillRead()
+    {
+        string tempRoot = Path.GetTempPath();
+        string candidate = Path.Combine(tempRoot, "novaterminal-kitty-test-" + Guid.NewGuid().ToString("N") + ".rgba");
+        try
+        {
+            byte[] payload = { 9, 8, 7, 6, 5, 4 };
+            File.WriteAllBytes(candidate, payload);
+
+            using (var writer = new FileStream(
+                candidate, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
+            {
+                byte[]? read = TerminalPane.ReadKittyTransportFile(candidate);
+
+                Assert.NotNull(read);
+                Assert.Equal(payload, read);
+            }
+        }
+        finally
+        {
+            File.Delete(candidate);
+        }
+    }
+
     [Fact]
     public void ReadKittyTransportFile_MissingFileInsideTemp_ReturnsNull()
     {

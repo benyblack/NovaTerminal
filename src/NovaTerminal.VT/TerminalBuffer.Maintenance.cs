@@ -39,6 +39,39 @@ namespace NovaTerminal.VT
         }
 
         /// <summary>
+        /// Adds a kitty graphics frame under image number <paramref name="kittyId"/>. Kitty
+        /// semantics: a new image transmitted with the same number replaces the previous one —
+        /// the wire shape a video-rate frame stream (terminal-browser) relies on. Without the
+        /// replacement, every frame at 30 fps would stack another full-size bitmap and scroll
+        /// the buffer, at hundreds of MB per minute. Replacement goes through the same
+        /// retire-and-deferred-dispose path as pruning, so in-flight snapshots are safe.
+        /// </summary>
+        public void AddKittyFrame(TerminalImage image, int kittyId)
+        {
+            image.KittyImageId = kittyId;
+            bool lockTaken = EnterWriteLockIfNeeded();
+            try
+            {
+                image.IsAltScreenImage = _isAltScreen;
+                // Walk backwards: the live frame is the most recent image with this number.
+                for (int i = _images.Count - 1; i >= 0; i--)
+                {
+                    if (_images[i].KittyImageId == kittyId)
+                    {
+                        RetireImage(_images[i]);
+                        _images.RemoveAt(i);
+                    }
+                }
+                _images.Add(image);
+            }
+            finally
+            {
+                ExitWriteLockIfNeeded(Lock, lockTaken);
+            }
+            Invalidate();
+        }
+
+        /// <summary>
         /// Queues a removed image's handle for deferred disposal. The queue holds opaque
         /// objects — VT cannot reference SkiaSharp; the render layer's frame-boundary drain
         /// (<see cref="DrainRetiredImageHandles"/>) owns the actual Dispose.

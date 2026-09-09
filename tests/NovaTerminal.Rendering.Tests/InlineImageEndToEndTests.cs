@@ -318,4 +318,71 @@ public class InlineImageEndToEndTests
 
         Assert.Empty(buffer.Images);
     }
+
+    /// <summary>
+    /// terminal-browser streams a frame every ~33 ms as a=T,t=f,i=1,p=1,C=1: the same image
+    /// number replaces the previous frame (AddKittyFrame) and C=1 keeps the cursor parked so
+    /// the buffer never scrolls the fresh frame off the top.
+    /// </summary>
+    [Fact]
+    public void KittyFrameStream_SameImageId_ReplacesAndKeepsCursor()
+    {
+        Assert.SkipUnless(SkiaAvailable, "SkiaSharp native library not available on this platform.");
+
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer, forceConPtyFiltering: true)
+        {
+            ImageDecoder = new SkiaImageDecoder(),
+            AllowNativeKittyGraphics = true,
+        };
+
+        string base64 = Convert.ToBase64String(EncodePng3x5());
+        int beforeRow = buffer.CursorRow;
+        int beforeCol = buffer.CursorCol;
+
+        parser.Process("_Ga=T,t=d,f=100,i=1,p=1,C=1,q=2,m=0;" + base64 + "\\");
+        parser.Process("_Ga=T,t=d,f=100,i=1,p=1,C=1,q=2,m=0;" + base64 + "\\");
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Single(buffer.Images); // same i= replaced, not stacked
+            Assert.Equal(beforeRow, buffer.CursorRow);
+            Assert.Equal(beforeCol, buffer.CursorCol);
+        }
+        finally
+        {
+            buffer.Lock.ExitReadLock();
+        }
+    }
+
+    [Fact]
+    public void KittyPlacement_WithoutCFlag_AdvancesCursorOverImageCells()
+    {
+        Assert.SkipUnless(SkiaAvailable, "SkiaSharp native library not available on this platform.");
+
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer, forceConPtyFiltering: true)
+        {
+            ImageDecoder = new SkiaImageDecoder(),
+            AllowNativeKittyGraphics = true,
+        };
+
+        string base64 = Convert.ToBase64String(EncodePng3x5());
+        parser.Process("_Ga=T,t=d,f=100,i=2,c=4,r=2,m=0;" + base64 + "\\");
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Single(buffer.Images);
+        }
+        finally
+        {
+            buffer.Lock.ExitReadLock();
+        }
+        // c=4,r=2 writes two reserved rows, then FinishImagePlacement's CR+LF lands the
+        // cursor on the row below the image, at column 0 (#407/#413).
+        Assert.Equal(2, buffer.CursorRow);
+        Assert.Equal(0, buffer.CursorCol);
+    }
 }
