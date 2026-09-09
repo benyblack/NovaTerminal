@@ -255,10 +255,12 @@ public class InlineImageEndToEndTests
     [Fact]
     public void KittyUnknownTransport_IsSkipped()
     {
+        // The frame is skipped before any decode, so the payload does not need to be a real
+        // image (and no Skia dependency is required for this test).
         var buffer = new TerminalBuffer(80, 24);
         var parser = new AnsiParser(buffer, forceConPtyFiltering: false) { ImageDecoder = new SkiaImageDecoder() };
 
-        string base64 = Convert.ToBase64String(EncodePng3x5());
+        const string base64 = "aGVsbG8gd29ybGQ="; // "hello world"
         parser.Process("_Ga=T,t=t,f=100,m=0;" + base64 + "\\");
 
         Assert.Empty(buffer.Images);
