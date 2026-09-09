@@ -12,8 +12,12 @@ namespace NovaTerminal.Tests.RenderTests;
 /// Isolates the kitty-image render pipeline: places bitmaps directly into the buffer and
 /// renders through the production offscreen renderer. Separates the bitmap source (container
 /// decode vs raw RGBA swizzle) and the add path (plain AddImage vs AddKittyFrame) from
-/// everything else in the terminal-browser stream.
+/// everything else in the terminal-browser stream. Boots Avalonia through
+/// <see cref="SnapshotService.CapturePng"/>, so it sits in the PlatformBoot lane like the
+/// other golden-render suites.
 /// </summary>
+[Trait("Lane", "PlatformBoot")]
+[Collection("GoldenPng")]
 public sealed class KittyFrameStreamRenderTests
 {
     private static readonly bool SkiaAvailable = CheckSkiaAvailable();
