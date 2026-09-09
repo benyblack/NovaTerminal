@@ -515,6 +515,45 @@ namespace NovaTerminal.Pty
         [DllImport("kernel32.dll")]
         private static extern bool CloseHandle(IntPtr hHandle);
 
+        /// <summary>
+        /// Directories trusted to hold a system helper, tried before <c>PATH</c> so the answer does
+        /// not depend on the environment where it does not have to.
+        /// </summary>
+        private static readonly string[] TrustedToolDirectories = { "/usr/bin", "/bin" };
+
+        /// <summary>
+        /// Resolves a Unix helper such as <c>pgrep</c> to an absolute path, or null when it is not
+        /// installed. Never hands the lookup to the OS's implicit PATH search (csharpsquid:S4036).
+        /// </summary>
+        /// <remarks>
+        /// Trusted system directories win, but they are not the whole answer: under Nix, Guix or any
+        /// custom prefix the tool is on <c>PATH</c> and in neither of them. Treating those layouts as
+        /// "not installed" is not a harmless miss - a failed <c>pgrep</c> reports that the shell has
+        /// no children, and <c>HasActiveChildProcesses</c> feeds the pane-close policy, so a pane
+        /// would close over a running child without the confirmation that exists to stop it. PATH is
+        /// therefore the fallback, filtered to rooted entries because a relative one resolves against
+        /// the working directory and is the hazard S4036 is actually about.
+        /// </remarks>
+        internal static string? ResolveSystemTool(string name) =>
+            ResolveSystemTool(name, Environment.GetEnvironmentVariable("PATH"), File.Exists);
+
+        /// <inheritdoc cref="ResolveSystemTool(string)"/>
+        internal static string? ResolveSystemTool(string name, string? pathValue, Func<string, bool> fileExists)
+        {
+            foreach (var dir in TrustedToolDirectories)
+            {
+                string candidate = dir + "/" + name;
+                if (fileExists(candidate)) return candidate;
+            }
+
+            foreach (var candidate in ShellHelper.EnumeratePathCandidates(pathValue, name))
+            {
+                if (Path.IsPathRooted(candidate) && fileExists(candidate)) return candidate;
+            }
+
+            return null;
+        }
+
         private static bool HasChildProcesses(int parentPid, string shellCommand)
         {
             if (OperatingSystem.IsWindows())
@@ -559,11 +598,13 @@ namespace NovaTerminal.Pty
             {
                 try
                 {
-                    // Absolute path, not PATH lookup (csharpsquid:S4036). pgrep lives in
-                    // /usr/bin on both Linux (procps) and macOS; /bin is kept for non-merged
-                    // setups. If neither exists, Process.Start throws and the catch below
-                    // returns false exactly as the old PATH-miss did.
-                    string pgrep = new[] { "/usr/bin/pgrep", "/bin/pgrep" }.FirstOrDefault(File.Exists) ?? "/usr/bin/pgrep";
+                    // Absolute path, never an implicit PATH search (csharpsquid:S4036).
+                    string? pgrep = ResolveSystemTool("pgrep");
+                    if (pgrep == null)
+                    {
+                        // No pgrep anywhere: the same answer the old PATH-miss gave.
+                        return false;
+                    }
                     var psi = new System.Diagnostics.ProcessStartInfo
                     {
                         FileName = pgrep,
