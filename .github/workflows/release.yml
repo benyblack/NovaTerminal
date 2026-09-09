@@ -16,9 +16,6 @@ on:
         default: "main"
         type: string
 
-permissions:
-  contents: write
-
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -73,6 +70,11 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     needs: [release_metadata]
+    # Job-level, not workflow-level (githubactions:S8233): only the jobs that write
+    # to the release carry the grant - this one, publish_aot, release_linux - and
+    # every other job runs with the read-only default.
+    permissions:
+      contents: write
     steps:
       - name: Create or update release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
@@ -118,10 +120,13 @@ jobs:
           ref: ${{ needs.release_metadata.outputs.checkout_ref }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        # Pinned to the head of dtolnay/rust-toolchain's stable branch
+        # (githubactions:S7637); bump by moving to that branch's new head commit.
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+        # Same commit pin as build_native_linux's Rust Cache below.
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/NovaTerminal.App/native
 
@@ -129,17 +134,17 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           cd src/NovaTerminal.App/native
-          cargo build --release
+          cargo build --release --locked
           cd rusty_ssh
-          cargo build --release
+          cargo build --release --locked
 
       - name: Build Rust (macOS)
         if: matrix.os == 'macos-latest'
         run: |
           cd src/NovaTerminal.App/native
-          cargo build --release
+          cargo build --release --locked
           cd rusty_ssh
-          cargo build --release
+          cargo build --release --locked
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
@@ -484,6 +489,10 @@ jobs:
     # slow day — 40 was cutting the job down mid-wait.
     timeout-minutes: 90
     needs: [release_metadata, create_release, build_native, release_tests]
+    # Uploads the win/osx assets to the release (and, secret-gated, the Homebrew
+    # tap). See create_release for why this is job-level.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -1785,6 +1794,10 @@ jobs:
     # compilation happens here.
     timeout-minutes: 30
     needs: [release_metadata, publish_linux]
+    # Uploads the Linux assets to the release. See create_release for why this is
+    # job-level.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:

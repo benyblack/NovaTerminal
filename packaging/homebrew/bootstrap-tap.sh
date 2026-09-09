@@ -75,9 +75,11 @@ git push origin HEAD
 
 # brew strips the homebrew- prefix from the repo name to form the tap identifier:
 # benyblack/homebrew-tap -> benyblack/tap. A repo without the prefix keeps its name
-# as-is (brew only auto-resolves homebrew-* repos, so the case keeps this honest).
+# as-is (brew only auto-resolves homebrew-* repos).
 repo_part="${tap#*/}"
-case "$repo_part" in homebrew-*) repo_part="${repo_part#homebrew-}" ;; esac
+if [[ "$repo_part" == homebrew-* ]]; then
+  repo_part="${repo_part#homebrew-}"
+fi
 tap_id="${tap%%/*}/$repo_part"
 echo
 echo "Done. Install with:"
