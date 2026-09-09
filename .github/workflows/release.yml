@@ -42,6 +42,9 @@ jobs:
       release_tag: ${{ steps.meta.outputs.release_tag }}
       release_version: ${{ steps.meta.outputs.release_version }}
       checkout_ref: ${{ steps.meta.outputs.checkout_ref }}
+      # Whether the code this run builds may WRITE the caches it restores. Every
+      # cache step in this workflow is gated on it - see the note in `meta` below.
+      cache_trusted: ${{ steps.meta.outputs.cache_trusted }}
     steps:
       - name: Resolve tag and checkout ref
         id: meta
@@ -58,14 +61,31 @@ jobs:
           PUSH_REF: ${{ github.ref }}
           INPUT_TAG_NAME: ${{ inputs.tag_name }}
           INPUT_TARGET_COMMITISH: ${{ inputs.target_commitish }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           if [[ "$EVENT_NAME" == "push" ]]; then
             tag="$PUSH_REF_NAME"
             echo "checkout_ref=$PUSH_REF" >> "$GITHUB_OUTPUT"
+            # A tag push builds that tag and writes the cache under that tag's own
+            # scope, so the code and the scope are the same thing.
+            trusted=true
           else
             tag="$INPUT_TAG_NAME"
             echo "checkout_ref=$INPUT_TARGET_COMMITISH" >> "$GITHUB_OUTPUT"
+            # A workflow_dispatch runs - and therefore caches - in the context of the
+            # ref it was dispatched from, normally the default branch, while
+            # target_commitish chooses the code to build. Building anything else there
+            # would let that code write the default branch's cache, which a later
+            # legitimate run would then restore: cache poisoning
+            # (CodeQL actions/cache-poisoning/poisonable-step). Dispatching against the
+            # default branch itself is the trusted case and keeps its cache.
+            if [[ "$INPUT_TARGET_COMMITISH" == "$DEFAULT_BRANCH" ]]; then
+              trusted=true
+            else
+              trusted=false
+            fi
           fi
+          echo "cache_trusted=$trusted" >> "$GITHUB_OUTPUT"
           echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
           # Velopack versions are SemVer without a leading 'v'; the tag has one.
           echo "release_version=${tag#v}" >> "$GITHUB_OUTPUT"
@@ -128,6 +148,7 @@ jobs:
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - name: Rust Cache
+        if: needs.release_metadata.outputs.cache_trusted == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/NovaTerminal.App/native
@@ -331,6 +352,7 @@ jobs:
       # PATH - which the step above put there via $GITHUB_PATH. Keyed per runner
       # architecture by rust-cache's own job/target hashing.
       - name: Rust Cache
+        if: needs.release_metadata.outputs.cache_trusted == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/NovaTerminal.App/native
@@ -1261,6 +1283,7 @@ jobs:
       # back on, so the ~220 MB SDK tarball download is cached on global.json.
       # Keyed per architecture: the payload is a different RID's SDK on each leg.
       - name: Cache .NET SDK
+        if: needs.release_metadata.outputs.cache_trusted == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
@@ -1354,6 +1377,7 @@ jobs:
           dotnet --version
 
       - name: Cache NuGet packages
+        if: needs.release_metadata.outputs.cache_trusted == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
