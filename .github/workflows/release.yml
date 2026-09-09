@@ -34,10 +34,17 @@ jobs:
   release_metadata:
     name: Resolve Release Metadata
     runs-on: ubuntu-latest
+    # Every job declares its own permissions (githubactions:S8233): there is no
+    # workflow-level default, so each GITHUB_TOKEN states exactly what it may do.
+    permissions:
+      contents: read
     outputs:
       release_tag: ${{ steps.meta.outputs.release_tag }}
       release_version: ${{ steps.meta.outputs.release_version }}
       checkout_ref: ${{ steps.meta.outputs.checkout_ref }}
+      # Whether the code this run builds may WRITE the caches it restores. Every
+      # cache step in this workflow is gated on it - see the note in `meta` below.
+      cache_trusted: ${{ steps.meta.outputs.cache_trusted }}
     steps:
       - name: Resolve tag and checkout ref
         id: meta
@@ -54,14 +61,31 @@ jobs:
           PUSH_REF: ${{ github.ref }}
           INPUT_TAG_NAME: ${{ inputs.tag_name }}
           INPUT_TARGET_COMMITISH: ${{ inputs.target_commitish }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           if [[ "$EVENT_NAME" == "push" ]]; then
             tag="$PUSH_REF_NAME"
             echo "checkout_ref=$PUSH_REF" >> "$GITHUB_OUTPUT"
+            # A tag push builds that tag and writes the cache under that tag's own
+            # scope, so the code and the scope are the same thing.
+            trusted=true
           else
             tag="$INPUT_TAG_NAME"
             echo "checkout_ref=$INPUT_TARGET_COMMITISH" >> "$GITHUB_OUTPUT"
+            # A workflow_dispatch runs - and therefore caches - in the context of the
+            # ref it was dispatched from, normally the default branch, while
+            # target_commitish chooses the code to build. Building anything else there
+            # would let that code write the default branch's cache, which a later
+            # legitimate run would then restore: cache poisoning
+            # (CodeQL actions/cache-poisoning/poisonable-step). Dispatching against the
+            # default branch itself is the trusted case and keeps its cache.
+            if [[ "$INPUT_TARGET_COMMITISH" == "$DEFAULT_BRANCH" ]]; then
+              trusted=true
+            else
+              trusted=false
+            fi
           fi
+          echo "cache_trusted=$trusted" >> "$GITHUB_OUTPUT"
           echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
           # Velopack versions are SemVer without a leading 'v'; the tag has one.
           echo "release_version=${tag#v}" >> "$GITHUB_OUTPUT"
@@ -70,9 +94,6 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     needs: [release_metadata]
-    # Job-level, not workflow-level (githubactions:S8233): only the jobs that write
-    # to the release carry the grant - this one, publish_aot, release_linux - and
-    # every other job runs with the read-only default.
     permissions:
       contents: write
     steps:
@@ -100,6 +121,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     needs: [release_metadata]
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -120,12 +143,12 @@ jobs:
           ref: ${{ needs.release_metadata.outputs.checkout_ref }}
 
       - name: Install Rust
-        # Pinned to the head of dtolnay/rust-toolchain's stable branch
-        # (githubactions:S7637); bump by moving to that branch's new head commit.
+        # Pinned to a full commit SHA (githubactions:S7637); the stable branch
+        # still resolves the latest stable toolchain at run time.
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - name: Rust Cache
-        # Same commit pin as build_native_linux's Rust Cache below.
+        if: needs.release_metadata.outputs.cache_trusted == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/NovaTerminal.App/native
@@ -195,6 +218,8 @@ jobs:
     # a warm, fully preinstalled runner image.
     timeout-minutes: 40
     needs: [release_metadata]
+    permissions:
+      contents: read
     # ARM64 GATES LIKE EVERY OTHER PLATFORM NOW - no more `continue-on-error` here.
     # `fail-fast: false` below still stops a red arm64 leg cancelling its x64
     # sibling, but a JOB failure still propagates: release_tests `needs:
@@ -327,6 +352,7 @@ jobs:
       # PATH - which the step above put there via $GITHUB_PATH. Keyed per runner
       # architecture by rust-cache's own job/target hashing.
       - name: Rust Cache
+        if: needs.release_metadata.outputs.cache_trusted == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/NovaTerminal.App/native
@@ -392,6 +418,8 @@ jobs:
     # build_native_linux as well as build_native: the ubuntu legs' native-* artifacts
     # now come from that job, so needing only build_native would race the download.
     needs: [release_metadata, build_native, build_native_linux]
+    permissions:
+      contents: read
     # ARM64 GATES LIKE EVERY OTHER PLATFORM NOW - no more `continue-on-error`
     # here. `fail-fast: true` below still means a failing leg CANCELS its
     # in-flight siblings, and every publish job needs this one - so a red
@@ -489,8 +517,6 @@ jobs:
     # slow day — 40 was cutting the job down mid-wait.
     timeout-minutes: 90
     needs: [release_metadata, create_release, build_native, release_tests]
-    # Uploads the win/osx assets to the release (and, secret-gated, the Homebrew
-    # tap). See create_release for why this is job-level.
     permissions:
       contents: write
     strategy:
@@ -1263,6 +1289,8 @@ jobs:
     # to fall back on. Not 90 like publish_aot - there is no notarization wait here.
     timeout-minutes: 60
     needs: [release_metadata, create_release, build_native_linux, release_tests]
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -1319,6 +1347,7 @@ jobs:
       # back on, so the ~220 MB SDK tarball download is cached on global.json.
       # Keyed per architecture: the payload is a different RID's SDK on each leg.
       - name: Cache .NET SDK
+        if: needs.release_metadata.outputs.cache_trusted == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
@@ -1412,6 +1441,7 @@ jobs:
           dotnet --version
 
       - name: Cache NuGet packages
+        if: needs.release_metadata.outputs.cache_trusted == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
@@ -1794,8 +1824,6 @@ jobs:
     # compilation happens here.
     timeout-minutes: 30
     needs: [release_metadata, publish_linux]
-    # Uploads the Linux assets to the release. See create_release for why this is
-    # job-level.
     permissions:
       contents: write
     strategy:
@@ -1889,6 +1917,8 @@ jobs:
     name: Submit to winget-pkgs
     runs-on: windows-latest
     needs: [release_metadata, publish_aot]
+    permissions:
+      contents: read
     # Never submit a prerelease to the community repo. Same contains('-') test as the
     # prerelease flag on create_release: winget-pkgs is for stable versions, and a
     # `-beta`/`-test` tag reaching it is a public retraction, not a private mistake. The step

@@ -130,6 +130,24 @@ namespace NovaTerminal
         internal const double MinimumTabHeaderRightReserve = 440;
         internal const double MacOsTrafficLightReserve = 92;
         internal const double TabHeaderViewportPadding = 16;
+
+        /// <summary>
+        /// Breathing room between our last title bar button and the first caption button, and the
+        /// whole right reserve when there are no drawn caption buttons to clear. Matches the value
+        /// the macOS branch in the constructor has always used.
+        /// </summary>
+        internal const double CaptionReserveGutter = 8;
+
+        /// <summary>
+        /// x:Name of the caption-button strip in NovaWindowDecorationsTheme (App.axaml). Ours, not
+        /// Avalonia's - though the default theme uses the same name, which is where ours was copied
+        /// from.
+        /// </summary>
+        private const string CaptionButtonStripName = "PART_OverlayPanel";
+
+        /// <summary>The caption strip <see cref="WatchCaptionButtonStrip"/> is hooked to, so it hooks once.</summary>
+        private Control? _watchedCaptionButtonStrip;
+
         // Hoisted out of UpdateVerticalTabExtras: that method runs per tab per visual-refresh
         // pass, and allocating a new SolidColorBrush per tab per pass adds up.
         private static readonly IBrush TabAttentionBrush = new ImmutableSolidColorBrush(Color.Parse("#FFD25A"));
@@ -1529,6 +1547,225 @@ namespace NovaTerminal
                 .FirstOrDefault(s => s.Name == "PART_TabHeaderScrollViewer");
         }
 
+        /// <summary>
+        /// How much of the title bar's right edge our own buttons have to keep clear so they do not
+        /// sit under the drawn caption buttons.
+        ///
+        /// This used to be the literal 140 in MainWindow.axaml's <c>Margin="0,4,140,0"</c>: three
+        /// 45px buttons plus their 2px spacing plus the 1px border margin. That number is only right
+        /// when all three are actually there, and how many are there is not ours to decide - the
+        /// theme hides minimize and maximize on <c>:not(:has-minimize)</c> / <c>:not(:has-maximize)</c>,
+        /// and X11 sets neither pseudoclass unless the window manager advertises the action. On a
+        /// tiling compositor (Hyprland, Sway) only close survives, so ~92px of the reserve was dead
+        /// space between our last button and the ✕.
+        ///
+        /// So measure the strip instead of predicting it. <paramref name="captionStripLeft"/> and
+        /// <paramref name="windowWidth"/> are in the same coordinate space, and the gap between them
+        /// is the whole reserve: the strip itself plus whatever frame inset sits to its right.
+        /// </summary>
+        /// <param name="windowWidth">Width of the window, in the coordinate space the caption strip was translated into.</param>
+        /// <param name="captionStripLeft">Left edge of the caption strip, in that same space.</param>
+        /// <param name="captionStripWidth">
+        /// Width of the caption strip. Zero or negative means there is nothing to clear - no drawn
+        /// decorations on this platform, or the strip is collapsed (the theme hides it in fullscreen)
+        /// - and the reserve collapses to the gutter. <paramref name="captionStripLeft"/> is not
+        /// meaningful in that case, so it is not read.
+        /// </param>
+        internal static double ComputeCaptionButtonReserve(
+            double windowWidth,
+            double captionStripLeft,
+            double captionStripWidth,
+            double gutter = CaptionReserveGutter)
+        {
+            if (captionStripWidth <= 0 || double.IsNaN(captionStripWidth))
+            {
+                return gutter;
+            }
+
+            if (double.IsNaN(windowWidth) || double.IsNaN(captionStripLeft))
+            {
+                return gutter;
+            }
+
+            double reserve = Math.Ceiling(windowWidth - captionStripLeft + gutter);
+
+            // Clamped rather than trusted. A reserve wider than half the window would push our own
+            // buttons somewhere absurd, and the inputs come from a live layout pass that can be
+            // read mid-transition (a window state change resizes the frame and the strip on
+            // different passes). The floor matters for the same reason: a strip briefly measured as
+            // hanging past the right edge would otherwise yield a negative margin, which Avalonia
+            // honours by letting our buttons overhang the window.
+            double ceiling = Math.Max(gutter, windowWidth / 2);
+            return Math.Clamp(reserve, gutter, ceiling);
+        }
+        /// <summary>
+        /// Finds the drawn caption-button strip, or null when this window has none.
+        ///
+        /// It is deliberately NOT a visual descendant of this window: TopLevelHost owns the
+        /// decorations and the Window is its child, so the strip is a SIBLING of our whole content
+        /// tree and <c>this.GetVisualDescendants()</c> never sees it (verified against 12.0.4 -
+        /// the window's own tree ends at PART_ContentPresenter). Hence the hop up to the visual
+        /// parent first.
+        ///
+        /// Returns null in three different situations that all want the same answer - a bare gutter:
+        /// a platform drawing native chrome instead (macOS traffic lights), decorations disabled
+        /// altogether, and the strip not built yet. The third is why callers must not treat null as
+        /// settled while <see cref="Window.IsExtendedIntoWindowDecorations"/> is true.
+        /// </summary>
+        private Control? FindCaptionButtonStrip()
+        {
+            return this.GetVisualParent()?
+                .GetVisualDescendants()
+                .OfType<Control>()
+                .FirstOrDefault(c => c.Name == CaptionButtonStripName);
+        }
+
+        /// <summary>
+        /// Re-measures the drawn caption buttons and reserves exactly their width on the right of
+        /// our own title bar strip, replacing the hardcoded 140px the XAML used to carry. See
+        /// <see cref="ComputeCaptionButtonReserve"/> for why a constant cannot be right.
+        ///
+        /// macOS is left alone on purpose. Its caption lives on the LEFT, the constructor already
+        /// collapses the right reserve to <see cref="CaptionReserveGutter"/> for it, and that
+        /// behaviour is known-good on a platform this change could not be tested on. If macOS turns
+        /// out to build a drawn strip too, this measurement would produce the same answer and the
+        /// special case can go - but that is a claim to verify there, not to assume here.
+        /// </summary>
+        private void UpdateCaptionButtonReserve()
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                return;
+            }
+
+            var titleBar = this.FindControl<Grid>("TitleBar");
+            if (titleBar == null)
+            {
+                return;
+            }
+
+            var strip = FindCaptionButtonStrip();
+            if (strip == null)
+            {
+                // Extended into the decorations means a strip is coming, so this is "too early",
+                // not "there is none". Collapsing the reserve now would park our buttons under the
+                // caption buttons for as long as it took some unrelated event to recompute; the
+                // triggers wired in WireCaptionButtonReserve run this again once the strip exists.
+                if (IsExtendedIntoWindowDecorations)
+                {
+                    return;
+                }
+
+                ApplyCaptionButtonReserve(titleBar, CaptionReserveGutter);
+                return;
+            }
+
+            WatchCaptionButtonStrip(strip);
+
+            // Translated rather than compared raw: the strip is in TopLevelHost's space and our
+            // title bar is in the window's, and with drawn decorations those origins differ by the
+            // shadow and frame inset. Null when the two are not connected in the visual tree, which
+            // is transient - leave the current reserve and wait for the next trigger.
+            var left = strip.TranslatePoint(default, this)?.X;
+            if (left == null)
+            {
+                return;
+            }
+
+            ApplyCaptionButtonReserve(
+                titleBar,
+                ComputeCaptionButtonReserve(Bounds.Width, left.Value, strip.Bounds.Width));
+        }
+
+        /// <summary>
+        /// Writes the reserve into the title bar's right margin, and only then tells the tab header
+        /// to re-measure - <see cref="GetTabHeaderViewportMargin"/> reads that margin, so the order
+        /// matters. No-ops on an unchanged value so the SizeChanged and Bounds triggers cannot ping
+        /// -pong: setting Margin relayouts the bar, which fires SizeChanged, which lands back here.
+        /// </summary>
+        private void ApplyCaptionButtonReserve(Grid titleBar, double reserve)
+        {
+            var current = titleBar.Margin;
+            if (Math.Abs(current.Right - reserve) < 0.5)
+            {
+                return;
+            }
+
+            titleBar.Margin = new Thickness(current.Left, current.Top, reserve, current.Bottom);
+
+            // Logged because this is the number a "my buttons overlap the caption buttons" report on
+            // some untested window manager turns on, and it is otherwise invisible. Only fires when
+            // the value actually changes, so it is a handful of lines per session, not per layout.
+            AppLogger.Log($"[TitleBar] caption reserve {current.Right:0.#} -> {reserve:0.#}");
+            Dispatcher.UIThread.Post(UpdateTabHeaderViewport, DispatcherPriority.Background);
+        }
+
+        /// <summary>
+        /// Keeps the reserve correct after the first measurement. The strip's width is not fixed for
+        /// the life of the window: the theme collapses the whole panel in fullscreen and the caption
+        /// set can change with window state, so its Bounds is the authoritative signal. Subscribed
+        /// once and only once - this runs from a recompute that is itself triggered by layout, so an
+        /// unguarded subscribe would add a handler per pass.
+        /// </summary>
+        private void WatchCaptionButtonStrip(Control strip)
+        {
+            if (ReferenceEquals(_watchedCaptionButtonStrip, strip))
+            {
+                return;
+            }
+
+            if (_watchedCaptionButtonStrip != null)
+            {
+                _watchedCaptionButtonStrip.PropertyChanged -= OnCaptionButtonStripPropertyChanged;
+            }
+
+            _watchedCaptionButtonStrip = strip;
+            strip.PropertyChanged += OnCaptionButtonStripPropertyChanged;
+        }
+
+        /// <summary>
+        /// The strip's own Bounds is the authoritative width signal, so only that property is acted
+        /// on - the panel raises plenty of others. Posted rather than handled inline because this
+        /// fires from inside a layout pass, and <see cref="UpdateCaptionButtonReserve"/> reads
+        /// Bounds and writes a Margin.
+        /// </summary>
+        private void OnCaptionButtonStripPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+        {
+            if (e.Property == BoundsProperty)
+            {
+                Dispatcher.UIThread.Post(UpdateCaptionButtonReserve, DispatcherPriority.Background);
+            }
+        }
+
+        /// <summary>
+        /// Triggers for <see cref="UpdateCaptionButtonReserve"/>. Called from the constructor.
+        ///
+        /// Opened is the earliest point the platform window - and therefore the decorations - exists
+        /// at all, and even then the strip is built during a layout pass, so the recompute is posted
+        /// at Background priority for the same reason RebuildTitleBar posts: Background (-2) drains
+        /// after every layout/render priority Avalonia schedules its own passes at. SizeChanged
+        /// covers the case where Opened still ran too early, since the first real arrange resizes us.
+        /// </summary>
+        private void WireCaptionButtonReserve()
+        {
+            void Recompute() =>
+                Dispatcher.UIThread.Post(UpdateCaptionButtonReserve, DispatcherPriority.Background);
+
+            Opened += (_, _) => Recompute();
+            this.SizeChanged += (_, _) => Recompute();
+
+            // WindowState changes the caption set on platforms that offer maximize/restore, and
+            // fullscreen collapses the strip entirely. IsExtendedIntoWindowDecorations flips once,
+            // late, when a platform builds drawn decorations - the transition that takes
+            // FindCaptionButtonStrip from "nothing yet" to a real strip.
+            this.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == WindowStateProperty || e.Property == IsExtendedIntoWindowDecorationsProperty)
+                {
+                    Recompute();
+                }
+            };
+        }
         internal static Thickness GetTabHeaderViewportMargin(
             bool isMacOs,
             double titleBarWidth,
@@ -3546,15 +3783,20 @@ namespace NovaTerminal
                 };
                 titleBar.SizeChanged += (_, __) => Dispatcher.UIThread.Post(UpdateTabHeaderViewport, DispatcherPriority.Background);
 
-                // XAML sets Margin="0,4,140,0" to reserve space for Windows-style caption buttons on the right.
-                // On macOS the system traffic lights are on the left, so collapse the right reservation
-                // so the custom buttons (+, tab list, record, …, settings) sit flush against the edge.
+                // XAML sets Margin="0,4,140,0" as a pre-measurement floor for drawn caption buttons
+                // on the right. On macOS the system traffic lights are on the left, so collapse the
+                // right reservation so the custom buttons (+, tab list, record, …, settings) sit
+                // flush against the edge. Everywhere else UpdateCaptionButtonReserve measures it.
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
                 {
                     var m = titleBar.Margin;
-                    titleBar.Margin = new Thickness(m.Left, m.Top, 8, m.Bottom);
+                    titleBar.Margin = new Thickness(m.Left, m.Top, CaptionReserveGutter, m.Bottom);
                 }
             }
+
+            // Everywhere else the right reserve is measured off the real caption buttons rather than
+            // guessed, which is what makes the XAML default a floor and not the answer.
+            WireCaptionButtonReserve();
 
 
             if (tabs != null)

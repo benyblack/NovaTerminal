@@ -218,7 +218,16 @@
 
         <!-- Overlay layer for custom buttons (right aligned, leaving space for the system caption
              buttons). Contents are built by MainWindow.RebuildTitleBar from TitleBarCatalog +
-             the user's saved placement, so nothing but the + button is declared here. -->
+             the user's saved placement, so nothing but the + button is declared here.
+
+             The 140 in the right margin is a STARTING VALUE, not the reserve. It is what three
+             45px caption buttons plus spacing and the border margin come to, and it holds only
+             until MainWindow.UpdateCaptionButtonReserve has measured the strip that is actually
+             there - which is a different width wherever the window manager does not advertise
+             minimize and maximize, since the theme hides those buttons and ~92px of this would
+             otherwise sit empty. Kept as the pre-measurement value because it is the widest case,
+             so the first paint can only be too generous, never overlap the buttons. macOS keeps
+             its own collapsed value (caption on the left) - see UpdateCaptionButtonReserve. -->
         <Grid VerticalAlignment="Top" Height="32" HorizontalAlignment="Right" ZIndex="100" x:Name="TitleBar" Margin="0,4,140,0" Background="Transparent">
             <Grid.ContextMenu>
                 <ContextMenu>

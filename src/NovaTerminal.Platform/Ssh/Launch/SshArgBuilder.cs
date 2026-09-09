@@ -61,6 +61,11 @@ public static class SshArgBuilder
         return string.Join(' ', arguments.Select(QuoteToken));
     }
 
+    // Match timeout backstop (csharpsquid:S6444). These patterns run against command lines
+    // the app itself built, so the ceiling should never engage - it caps backtracking on
+    // hostile input that reaches the log sanitizer anyway.
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
+
     public static string SanitizeForLog(string commandLine)
     {
         if (string.IsNullOrWhiteSpace(commandLine))
@@ -76,12 +81,13 @@ public static class SshArgBuilder
                 commandLine,
                 "(^|\\s)-i\\s+(\"[^\"]+\"|\\S+)",
                 "$1-i <identity-file>",
-                RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+                RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+                RegexTimeout);
         }
 
         // Standard sanitization: Only show config file and alias. Redact ExtraSshArgs and other flags.
         // The command line has a known structure built by SshLaunchPlanner: "-F config_path alias [extra_args...]"
-        var match = Regex.Match(commandLine, @"-F\s+("".*?""|\S+)\s+(nova_[a-fA-F0-9]+)", RegexOptions.CultureInvariant);
+        var match = Regex.Match(commandLine, @"-F\s+("".*?""|\S+)\s+(nova_[a-fA-F0-9]+)", RegexOptions.CultureInvariant, RegexTimeout);
         if (match.Success)
         {
             return $"-F {match.Groups[1].Value} {match.Groups[2].Value} <args-redacted>";
