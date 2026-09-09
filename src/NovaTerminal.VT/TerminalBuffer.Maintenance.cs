@@ -11,8 +11,11 @@ namespace NovaTerminal.VT
         // still hold the handle remains: both render pipelines (live view frames and
         // agent-host captures) enter a session for the duration of DrawTerminalInternal, so
         // disposal is exact rather than a duration guess (a capture drawing thousands of
-        // images under load can exceed any fixed grace).
-        private readonly ConcurrentQueue<(object Handle, long Tick)> _retiredImageHandles = new();
+        // images under load can exceed any fixed grace). DisposeImmediately marks entries the
+        // owning view may dispose at its very next frame boundary with no additional grace —
+        // video-frame replacements, where a grace would retain a two-second backlog of full
+        // bitmaps at 30 fps.
+        private readonly ConcurrentQueue<(object Handle, long Tick, bool DisposeImmediately)> _retiredImageHandles = new();
 
         // Sessions keyed by id, valued by start tick. A retire entry may only be disposed
         // once every session that started at or before its retire tick has ended: those are
@@ -39,13 +42,52 @@ namespace NovaTerminal.VT
         }
 
         /// <summary>
+        /// Adds a kitty graphics frame under image number <paramref name="kittyId"/>. Kitty
+        /// semantics: a new image transmitted with the same number replaces the previous one —
+        /// the wire shape a video-rate frame stream (terminal-browser) relies on. Without the
+        /// replacement, every frame at 30 fps would stack another full-size bitmap and scroll
+        /// the buffer, at hundreds of MB per minute. Replacement goes through the same
+        /// retire-and-deferred-dispose path as pruning, so in-flight snapshots are safe, and it
+        /// only matches images owned by the ACTIVE screen: an alt-screen frame reusing an id
+        /// must not delete the main screen's hidden image, or leaving the TUI could not
+        /// restore it (the same isolation rule every erase/scroll path here follows).
+        /// </summary>
+        public void AddKittyFrame(TerminalImage image, uint kittyId)
+        {
+            image.KittyImageId = kittyId;
+            bool lockTaken = EnterWriteLockIfNeeded();
+            try
+            {
+                image.IsAltScreenImage = _isAltScreen;
+                // Walk backwards: the live frame is the most recent image with this number.
+                for (int i = _images.Count - 1; i >= 0; i--)
+                {
+                    if (_images[i].KittyImageId == kittyId && _images[i].IsAltScreenImage == _isAltScreen)
+                    {
+                        // Immediate disposal: at 30 fps even a two-second backlog of replaced
+                        // full-size frames retains dozens of bitmaps. The snapshot-session
+                        // gate inside the drain is what makes this safe, not a grace.
+                        RetireImage(_images[i], disposeImmediately: true);
+                        _images.RemoveAt(i);
+                    }
+                }
+                _images.Add(image);
+            }
+            finally
+            {
+                ExitWriteLockIfNeeded(Lock, lockTaken);
+            }
+            Invalidate();
+        }
+
+        /// <summary>
         /// Queues a removed image's handle for deferred disposal. The queue holds opaque
         /// objects — VT cannot reference SkiaSharp; the render layer's frame-boundary drain
         /// (<see cref="DrainRetiredImageHandles"/>) owns the actual Dispose.
         /// </summary>
-        private void RetireImage(TerminalImage image)
+        private void RetireImage(TerminalImage image, bool disposeImmediately = false)
         {
-            _retiredImageHandles.Enqueue((image.ImageHandle, Environment.TickCount64));
+            _retiredImageHandles.Enqueue((image.ImageHandle, Environment.TickCount64, disposeImmediately));
         }
 
         /// <summary>
@@ -80,11 +122,11 @@ namespace NovaTerminal.VT
 
         /// <summary>
         /// Drains retired handles into <paramref name="into"/>. An entry is released only
-        /// when BOTH hold: it is older than <paramref name="retiredBeforeTick"/> (the owning
-        /// view's frame boundary + grace) AND no snapshot session started at or before its
-        /// retire tick is still active (an in-flight capture of any duration blocks
-        /// disposal). The queue is FIFO by retire tick, so the drain stops at the first
-        /// entry that cannot yet be released.
+        /// when BOTH hold: it is flagged for immediate disposal or is older than
+        /// <paramref name="retiredBeforeTick"/> (the owning view's frame boundary + grace),
+        /// AND no snapshot session started at or before its retire tick is still active (an
+        /// in-flight capture of any duration blocks disposal). The queue is FIFO by retire
+        /// tick, so the drain stops at the first entry that cannot yet be released.
         /// </summary>
         public bool DrainRetiredImageHandles(List<object> into, long retiredBeforeTick)
         {
@@ -97,7 +139,7 @@ namespace NovaTerminal.VT
 
             bool drained = false;
             while (_retiredImageHandles.TryPeek(out var entry)
-                && entry.Tick <= retiredBeforeTick
+                && (entry.DisposeImmediately || entry.Tick <= retiredBeforeTick)
                 && entry.Tick < minActiveSessionStart)
             {
                 if (!_retiredImageHandles.TryDequeue(out entry))

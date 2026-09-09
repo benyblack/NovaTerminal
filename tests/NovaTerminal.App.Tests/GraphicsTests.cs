@@ -109,6 +109,82 @@ namespace NovaTerminal.Tests
             Assert.Contains(";OK", response!, StringComparison.Ordinal);
         }
 
+        [Fact]
+        public void KittyQuery_ApcMode_NativeAllowed_WithForcedConPtyFiltering_RespondsOk()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer, forceConPtyFiltering: true) { AllowNativeKittyGraphics = true };
+            string? response = null;
+            parser.OnResponse = r => response = r;
+
+            parser.Process("\x1b_Ga=q,i=31\x1b\\");
+
+            Assert.NotNull(response);
+            Assert.Contains(";OK", response!, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The exact capability probe zenbu-labs/terminal-browser sends before streaming frames
+        /// (extra params and a tiny payload included). With native graphics allowed under
+        /// ConPTY, the reply must be the OK shape its probeGraphics() requires.
+        /// </summary>
+        [Theory]
+        [InlineData("t=d", "OK")]
+        [InlineData("t=f", "OK")]
+        [InlineData("t=s", "ERR")]
+        [InlineData("t=t", "ERR")]
+        [InlineData("t=weird", "ERR")]
+        public void KittyQuery_ProbeReplyReflectsRequestedTransport(string transport, string expectedStatus)
+        {
+            // The reply must reflect what the transmit path will actually accept: answering OK
+            // to a t=s probe would send the client into a mode where every frame disappears.
+            // The reader stub makes t=f probes OK - the probe checks presence, not read success.
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer, forceConPtyFiltering: true)
+            {
+                AllowNativeKittyGraphics = true,
+                ReadFileBytes = _ => null,
+            };
+            string? response = null;
+            parser.OnResponse = r => response = r;
+
+            parser.Process($"\x1b_Ga=q,i=31,{transport}\x1b\\");
+
+            Assert.NotNull(response);
+            Assert.Contains($";{expectedStatus}", response!, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void KittyQuery_TfProbe_WithoutReader_RespondsErr()
+        {
+            // SSH panes leave ReadFileBytes unwired: a t=f probe must answer ERR so a remote
+            // client falls back to inline payloads instead of a transport where every frame
+            // is skipped.
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer, forceConPtyFiltering: true) { AllowNativeKittyGraphics = true };
+            string? response = null;
+            parser.OnResponse = r => response = r;
+
+            parser.Process("\x1b_Ga=q,i=31,t=f\x1b\\");
+
+            Assert.NotNull(response);
+            Assert.Contains(";ERR", response!, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void KittyQuery_TerminalBrowserProbe_NativeAllowed_RespondsOkWithItsImageId()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer, forceConPtyFiltering: true) { AllowNativeKittyGraphics = true };
+            string? response = null;
+            parser.OnResponse = r => response = r;
+
+            // ESC _ G i=4207,a=q,t=d,f=24,s=1,v=1;AAAA ESC \
+            parser.Process("\x1b_Gi=4207,a=q,t=d,f=24,s=1,v=1;AAAA\x1b\\");
+
+            Assert.Equal("\x1b_Gi=4207;OK\x1b\\", response);
+        }
+
         /// <summary>
         /// SECURITY regression test (PR #280 review): the kitty graphics query reply echoed the
         /// unvalidated <c>i=</c> image id, and OnResponse is wired straight to Session.SendInput -

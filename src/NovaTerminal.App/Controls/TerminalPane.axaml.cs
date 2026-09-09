@@ -3087,6 +3087,24 @@ namespace NovaTerminal.Controls
             // same reasoning as the DefaultForeground wiring above.
             Parser.KittyKeyboardEnabled = _settings?.EnableKittyKeyboardProtocol ?? true;
 
+            // Native kitty graphics on Windows (ConPTY pass-through opt-in): a freshly-created
+            // parser must match what ApplySettings will set, same reasoning as above.
+            Parser.AllowNativeKittyGraphics = _settings?.AllowNativeKittyGraphics ?? true;
+
+            // Kitty t=f (file transport) reads happen through this delegate so the VT layer
+            // never touches disk itself. Confinement: absolute paths only, must resolve under
+            // the user's temp directory (where clients like terminal-browser stage raw frames),
+            // with a hard size cap - the path arrives from the remote stream, so it is
+            // attacker-controlled input, not a filename to trust.
+            //
+            // Local sessions only: on an SSH pane the path names a file on the REMOTE host, and
+            // reading a same-named local file would fabricate frames (or just fail). Leaving
+            // the delegate null makes t=f probes answer ERR, so remote clients fall back to
+            // inline payloads, which are self-contained.
+            Parser.ReadFileBytes = Profile is { Type: ConnectionType.SSH }
+                ? null
+                : ReadKittyTransportFile;
+
             Parser.OnBell += () =>
             {
                 this.Dispatcher.Post(() =>
@@ -3492,6 +3510,20 @@ namespace NovaTerminal.Controls
                     if (chResize > 0) Parser.CellHeight = chResize;
                 }
                 Session?.Resize(c, r);
+
+                // Kitty in-band resize (mode 2048): a client that enabled the mode —
+                // terminal-browser on Windows has no SIGWINCH and never polls console size —
+                // only learns about a new geometry from this report, so it must follow the
+                // PTY resize. Pixel dims come from the same metrics the grid draws with.
+                if (Parser is { InBandResizeReportsEnabled: true })
+                {
+                    float cwReport = TermView.Metrics.CellWidth;
+                    float chReport = TermView.Metrics.CellHeight;
+                    if (cwReport > 0 && chReport > 0)
+                    {
+                        Parser.SendInBandResize(r, c, (int)Math.Round(c * cwReport), (int)Math.Round(r * chReport));
+                    }
+                }
             };
             TermView.OnResize -= _onTermViewResize;
             TermView.OnResize += _onTermViewResize;
@@ -3507,6 +3539,15 @@ namespace NovaTerminal.Controls
                 // Cell geometry just changed, so the agent-host's copy of this
                 // pane's render inputs is stale (A5 captureScreen).
                 UpdateAgentRenderParameters();
+
+                // Kitty in-band resize (mode 2048): a font or monitor-scaling change can alter
+                // the pane's pixel geometry WITHOUT changing the integer grid, so OnResize
+                // never fires and this is the only path that notices. A mode-2048 client keeps
+                // rendering at the stale pixel dimensions until it is told.
+                if (Parser is { InBandResizeReportsEnabled: true } && Buffer != null && cwMetric > 0 && chMetric > 0)
+                {
+                    Parser.SendInBandResize(Buffer.Rows, Buffer.Cols, (int)Math.Round(Buffer.Cols * cwMetric), (int)Math.Round(Buffer.Rows * chMetric));
+                }
             };
             TermView.MetricsChanged -= _onTermViewMetricsChanged;
             TermView.MetricsChanged += _onTermViewMetricsChanged;
@@ -3535,6 +3576,93 @@ namespace NovaTerminal.Controls
         /// answers), so the two call sites can never resolve the profile-effective theme
         /// differently — see the #265 wiring-bug follow-up.
         /// </summary>
+        /// <summary>
+        /// Hard cap on a single kitty <c>t=f</c> transport read. A 2000×2000 RGBA frame — the
+        /// parser's pixel guardrail — is 16 MB, so 64 MB leaves generous headroom for legitimate
+        /// staged frames while keeping a hostile path from pulling an arbitrary file into memory.
+        /// </summary>
+        internal const long KittyTransportMaxFileBytes = 64L * 1024 * 1024;
+
+        /// <summary>
+        /// Disk reader behind <see cref="AnsiParser.ReadFileBytes"/> for kitty graphics file
+        /// transport. The path comes from the remote byte stream, so it is treated as hostile:
+        /// absolute paths only, confined to the user's temp directory (where clients like
+        /// terminal-browser stage raw RGBA frames), size-capped, and any failure degrades to a
+        /// null the parser logs and skips. Internal + static so the confinement rules are unit
+        /// testable without a pane.
+        /// </summary>
+        internal static byte[]? ReadKittyTransportFile(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !System.IO.Path.IsPathRooted(path))
+            {
+                return null;
+            }
+
+            string candidate;
+            try
+            {
+                candidate = System.IO.Path.GetFullPath(path);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+
+            string tempRoot = System.IO.Path.GetFullPath(System.IO.Path.GetTempPath());
+            // Casing follows the platform's filesystem rules: ignore-case is only correct where
+            // the filesystem itself is case-insensitive - on Unix, /TMP/frame.rgba is a
+            // different directory from /tmp/frame.rgba, and accepting it as "under temp" would
+            // let a case-variant path escape the confinement boundary.
+            var pathComparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            if (!candidate.StartsWith(tempRoot, pathComparison))
+            {
+                return null;
+            }
+
+            try
+            {
+                var info = new System.IO.FileInfo(candidate);
+                if (!info.Exists || info.Length > KittyTransportMaxFileBytes)
+                {
+                    return null;
+                }
+
+                // The writer (e.g. terminal-browser's frame ring) keeps the file open while it
+                // cycles frames, so a plain File.ReadAllBytes' FileShare.Read gets rejected with
+                // a sharing violation. Open tolerating concurrent writers: the path is only sent
+                // after the frame write completes, so the bytes read are the finished frame.
+                using var stream = new System.IO.FileStream(
+                    candidate,
+                    System.IO.FileMode.Open,
+                    System.IO.FileAccess.Read,
+                    System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete);
+
+                // Re-check the cap on the OPENED handle: the file can grow between the
+                // FileInfo probe above and this open, and the allocation below trusts the
+                // length blindly.
+                if (stream.Length > KittyTransportMaxFileBytes)
+                {
+                    return null;
+                }
+
+                var bytes = new byte[stream.Length];
+                int read = 0;
+                while (read < bytes.Length)
+                {
+                    int n = stream.Read(bytes, read, bytes.Length - read);
+                    if (n <= 0) break;
+                    read += n;
+                }
+
+                return read == bytes.Length ? bytes : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
         private TerminalSettings BuildEffectiveSettings(TerminalSettings settings)
         {
             // We create a "copy" for the view to use, but we only override specific visual fields
@@ -3558,6 +3686,7 @@ namespace NovaTerminal.Controls
                 SmoothScrolling = settings.SmoothScrolling,
                 EnableLinkDetection = settings.EnableLinkDetection,
                 EnableKittyKeyboardProtocol = settings.EnableKittyKeyboardProtocol,
+                AllowNativeKittyGraphics = settings.AllowNativeKittyGraphics,
                 AllowOsc52ClipboardWrite = settings.AllowOsc52ClipboardWrite,
                 CommandAssistEnabled = settings.CommandAssistEnabled,
                 CommandAssistHistoryEnabled = settings.CommandAssistHistoryEnabled,
@@ -3600,6 +3729,10 @@ namespace NovaTerminal.Controls
                 // Kill switch (Blocker 2, #277 review): keep the query-reply gate in sync with
                 // the setting on every settings change, not just at parser creation.
                 Parser.KittyKeyboardEnabled = effectiveSettings.EnableKittyKeyboardProtocol;
+
+                // Native kitty graphics on Windows (ConPTY pass-through opt-in): same live-sync
+                // reasoning as the kill switch above.
+                Parser.AllowNativeKittyGraphics = effectiveSettings.AllowNativeKittyGraphics;
             }
 
             // Font family/size and shaping toggles just moved with the settings.

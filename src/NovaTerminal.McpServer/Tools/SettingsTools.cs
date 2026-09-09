@@ -53,6 +53,7 @@ public static class SettingsTools
         | `EnableLinkDetection` | bool | Default true. |
         | `EnableKittyKeyboardProtocol` | bool | Default true. Kill switch for the kitty keyboard protocol's disambiguate-escape-codes tier (issue #266). When false, key encoding always falls back to legacy sequences and the `CSI ? u` query always reports flags 0, even if a TUI pushed a flag onto the stack. |
         | `AllowOsc52ClipboardWrite` | bool | Default true. Settings gate for OSC 52 clipboard **write** (issue #268). When false, a decoded OSC 52 write is not applied to the system clipboard. OSC 52 **read** (answering a query with real clipboard contents) is never implemented regardless of this setting — queries always get an empty-payload denial reply. |
+        | `AllowNativeKittyGraphics` | bool | Default true. Allow native (non-tunneled) kitty graphics APC on Windows, where ConPTY was historically assumed to strip image escapes. When true, capability probes are answered OK and images decode; when false, probes get ERR and images are skipped. The OSC 1339 tunnel is unaffected either way. |
         | `WheelLinesPerNotch` | number | > 0 (≤ 0 falls back to 3.0). Default 3.0. |
         | `PaneClosePolicy` | string (enum-like) | e.g. "Confirm", "Force". Type-checked only. |
         | `ShellExitPolicy` | string (enum-like) | "Never"/"Graceful"/"Always". Default "Graceful". What happens to a pane when its shell exits: keep it with a banner, close it on a clean exit, or always close it. "Graceful" closes the pane on exit code 0 only, so closing the last pane of the last tab quits the app the way `exit` does in any terminal. SSH panes ignore this and always keep their reconnect banner. Type-checked only; unrecognised values behave as "Never" (a typo must not be more destructive than the default). |
@@ -117,6 +118,7 @@ public static class SettingsTools
           "EnableLinkDetection": true,
           "EnableKittyKeyboardProtocol": true,
           "AllowOsc52ClipboardWrite": true,
+          "AllowNativeKittyGraphics": true,
           "WheelLinesPerNotch": 3.0,
           "PaneClosePolicy": "Confirm",
           "ShellExitPolicy": "Graceful",
@@ -158,7 +160,7 @@ public static class SettingsTools
     {
         "EnableLigatures", "EnableComplexShaping", "CursorBlink", "BellAudioEnabled",
         "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection", "EnableKittyKeyboardProtocol",
-        "AllowOsc52ClipboardWrite",
+        "AllowOsc52ClipboardWrite", "AllowNativeKittyGraphics",
         "QuakeModeEnabled",
         "CommandAssistEnabled", "CommandAssistHistoryEnabled", "CommandAssistPassiveBubbleEnabled",
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
@@ -183,7 +185,7 @@ public static class SettingsTools
         "FontSize", "MaxHistory", "FontFamily", "ThemeName", "WindowOpacity", "BlurEffect",
         "EnableLigatures", "EnableComplexShaping", "CursorStyle", "CursorBlink", "TabStripOrientation", "VerticalTabStripWidth",
         "BellAudioEnabled", "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection",
-        "EnableKittyKeyboardProtocol", "AllowOsc52ClipboardWrite",
+        "EnableKittyKeyboardProtocol", "AllowOsc52ClipboardWrite", "AllowNativeKittyGraphics",
         "WheelLinesPerNotch", "PaneClosePolicy", "ShellExitPolicy", "AgentIndicatorTabRollup",
         "Keybindings", "TabTemplateRules",
         "BackgroundImagePath", "BackgroundImageOpacity", "BackgroundImageStretch",

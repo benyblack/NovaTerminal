@@ -67,6 +67,49 @@ namespace NovaTerminal.VT
 
         public IImageDecoder? ImageDecoder { get; set; }
 
+        /// <summary>
+        /// File transport (<c>t=f</c>) reader for kitty graphics, injected by the host the same
+        /// way <see cref="ImageDecoder"/> is: the VT layer must stay free of file I/O, so the
+        /// parser hands the decoded payload path to this delegate and the App layer decides what
+        /// may be read (temp-dir confinement, size caps). When null, or when the read fails,
+        /// a <c>t=f</c> image is logged and skipped.
+        /// </summary>
+        public Func<string, byte[]?>? ReadFileBytes { get; set; }
+
+        /// <summary>
+        /// Host-settable opt-in for native (non-tunneled) kitty graphics APC on platforms where
+        /// ConPTY filtering is likely (Windows). The historical M4.2 policy dropped such images
+        /// and answered capability probes with ERR because ConPTY was assumed to strip APC; live
+        /// probing showed modern ConPTY passes well-formed APC through intact, so when this flag
+        /// is set the parser trusts what actually arrived: probes are answered OK and images are
+        /// decoded, exactly as on non-Windows. Tunneled OSC 1339 payloads are unaffected.
+        /// </summary>
+        public bool AllowNativeKittyGraphics { get; set; }
+
+        /// <summary>
+        /// Kitty in-band resize (DEC private mode 2048) tracking. The client enables the mode
+        /// with <c>CSI ? 2048 h</c>; while enabled the terminal must announce geometry changes
+        /// by writing <see cref="SendInBandResize"/> reports to the child's stdin. Clients like
+        /// terminal-browser run on Windows with no SIGWINCH and no console-size polling — the
+        /// in-band report is the only way they learn the window resized.
+        /// </summary>
+        public bool InBandResizeReportsEnabled => _inBandResizeReportsEnabled;
+        private bool _inBandResizeReportsEnabled;
+
+        /// <summary>
+        /// Emits a kitty in-band resize report (<c>CSI 48 ; rows ; cols ; heightPx ; widthPx t</c>)
+        /// to the child, but only while the client has mode 2048 set — unsolicited reports to a
+        /// client that never asked would land on its stdin as garbage. The host calls this when
+        /// the pane's geometry changes; the numbers are host-computed, so unlike most replies
+        /// there is nothing remote-controlled to sanitize. Field order matches the kitty spec:
+        /// rows, cols, then pixel height, then pixel width.
+        /// </summary>
+        public void SendInBandResize(int rows, int cols, int widthPx, int heightPx)
+        {
+            if (!_inBandResizeReportsEnabled || OnResponse == null) return;
+            OnResponse($"\x1b[48;{Math.Max(1, rows)};{Math.Max(1, cols)};{Math.Max(0, heightPx)};{Math.Max(0, widthPx)}t");
+        }
+
         // M2.1: Lock Batching Buffer
         private System.Text.StringBuilder _textBuffer = new System.Text.StringBuilder(4096);
         private bool _sawCursorHideInBatch;
@@ -117,6 +160,22 @@ namespace NovaTerminal.VT
         /// covers every legal value.
         /// </summary>
         private const int KittyMaxEchoedIdChars = 10;
+
+        /// <summary>
+        /// Inflation ceiling for <c>o=z</c> container payloads (f absent or encoded): the
+        /// inflated bytes are an encoded image the decoder will bound at 2000×2000, and no
+        /// legitimate encoded container of that geometry approaches 32 MiB. Raw payloads
+        /// (f=24/32) bypass this constant — they are bounded by their exact declared size.
+        /// </summary>
+        private const long KittyMaxInflatedContainerBytes = 32L * 1024 * 1024;
+
+        /// <summary>
+        /// Pixel-dimension guardrail for raw kitty payloads (f=24/32), enforced BEFORE
+        /// inflation so the declared s/v dimensions cannot license an oversized decompression
+        /// that the decoder would only reject afterwards. Mirrors SkiaImageDecoder's default
+        /// <c>MaxPixelDimension</c>.
+        /// </summary>
+        private const int KittyMaxRawPixelDimension = 2000;
 
         /// <summary>
         /// Host-settable kill switch for the kitty keyboard protocol (issue #266 / PR #277
@@ -492,6 +551,11 @@ namespace NovaTerminal.VT
                                 {
                                     _buffer.Reset(); // Ensure TerminalBuffer has a Reset method or use Clear
                                     _verticalOffset = 0;
+                                    // Parser-local mode state does not live in the buffer, so RIS
+                                    // must clear it here too: a reset client that never re-enabled
+                                    // mode 2048 must not keep receiving resize reports on its
+                                    // stdin, and DECRQM must not report the mode as set.
+                                    _inBandResizeReportsEnabled = false;
                                     _state = State.Normal;
                                 }
                                 else if (c == '=' || c == '>') // DECKPAM / DECKPNM
@@ -1289,6 +1353,33 @@ namespace NovaTerminal.VT
                             ApplyCursorStyle(argCount > 0 ? validArgs[0] : 0);
                         }
                         break;
+                    case 't': // Window operations (xterm). Two pixel-geometry reports are
+                              // implemented, both consumed by clients like terminal-browser:
+                              //   CSI 14 t -> CSI 4 ; paneHeightPx ; paneWidthPx t
+                              //   CSI 16 t -> CSI 6 ; cellHeightPx ; cellWidthPx t
+                              // CSI 16 t is the important one: without it the client assumes a
+                              // hardcoded 16x32 px cell, renders its surface at the wrong size
+                              // AND aspect, and every frame arrives squashed. The remaining
+                              // window ops (stack, iconify, resize-by-cells) are ignored, and
+                              // leader-prefixed variants stay unhandled.
+                        if (leader == '\0' && intermediates.Length == 0 && (arg0 == 14 || arg0 == 16))
+                        {
+                            float cw = CellWidth > 0 ? CellWidth : 10f;
+                            float ch = CellHeight > 0 ? CellHeight : 20f;
+                            if (arg0 == 14)
+                            {
+                                int widthPx = Math.Max(1, (int)Math.Round(_buffer.Cols * cw));
+                                int heightPx = Math.Max(1, (int)Math.Round(_buffer.Rows * ch));
+                                OnResponse?.Invoke($"\x1b[4;{heightPx};{widthPx}t");
+                            }
+                            else
+                            {
+                                int cellWidthPx = Math.Max(1, (int)Math.Round(cw));
+                                int cellHeightPx = Math.Max(1, (int)Math.Round(ch));
+                                OnResponse?.Invoke($"\x1b[6;{cellHeightPx};{cellWidthPx}t");
+                            }
+                        }
+                        break;
                     case 'p':
                         // DECRQM - Request Mode (Issue #267): CSI Ps $ p (ANSI) or
                         // CSI ? Ps $ p (DEC private) -> DECRPM reply CSI [?] Ps ; Pm $ y.
@@ -1475,6 +1566,7 @@ namespace NovaTerminal.VT
                 case 1049: return _buffer.IsAltScreenActive ? 1 : 2;             // Alt screen + save cursor
                 case 2004: return _buffer.Modes.IsBracketedPasteMode ? 1 : 2;
                 case 2026: return _buffer.IsSynchronizedOutput ? 1 : 2;          // Synchronized Output
+                case 2048: return _inBandResizeReportsEnabled ? 1 : 2;           // Kitty in-band resize
                 default: return 0; // Not recognized
             }
         }
@@ -1570,6 +1662,9 @@ namespace NovaTerminal.VT
                     case 2026: // Synchronized Output (Batch Rendering)
                         if (enable) _buffer.BeginSync();
                         else _buffer.EndSync();
+                        break;
+                    case 2048: // Kitty in-band resize: resize reports on while set
+                        _inBandResizeReportsEnabled = enable;
                         break;
                     case 9001: // ConPTY Passthrough Mode
                         break;
@@ -2795,13 +2890,26 @@ namespace NovaTerminal.VT
                         "0123456789",
                         KittyMaxEchoedIdChars,
                         "31");
-                    string status = (_isConPtyFilteringLikely && !isTunneled) ? "ERR" : "OK";
+                    // A capability probe names the transport it intends to use (`t=`), and the
+                    // reply must reflect what the transmit path will actually accept - the
+                    // whitelist below is exactly d and f. For f the host must also have wired
+                    // a file reader: without one (e.g. an SSH pane, where the path names a
+                    // remote file) every f-transport frame would be skipped, so the probe
+                    // answers ERR and the client falls back to inline payloads. Answering OK
+                    // to anything else (s, t, or a future value) would send the client into a
+                    // mode where every frame is skipped.
+                    string probeTransport = _kittyPendingParams.TryGetValue("t", out var probeT) ? probeT : "d";
+                    bool transportSupported = probeTransport == "d"
+                        || (probeTransport == "f" && ReadFileBytes != null);
+                    string status = (_isConPtyFilteringLikely && !isTunneled && !AllowNativeKittyGraphics) || !transportSupported
+                        ? "ERR"
+                        : "OK";
                     OnResponse?.Invoke($"\x1b_Gi={id};{status}\x1b\\");
                     ClearKittyState();
                     return;
                 }
 
-                if (_isConPtyFilteringLikely && !isTunneled)
+                if (_isConPtyFilteringLikely && !isTunneled && !AllowNativeKittyGraphics)
                 {
                     TerminalLogger.Log("[ANSI_PARSER] Kitty non-tunneled image skipped due to likely ConPTY filtering.");
                     ClearKittyState();
@@ -2823,6 +2931,100 @@ namespace NovaTerminal.VT
 
                 TerminalLogger.Log($"[ANSI_PARSER] Kitty payload preview: {combinedPayload.Substring(0, Math.Min(combinedPayload.Length, 20))}...");
                 byte[] data = Convert.FromBase64String(combinedPayload);
+
+                // Transport (kitty key `t`): d = inline payload (default), f = file whose path
+                // is the payload. Whitelist: any other value (s = shared memory, t = temporary
+                // file, or something newer) must skip rather than fall through to inline
+                // decoding - a t=t payload is a pathname, and decoding it as image bytes drops
+                // every frame while the probe already advertised support. Reading a file is
+                // host-injected I/O - the VT layer never touches disk itself (ReadFileBytes).
+                string transport = _kittyPendingParams.TryGetValue("t", out var tVal) ? tVal : "d";
+                if (transport != "d" && transport != "f")
+                {
+                    TerminalLogger.Log($"[ANSI_PARSER] Kitty transport '{transport}' not supported, skipping.");
+                    ClearKittyState();
+                    return;
+                }
+
+                if (transport == "f")
+                {
+                    var readBytes = ReadFileBytes;
+                    if (readBytes == null)
+                    {
+                        TerminalLogger.Log("[ANSI_PARSER] Kitty t=f image skipped: no ReadFileBytes delegate wired.");
+                        ClearKittyState();
+                        return;
+                    }
+
+                    byte[]? fileData = readBytes(System.Text.Encoding.UTF8.GetString(data));
+                    if (fileData == null)
+                    {
+                        TerminalLogger.Log("[ANSI_PARSER] Kitty t=f image skipped: ReadFileBytes returned no data.");
+                        ClearKittyState();
+                        return;
+                    }
+
+                    data = fileData;
+                }
+
+                // Format (kitty key `f`) is parsed BEFORE decompression: 24/32 are raw RGB/RGBA
+                // pixel data sized by s=/v=, and the declared dimensions give the inflate step
+                // an exact bound. Anything else (including the absent default) goes through the
+                // container decoder, which sniffs PNG/JPEG/etc. terminal-browser sends f=32
+                // with o=z.
+                int format = 0;
+                if (_kittyPendingParams.TryGetValue("f", out var fVal))
+                {
+                    int.TryParse(fVal, out format);
+                }
+
+                bool isRaw = format == 24 || format == 32;
+                int rawWidth = 0;
+                int rawHeight = 0;
+                if (isRaw)
+                {
+                    if (!_kittyPendingParams.TryGetValue("s", out var sVal) ||
+                        !_kittyPendingParams.TryGetValue("v", out var vVal) ||
+                        !int.TryParse(sVal, out rawWidth) || !int.TryParse(vVal, out rawHeight) ||
+                        rawWidth <= 0 || rawHeight <= 0)
+                    {
+                        TerminalLogger.Log("[ANSI_PARSER] Kitty raw payload missing valid s=/v= dimensions, skipping.");
+                        ClearKittyState();
+                        return;
+                    }
+
+                    // Mirror the decoder's own pixel guardrail BEFORE inflation: a declared
+                    // 20000x20000 raw payload would otherwise license a >1 GB inflate that
+                    // DecodeRawImage only rejects afterwards.
+                    if (rawWidth > KittyMaxRawPixelDimension || rawHeight > KittyMaxRawPixelDimension)
+                    {
+                        TerminalLogger.Log($"[ANSI_PARSER] Kitty raw dimensions {rawWidth}x{rawHeight} exceed the {KittyMaxRawPixelDimension}px guardrail, skipping.");
+                        ClearKittyState();
+                        return;
+                    }
+                }
+
+                // Compression (kitty key `o`): z = zlib-wrapped deflate over the pixel/encoded
+                // data. Bounded: raw payloads may inflate to exactly their declared size, and
+                // container payloads to a ceiling far above any legitimate encoded image - a
+                // small compression bomb must not allocate gigabytes before the size guardrails
+                // ever run.
+                if (_kittyPendingParams.TryGetValue("o", out var oVal) && oVal == "z")
+                {
+                    long expected = isRaw
+                        ? (long)rawWidth * rawHeight * (format == 24 ? 3 : 4)
+                        : KittyMaxInflatedContainerBytes;
+                    int limit = (int)Math.Min(expected, int.MaxValue);
+                    byte[]? inflated = InflateZlib(data, limit);
+                    if (inflated == null)
+                    {
+                        ClearKittyState();
+                        return;
+                    }
+
+                    data = inflated;
+                }
+
                 if (data.Length >= 8)
                 {
                     TerminalLogger.Log($"[ANSI_PARSER] Kitty data magic: {BitConverter.ToString(data, 0, Math.Min(data.Length, 8))}, Decode");
@@ -2835,7 +3037,17 @@ namespace NovaTerminal.VT
                     return;
                 }
 
-                object? imageHandle = ImageDecoder.DecodeImageBytes(data, out int pixelWidth, out int pixelHeight);
+                object? imageHandle;
+                int pixelWidth;
+                int pixelHeight;
+                if (isRaw)
+                {
+                    imageHandle = ImageDecoder.DecodeRawImage(data, format == 24 ? 3 : 4, rawWidth, rawHeight, out pixelWidth, out pixelHeight);
+                }
+                else
+                {
+                    imageHandle = ImageDecoder.DecodeImageBytes(data, out pixelWidth, out pixelHeight);
+                }
                 if (imageHandle == null)
                 {
                     TerminalLogger.Log("[ANSI_PARSER] IImageDecoder failed to decode Kitty image data.");
@@ -2899,9 +3111,31 @@ namespace NovaTerminal.VT
 
                 TerminalLogger.Log($"[ANSI_PARSER] Kitty image placement: CursorCol={_buffer.CursorCol}, CursorRow={_buffer.CursorRow}, absRow={absRow}, widthCells={width}, heightCells={height}, effectiveCellW={effectiveCellWidth}, effectiveCellH={effectiveCellHeight}");
                 var img = new TerminalImage(imageHandle, _buffer.CursorCol, absRow, width, height);
-                _buffer.AddImage(img);
 
-                if (action == "T" || action == "t")
+                // `i=` numbers the image; a later frame reusing the number replaces this one
+                // (kitty animation semantics - the shape terminal-browser's 30 fps stream uses).
+                // Ids are unsigned 32-bit: parsing as int would silently drop the upper half of
+                // the range onto the no-replacement path, where frames stack instead.
+                uint? kittyImageId = _kittyPendingParams.TryGetValue("i", out var iVal)
+                    && uint.TryParse(iVal, out uint parsedId) && parsedId > 0
+                        ? parsedId : null;
+
+                // `C=1` (with cursor placement): do not move the cursor after displaying. The
+                // default advance reserves the image's cells so following text flows below it,
+                // but a frame stream re-emits at the same spot every frame — advancing would
+                // scroll each frame off the top before it can be seen.
+                bool keepCursor = _kittyPendingParams.TryGetValue("C", out var cFlag) && cFlag == "1";
+
+                if (kittyImageId.HasValue)
+                {
+                    _buffer.AddKittyFrame(img, kittyImageId.Value);
+                }
+                else
+                {
+                    _buffer.AddImage(img);
+                }
+
+                if ((action == "T" || action == "t") && !keepCursor)
                 {
                     bool oldHidden = _buffer.IsHidden;
                     _buffer.IsHidden = true;
@@ -2946,6 +3180,47 @@ namespace NovaTerminal.VT
             _kittyPayloadBuffer.Clear();
             _kittyPendingParams.Clear();
             _kittyPayloadOverflow = false;
+        }
+
+        /// <summary>
+        /// Inflates a zlib-wrapped deflate stream (kitty graphics <c>o=z</c>). Called on
+        /// attacker-controlled remote input, so the output is hard-bounded at
+        /// <paramref name="maxBytes"/> — a small compression bomb cannot balloon the
+        /// allocation before anything validates the payload — and any failure or overage
+        /// returns null for the caller to reject, rather than an exception mid-parse.
+        /// Pure CPU work — no I/O, keeping VT a leaf.
+        /// </summary>
+        private static byte[]? InflateZlib(byte[] compressed, int maxBytes)
+        {
+            try
+            {
+                using var source = new System.IO.MemoryStream(compressed);
+                using var zlib = new System.IO.Compression.ZLibStream(source, System.IO.Compression.CompressionMode.Decompress);
+                using var output = new System.IO.MemoryStream();
+                var buffer = new byte[81920];
+                int total = 0;
+                while (total <= maxBytes)
+                {
+                    // One byte past the bound is read deliberately, so a stream that is
+                    // exactly the limit is accepted and anything longer is detected.
+                    int n = zlib.Read(buffer, 0, Math.Min(buffer.Length, maxBytes + 1 - total));
+                    if (n <= 0) break;
+                    output.Write(buffer, 0, n);
+                    total += n;
+                    if (total > maxBytes)
+                    {
+                        TerminalLogger.Log($"[ANSI_PARSER] Kitty o=z inflate exceeded its {maxBytes} byte bound; discarding.");
+                        return null;
+                    }
+                }
+
+                return output.ToArray();
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Log($"[ANSI_PARSER] Kitty o=z inflate failed: {ex.Message}");
+                return null;
+            }
         }
 
         private void HandleITerm2Image(string osc)

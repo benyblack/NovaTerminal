@@ -115,6 +115,13 @@ namespace NovaTerminal.Benchmarks
                 pixelHeight = 100;
                 return Instance;
             }
+
+            public object? DecodeRawImage(byte[] data, int bytesPerPixel, int width, int height, out int pixelWidth, out int pixelHeight)
+            {
+                pixelWidth = 100;
+                pixelHeight = 100;
+                return Instance;
+            }
         }
     }
 }
