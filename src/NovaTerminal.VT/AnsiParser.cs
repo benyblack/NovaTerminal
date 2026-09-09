@@ -86,6 +86,30 @@ namespace NovaTerminal.VT
         /// </summary>
         public bool AllowNativeKittyGraphics { get; set; }
 
+        /// <summary>
+        /// Kitty in-band resize (DEC private mode 2048) tracking. The client enables the mode
+        /// with <c>CSI ? 2048 h</c>; while enabled the terminal must announce geometry changes
+        /// by writing <see cref="SendInBandResize"/> reports to the child's stdin. Clients like
+        /// terminal-browser run on Windows with no SIGWINCH and no console-size polling — the
+        /// in-band report is the only way they learn the window resized.
+        /// </summary>
+        public bool InBandResizeReportsEnabled => _inBandResizeReportsEnabled;
+        private bool _inBandResizeReportsEnabled;
+
+        /// <summary>
+        /// Emits a kitty in-band resize report (<c>CSI 48 ; rows ; cols ; heightPx ; widthPx t</c>)
+        /// to the child, but only while the client has mode 2048 set — unsolicited reports to a
+        /// client that never asked would land on its stdin as garbage. The host calls this when
+        /// the pane's geometry changes; the numbers are host-computed, so unlike most replies
+        /// there is nothing remote-controlled to sanitize. Field order matches the kitty spec:
+        /// rows, cols, then pixel height, then pixel width.
+        /// </summary>
+        public void SendInBandResize(int rows, int cols, int widthPx, int heightPx)
+        {
+            if (!_inBandResizeReportsEnabled || OnResponse == null) return;
+            OnResponse($"\x1b[48;{Math.Max(1, rows)};{Math.Max(1, cols)};{Math.Max(0, heightPx)};{Math.Max(0, widthPx)}t");
+        }
+
         // M2.1: Lock Batching Buffer
         private System.Text.StringBuilder _textBuffer = new System.Text.StringBuilder(4096);
         private bool _sawCursorHideInBatch;
@@ -1308,6 +1332,21 @@ namespace NovaTerminal.VT
                             ApplyCursorStyle(argCount > 0 ? validArgs[0] : 0);
                         }
                         break;
+                    case 't': // Window operations (xterm). Only the pixel-size report is
+                              // implemented: CSI 14 t asks "how big is the view in pixels",
+                              // answered as CSI 4 ; height ; width t. Clients like
+                              // terminal-browser use it to size their render surface; the
+                              // remaining window ops (stack, iconify, resize-by-cells) are
+                              // ignored, and leader-prefixed variants stay unhandled.
+                        if (leader == '\0' && intermediates.Length == 0 && arg0 == 14)
+                        {
+                            float cw = CellWidth > 0 ? CellWidth : 10f;
+                            float ch = CellHeight > 0 ? CellHeight : 20f;
+                            int widthPx = Math.Max(1, (int)Math.Round(_buffer.Cols * cw));
+                            int heightPx = Math.Max(1, (int)Math.Round(_buffer.Rows * ch));
+                            OnResponse?.Invoke($"\x1b[4;{heightPx};{widthPx}t");
+                        }
+                        break;
                     case 'p':
                         // DECRQM - Request Mode (Issue #267): CSI Ps $ p (ANSI) or
                         // CSI ? Ps $ p (DEC private) -> DECRPM reply CSI [?] Ps ; Pm $ y.
@@ -1494,6 +1533,7 @@ namespace NovaTerminal.VT
                 case 1049: return _buffer.IsAltScreenActive ? 1 : 2;             // Alt screen + save cursor
                 case 2004: return _buffer.Modes.IsBracketedPasteMode ? 1 : 2;
                 case 2026: return _buffer.IsSynchronizedOutput ? 1 : 2;          // Synchronized Output
+                case 2048: return _inBandResizeReportsEnabled ? 1 : 2;           // Kitty in-band resize
                 default: return 0; // Not recognized
             }
         }
@@ -1589,6 +1629,9 @@ namespace NovaTerminal.VT
                     case 2026: // Synchronized Output (Batch Rendering)
                         if (enable) _buffer.BeginSync();
                         else _buffer.EndSync();
+                        break;
+                    case 2048: // Kitty in-band resize: resize reports on while set
+                        _inBandResizeReportsEnabled = enable;
                         break;
                     case 9001: // ConPTY Passthrough Mode
                         break;

@@ -3503,6 +3503,20 @@ namespace NovaTerminal.Controls
                     if (chResize > 0) Parser.CellHeight = chResize;
                 }
                 Session?.Resize(c, r);
+
+                // Kitty in-band resize (mode 2048): a client that enabled the mode —
+                // terminal-browser on Windows has no SIGWINCH and never polls console size —
+                // only learns about a new geometry from this report, so it must follow the
+                // PTY resize. Pixel dims come from the same metrics the grid draws with.
+                if (Parser is { InBandResizeReportsEnabled: true })
+                {
+                    float cwReport = TermView.Metrics.CellWidth;
+                    float chReport = TermView.Metrics.CellHeight;
+                    if (cwReport > 0 && chReport > 0)
+                    {
+                        Parser.SendInBandResize(r, c, (int)Math.Round(c * cwReport), (int)Math.Round(r * chReport));
+                    }
+                }
             };
             TermView.OnResize -= _onTermViewResize;
             TermView.OnResize += _onTermViewResize;
