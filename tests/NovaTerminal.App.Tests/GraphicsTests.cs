@@ -128,6 +128,25 @@ namespace NovaTerminal.Tests
         /// (extra params and a tiny payload included). With native graphics allowed under
         /// ConPTY, the reply must be the OK shape its probeGraphics() requires.
         /// </summary>
+        [Theory]
+        [InlineData("t=d", "OK")]
+        [InlineData("t=f", "OK")]
+        [InlineData("t=s", "ERR")]
+        public void KittyQuery_ProbeReplyReflectsRequestedTransport(string transport, string expectedStatus)
+        {
+            // The reply must reflect what the transmit path will actually accept: answering OK
+            // to a t=s probe would send the client into a mode where every frame disappears.
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer, forceConPtyFiltering: true) { AllowNativeKittyGraphics = true };
+            string? response = null;
+            parser.OnResponse = r => response = r;
+
+            parser.Process($"_Ga=q,i=31,{transport}\\");
+
+            Assert.NotNull(response);
+            Assert.Contains($";{expectedStatus}", response!, StringComparison.Ordinal);
+        }
+
         [Fact]
         public void KittyQuery_TerminalBrowserProbe_NativeAllowed_RespondsOkWithItsImageId()
         {

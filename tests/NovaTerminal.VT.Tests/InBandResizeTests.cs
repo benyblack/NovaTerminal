@@ -50,6 +50,22 @@ public class InBandResizeTests
     }
 
     [Fact]
+    public void Ris_ClearsInBandResizeMode()
+    {
+        // RIS resets parser-local mode state too: a reset client that never re-enabled
+        // mode 2048 must not keep receiving resize reports on its stdin.
+        var parser = CreateParser(out var responses);
+        parser.Process("[?2048h");
+        Assert.True(parser.InBandResizeReportsEnabled);
+
+        parser.Process("c");
+
+        Assert.False(parser.InBandResizeReportsEnabled);
+        parser.SendInBandResize(30, 86, 975, 720);
+        Assert.Empty(responses);
+    }
+
+    [Fact]
     public void SendInBandResize_WhileDisabled_EmitsNothing()
     {
         var parser = CreateParser(out var responses);

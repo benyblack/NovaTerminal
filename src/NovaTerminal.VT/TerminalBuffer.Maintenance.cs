@@ -44,9 +44,12 @@ namespace NovaTerminal.VT
         /// the wire shape a video-rate frame stream (terminal-browser) relies on. Without the
         /// replacement, every frame at 30 fps would stack another full-size bitmap and scroll
         /// the buffer, at hundreds of MB per minute. Replacement goes through the same
-        /// retire-and-deferred-dispose path as pruning, so in-flight snapshots are safe.
+        /// retire-and-deferred-dispose path as pruning, so in-flight snapshots are safe, and it
+        /// only matches images owned by the ACTIVE screen: an alt-screen frame reusing an id
+        /// must not delete the main screen's hidden image, or leaving the TUI could not
+        /// restore it (the same isolation rule every erase/scroll path here follows).
         /// </summary>
-        public void AddKittyFrame(TerminalImage image, int kittyId)
+        public void AddKittyFrame(TerminalImage image, uint kittyId)
         {
             image.KittyImageId = kittyId;
             bool lockTaken = EnterWriteLockIfNeeded();
@@ -56,7 +59,7 @@ namespace NovaTerminal.VT
                 // Walk backwards: the live frame is the most recent image with this number.
                 for (int i = _images.Count - 1; i >= 0; i--)
                 {
-                    if (_images[i].KittyImageId == kittyId)
+                    if (_images[i].KittyImageId == kittyId && _images[i].IsAltScreenImage == _isAltScreen)
                     {
                         RetireImage(_images[i]);
                         _images.RemoveAt(i);

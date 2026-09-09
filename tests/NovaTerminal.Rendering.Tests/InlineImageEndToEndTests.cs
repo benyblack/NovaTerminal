@@ -251,6 +251,82 @@ public class InlineImageEndToEndTests
     /// A tiny o=z container payload that inflates past the ceiling must be discarded before
     /// any large allocation, not after decode - the compression-bomb bound.
     /// </summary>
+    /// <summary>
+    /// Raw dimensions beyond the decoder's pixel guardrail are rejected BEFORE inflation -
+    /// a declared 20000x20000 payload must not license a >1 GB inflate that the decoder
+    /// would only reject afterwards.
+    /// </summary>
+    [Fact]
+    public void KittyRawDimensions_OverPixelGuardrail_AreRejectedBeforeInflate()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer, forceConPtyFiltering: false) { ImageDecoder = new SkiaImageDecoder() };
+
+        byte[] bomb = ZlibCompress(new byte[1024 * 1024]); // small payload, huge declared dims
+        parser.Process("_Ga=T,f=32,o=z,s=20000,v=20000,t=d,m=0;" + Convert.ToBase64String(bomb) + "\\");
+
+        Assert.Empty(buffer.Images);
+    }
+
+    /// <summary>
+    /// Kitty image ids are unsigned 32-bit: ids in the upper half of the range used to fall
+    /// off the replacement path (int.TryParse failed) and stack full-size frames instead.
+    /// </summary>
+    [Fact]
+    public void KittyFrameReplacement_CoversFullUnsignedIdRange()
+    {
+        Assert.SkipUnless(SkiaAvailable, "SkiaSharp native library not available on this platform.");
+
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer, forceConPtyFiltering: false) { ImageDecoder = new SkiaImageDecoder() };
+
+        string base64 = Convert.ToBase64String(EncodePng3x5());
+        parser.Process("_Ga=T,t=d,f=100,i=4000000000,m=0;" + base64 + "\\");
+        parser.Process("_Ga=T,t=d,f=100,i=4000000000,m=0;" + base64 + "\\");
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Single(buffer.Images);
+        }
+        finally
+        {
+            buffer.Lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
+    /// Replacement is scoped to the active screen: an alt-screen frame reusing a main-screen
+    /// image's id must not delete the hidden main-screen image, or leaving the TUI could not
+    /// restore it.
+    /// </summary>
+    [Fact]
+    public void KittyFrameReplacement_RespectsAltScreenOwnership()
+    {
+        Assert.SkipUnless(SkiaAvailable, "SkiaSharp native library not available on this platform.");
+
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer, forceConPtyFiltering: false) { ImageDecoder = new SkiaImageDecoder() };
+
+        string base64 = Convert.ToBase64String(EncodePng3x5());
+        parser.Process("_Ga=T,t=d,f=100,i=1,m=0;" + base64 + "\\"); // main screen
+        parser.Process("[?1049h"); // enter alt screen
+        parser.Process("_Ga=T,t=d,f=100,i=1,m=0;" + base64 + "\\"); // alt frame, same id
+        parser.Process("_Ga=T,t=d,f=100,i=1,m=0;" + base64 + "\\"); // replaces the alt one
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Equal(2, buffer.Images.Count); // one main + one alt, not a single survivor
+            Assert.Single(buffer.Images, img => !img.IsAltScreenImage);
+            Assert.Single(buffer.Images, img => img.IsAltScreenImage);
+        }
+        finally
+        {
+            buffer.Lock.ExitReadLock();
+        }
+    }
+
     [Fact]
     public void KittyOzContainer_InflatingPastCeiling_IsDiscarded()
     {

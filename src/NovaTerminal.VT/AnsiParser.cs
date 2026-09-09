@@ -170,6 +170,14 @@ namespace NovaTerminal.VT
         private const long KittyMaxInflatedContainerBytes = 32L * 1024 * 1024;
 
         /// <summary>
+        /// Pixel-dimension guardrail for raw kitty payloads (f=24/32), enforced BEFORE
+        /// inflation so the declared s/v dimensions cannot license an oversized decompression
+        /// that the decoder would only reject afterwards. Mirrors SkiaImageDecoder's default
+        /// <c>MaxPixelDimension</c>.
+        /// </summary>
+        private const int KittyMaxRawPixelDimension = 2000;
+
+        /// <summary>
         /// Host-settable kill switch for the kitty keyboard protocol (issue #266 / PR #277
         /// review, Blocker 2), wired the same way <see cref="DefaultForeground"/> was in
         /// PR #275: the App layer sets this from <c>TerminalSettings.EnableKittyKeyboardProtocol</c>
@@ -543,6 +551,11 @@ namespace NovaTerminal.VT
                                 {
                                     _buffer.Reset(); // Ensure TerminalBuffer has a Reset method or use Clear
                                     _verticalOffset = 0;
+                                    // Parser-local mode state does not live in the buffer, so RIS
+                                    // must clear it here too: a reset client that never re-enabled
+                                    // mode 2048 must not keep receiving resize reports on its
+                                    // stdin, and DECRQM must not report the mode as set.
+                                    _inBandResizeReportsEnabled = false;
                                     _state = State.Normal;
                                 }
                                 else if (c == '=' || c == '>') // DECKPAM / DECKPNM
@@ -2877,7 +2890,15 @@ namespace NovaTerminal.VT
                         "0123456789",
                         KittyMaxEchoedIdChars,
                         "31");
-                    string status = (_isConPtyFilteringLikely && !isTunneled && !AllowNativeKittyGraphics) ? "ERR" : "OK";
+                    // A capability probe names the transport it intends to use (`t=`), and the
+                    // reply must reflect what the transmit path will actually accept - answering
+                    // OK to a `t=s` probe would send the client into a mode where every frame
+                    // is skipped. Shared memory is not implemented, so it probes ERR.
+                    string probeTransport = _kittyPendingParams.TryGetValue("t", out var probeT) ? probeT : "d";
+                    bool transportSupported = probeTransport != "s";
+                    string status = (_isConPtyFilteringLikely && !isTunneled && !AllowNativeKittyGraphics) || !transportSupported
+                        ? "ERR"
+                        : "OK";
                     OnResponse?.Invoke($"\x1b_Gi={id};{status}\x1b\\");
                     ClearKittyState();
                     return;
@@ -2960,6 +2981,16 @@ namespace NovaTerminal.VT
                         rawWidth <= 0 || rawHeight <= 0)
                     {
                         TerminalLogger.Log("[ANSI_PARSER] Kitty raw payload missing valid s=/v= dimensions, skipping.");
+                        ClearKittyState();
+                        return;
+                    }
+
+                    // Mirror the decoder's own pixel guardrail BEFORE inflation: a declared
+                    // 20000x20000 raw payload would otherwise license a >1 GB inflate that
+                    // DecodeRawImage only rejects afterwards.
+                    if (rawWidth > KittyMaxRawPixelDimension || rawHeight > KittyMaxRawPixelDimension)
+                    {
+                        TerminalLogger.Log($"[ANSI_PARSER] Kitty raw dimensions {rawWidth}x{rawHeight} exceed the {KittyMaxRawPixelDimension}px guardrail, skipping.");
                         ClearKittyState();
                         return;
                     }
@@ -3074,9 +3105,11 @@ namespace NovaTerminal.VT
                 var img = new TerminalImage(imageHandle, _buffer.CursorCol, absRow, width, height);
 
                 // `i=` numbers the image; a later frame reusing the number replaces this one
-                // (kitty animation semantics — the shape terminal-browser's 30 fps stream uses).
-                int? kittyImageId = _kittyPendingParams.TryGetValue("i", out var iVal)
-                    && int.TryParse(iVal, out int parsedId) && parsedId >= 0
+                // (kitty animation semantics - the shape terminal-browser's 30 fps stream uses).
+                // Ids are unsigned 32-bit: parsing as int would silently drop the upper half of
+                // the range onto the no-replacement path, where frames stack instead.
+                uint? kittyImageId = _kittyPendingParams.TryGetValue("i", out var iVal)
+                    && uint.TryParse(iVal, out uint parsedId) && parsedId > 0
                         ? parsedId : null;
 
                 // `C=1` (with cursor placement): do not move the cursor after displaying. The
