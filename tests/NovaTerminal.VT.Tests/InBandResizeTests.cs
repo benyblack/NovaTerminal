@@ -114,6 +114,22 @@ public class InBandResizeTests
     }
 
     [Fact]
+    public void Csi16t_ReportsCellSizeInPixels()
+    {
+        // terminal-browser's cell_size() query. It latches "unsupported" after one silent
+        // timeout and then renders with a hardcoded 16x32 px cell forever - the reply must
+        // be the xterm shape CSI 6 ; height ; width t, height first.
+        var parser = CreateParser(out var responses);
+        parser.CellWidth = 11.333f;
+        parser.CellHeight = 24f;
+
+        parser.Process("\x1b[16t");
+
+        var response = Assert.Single(responses);
+        Assert.Equal("\x1b[6;24;11t", response);
+    }
+
+    [Fact]
     public void Csi_OtherWindowOps_StaySilent()
     {
         var parser = CreateParser(out var responses);

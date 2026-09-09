@@ -1332,19 +1332,31 @@ namespace NovaTerminal.VT
                             ApplyCursorStyle(argCount > 0 ? validArgs[0] : 0);
                         }
                         break;
-                    case 't': // Window operations (xterm). Only the pixel-size report is
-                              // implemented: CSI 14 t asks "how big is the view in pixels",
-                              // answered as CSI 4 ; height ; width t. Clients like
-                              // terminal-browser use it to size their render surface; the
-                              // remaining window ops (stack, iconify, resize-by-cells) are
-                              // ignored, and leader-prefixed variants stay unhandled.
-                        if (leader == '\0' && intermediates.Length == 0 && arg0 == 14)
+                    case 't': // Window operations (xterm). Two pixel-geometry reports are
+                              // implemented, both consumed by clients like terminal-browser:
+                              //   CSI 14 t -> CSI 4 ; paneHeightPx ; paneWidthPx t
+                              //   CSI 16 t -> CSI 6 ; cellHeightPx ; cellWidthPx t
+                              // CSI 16 t is the important one: without it the client assumes a
+                              // hardcoded 16x32 px cell, renders its surface at the wrong size
+                              // AND aspect, and every frame arrives squashed. The remaining
+                              // window ops (stack, iconify, resize-by-cells) are ignored, and
+                              // leader-prefixed variants stay unhandled.
+                        if (leader == '\0' && intermediates.Length == 0 && (arg0 == 14 || arg0 == 16))
                         {
                             float cw = CellWidth > 0 ? CellWidth : 10f;
                             float ch = CellHeight > 0 ? CellHeight : 20f;
-                            int widthPx = Math.Max(1, (int)Math.Round(_buffer.Cols * cw));
-                            int heightPx = Math.Max(1, (int)Math.Round(_buffer.Rows * ch));
-                            OnResponse?.Invoke($"\x1b[4;{heightPx};{widthPx}t");
+                            if (arg0 == 14)
+                            {
+                                int widthPx = Math.Max(1, (int)Math.Round(_buffer.Cols * cw));
+                                int heightPx = Math.Max(1, (int)Math.Round(_buffer.Rows * ch));
+                                OnResponse?.Invoke($"\x1b[4;{heightPx};{widthPx}t");
+                            }
+                            else
+                            {
+                                int cellWidthPx = Math.Max(1, (int)Math.Round(cw));
+                                int cellHeightPx = Math.Max(1, (int)Math.Round(ch));
+                                OnResponse?.Invoke($"\x1b[6;{cellHeightPx};{cellWidthPx}t");
+                            }
                         }
                         break;
                     case 'p':
