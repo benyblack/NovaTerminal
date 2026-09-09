@@ -65,6 +65,10 @@ namespace NovaTerminal.UI.Replay
             _parser = new AnsiParser(_buffer);
             // Replays of sessions that drew inline images must render the same way live panes do.
             _parser.ImageDecoder = new NovaTerminal.Rendering.SkiaImageDecoder();
+            // Replays carry the same native-APC policy and t=f confinement as a live pane, so a
+            // recorded kitty session replays to the same frames it drew live.
+            _parser.AllowNativeKittyGraphics = true;
+            _parser.ReadFileBytes = NovaTerminal.Controls.TerminalPane.ReadKittyTransportFile;
             var termView = this.FindControl<TerminalView>("TermView");
             if (termView != null)
             {

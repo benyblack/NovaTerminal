@@ -89,5 +89,63 @@ namespace NovaTerminal.Rendering
             pixelHeight = bitmap.Height;
             return bitmap;
         }
+
+        public object? DecodeRawImage(byte[] data, int bytesPerPixel, int width, int height, out int pixelWidth, out int pixelHeight)
+        {
+            pixelWidth = 0;
+            pixelHeight = 0;
+
+            if (data == null || data.Length == 0)
+            {
+                return null;
+            }
+
+            if (bytesPerPixel != 3 && bytesPerPixel != 4)
+            {
+                return null;
+            }
+
+            if (width <= 0 || height <= 0 || width > MaxPixelDimension || height > MaxPixelDimension)
+            {
+                return null;
+            }
+
+            long expected = (long)width * height * bytesPerPixel;
+            if (data.LongLength != expected)
+            {
+                return null;
+            }
+
+            // Raw kitty payloads are top-down RGB/RGBA; the surface we hand the renderer is
+            // BGRA8888. Build the swizzled buffer separately so a malformed length can never
+            // leave a partially-written bitmap behind.
+            var info = new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Unpremul);
+            var bitmap = new SKBitmap(info);
+            byte[] bgra = new byte[checked(width * height * 4)];
+            try
+            {
+                int src = 0;
+                for (int dst = 0; dst < bgra.Length; dst += 4)
+                {
+                    bgra[dst] = data[src + 2];     // B
+                    bgra[dst + 1] = data[src + 1]; // G
+                    bgra[dst + 2] = data[src];     // R
+                    bgra[dst + 3] = bytesPerPixel == 4 ? data[src + 3] : (byte)0xFF;
+                    src += bytesPerPixel;
+                }
+
+                System.Runtime.InteropServices.Marshal.Copy(
+                    bgra, 0, bitmap.GetPixels(), bgra.Length);
+            }
+            catch (Exception)
+            {
+                bitmap.Dispose();
+                return null;
+            }
+
+            pixelWidth = width;
+            pixelHeight = height;
+            return bitmap;
+        }
     }
 }

@@ -196,5 +196,12 @@ public class InlineImageCursorTests
             pixelHeight = PixelHeight;
             return new object();
         }
+
+        public object? DecodeRawImage(byte[] data, int bytesPerPixel, int width, int height, out int pixelWidth, out int pixelHeight)
+        {
+            pixelWidth = PixelWidth;
+            pixelHeight = PixelHeight;
+            return new object();
+        }
     }
 }

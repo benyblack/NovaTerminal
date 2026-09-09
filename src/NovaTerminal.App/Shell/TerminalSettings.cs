@@ -49,6 +49,16 @@ namespace NovaTerminal.Shell
         // trade-off or any other unforeseen encoding issue - flip this off instead of having
         // to fight the TUI that turned the protocol on.
         public bool EnableKittyKeyboardProtocol { get; set; } = true;
+
+        // Opt-in for native (non-tunneled) kitty graphics APC on Windows, where ConPTY was
+        // historically assumed to strip image escapes (docs/IMAGE_PROTOCOL_SUPPORT.md M4.2).
+        // Live probing showed modern ConPTY passes well-formed APC through intact, so when on,
+        // AnsiParser trusts what arrived: capability probes are answered OK and images decode,
+        // as they always have on Linux/macOS. When off, the old behavior holds (probe -> ERR,
+        // images skipped); the OSC 1339 tunnel is unaffected either way. Default on: a ConPTY
+        // that does strip APC simply never delivers the probe, so the client falls back on its
+        // own, and a corrupted payload that does arrive fails decode as a silent skip.
+        public bool AllowNativeKittyGraphics { get; set; } = true;
         // Settings gate for OSC 52 clipboard-write support (issue #268). Default on for
         // local sessions: AnsiParser.OnClipboardWrite always fires (VT stays policy-free),
         // and this flag is what TerminalPane checks before actually touching the system

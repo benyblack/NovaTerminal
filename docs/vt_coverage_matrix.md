@@ -160,7 +160,7 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| Kitty graphics protocol | APC / OSC forms | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/GraphicsTests.cs`, `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs`, `tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs` | Parser+Renderer | |
+| Kitty graphics protocol | APC / OSC forms | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/GraphicsTests.cs`, `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs`, `tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs` | Parser+Renderer | Native APC (non-tunneled) on Windows decodes behind `TerminalSettings.AllowNativeKittyGraphics` (default on) — historically probes got `ERR`/images skipped; modern ConPTY passes APC through intact (live-verified 2026-09). Payload formats: container (PNG/...) plus raw `f=24`/`f=32` sized by `s=`/`v=`, `o=z` zlib inflation, and `t=f` file transport read through the host-injected `ReadFileBytes` delegate (App-side reader confined to `%TEMP%`, 64 MB cap). `t=s` (shm) skips gracefully. Placement params (`z`, `U=1`, `p=1`, `C=1`) are accepted but only cursor-anchored placement is implemented. |
 | Placement, z-index, scrolling | Complex interactions | ⚠ Partial | Manual | Buffer+Renderer | Pruned images' bitmaps are retired by the buffer; the owning view disposes them once no in-flight snapshot session predates the retire (#166) |
 
 ---

@@ -3087,6 +3087,17 @@ namespace NovaTerminal.Controls
             // same reasoning as the DefaultForeground wiring above.
             Parser.KittyKeyboardEnabled = _settings?.EnableKittyKeyboardProtocol ?? true;
 
+            // Native kitty graphics on Windows (ConPTY pass-through opt-in): a freshly-created
+            // parser must match what ApplySettings will set, same reasoning as above.
+            Parser.AllowNativeKittyGraphics = _settings?.AllowNativeKittyGraphics ?? true;
+
+            // Kitty t=f (file transport) reads happen through this delegate so the VT layer
+            // never touches disk itself. Confinement: absolute paths only, must resolve under
+            // the user's temp directory (where clients like terminal-browser stage raw frames),
+            // with a hard size cap - the path arrives from the remote stream, so it is
+            // attacker-controlled input, not a filename to trust.
+            Parser.ReadFileBytes = ReadKittyTransportFile;
+
             Parser.OnBell += () =>
             {
                 this.Dispatcher.Post(() =>
@@ -3535,6 +3546,59 @@ namespace NovaTerminal.Controls
         /// answers), so the two call sites can never resolve the profile-effective theme
         /// differently — see the #265 wiring-bug follow-up.
         /// </summary>
+        /// <summary>
+        /// Hard cap on a single kitty <c>t=f</c> transport read. A 2000×2000 RGBA frame — the
+        /// parser's pixel guardrail — is 16 MB, so 64 MB leaves generous headroom for legitimate
+        /// staged frames while keeping a hostile path from pulling an arbitrary file into memory.
+        /// </summary>
+        internal const long KittyTransportMaxFileBytes = 64L * 1024 * 1024;
+
+        /// <summary>
+        /// Disk reader behind <see cref="AnsiParser.ReadFileBytes"/> for kitty graphics file
+        /// transport. The path comes from the remote byte stream, so it is treated as hostile:
+        /// absolute paths only, confined to the user's temp directory (where clients like
+        /// terminal-browser stage raw RGBA frames), size-capped, and any failure degrades to a
+        /// null the parser logs and skips. Internal + static so the confinement rules are unit
+        /// testable without a pane.
+        /// </summary>
+        internal static byte[]? ReadKittyTransportFile(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !System.IO.Path.IsPathRooted(path))
+            {
+                return null;
+            }
+
+            string candidate;
+            try
+            {
+                candidate = System.IO.Path.GetFullPath(path);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+
+            string tempRoot = System.IO.Path.GetFullPath(System.IO.Path.GetTempPath());
+            if (!candidate.StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            try
+            {
+                var info = new System.IO.FileInfo(candidate);
+                if (!info.Exists || info.Length > KittyTransportMaxFileBytes)
+                {
+                    return null;
+                }
+
+                return System.IO.File.ReadAllBytes(candidate);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
         private TerminalSettings BuildEffectiveSettings(TerminalSettings settings)
         {
             // We create a "copy" for the view to use, but we only override specific visual fields
@@ -3558,6 +3622,7 @@ namespace NovaTerminal.Controls
                 SmoothScrolling = settings.SmoothScrolling,
                 EnableLinkDetection = settings.EnableLinkDetection,
                 EnableKittyKeyboardProtocol = settings.EnableKittyKeyboardProtocol,
+                AllowNativeKittyGraphics = settings.AllowNativeKittyGraphics,
                 AllowOsc52ClipboardWrite = settings.AllowOsc52ClipboardWrite,
                 CommandAssistEnabled = settings.CommandAssistEnabled,
                 CommandAssistHistoryEnabled = settings.CommandAssistHistoryEnabled,
@@ -3600,6 +3665,10 @@ namespace NovaTerminal.Controls
                 // Kill switch (Blocker 2, #277 review): keep the query-reply gate in sync with
                 // the setting on every settings change, not just at parser creation.
                 Parser.KittyKeyboardEnabled = effectiveSettings.EnableKittyKeyboardProtocol;
+
+                // Native kitty graphics on Windows (ConPTY pass-through opt-in): same live-sync
+                // reasoning as the kill switch above.
+                Parser.AllowNativeKittyGraphics = effectiveSettings.AllowNativeKittyGraphics;
             }
 
             // Font family/size and shaping toggles just moved with the settings.

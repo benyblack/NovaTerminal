@@ -67,6 +67,25 @@ namespace NovaTerminal.VT
 
         public IImageDecoder? ImageDecoder { get; set; }
 
+        /// <summary>
+        /// File transport (<c>t=f</c>) reader for kitty graphics, injected by the host the same
+        /// way <see cref="ImageDecoder"/> is: the VT layer must stay free of file I/O, so the
+        /// parser hands the decoded payload path to this delegate and the App layer decides what
+        /// may be read (temp-dir confinement, size caps). When null, or when the read fails,
+        /// a <c>t=f</c> image is logged and skipped.
+        /// </summary>
+        public Func<string, byte[]?>? ReadFileBytes { get; set; }
+
+        /// <summary>
+        /// Host-settable opt-in for native (non-tunneled) kitty graphics APC on platforms where
+        /// ConPTY filtering is likely (Windows). The historical M4.2 policy dropped such images
+        /// and answered capability probes with ERR because ConPTY was assumed to strip APC; live
+        /// probing showed modern ConPTY passes well-formed APC through intact, so when this flag
+        /// is set the parser trusts what actually arrived: probes are answered OK and images are
+        /// decoded, exactly as on non-Windows. Tunneled OSC 1339 payloads are unaffected.
+        /// </summary>
+        public bool AllowNativeKittyGraphics { get; set; }
+
         // M2.1: Lock Batching Buffer
         private System.Text.StringBuilder _textBuffer = new System.Text.StringBuilder(4096);
         private bool _sawCursorHideInBatch;
@@ -2795,13 +2814,13 @@ namespace NovaTerminal.VT
                         "0123456789",
                         KittyMaxEchoedIdChars,
                         "31");
-                    string status = (_isConPtyFilteringLikely && !isTunneled) ? "ERR" : "OK";
+                    string status = (_isConPtyFilteringLikely && !isTunneled && !AllowNativeKittyGraphics) ? "ERR" : "OK";
                     OnResponse?.Invoke($"\x1b_Gi={id};{status}\x1b\\");
                     ClearKittyState();
                     return;
                 }
 
-                if (_isConPtyFilteringLikely && !isTunneled)
+                if (_isConPtyFilteringLikely && !isTunneled && !AllowNativeKittyGraphics)
                 {
                     TerminalLogger.Log("[ANSI_PARSER] Kitty non-tunneled image skipped due to likely ConPTY filtering.");
                     ClearKittyState();
@@ -2823,6 +2842,45 @@ namespace NovaTerminal.VT
 
                 TerminalLogger.Log($"[ANSI_PARSER] Kitty payload preview: {combinedPayload.Substring(0, Math.Min(combinedPayload.Length, 20))}...");
                 byte[] data = Convert.FromBase64String(combinedPayload);
+
+                // Transport (kitty key `t`): d = inline payload (default), f = file whose path
+                // is the payload, s = shared memory. Reading a file is host-injected I/O - the
+                // VT layer never touches disk itself (see ReadFileBytes).
+                string transport = _kittyPendingParams.TryGetValue("t", out var tVal) ? tVal : "d";
+                if (transport == "s")
+                {
+                    TerminalLogger.Log("[ANSI_PARSER] Kitty t=s (shared memory) transport not supported, skipping.");
+                    ClearKittyState();
+                    return;
+                }
+
+                if (transport == "f")
+                {
+                    var readBytes = ReadFileBytes;
+                    if (readBytes == null)
+                    {
+                        TerminalLogger.Log("[ANSI_PARSER] Kitty t=f image skipped: no ReadFileBytes delegate wired.");
+                        ClearKittyState();
+                        return;
+                    }
+
+                    byte[]? fileData = readBytes(System.Text.Encoding.UTF8.GetString(data));
+                    if (fileData == null)
+                    {
+                        TerminalLogger.Log("[ANSI_PARSER] Kitty t=f image skipped: ReadFileBytes returned no data.");
+                        ClearKittyState();
+                        return;
+                    }
+
+                    data = fileData;
+                }
+
+                // Compression (kitty key `o`): z = zlib-wrapped deflate over the pixel/encoded data.
+                if (_kittyPendingParams.TryGetValue("o", out var oVal) && oVal == "z")
+                {
+                    data = InflateZlib(data);
+                }
+
                 if (data.Length >= 8)
                 {
                     TerminalLogger.Log($"[ANSI_PARSER] Kitty data magic: {BitConverter.ToString(data, 0, Math.Min(data.Length, 8))}, Decode");
@@ -2835,7 +2893,36 @@ namespace NovaTerminal.VT
                     return;
                 }
 
-                object? imageHandle = ImageDecoder.DecodeImageBytes(data, out int pixelWidth, out int pixelHeight);
+                // Format (kitty key `f`): 24/32 are raw RGB/RGBA pixel data sized by s=/v=;
+                // anything else (including the absent default) goes through the container
+                // decoder, which sniffs PNG/JPEG/etc. terminal-browser sends f=32 with o=z.
+                int format = 0;
+                if (_kittyPendingParams.TryGetValue("f", out var fVal))
+                {
+                    int.TryParse(fVal, out format);
+                }
+
+                object? imageHandle;
+                int pixelWidth;
+                int pixelHeight;
+                if (format == 24 || format == 32)
+                {
+                    if (!_kittyPendingParams.TryGetValue("s", out var sVal) ||
+                        !_kittyPendingParams.TryGetValue("v", out var vVal) ||
+                        !int.TryParse(sVal, out int rawWidth) || !int.TryParse(vVal, out int rawHeight) ||
+                        rawWidth <= 0 || rawHeight <= 0)
+                    {
+                        TerminalLogger.Log("[ANSI_PARSER] Kitty raw payload missing valid s=/v= dimensions, skipping.");
+                        ClearKittyState();
+                        return;
+                    }
+
+                    imageHandle = ImageDecoder.DecodeRawImage(data, format == 24 ? 3 : 4, rawWidth, rawHeight, out pixelWidth, out pixelHeight);
+                }
+                else
+                {
+                    imageHandle = ImageDecoder.DecodeImageBytes(data, out pixelWidth, out pixelHeight);
+                }
                 if (imageHandle == null)
                 {
                     TerminalLogger.Log("[ANSI_PARSER] IImageDecoder failed to decode Kitty image data.");
@@ -2946,6 +3033,30 @@ namespace NovaTerminal.VT
             _kittyPayloadBuffer.Clear();
             _kittyPendingParams.Clear();
             _kittyPayloadOverflow = false;
+        }
+
+        /// <summary>
+        /// Inflates a zlib-wrapped deflate stream (kitty graphics <c>o=z</c>). Called on
+        /// attacker-controlled remote input, so failures surface as a zero-length array for the
+        /// caller to reject rather than an exception mid-parse; output is bounded by the declared
+        /// pixel guardrails in the caller path (a valid raw frame can't exceed the decode caps).
+        /// Pure CPU work — no I/O, keeping VT a leaf.
+        /// </summary>
+        private static byte[] InflateZlib(byte[] compressed)
+        {
+            try
+            {
+                using var source = new System.IO.MemoryStream(compressed);
+                using var zlib = new System.IO.Compression.ZLibStream(source, System.IO.Compression.CompressionMode.Decompress);
+                using var output = new System.IO.MemoryStream(compressed.Length * 4);
+                zlib.CopyTo(output, 81920);
+                return output.ToArray();
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Log($"[ANSI_PARSER] Kitty o=z inflate failed: {ex.Message}");
+                return Array.Empty<byte>();
+            }
         }
 
         private void HandleITerm2Image(string osc)

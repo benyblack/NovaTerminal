@@ -121,5 +121,12 @@ public class StringSequenceCapTests
             pixelHeight = 0;
             return null;
         }
+
+        public object? DecodeRawImage(byte[] data, int bytesPerPixel, int width, int height, out int pixelWidth, out int pixelHeight)
+        {
+            pixelWidth = 0;
+            pixelHeight = 0;
+            return null;
+        }
     }
 }
