@@ -76,6 +76,9 @@ so SmartScreen will warn on first run. Choose *More info → Run anyway*.
   bundle. Alternatively grab `NovaTerminal-osx-arm64-<tag>.zip`, open it, and drag
   `NovaTerminal.app` to `/Applications`.
 
+- **Homebrew** — `brew install --cask benyblack/tap/novaterminal` (Apple Silicon;
+  installs the same `NovaTerminal.app`, see [packaging/homebrew](packaging/homebrew/README.md)).
+
 macOS builds installed via the `.pkg` check for updates in the background and apply them
 on restart, same as Windows. If the app lives in `/Applications`, macOS will ask for your
 password once per update.

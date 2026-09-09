@@ -1108,6 +1108,70 @@ jobs:
             artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-osx-delta.nupkg
             artifacts/velopack/releases.osx.json
 
+      # ---- Homebrew tap (osx-arm64 only), secret-gated like the signing lane above:
+      # ---- when HOMEBREW_TAP_TOKEN is unset this prints one line and exits 0, so a
+      # ---- release cut before the tap exists behaves exactly as before. The token
+      # ---- needs contents:write on the tap repo (default benyblack/homebrew-tap).
+      # ---- One-time setup lives in packaging/homebrew/README.md (bootstrap-tap.sh).
+      - name: Update Homebrew tap
+        if: matrix.rid == 'osx-arm64'
+        shell: bash
+        # Tag, version and token reach the script through env, never interpolated
+        # into its source - same rule as every other run block in this file.
+        env:
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAP_REPO: benyblack/homebrew-tap
+        run: |
+          set -euo pipefail
+          if [[ -z "${TAP_TOKEN:-}" ]]; then
+            echo "HOMEBREW_TAP_TOKEN is not set; skipping the tap update."
+            exit 0
+          fi
+          # Homebrew forbids prerelease versions in a stable cask, so a beta/rc tag
+          # leaves the tap on the last stable instead of shipping "0.8.0-rc.1".
+          if [[ "$RELEASE_VERSION" == *-* ]]; then
+            echo "$RELEASE_VERSION is a prerelease; the tap keeps the last stable version."
+            exit 0
+          fi
+          # A workflow_dispatch re-run can target a revision older than the lane; on
+          # such a ref the template does not exist and skipping is correct.
+          template="packaging/homebrew/Casks/novaterminal.rb"
+          if [[ ! -f "$template" ]]; then
+            echo "No $template at this ref; skipping the tap update."
+            exit 0
+          fi
+          zip="artifacts/velopack/NovaTerminal-osx-arm64-$RELEASE_TAG.zip"
+          if [[ ! -f "$zip" ]]; then
+            echo "The pack step produced no $zip; refusing to guess a hash." >&2
+            exit 1
+          fi
+          sha="$(shasum -a 256 "$zip" | cut -d' ' -f1)"
+          echo "sha256($zip) = $sha"
+
+          work="$(mktemp -d)"
+          git clone "https://x-access-token:$TAP_TOKEN@github.com/$TAP_REPO.git" "$work/tap"
+          mkdir -p "$work/tap/Casks"
+          sed -e "s/__VERSION__/$RELEASE_VERSION/" -e "s/__SHA256__/$sha/" \
+            "$template" > "$work/tap/Casks/novaterminal.rb"
+          # A template that stops being valid Ruby must fail this release lane, not
+          # every tap user's `brew install`.
+          ruby -c "$work/tap/Casks/novaterminal.rb" >/dev/null
+
+          cd "$work/tap"
+          git add Casks/novaterminal.rb
+          # --cached, not plain diff: a first-ever cask is untracked until the add,
+          # and a fresh clone plus rewrite of an unchanged cask must push nothing.
+          if git diff --cached --quiet; then
+            echo "The tap cask already points at $RELEASE_VERSION; nothing to push."
+            exit 0
+          fi
+          git config user.name "novaterminal-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "novaterminal $RELEASE_VERSION"
+          git push origin HEAD
+
   # ===========================================================================
   # Linux release lane (#91): AppImage + .deb + tarball + per-architecture update
   # feeds, for linux-x64 and linux-arm64.
