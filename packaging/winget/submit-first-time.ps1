@@ -18,7 +18,7 @@
     at https://github.com/settings/tokens. This script never stores it.
 
 .PARAMETER Version
-    The manifest version folder to submit. Default: 0.3.0.
+    The manifest version folder to submit. Default: 0.4.0.
 
 .PARAMETER Token
     GitHub PAT. If omitted, the WINGET_PAT environment variable is used.
@@ -27,11 +27,11 @@
     ./submit-first-time.ps1 -Token ghp_xxx
 
 .EXAMPLE
-    $env:WINGET_PAT = 'ghp_xxx'; ./submit-first-time.ps1 -Version 0.3.0
+    $env:WINGET_PAT = 'ghp_xxx'; ./submit-first-time.ps1 -Version 0.4.0
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = "0.3.0",
+    [string]$Version = "0.4.0",
     [string]$Token = $env:WINGET_PAT
 )
 
