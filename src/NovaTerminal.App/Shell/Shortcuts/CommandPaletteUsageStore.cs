@@ -37,9 +37,23 @@ public sealed class CommandPaletteUsageStore
             Dictionary<string, CommandPaletteUsageEntry>? deserialized = JsonSerializer.Deserialize(
                 json,
                 AppJsonContext.Default.DictionaryStringCommandPaletteUsageEntry);
-            _entries = deserialized is not null
-                ? new Dictionary<string, CommandPaletteUsageEntry>(deserialized, StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string, CommandPaletteUsageEntry>(StringComparer.OrdinalIgnoreCase);
+            // Rebuilt with an explicit assignment loop rather than the
+            // `new Dictionary(source, comparer)` copy constructor: that constructor adds entries
+            // one by one under the *new* comparer and throws ArgumentException the moment two
+            // source keys collapse to the same key. `deserialized` carries the default ordinal
+            // comparer, so sibling JSON entries "find" and "Find" both survive deserialization
+            // intact and would collapse here. This file is hand-editable, and the catch below
+            // would swallow the throw by discarding the *entire* usage history -- so a
+            // typo-shaped duplicate must degrade to last-one-wins (in source enumeration order)
+            // by plain indexer assignment, which cannot throw.
+            _entries = new Dictionary<string, CommandPaletteUsageEntry>(StringComparer.OrdinalIgnoreCase);
+            if (deserialized is not null)
+            {
+                foreach (KeyValuePair<string, CommandPaletteUsageEntry> kv in deserialized)
+                {
+                    _entries[kv.Key] = kv.Value;
+                }
+            }
         }
         catch
         {
