@@ -474,15 +474,34 @@ namespace NovaTerminal.Shell
 
         private void OnScrollAnimationTick(object? sender, EventArgs e)
         {
+            AdvanceScrollAnimation();
+        }
+
+        /// <summary>
+        /// One frame of the smooth-scroll easing toward the wheel target. Returns true while
+        /// the animation is still in flight. Internal so tests can drive the animation to
+        /// completion without a running dispatcher; the timer tick delegates here.
+        /// </summary>
+        internal bool AdvanceScrollAnimation()
+        {
+            if (_buffer != null)
+            {
+                // The buffer may have shrunk since the gesture began (alt-screen switch, ED 3);
+                // a target past the new ceiling would otherwise never be reached.
+                int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
+                _targetScrollOffset = Math.Clamp(_targetScrollOffset, 0, maxScroll);
+            }
+
             if (_scrollOffset == _targetScrollOffset)
             {
                 _scrollAnimationTimer.Stop();
-                return;
+                return false;
             }
 
             int delta = _targetScrollOffset - _scrollOffset;
             int step = Math.Sign(delta) * Math.Max(1, Math.Abs(delta) / 3);
-            ScrollOffset = _scrollOffset + step;
+            ApplyScrollOffset(_scrollOffset + step, retireWheelTarget: false);
+            return IsWheelAnimationInFlight;
         }
 
         private void OnMetricsTimerTick(object? sender, EventArgs e)
@@ -1288,6 +1307,15 @@ namespace NovaTerminal.Shell
                 // Calculate the ideal scroll offset to show the cursor at the bottom of the viewport
                 int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
 
+                // A smooth wheel gesture still in flight owns the viewport: output landing
+                // mid-gesture (a TUI redrawing its spinner) must not yank it back to the live
+                // line while it is passing through the follow-output band below.
+                if (IsWheelAnimationInFlight)
+                {
+                    _targetScrollOffset = Math.Clamp(_targetScrollOffset, 0, maxScroll);
+                    return;
+                }
+
                 // Only follow the output if we're already near the bottom (within 2 lines)
                 // This allows users to scroll up and stay there while still following new output when appropriate
                 if (ScrollOffset <= 2)
@@ -1479,22 +1507,36 @@ namespace NovaTerminal.Shell
         private DispatcherTimer? _autoScrollTimer;
         private int _autoScrollDirection = 0; // -1 up, 1 down
 
+        /// <summary>
+        /// The viewport's distance above the live line, in rows. Setting it is an external
+        /// seek (typing, scrollbar, search, follow-output snap) and retires any smooth-scroll
+        /// gesture still in flight; the animation itself moves the offset through
+        /// <see cref="ApplyScrollOffset"/> so its own frames do not cancel it.
+        /// </summary>
         public int ScrollOffset
         {
             get => _scrollOffset;
-            set
+            set => ApplyScrollOffset(value, retireWheelTarget: true);
+        }
+
+        /// <summary>True while a smooth wheel gesture still has frames to play.</summary>
+        private bool IsWheelAnimationInFlight => _scrollOffset != _targetScrollOffset;
+
+        private void ApplyScrollOffset(int value, bool retireWheelTarget)
+        {
+            if (_buffer == null) return;
+            int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
+            int newValue = Math.Clamp(value, 0, maxScroll);
+            if (retireWheelTarget)
             {
-                if (_buffer == null) return;
-                int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
-                int newValue = Math.Clamp(value, 0, maxScroll);
-                if (_scrollOffset != newValue)
-                {
-                    _scrollOffset = newValue;
-                    _targetScrollOffset = newValue;
-                    ScrollStateChanged?.Invoke(_scrollOffset, maxScroll);
-                    CommandAssistAnchorHintChanged?.Invoke();
-                    InvalidateBuffer();
-                }
+                _targetScrollOffset = newValue;
+            }
+            if (_scrollOffset != newValue)
+            {
+                _scrollOffset = newValue;
+                ScrollStateChanged?.Invoke(_scrollOffset, maxScroll);
+                CommandAssistAnchorHintChanged?.Invoke();
+                InvalidateBuffer();
             }
         }
 
@@ -2099,6 +2141,9 @@ namespace NovaTerminal.Shell
             _renderTimer.Stop();
             _cursorBlinkTimer.Stop();
             _scrollAnimationTimer.Stop();
+            // Nothing restarts this timer until the next wheel gesture, so a half-played
+            // gesture must not linger as an in-flight target that blocks follow-output.
+            _targetScrollOffset = _scrollOffset;
             _autoScrollTimer?.Stop();
 
             // A resize computed but not yet dispatched dies here, and nothing restarts this
@@ -2305,19 +2350,32 @@ namespace NovaTerminal.Shell
             int delta = _wheelScrollAccumulator.Accumulate(e.Delta.Y, _wheelLinesPerNotch);
             if (delta != 0)
             {
-                if (_enableSmoothScrolling)
+                ScrollByWheelLines(delta);
+            }
+        }
+
+        /// <summary>
+        /// Scroll the terminal's own scrollback by whole lines from a wheel gesture (positive =
+        /// up into history). With smooth scrolling on this only moves the animation target;
+        /// <see cref="AdvanceScrollAnimation"/> carries the viewport there over several frames.
+        /// Internal seam for the wheel path, mirroring HandleKeyDownCore for keys.
+        /// </summary>
+        internal void ScrollByWheelLines(int lines)
+        {
+            if (_buffer == null || lines == 0) return;
+
+            if (_enableSmoothScrolling)
+            {
+                int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
+                _targetScrollOffset = Math.Clamp(_targetScrollOffset + lines, 0, maxScroll);
+                if (!_scrollAnimationTimer.IsEnabled)
                 {
-                    int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
-                    _targetScrollOffset = Math.Clamp(_targetScrollOffset + delta, 0, maxScroll);
-                    if (!_scrollAnimationTimer.IsEnabled)
-                    {
-                        _scrollAnimationTimer.Start();
-                    }
+                    _scrollAnimationTimer.Start();
                 }
-                else
-                {
-                    ScrollOffset += delta;
-                }
+            }
+            else
+            {
+                ScrollOffset += lines;
             }
         }
 
