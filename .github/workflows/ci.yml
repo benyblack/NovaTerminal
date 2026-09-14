@@ -2236,11 +2236,22 @@ jobs:
           packaging/arch/build-arch.sh "$TAG" artifacts/aur --tarball "artifacts/arch/NovaTerminal-linux-x64-$TAG.tar.gz" --source-ref "$TAG"
           EOF
           cat /tmp/gen-aur.sh
-          docker run --rm -v "$PWD:/w" -v /tmp/gen-aur.sh:/gen.sh:ro -v /tmp/gen-aur.args:/gen.args:ro -w /w archlinux:base-devel bash -euo pipefail -c '
+          # HOST_UID mapped for the same reason smoke-test.sh maps it: /w is a bind
+          # mount, so what the container writes is owned by that uid on the host. This
+          # lane only reads the result back, so a mismatch would not fail here - which
+          # is exactly why it is worth matching release.yml, where the runner must
+          # write into this directory and a stranger uid locks it out.
+          docker run --rm -v "$PWD:/w" -v /tmp/gen-aur.sh:/gen.sh:ro -v /tmp/gen-aur.args:/gen.args:ro -w /w \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            archlinux:base-devel bash -euo pipefail -c '
             pacman -Syu --noconfirm --needed git >/dev/null
-            useradd -m builder
+            uid="${HOST_UID:-1000}"
+            gid="${HOST_GID:-1000}"
+            if [ "$uid" = "0" ]; then uid=1000; gid=1000; fi
+            groupadd -g "$gid" builder 2>/dev/null || true
+            useradd -m -u "$uid" -g "$gid" builder 2>/dev/null || useradd -m -u "$uid" builder
             mkdir -p /w/artifacts/aur
-            chown -R builder /w/artifacts/aur
+            chown -R "$uid":"$gid" /w/artifacts/aur
             su builder -c "bash /gen.sh"
           '
           # -s, not -f. A failed `makepkg --printsrcinfo > .SRCINFO` leaves a

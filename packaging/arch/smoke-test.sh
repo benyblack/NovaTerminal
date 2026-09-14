@@ -57,6 +57,28 @@ trap 'rm -rf "$work" 2>/dev/null || echo "note: could not remove $work (leftover
 cp "$aur_dir/PKGBUILD" "$work/"
 [[ -f "$aur_dir/.SRCINFO" ]] && cp "$aur_dir/.SRCINFO" "$work/"
 
+# A tarball sitting beside the PKGBUILD is SEEDED into the build directory rather
+# than ignored. makepkg skips downloading a source that is already present and
+# still validates its sha256 against the PKGBUILD - verified directly, with the
+# release host replaced by an unreachable one: makepkg printed
+# "-> Found NovaTerminal-linux-x64-v0.8.0.tar.gz" and passed the checksum.
+#
+# This is what lets the RELEASE lane gate this package at all. Its PKGBUILD points
+# at a release URL that 404s until the upload step later in the same job, so
+# without seeding, the only way to smoke-test a release was to publish it first.
+# Seeding is not a weaker check either: the sha256 in the PKGBUILD is still
+# enforced, so a seeded file that does not match what the URL will serve fails
+# here rather than silently passing.
+seeded=0
+for _t in "$aur_dir"/*.tar.gz; do
+  [[ -e "$_t" ]] || continue          # no glob match leaves the pattern itself
+  cp "$_t" "$work/"
+  seeded=$((seeded + 1))
+done
+if (( seeded > 0 )); then
+  echo "seeded $seeded local source tarball(s); makepkg will checksum them instead of downloading"
+fi
+
 echo
 echo "=== Container 0: makepkg ($build_image) ==="
 # makepkg REFUSES TO RUN AS ROOT and will not be talked out of it, so the container

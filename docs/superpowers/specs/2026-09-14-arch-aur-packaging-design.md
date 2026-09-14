@@ -252,22 +252,35 @@ v0.8.0 tarball on a live Arch system (icu 78.3, glibc 2.42, pacman 7.1.0):
   regeneration when registration reopens. A pacman repository remains out of scope
   and parked with #383.
 
-  **What that publish does NOT do is gate the PKGBUILD functionally**, and the
-  reason is ordering: its `source_x86_64` points at the release download URL, which
-  404s until the upload step later in the same job. So the release lane asserts the
-  pair's *content* — that the pinned `sha256sums_x86_64` is the sum of the tarball
-  being uploaded in that very run, and that the `.SRCINFO` is a novaterminal-bin
-  one — while the functional gate (build, install, launch) runs in `ci.yml` against
-  the previous published release. The integrity that matters most is guaranteed by
-  construction rather than by test: the sum is computed from the exact file being
-  published.
+  **The release lane gates that package functionally**, not just by content. This
+  was initially deferred — the PKGBUILD's `source_x86_64` points at a release URL
+  that 404s until the upload step later in the same job, so smoking it appeared to
+  require publishing it first — and the deferral was wrong. Review (Codex P2 on
+  #455) put the risk precisely: `ci.yml`'s Arch lane is path-filtered, so a release
+  changing the app or the native payload without touching `packaging/**` never runs
+  it; and even when it does run, it tests the *previously published* tarball. A
+  newly introduced Arch-incompatible linked or dlopen'd dependency would therefore
+  ship with nothing having installed or launched the package built from the tarball
+  being released, and the `.deb` gate cannot cover it because its dependency
+  derivation is Debian's.
 
-  A follow-up could close even that gap by seeding the tarball into the smoke test's
-  work directory — `makepkg` skips downloading a source already present and still
-  validates its checksum — which would let the release lane build and launch the
-  real new package before publishing anything. Not done here: it widens the failure
-  surface of the lane that publishes every Linux asset, and that is a change worth
-  making deliberately rather than as a rider.
+  `smoke-test.sh` now seeds any tarball sitting beside the PKGBUILD into the build
+  directory. `makepkg` skips downloading a source already present while still
+  validating its `sha256` — verified against a real `makepkg` with the release host
+  replaced by an unreachable one: `-> Found NovaTerminal-linux-x64-v0.8.0.tar.gz`,
+  checksum passed. Seeding is not a weaker check: the PKGBUILD's own sum is still
+  enforced, so a seeded file that does not match what the URL will serve fails there
+  rather than passing quietly.
+
+  The release lane still asserts the pair's content as well — that the pinned
+  `sha256sums_x86_64` is the sum of the tarball being uploaded in that run, and that
+  the `.SRCINFO` is a novaterminal-bin one.
+
+  Implementing the gate surfaced a second instance of the uid-mapping defect
+  described under *Findings*: the generation step chowned the bind-mounted output
+  directory to a container-local uid, leaving the runner able to read it but not
+  write — which the seeding step must. The same class of bug, in a different place,
+  found only because something finally needed to write there.
 - **A source-built `novaterminal`**, `x-terminal-emulator`-style registration
   (tracked as #384), RPM, Flatpak and Snap (the rest of #385).
 

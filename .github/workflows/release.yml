@@ -1756,9 +1756,13 @@ jobs:
   release_linux:
     name: Release Linux (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
-    # Two cold smoke containers that each apt-install their own tooling. No
-    # compilation happens here.
-    timeout-minutes: 30
+    # Two cold Debian smoke containers that each apt-install their own tooling, plus
+    # - on the x64 leg only - three Arch containers that pacman-install theirs and
+    # pull ~62 MB of dependencies. Raised from 30 when the Arch gate was added: that
+    # lane measured 1m19s end to end in ci.yml including both image pulls, so the
+    # headroom is ample rather than tight, but 30 left little room for a slow mirror
+    # on top of the Debian gate. No compilation happens here.
+    timeout-minutes: 45
     needs: [release_metadata, publish_linux]
     permissions:
       contents: write
@@ -1894,11 +1898,22 @@ jobs:
           cat /tmp/gen-aur.sh
           # Unprivileged: makepkg refuses to run as root, and .SRCINFO is the file
           # the AUR rejects a push without.
-          docker run --rm -v "$PWD:/w" -v /tmp/gen-aur.sh:/gen.sh:ro -v /tmp/gen-aur.args:/gen.args:ro -w /w archlinux:base-devel bash -euo pipefail -c '
+          # HOST_UID for the same reason smoke-test.sh maps it: /w is a bind mount, so
+          # the uid the container writes is the uid on the host. A container-local
+          # builder would leave artifacts/aur owned by a stranger, and the runner
+          # could then read it but not WRITE into it - which the smoke gate below
+          # must, to seed the tarball beside the PKGBUILD.
+          docker run --rm -v "$PWD:/w" -v /tmp/gen-aur.sh:/gen.sh:ro -v /tmp/gen-aur.args:/gen.args:ro -w /w \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            archlinux:base-devel bash -euo pipefail -c '
             pacman -Syu --noconfirm --needed git >/dev/null
-            useradd -m builder
+            uid="${HOST_UID:-1000}"
+            gid="${HOST_GID:-1000}"
+            if [ "$uid" = "0" ]; then uid=1000; gid=1000; fi
+            groupadd -g "$gid" builder 2>/dev/null || true
+            useradd -m -u "$uid" -g "$gid" builder 2>/dev/null || useradd -m -u "$uid" builder
             mkdir -p /w/artifacts/aur
-            chown -R builder /w/artifacts/aur
+            chown -R "$uid":"$gid" /w/artifacts/aur
             su builder -c "bash /gen.sh"
           '
           # -s, not -f: a failed `makepkg --printsrcinfo > .SRCINFO` leaves a
@@ -1921,6 +1936,40 @@ jobs:
           cp artifacts/aur/PKGBUILD "artifacts/release/PKGBUILD-$RELEASE_TAG"
           cp artifacts/aur/.SRCINFO "artifacts/release/SRCINFO-$RELEASE_TAG"
           echo "--- PKGBUILD ---"; cat artifacts/aur/PKGBUILD
+
+      # THE ARCH GATE, and it belongs here rather than only in ci.yml for two reasons
+      # that together leave a real hole otherwise (Codex P2 on #455):
+      #
+      #   1. ci.yml's Arch lane is PATH-FILTERED. A release that changes the app or
+      #      the native payload without touching packaging/** never runs it at all.
+      #   2. Even when it does run, it tests the newest PREVIOUSLY PUBLISHED stable
+      #      tarball - not this one.
+      #
+      # So a newly introduced Arch-incompatible linked or dlopen'd dependency would
+      # ship with nothing having installed or launched the package built from the
+      # tarball being published. The .deb smoke gate above cannot see it either: its
+      # dependency derivation is Debian's.
+      #
+      # HOW IT CAN RUN AT ALL before the upload: the PKGBUILD points at a release URL
+      # that 404s until the step below. smoke-test.sh seeds any tarball sitting beside
+      # the PKGBUILD into the build directory, and makepkg skips downloading a source
+      # already present while still validating its sha256 - verified against a real
+      # makepkg with the release host replaced by an unreachable one ("-> Found
+      # NovaTerminal-linux-x64-v0.8.0.tar.gz", checksum passed). The other four
+      # sources come from raw.githubusercontent at the tag, which exists by now.
+      #
+      # This widens what can fail before any Linux asset publishes, deliberately:
+      # that is what a gate is. It is the same bargain the .deb smoke test above
+      # already makes.
+      - name: Smoke test the AUR package (Arch containers)
+        if: matrix.rid == 'linux-x64'
+        env:
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          chmod +x packaging/arch/*.sh packaging/linux/*.sh
+          cp "artifacts/release/NovaTerminal-linux-x64-$RELEASE_TAG.tar.gz" artifacts/aur/
+          packaging/arch/smoke-test.sh artifacts/aur
 
       # Only now. The .deb is globbed rather than named because build-deb.sh maps a
       # SemVer prerelease suffix into a Debian-legal `~` (0.5.0-beta.1 ->
