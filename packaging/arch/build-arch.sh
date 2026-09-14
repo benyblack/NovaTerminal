@@ -58,8 +58,10 @@ print_pkgver() {
 # pkgver makes makepkg fail deep inside .SRCINFO generation with a message that
 # names neither this script nor the tag it came from.
 assert_pkgver() {
-  [[ "$1" =~ ^[0-9][A-Za-z0-9._+]*$ ]] \
-    || { echo "error: '$1' is not a legal pacman pkgver (alphanumerics, '.', '_', '+'; must start with a digit)" >&2; exit 1; }
+  local pkgver="$1"
+  [[ "$pkgver" =~ ^[0-9][A-Za-z0-9._+]*$ ]] \
+    || { echo "error: '$pkgver' is not a legal pacman pkgver (alphanumerics, '.', '_', '+'; must start with a digit)" >&2; exit 1; }
+  return 0
 }
 
 # --- runtime-loaded (dlopen'd) libraries, mapped to Arch packages -----------
@@ -195,6 +197,23 @@ case "${1:-}" in
     print_arch_map; exit 0 ;;
   --print-depends)
     print_depends; exit 0 ;;
+  *)
+    # Falling through to normal generation is intentional - anything that is not one
+    # of the --print-* modes is a `<version> <out-dir>` invocation. An unknown OPTION
+    # is not that, though, and without this branch a typo like `--print-depend` would
+    # be taken as a version string and fail much later complaining about a tag that
+    # does not look like a tag.
+    #
+    # `if`, not `[[ ... ]] && { ... }`: a false `&&` test leaves status 1 as the last
+    # command of the case body, which under `set -e` kills the script instead of
+    # falling through - the opposite of what this branch is for.
+    if [[ "${1:-}" == --* ]]; then
+      echo "error: unknown option: $1" >&2
+      echo "usage: $0 <version> <out-dir> [--tarball <path>] [--sha256 <sum>] [--source-ref <git-ref>]" >&2
+      echo "       $0 --print-pkgver <version> | --print-arch-map | --print-depends" >&2
+      exit 2
+    fi
+    ;;
 esac
 
 # --- arguments -------------------------------------------------------------

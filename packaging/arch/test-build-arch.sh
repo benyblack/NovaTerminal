@@ -50,6 +50,10 @@ if command -v vercmp >/dev/null 2>&1; then
     local lo="$1" hi="$2" got
     got="$(vercmp "$lo" "$hi")"
     [[ "$got" -lt 0 ]] && pass "vercmp: $lo sorts below $hi" || fail "vercmp: $lo does NOT sort below $hi (got $got)"
+    # Explicit, matching fail()/pass() and test-build-deb.sh's helpers: without it the
+    # function returns the status of whichever branch of the `&& ... || ...` ran last,
+    # which is a fragile thing for a helper to hand back to its caller.
+    return 0
   }
   check_order "$("$script" --print-pkgver v0.8.0-rc.1)"   "$("$script" --print-pkgver v0.8.0)"
   check_order "$("$script" --print-pkgver v0.9.0-beta.1)" "$("$script" --print-pkgver v0.9.0-rc.1)"
@@ -75,6 +79,7 @@ make_stub() {
   local out="$1"; shift
   printf '#!/usr/bin/env bash\ncase "$1" in --print-dlopen-sonames) cat <<'"'"'EOS'"'"'\n%s\nEOS\n;; esac\n' "$1" > "$out"
   chmod +x "$out"
+  return 0
 }
 
 # 1. An unmapped soname must fail the build.
@@ -172,6 +177,17 @@ fi
   && fail "accepted neither --tarball nor --sha256" || pass "rejects missing checksum source"
 "$script" v0.8.0 "$tmp/bad3" --sha256 "nothex" >/dev/null 2>&1 \
   && fail "accepted a non-digest --sha256" || pass "rejects a malformed --sha256"
+
+# A mistyped --print-* mode must be REJECTED, not silently treated as a version.
+# Without the default case in the mode dispatcher it fell through to normal
+# generation, where "--print-depend" became the version string and the run failed
+# several steps later complaining that it did not look like a tag.
+out="$("$script" --print-depend 2>&1)"
+if [[ $? -ne 0 ]] && grep -q "unknown option" <<<"$out"; then
+  pass "rejects an unknown --option instead of taking it as a version"
+else
+  fail "a mistyped --print-* mode was not rejected; output: $out"
+fi
 
 # ---- a broken makepkg must not fail the generation -------------------------
 # The PKGBUILD is the deliverable; .SRCINFO is a derived convenience this script
