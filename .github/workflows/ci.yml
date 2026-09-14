@@ -1639,10 +1639,16 @@ jobs:
       # Dependency-free path filter (no third-party action - this repo uses none
       # for path filtering elsewhere). workflow_dispatch and push always run the
       # full job; pull_request only runs it when the diff against the PR's merge
-      # base touches packaging/linux/**, a workflow file, or one of the two other
-      # inputs build-deb.sh reads directly (LICENSE, the app icon) - a change to
-      # either would otherwise land invisibly, since neither lives under
+      # base touches packaging/linux/** or packaging/arch/**, a workflow file, or one
+      # of the two other inputs build-deb.sh reads directly (LICENSE, the app icon) -
+      # a change to either would otherwise land invisibly, since neither lives under
       # packaging/linux/.
+      #
+      # ONE detect job gates BOTH packaging lanes, deliberately. build-arch.sh reads
+      # build-deb.sh's dlopen table (that is the mechanism keeping the two dependency
+      # lists from drifting), so a change to either lane can break the other and both
+      # must run. A second, arch-only detect job would have to re-state that coupling
+      # and could then disagree with this one.
       - name: Detect packaging changes
         id: detect
         # Both values reach the script through env, never through `${{ }}` inside the
@@ -1671,7 +1677,7 @@ jobs:
           # pipeline non-zero, this `if` false, and the job skip itself SILENTLY -
           # the exact failure class this gate exists to prevent. smoke-test.sh and
           # build-deb.sh both avoid the same construct for the same reason.
-          if grep -qE '^(packaging/linux/|\.github/workflows/[^/]+\.ya?ml$|LICENSE$|src/NovaTerminal\.App/Assets/nova_icon\.png$)' <<<"$changed"; then
+          if grep -qE '^(packaging/(linux|arch)/|\.github/workflows/[^/]+\.ya?ml$|LICENSE$|src/NovaTerminal\.App/Assets/nova_icon\.png$)' <<<"$changed"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             echo "Packaging or workflow files changed - running the full job."
           else
@@ -2118,3 +2124,165 @@ jobs:
         run: |
           chmod +x packaging/linux/*.sh
           packaging/linux/smoke-test.sh artifacts/linux
+
+  # ===========================================================================
+  # The Arch / AUR lane. Mirrors linux_packaging_smoke's shape - runner, no
+  # `container:`, because smoke-test.sh starts its own containers as its entire
+  # test premise and a `container:` job has no docker daemon to do that with.
+  #
+  # WHY IT TESTS A PUBLISHED RELEASE RATHER THAN THE DRY-RUN BUILD, unlike every
+  # other job in this lane: the AUR package does not build NovaTerminal, it
+  # repackages a published release tarball. That tarball IS its input. The
+  # linux-packaging dry run produces a 0.0.1-ci .deb and AppImage but no tarball,
+  # and a PKGBUILD generated at 0.0.1-ci would point at release URLs that do not
+  # exist - so pointing this at the dry-run artifact would mean faking the one
+  # thing the package actually consumes. Testing the newest stable release instead
+  # exercises exactly what a user would install.
+  #
+  # The cost, stated plainly: this job depends on an external, moving input, so it
+  # can fail for reasons outside the PR (a yanked release, a GitHub outage). That
+  # is the trade - the alternative is a lane that never touches a real release
+  # until the day it publishes one to the AUR.
+  arch_packaging:
+    name: Arch Packaging (AUR dry run)
+    needs: [linux_packaging_detect]
+    if: needs.linux_packaging_detect.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    # Three Arch containers that each pacman-install their own tooling, plus a
+    # ~28 MB release download. Nothing is compiled.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags, not just the branch: --source-ref resolves the release tag's blobs
+          # via `git show`, and the default shallow checkout fetches no tags at all -
+          # the generator would fail with "does not resolve in ...".
+          fetch-depth: 0
+
+      # In archlinux:base because of ONE tool: vercmp. Without it test-build-arch.sh
+      # SKIPS its prerelease-ordering assertions - and those are precisely the ones
+      # justifying why the Arch version mapping differs from the Debian lane's '~'.
+      # Running these on the bare runner would pass while asserting nothing about the
+      # thing most likely to be got wrong.
+      - name: Generator tests
+        run: |
+          set -euo pipefail
+          chmod +x packaging/arch/*.sh packaging/linux/*.sh
+          docker run --rm -v "$PWD:/w:ro" -w /w archlinux:base bash -euo pipefail -c '
+            pacman -Syu --noconfirm --needed python git >/dev/null
+            command -v vercmp >/dev/null || { echo "vercmp missing - the ordering assertions would silently skip" >&2; exit 1; }
+            packaging/arch/test-build-arch.sh
+          '
+
+      - name: Resolve the newest published stable release
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Prereleases excluded on purpose: the AUR package tracks stable. The
+          # generator maps a prerelease correctly (0.8.0-rc.1 -> 0.8.0rc1, ordered
+          # below 0.8.0 - asserted in test-build-arch.sh), but publishing rcs to the
+          # AUR would churn users, so this lane gates what actually ships.
+          tag="$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName -q '.[0].tagName')"
+          [[ -n "$tag" ]] \
+            || { echo "::error::no published stable release to build an AUR package from" >&2; exit 1; }
+          echo "Testing against $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download the release tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.rel.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --pattern "NovaTerminal-linux-x64-*.tar.gz" --dir artifacts/arch
+          ls -la artifacts/arch
+          test -f "artifacts/arch/NovaTerminal-linux-x64-$TAG.tar.gz" \
+            || { echo "::error::the x64 tarball is not named as expected for $TAG" >&2; exit 1; }
+
+      # Generated INSIDE an Arch container rather than on the runner, for one
+      # reason: makepkg. Off-Arch, build-arch.sh emits the PKGBUILD and skips
+      # .SRCINFO with a note - and .SRCINFO is the file the AUR rejects a push
+      # without, so generating it anywhere the real publish would not is how it
+      # comes to be untested.
+      #
+      # AS AN UNPRIVILEGED USER, because makepkg refuses to run as root and a
+      # container is root by default. The first CI run of this lane failed exactly
+      # there. Same `useradd builder` shape smoke-test.sh uses for its makepkg phase.
+      - name: Generate AUR sources
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # QUOTED heredoc, with the tag reaching the container as DATA via a file read
+          # with `read -r` - never interpolated into script text. The exposure here is
+          # smaller than release.yml's (this tag comes from `gh release list` on this
+          # repository, not from a dispatch input), but the rule is the same one this
+          # repo already states for `run:` blocks: a tag is data, and generating shell
+          # source from it is how it stops being data. Kept identical to release.yml so
+          # neither becomes the exception someone later cites as precedent.
+          printf '%s\n' "$TAG" > /tmp/gen-aur.args
+          cat > /tmp/gen-aur.sh <<'EOF'
+          set -euo pipefail
+          IFS= read -r TAG < /gen.args
+          [[ -n "$TAG" ]] || { echo "no tag passed into the container" >&2; exit 1; }
+          # The checkout carries the runner user's uid, which builder is not; without
+          # this, every git command refuses with "detected dubious ownership" and
+          # --source-ref fails in a way that reads like a missing tag.
+          git config --global --add safe.directory /w
+          packaging/arch/build-arch.sh "$TAG" artifacts/aur --tarball "artifacts/arch/NovaTerminal-linux-x64-$TAG.tar.gz" --source-ref "$TAG"
+          EOF
+          cat /tmp/gen-aur.sh
+          # HOST_UID mapped for the same reason smoke-test.sh maps it: /w is a bind
+          # mount, so what the container writes is owned by that uid on the host. This
+          # lane only reads the result back, so a mismatch would not fail here - which
+          # is exactly why it is worth matching release.yml, where the runner must
+          # write into this directory and a stranger uid locks it out.
+          docker run --rm -v "$PWD:/w" -v /tmp/gen-aur.sh:/gen.sh:ro -v /tmp/gen-aur.args:/gen.args:ro -w /w \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            archlinux:base-devel bash -euo pipefail -c '
+            pacman -Syu --noconfirm --needed git >/dev/null
+            uid="${HOST_UID:-1000}"
+            gid="${HOST_GID:-1000}"
+            if [ "$uid" = "0" ]; then uid=1000; gid=1000; fi
+            groupadd -g "$gid" builder 2>/dev/null || true
+            useradd -m -u "$uid" -g "$gid" builder 2>/dev/null || useradd -m -u "$uid" builder
+            mkdir -p /w/artifacts/aur
+            chown -R "$uid":"$gid" /w/artifacts/aur
+            su builder -c "bash /gen.sh"
+          '
+          # -s, not -f. A failed `makepkg --printsrcinfo > .SRCINFO` leaves a
+          # ZERO-BYTE .SRCINFO behind, because the redirection creates the file
+          # before makepkg ever runs - so `test -f` would pass on metadata that says
+          # nothing. build-arch.sh now removes it on failure; this asserts that
+          # outcome rather than trusting it.
+          test -s artifacts/aur/PKGBUILD || { echo "::error::no PKGBUILD generated" >&2; exit 1; }
+          test -s artifacts/aur/.SRCINFO || { echo "::error::no .SRCINFO generated (makepkg absent, or ran as root)" >&2; exit 1; }
+          grep -q '^pkgbase = novaterminal-bin$' artifacts/aur/.SRCINFO \
+            || { echo "::error::.SRCINFO is not a novaterminal-bin srcinfo" >&2; exit 1; }
+          echo "--- PKGBUILD ---"; cat artifacts/aur/PKGBUILD
+          echo "--- .SRCINFO ---"; cat artifacts/aur/.SRCINFO
+
+      # The real gate: makepkg, then a pristine archlinux:base that installs the
+      # package and nothing else, then an Xvfb launch. See packaging/arch/smoke-test.sh.
+      - name: Smoke test (Arch containers)
+        run: |
+          set -euo pipefail
+          chmod +x packaging/arch/*.sh packaging/linux/*.sh
+          packaging/arch/smoke-test.sh artifacts/aur
+
+      # if: always() so a failure above still leaves the generated sources
+      # downloadable for triage - they are small and are the first thing anyone
+      # investigating this lane wants to read.
+      - name: Upload generated AUR sources
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aur-dryrun
+          retention-days: 5
+          path: |
+            artifacts/aur/PKGBUILD
+            artifacts/aur/.SRCINFO

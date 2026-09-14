@@ -1756,9 +1756,13 @@ jobs:
   release_linux:
     name: Release Linux (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
-    # Two cold smoke containers that each apt-install their own tooling. No
-    # compilation happens here.
-    timeout-minutes: 30
+    # Two cold Debian smoke containers that each apt-install their own tooling, plus
+    # - on the x64 leg only - three Arch containers that pacman-install theirs and
+    # pull ~62 MB of dependencies. Raised from 30 when the Arch gate was added: that
+    # lane measured 1m19s end to end in ci.yml including both image pulls, so the
+    # headroom is ample rather than tight, but 30 left little room for a slow mirror
+    # on top of the Debian gate. No compilation happens here.
+    timeout-minutes: 45
     needs: [release_metadata, publish_linux]
     permissions:
       contents: write
@@ -1818,6 +1822,155 @@ jobs:
           chmod +x packaging/linux/*.sh
           packaging/linux/smoke-test.sh artifacts/release
 
+      # AFTER the gate above, so the PKGBUILD can only ever describe a bundle that
+      # has already installed and launched. x64 only, matching arch=('x86_64') in
+      # the generated PKGBUILD - see packaging/arch/README.md for why arm64 waits.
+      #
+      # WHY THESE ARE RELEASE ASSETS AT ALL: the AUR stopped accepting new accounts
+      # in 2026 after three supply-chain attack waves, with no announced restoration
+      # date, so novaterminal-bin cannot be pushed there yet. Shipping the two files
+      # an AUR repo would contain lets an Arch user run `makepkg -si` against them
+      # today, and they are byte-for-byte what gets pushed when registration reopens.
+      #
+      # THE SOURCE REF IS THE TAG'S OWN COMMIT, resolved by fetching the tag - not
+      # HEAD. An earlier version of this step used HEAD and justified it by claiming
+      # create_release builds the tag from inputs.target_commitish. IT DOES NOT: that
+      # job passes only tag_name, generate_release_notes and prerelease, so for a
+      # workflow_dispatch whose target_commitish differs from the ref the workflow was
+      # dispatched on, the tag can resolve to a different commit than this checkout.
+      #
+      # The failure that causes is total and silent here, loud for users: the PKGBUILD
+      # points its raw.githubusercontent URLs at the TAG while pinning sha256sums
+      # computed from HEAD, so if the desktop entry, man page, icon or licence differ
+      # between those two commits, every single `makepkg` run rejects the package on
+      # an integrity check. Nothing in this lane would notice.
+      #
+      # Hashing whatever the tag actually resolves to makes the published PKGBUILD
+      # self-consistent by construction, under every trigger.
+      - name: Generate AUR sources
+        if: matrix.rid == 'linux-x64'
+        env:
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          chmod +x packaging/arch/*.sh packaging/linux/*.sh
+          # --depth=1: only the tag's own tree is needed, and this checkout is shallow.
+          # create_release runs before publish_linux, which this job needs, so the tag
+          # exists by now - if it does not, something is wrong upstream and saying so
+          # here beats generating a PKGBUILD against the wrong commit.
+          git fetch --depth=1 origin "refs/tags/$RELEASE_TAG" \
+            || { echo "::error::cannot fetch $RELEASE_TAG; the PKGBUILD would pin checksums from an unrelated commit" >&2; exit 1; }
+          tag_commit="$(git rev-parse "FETCH_HEAD^{commit}")"
+          head_commit="$(git rev-parse HEAD)"
+          echo "tag $RELEASE_TAG resolves to $tag_commit; this checkout is $head_commit"
+          # Not fatal, because the PKGBUILD is now correct either way - but it means
+          # the published BUNDLE was built from one commit while the tag names
+          # another, which is a release-lane inconsistency worth seeing rather than
+          # absorbing silently. The fix, if this ever fires, is to pass
+          # target_commitish in create_release so the tag lands on the built commit.
+          if [[ "$tag_commit" != "$head_commit" ]]; then
+            echo "::warning::$RELEASE_TAG points at $tag_commit but this job built $head_commit - the AUR sources follow the tag, the bundle does not"
+          fi
+          # QUOTED heredoc, and the tag reaches the container as DATA, never as script
+          # text. The previous version interpolated $RELEASE_TAG into the generated
+          # script with an unquoted heredoc, which is the injection hole this file
+          # already warns about for `run:` blocks (see release_metadata's env block,
+          # githubactions:S7630) - git accepts ref names like `v1$(command)`, a
+          # workflow_dispatch chooses tag_name freely, and the substituted text would
+          # have been parsed by `bash /gen.sh` inside a container that has the release
+          # artifacts bind-mounted. build-arch.sh does validate the tag shape, but only
+          # after it has already run, which is too late to be the defence.
+          #
+          # Passed through a file read with `read -r`, not through the environment:
+          # `su` does not reliably carry unrelated variables across, and `su -p` would
+          # keep root's HOME, which makepkg needs writable. `read` treats the bytes as
+          # data under every shell.
+          printf '%s\n%s\n' "$RELEASE_TAG" "$tag_commit" > /tmp/gen-aur.args
+          cat > /tmp/gen-aur.sh <<'EOF'
+          set -euo pipefail
+          IFS= read -r RELEASE_TAG < /gen.args
+          TAG_COMMIT="$(sed -n '2p' /gen.args)"
+          [[ -n "$RELEASE_TAG" ]] || { echo "no tag passed into the container" >&2; exit 1; }
+          [[ "$TAG_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "no commit sha passed into the container" >&2; exit 1; }
+          git config --global --add safe.directory /w
+          packaging/arch/build-arch.sh "$RELEASE_TAG" artifacts/aur --tarball "artifacts/release/NovaTerminal-linux-x64-$RELEASE_TAG.tar.gz" --source-ref "$TAG_COMMIT"
+          EOF
+          cat /tmp/gen-aur.sh
+          # Unprivileged: makepkg refuses to run as root, and .SRCINFO is the file
+          # the AUR rejects a push without.
+          # HOST_UID for the same reason smoke-test.sh maps it: /w is a bind mount, so
+          # the uid the container writes is the uid on the host. A container-local
+          # builder would leave artifacts/aur owned by a stranger, and the runner
+          # could then read it but not WRITE into it - which the smoke gate below
+          # must, to seed the tarball beside the PKGBUILD.
+          docker run --rm -v "$PWD:/w" -v /tmp/gen-aur.sh:/gen.sh:ro -v /tmp/gen-aur.args:/gen.args:ro -w /w \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            archlinux:base-devel bash -euo pipefail -c '
+            pacman -Syu --noconfirm --needed git >/dev/null
+            uid="${HOST_UID:-1000}"
+            gid="${HOST_GID:-1000}"
+            if [ "$uid" = "0" ]; then uid=1000; gid=1000; fi
+            groupadd -g "$gid" builder 2>/dev/null || true
+            useradd -m -u "$uid" -g "$gid" builder 2>/dev/null || useradd -m -u "$uid" builder
+            mkdir -p /w/artifacts/aur
+            chown -R "$uid":"$gid" /w/artifacts/aur
+            su builder -c "bash /gen.sh"
+          '
+          # -s, not -f: a failed `makepkg --printsrcinfo > .SRCINFO` leaves a
+          # zero-byte file behind, which `test -f` would accept.
+          test -s artifacts/aur/PKGBUILD || { echo "::error::no PKGBUILD generated" >&2; exit 1; }
+          test -s artifacts/aur/.SRCINFO || { echo "::error::no .SRCINFO generated" >&2; exit 1; }
+          # The sha256 in the PKGBUILD must be the sha256 of the tarball THIS job is
+          # about to upload. build-arch.sh computed it from that exact file, so this
+          # cannot drift - which is precisely why it is worth asserting rather than
+          # assuming: a future refactor that passed --sha256 from somewhere else, or
+          # pointed --tarball at a different path, would publish a PKGBUILD whose
+          # integrity check fails for every user and for nobody here.
+          tarball_sha="$(sha256sum "artifacts/release/NovaTerminal-linux-x64-$RELEASE_TAG.tar.gz" | awk '{print $1}')"
+          grep -q "sha256sums_x86_64=('$tarball_sha')" artifacts/aur/PKGBUILD \
+            || { echo "::error::the generated PKGBUILD does not pin the tarball being published ($tarball_sha)" >&2; exit 1; }
+          grep -q "^pkgbase = novaterminal-bin$" artifacts/aur/.SRCINFO \
+            || { echo "::error::.SRCINFO is not a novaterminal-bin srcinfo" >&2; exit 1; }
+          # Named for the tag, because a release page holds one flat namespace and
+          # "PKGBUILD" alone says nothing about which version it builds.
+          cp artifacts/aur/PKGBUILD "artifacts/release/PKGBUILD-$RELEASE_TAG"
+          cp artifacts/aur/.SRCINFO "artifacts/release/SRCINFO-$RELEASE_TAG"
+          echo "--- PKGBUILD ---"; cat artifacts/aur/PKGBUILD
+
+      # THE ARCH GATE, and it belongs here rather than only in ci.yml for two reasons
+      # that together leave a real hole otherwise (Codex P2 on #455):
+      #
+      #   1. ci.yml's Arch lane is PATH-FILTERED. A release that changes the app or
+      #      the native payload without touching packaging/** never runs it at all.
+      #   2. Even when it does run, it tests the newest PREVIOUSLY PUBLISHED stable
+      #      tarball - not this one.
+      #
+      # So a newly introduced Arch-incompatible linked or dlopen'd dependency would
+      # ship with nothing having installed or launched the package built from the
+      # tarball being published. The .deb smoke gate above cannot see it either: its
+      # dependency derivation is Debian's.
+      #
+      # HOW IT CAN RUN AT ALL before the upload: the PKGBUILD points at a release URL
+      # that 404s until the step below. smoke-test.sh seeds any tarball sitting beside
+      # the PKGBUILD into the build directory, and makepkg skips downloading a source
+      # already present while still validating its sha256 - verified against a real
+      # makepkg with the release host replaced by an unreachable one ("-> Found
+      # NovaTerminal-linux-x64-v0.8.0.tar.gz", checksum passed). The other four
+      # sources come from raw.githubusercontent at the tag, which exists by now.
+      #
+      # This widens what can fail before any Linux asset publishes, deliberately:
+      # that is what a gate is. It is the same bargain the .deb smoke test above
+      # already makes.
+      - name: Smoke test the AUR package (Arch containers)
+        if: matrix.rid == 'linux-x64'
+        env:
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          chmod +x packaging/arch/*.sh packaging/linux/*.sh
+          cp "artifacts/release/NovaTerminal-linux-x64-$RELEASE_TAG.tar.gz" artifacts/aur/
+          packaging/arch/smoke-test.sh artifacts/aur
+
       # Only now. The .deb is globbed rather than named because build-deb.sh maps a
       # SemVer prerelease suffix into a Debian-legal `~` (0.5.0-beta.1 ->
       # 0.5.0~beta.1), so its exact filename is not derivable from release_version
@@ -1829,6 +1982,11 @@ jobs:
       # it would break exactly the case it looks like it would protect. The delta
       # assertion lives in publish_linux, where "was a delta expected?" is known from
       # GitHub instead of guessed from a missing file. Same as the win and osx lanes.
+      #
+      # The same permissiveness is what lets PKGBUILD-/SRCINFO- sit in this one list
+      # for both matrix legs: the generate step above is x64-only, so on the arm64
+      # leg those two patterns match nothing and are skipped. A second, conditional
+      # upload step would publish the same assets twice as often as it needs to.
       - name: Upload Linux release assets and update feed
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
@@ -1840,6 +1998,8 @@ jobs:
             artifacts/release/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-${{ matrix.rid }}-full.nupkg
             artifacts/release/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-${{ matrix.rid }}-delta.nupkg
             artifacts/release/releases.${{ matrix.rid }}.json
+            artifacts/release/PKGBUILD-${{ needs.release_metadata.outputs.release_tag }}
+            artifacts/release/SRCINFO-${{ needs.release_metadata.outputs.release_tag }}
 
   # Opens a submission PR to microsoft/winget-pkgs for the just-published Windows
   # zip (portable package; see packaging/winget/). Optional and self-skipping:
