@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using NovaTerminal.Shell;
 using NovaTerminal.Shell.TitleBar;
 using Xunit;
@@ -376,25 +377,107 @@ public sealed class MainWindowTitleBarTests : IDisposable
     /// <summary>
     /// Adds plain TabItems with wide TextBlock headers directly to the "Tabs" TabControl's Items,
     /// bypassing AddTab (which spawns a real PTY session per tab - far too heavy for forcing a
-    /// header-overflow condition). UpdateTabOverflowIndicator only reads TabItem.Bounds.Width and
-    /// the header ScrollViewer's Bounds.Width, so a real, headless-measured header is all this needs.
-    /// RunJobs() drains the pending layout pass the new items invalidate, since Show() only lays out
-    /// what existed at that point.
+    /// header-overflow condition), and ESTABLISHES the clipped state rather than assuming a fixed
+    /// count produces it.
+    ///
+    /// The previous version added exactly 8 tabs, pumped the dispatcher once, and left the callers
+    /// to assert "the badge is visible" as a precondition. That precondition failed intermittently
+    /// on windows-latest - four times in one day, twice blocking an unrelated PR - with
+    /// "Expected the extra wide tabs to overflow the header viewport for this test to mean
+    /// anything", i.e. the setup never reached the behaviour under test.
+    ///
+    /// It has two ways to fail, and the old helper controlled neither:
+    ///
+    ///   * The header ScrollViewer is not measured yet. UpdateTabOverflowIndicator treats
+    ///     Bounds.Width &lt;= 0 as "no viewport" and hides the badge without counting anything.
+    ///   * The tabs are not measured yet. CountHiddenTabs substitutes fallbackTabWidth (120) for
+    ///     any tab whose Bounds.Width is 0, so eight unmeasured tabs total 960px - which FITS in a
+    ///     typical viewport and yields hiddenCount 0 - where eight measured 60-character headers
+    ///     are several thousand pixels and overflow it comfortably.
+    ///
+    /// Both are layout-timing dependent, which is why this reproduced on one platform and not
+    /// another rather than failing everywhere. Removing the single RunJobs() call does NOT
+    /// reproduce it on Linux, so the exact trigger on Windows is not pinned - hence a helper that
+    /// drives the condition to true and verifies it, instead of one that assumes a cause.
+    ///
+    /// Everything here mirrors what UpdateTabOverflowIndicator actually reads: the ScrollViewer
+    /// named PART_TabHeaderScrollViewer (FindTabHeaderScrollViewer) and TabItem.Bounds.Width
+    /// (CountHiddenTabs).
     /// </summary>
     private static void AddWidePlainTabs(NovaTerminal.MainWindow window, int count)
     {
         var tabs = window.FindControl<TabControl>("Tabs");
         Assert.NotNull(tabs);
 
-        for (int i = 0; i < count; i++)
+        void AddBatch(int n)
         {
-            tabs!.Items.Add(new TabItem
+            int baseIndex = tabs!.Items.Count;
+            for (int i = 0; i < n; i++)
             {
-                Header = new TextBlock { Text = new string('W', 60) + i }
-            });
+                tabs.Items.Add(new TabItem
+                {
+                    Header = new TextBlock { Text = new string('W', 60) + (baseIndex + i) }
+                });
+            }
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
         }
 
-        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        ScrollViewer? HeaderViewer() => tabs!.GetVisualDescendants()
+            .OfType<ScrollViewer>()
+            .FirstOrDefault(s => s.Name == "PART_TabHeaderScrollViewer");
+
+        // Sums exactly what CountHiddenTabs sums, fallback included, so this measures the
+        // quantity the production code will compare rather than a proxy for it.
+        double TotalTabWidth() => tabs!.Items.Cast<TabItem>()
+            .Sum(t => t.Bounds.Width > 0 ? t.Bounds.Width : 120);
+
+        AddBatch(count);
+
+        // Pump until the viewport has a width. Bounded, because an unbounded wait on a condition
+        // that never becomes true is a hang, and a hang in CI reads as an infrastructure problem
+        // rather than as this.
+        var viewer = HeaderViewer();
+        for (int i = 0; i < 20 && (viewer is null || viewer.Bounds.Width <= 0); i++)
+        {
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            viewer = HeaderViewer();
+        }
+
+        Assert.True(
+            viewer is not null && viewer.Bounds.Width > 0,
+            $"The tab header ScrollViewer never measured (width {viewer?.Bounds.Width.ToString() ?? "<not found>"}). " +
+            "UpdateTabOverflowIndicator treats that as 'no viewport' and hides the badge without counting, " +
+            "so no overflow assertion below could mean anything.");
+
+        // Then add tabs until the header exceeds the viewport BY AT LEAST ONE TAB, rather than
+        // trusting the caller's count was enough on this machine's metrics.
+        //
+        // The margin is the point. Measured here, the original fixed count of 8 produced a total
+        // of 989px against a 986px viewport - a THREE PIXEL margin, 0.3%. That is what actually
+        // flaked: not a layout race, just a count that was borderline, tipping negative on
+        // whatever windows-latest measures slightly differently. Headers measure ~100px each, not
+        // the ~600px a 60-character string suggests, because the TabControl constrains them - so
+        // "8 very wide tabs" was never as generous as it read.
+        //
+        // Requiring one whole tab of headroom guarantees CountHiddenTabs sees at least one tab it
+        // cannot fit, which is the condition these tests actually need.
+        double WidestTab() => tabs!.Items.Cast<TabItem>()
+            .Select(t => t.Bounds.Width > 0 ? t.Bounds.Width : 120)
+            .DefaultIfEmpty(120)
+            .Max();
+
+        for (int round = 0; round < 5 && TotalTabWidth() <= viewer!.Bounds.Width + WidestTab(); round++)
+        {
+            AddBatch(count);
+        }
+
+        Assert.True(
+            TotalTabWidth() > viewer!.Bounds.Width + WidestTab(),
+            $"Tab headers still fit the viewport after {tabs!.Items.Count} tabs: " +
+            $"total {TotalTabWidth():F0}px against viewport {viewer.Bounds.Width:F0}px " +
+            $"(widest tab {WidestTab():F0}px). " +
+            "Note CountHiddenTabs substitutes 120px for any unmeasured tab, so a total that is a " +
+            "round multiple of 120 means the headers never measured rather than that they are narrow.");
     }
 
     [AvaloniaFact]
