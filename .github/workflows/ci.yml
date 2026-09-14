@@ -86,7 +86,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["windows-latest","ubuntu-latest","macos-latest"]' || '["windows-latest","ubuntu-latest"]') }}
+        # MUST STAY IDENTICAL to build_and_unit_tests' matrix below, which explains why
+        # each platform is in which trigger. It is not stylistic: that job downloads
+        # `dotnet-build-${{ matrix.os }}` from this one, so a platform present there and
+        # absent here fails at artifact download rather than anywhere informative.
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["windows-latest","ubuntu-latest","macos-latest","ubuntu-24.04-arm"]' || github.event_name == 'schedule' && '["windows-latest","ubuntu-latest","ubuntu-24.04-arm"]' || '["windows-latest","ubuntu-latest"]') }}
 
     steps:
       - uses: actions/checkout@v4
@@ -143,13 +147,17 @@ jobs:
           workspaces: src/NovaTerminal.App/native
 
       - name: Build Rust (Windows)
-        if: matrix.os == 'windows-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
+        if: runner.os == 'Windows' && steps.native-bin-cache.outputs.cache-hit != 'true'
         run: cd src/NovaTerminal.App/native && cargo build --release --locked
 
       # Linux build also stages the .so into target_linux/release so the
       # cached payload is complete and no separate stage step is needed.
       - name: Build Rust (Linux)
-        if: matrix.os == 'ubuntu-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
+        # runner.os, not `matrix.os == 'ubuntu-latest'`. Selecting on an exact runner
+        # LABEL means every new Linux label is silently not-Linux: ubuntu-24.04-arm
+        # matched no Build Rust step at all, so the job sailed past with no native
+        # library and would have failed later, somewhere unrelated.
+        if: runner.os == 'Linux' && steps.native-bin-cache.outputs.cache-hit != 'true'
         run: |
           cd src/NovaTerminal.App/native
           cargo build --release --locked
@@ -157,7 +165,7 @@ jobs:
           cp target/release/librusty_pty.so target_linux/release/
 
       - name: Build Rust (macOS)
-        if: matrix.os == 'macos-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
+        if: runner.os == 'macOS' && steps.native-bin-cache.outputs.cache-hit != 'true'
         run: cd src/NovaTerminal.App/native && cargo build --release --locked
 
       # ── .NET ───────────────────────────────────────────────────────────────────
@@ -165,8 +173,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          # runner.arch, not just runner.os. `runner.os` is "Linux" for BOTH
+          # ubuntu-latest (x64) and ubuntu-24.04-arm, so without the arch an arm64
+          # runner restores the x64 SDK the x64 runner saved and dies on the first
+          # exec with `/home/runner/.dotnet/dotnet: 1: ELF: not found` - a message
+          # that names neither the cache nor the architecture. Found the moment the
+          # arm64 leg first ran.
+          key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -219,7 +233,23 @@ jobs:
         # macOS-only defect could surface exactly once, at release time, where it blocks the
         # release. That is how #325's port-forward backpressure test went three months
         # unverified on macOS and then failed the first release that ran it.
-        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["windows-latest","ubuntu-latest","macos-latest"]' || '["windows-latest","ubuntu-latest"]') }}
+        #
+        # ubuntu-24.04-arm is here for EXACTLY that reason, having cost exactly that way
+        # a second time. Linux arm64 had no test coverage outside release.yml's
+        # release_tests, so KittyFrameRetirementTests' millisecond-boundary race (#458)
+        # sat on main for five days, unreachable by any pull request, and surfaced only
+        # because a scratch release was dispatched to test something unrelated. Same
+        # shape as #325, same cost: a platform-only defect that can only be discovered
+        # at the moment it blocks a release.
+        #
+        # ON SCHEDULE AS WELL AS DISPATCH, and that is the difference from macOS above.
+        # Dispatch-only makes a platform *reachable*; it does not make it *checked*,
+        # because it still waits for someone to think of running it - which for arm64
+        # nobody did. The nightly cron already exists, so the same defect would now be
+        # caught within a day instead of at the next release. Still not on pull requests:
+        # a PR-blocking leg on every push is a different cost decision, and this one is
+        # already the cheap 95% of the value.
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["windows-latest","ubuntu-latest","macos-latest","ubuntu-24.04-arm"]' || github.event_name == 'schedule' && '["windows-latest","ubuntu-latest","ubuntu-24.04-arm"]' || '["windows-latest","ubuntu-latest"]') }}
 
     steps:
       - uses: actions/checkout@v4
@@ -228,8 +258,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          # runner.arch, not just runner.os. `runner.os` is "Linux" for BOTH
+          # ubuntu-latest (x64) and ubuntu-24.04-arm, so without the arch an arm64
+          # runner restores the x64 SDK the x64 runner saved and dies on the first
+          # exec with `/home/runner/.dotnet/dotnet: 1: ELF: not found` - a message
+          # that names neither the cache nor the architecture. Found the moment the
+          # arm64 leg first ran.
+          key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -486,8 +522,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          # runner.arch, not just runner.os. `runner.os` is "Linux" for BOTH
+          # ubuntu-latest (x64) and ubuntu-24.04-arm, so without the arch an arm64
+          # runner restores the x64 SDK the x64 runner saved and dies on the first
+          # exec with `/home/runner/.dotnet/dotnet: 1: ELF: not found` - a message
+          # that names neither the cache nor the architecture. Found the moment the
+          # arm64 leg first ran.
+          key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -607,8 +649,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          # runner.arch, not just runner.os. `runner.os` is "Linux" for BOTH
+          # ubuntu-latest (x64) and ubuntu-24.04-arm, so without the arch an arm64
+          # runner restores the x64 SDK the x64 runner saved and dies on the first
+          # exec with `/home/runner/.dotnet/dotnet: 1: ELF: not found` - a message
+          # that names neither the cache nor the architecture. Found the moment the
+          # arm64 leg first ran.
+          key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -714,8 +762,14 @@ jobs:
         continue-on-error: true
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          # runner.arch, not just runner.os. `runner.os` is "Linux" for BOTH
+          # ubuntu-latest (x64) and ubuntu-24.04-arm, so without the arch an arm64
+          # runner restores the x64 SDK the x64 runner saved and dies on the first
+          # exec with `/home/runner/.dotnet/dotnet: 1: ELF: not found` - a message
+          # that names neither the cache nor the architecture. Found the moment the
+          # arm64 leg first ran.
+          key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -780,8 +834,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          # runner.arch, not just runner.os. `runner.os` is "Linux" for BOTH
+          # ubuntu-latest (x64) and ubuntu-24.04-arm, so without the arch an arm64
+          # runner restores the x64 SDK the x64 runner saved and dies on the first
+          # exec with `/home/runner/.dotnet/dotnet: 1: ELF: not found` - a message
+          # that names neither the cache nor the architecture. Found the moment the
+          # arm64 leg first ran.
+          key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -853,8 +913,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          # runner.arch, not just runner.os. `runner.os` is "Linux" for BOTH
+          # ubuntu-latest (x64) and ubuntu-24.04-arm, so without the arch an arm64
+          # runner restores the x64 SDK the x64 runner saved and dies on the first
+          # exec with `/home/runner/.dotnet/dotnet: 1: ELF: not found` - a message
+          # that names neither the cache nor the architecture. Found the moment the
+          # arm64 leg first ran.
+          key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -945,8 +1011,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          # runner.arch, not just runner.os. `runner.os` is "Linux" for BOTH
+          # ubuntu-latest (x64) and ubuntu-24.04-arm, so without the arch an arm64
+          # runner restores the x64 SDK the x64 runner saved and dies on the first
+          # exec with `/home/runner/.dotnet/dotnet: 1: ELF: not found` - a message
+          # that names neither the cache nor the architecture. Found the moment the
+          # arm64 leg first ran.
+          key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -1004,8 +1076,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          # runner.arch, not just runner.os. `runner.os` is "Linux" for BOTH
+          # ubuntu-latest (x64) and ubuntu-24.04-arm, so without the arch an arm64
+          # runner restores the x64 SDK the x64 runner saved and dies on the first
+          # exec with `/home/runner/.dotnet/dotnet: 1: ELF: not found` - a message
+          # that names neither the cache nor the architecture. Found the moment the
+          # arm64 leg first ran.
+          key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -1062,8 +1140,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          # runner.arch, not just runner.os. `runner.os` is "Linux" for BOTH
+          # ubuntu-latest (x64) and ubuntu-24.04-arm, so without the arch an arm64
+          # runner restores the x64 SDK the x64 runner saved and dies on the first
+          # exec with `/home/runner/.dotnet/dotnet: 1: ELF: not found` - a message
+          # that names neither the cache nor the architecture. Found the moment the
+          # arm64 leg first ran.
+          key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -1139,8 +1223,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          # runner.arch, not just runner.os. `runner.os` is "Linux" for BOTH
+          # ubuntu-latest (x64) and ubuntu-24.04-arm, so without the arch an arm64
+          # runner restores the x64 SDK the x64 runner saved and dies on the first
+          # exec with `/home/runner/.dotnet/dotnet: 1: ELF: not found` - a message
+          # that names neither the cache nor the architecture. Found the moment the
+          # arm64 leg first ran.
+          key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -1424,8 +1514,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
-          restore-keys: dotnet-sdk-${{ runner.os }}-
+          # runner.arch, not just runner.os. `runner.os` is "Linux" for BOTH
+          # ubuntu-latest (x64) and ubuntu-24.04-arm, so without the arch an arm64
+          # runner restores the x64 SDK the x64 runner saved and dies on the first
+          # exec with `/home/runner/.dotnet/dotnet: 1: ELF: not found` - a message
+          # that names neither the cache nor the architecture. Found the moment the
+          # arm64 leg first ran.
+          key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
