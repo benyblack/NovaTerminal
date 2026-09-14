@@ -2217,12 +2217,18 @@ jobs:
           TAG: ${{ steps.rel.outputs.tag }}
         run: |
           set -euo pipefail
-          # The invocation is written on the RUNNER and executed in the container, so
-          # $TAG is substituted exactly once, here. Building it inline would need
-          # nested quoting inside the container body - the trap test-build-arch.sh
-          # gates smoke-test.sh against, and not one worth re-opening in YAML.
-          cat > /tmp/gen-aur.sh <<EOF
+          # QUOTED heredoc, with the tag reaching the container as DATA via a file read
+          # with `read -r` - never interpolated into script text. The exposure here is
+          # smaller than release.yml's (this tag comes from `gh release list` on this
+          # repository, not from a dispatch input), but the rule is the same one this
+          # repo already states for `run:` blocks: a tag is data, and generating shell
+          # source from it is how it stops being data. Kept identical to release.yml so
+          # neither becomes the exception someone later cites as precedent.
+          printf '%s\n' "$TAG" > /tmp/gen-aur.args
+          cat > /tmp/gen-aur.sh <<'EOF'
           set -euo pipefail
+          IFS= read -r TAG < /gen.args
+          [[ -n "$TAG" ]] || { echo "no tag passed into the container" >&2; exit 1; }
           # The checkout carries the runner user's uid, which builder is not; without
           # this, every git command refuses with "detected dubious ownership" and
           # --source-ref fails in a way that reads like a missing tag.
@@ -2230,7 +2236,7 @@ jobs:
           packaging/arch/build-arch.sh "$TAG" artifacts/aur --tarball "artifacts/arch/NovaTerminal-linux-x64-$TAG.tar.gz" --source-ref "$TAG"
           EOF
           cat /tmp/gen-aur.sh
-          docker run --rm -v "$PWD:/w" -v /tmp/gen-aur.sh:/gen.sh:ro -w /w archlinux:base-devel bash -euo pipefail -c '
+          docker run --rm -v "$PWD:/w" -v /tmp/gen-aur.sh:/gen.sh:ro -v /tmp/gen-aur.args:/gen.args:ro -w /w archlinux:base-devel bash -euo pipefail -c '
             pacman -Syu --noconfirm --needed git >/dev/null
             useradd -m builder
             mkdir -p /w/artifacts/aur

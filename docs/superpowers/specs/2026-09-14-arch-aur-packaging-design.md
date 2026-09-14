@@ -361,6 +361,32 @@ and both of these defects live in the gap between that and how the thing actuall
 runs. The smoke test now maps the caller's uid into the build container, and its
 cleanup trap can no longer determine the exit status or bury the real failure.
 
+### Generating shell source from a tag, in a file that warns against it
+
+The release step built its container invocation with an **unquoted** heredoc,
+interpolating `$RELEASE_TAG` into the script text that `bash /gen.sh` then parses.
+Git accepts ref names like `v1$(command)`, `workflow_dispatch` chooses `tag_name`
+freely, and the container has the release artifacts bind-mounted — so a crafted tag
+would have executed commands in the job that uploads them. Codex rated it P1.
+
+Two things make this worse than an ordinary slip. `release.yml` **already states the
+rule**, in `release_metadata`: interpolating a tag into a `run:` block is a
+script-injection hole, "through env the value is only ever data", flagged as
+`githubactions:S7630`. And `build-arch.sh` *does* validate the tag's shape — but only
+once it is running, which is after the generated script has already been parsed, so
+the validation could never have been the defence.
+
+The comment above the heredoc said it existed so the tag was "substituted exactly
+once and the container body needs no nested quoting". That was a real concern, and
+answering it crowded out the question of whether substituting at all was safe. A
+justification that addresses one property can read as though it addressed the others.
+
+The fix passes the tag as data through a file read with `read -r`, not through the
+environment: `su` does not reliably carry unrelated variables, and `su -p` would keep
+root's `HOME`, which makepkg needs writable. `ci.yml` had the same shape with a
+smaller exposure (its tag comes from `gh release list`, not a dispatch input) and was
+changed identically, so neither becomes the exception cited as precedent later.
+
 ### A comment asserting something about another job, without checking it
 
 The release step originally hashed the auxiliary files from `HEAD`, justified by a
