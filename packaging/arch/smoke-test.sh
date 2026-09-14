@@ -48,7 +48,12 @@ done <<<"$dlopen_sonames"
 echo "dlopen gate will assert $dlopen_count soname(s); depends gate will assert $depends_count package(s)"
 
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# Cleanup must never decide the exit status or shout over the real result. A
+# container that leaves root-owned or stranger-owned files behind is a bug worth
+# fixing at its source (see the uid mapping in container 0), not one worth turning
+# every run red for - and when it did happen, the trap's "Operation not permitted"
+# was the only thing printed, burying the actual failure.
+trap 'rm -rf "$work" 2>/dev/null || echo "note: could not remove $work (leftover container-owned files)" >&2' EXIT
 cp "$aur_dir/PKGBUILD" "$work/"
 [[ -f "$aur_dir/.SRCINFO" ]] && cp "$aur_dir/.SRCINFO" "$work/"
 
@@ -60,15 +65,40 @@ echo "=== Container 0: makepkg ($build_image) ==="
 # depends are not needed HERE. Whether they are installable and sufficient is
 # exactly what container 1 tests, in a pristine image, which is a stronger check
 # than makepkg's own dep resolution would have been.
-docker run --rm -v "$work:/work" "$build_image" bash -euo pipefail -c '
+#
+# THE BUILD USER TAKES THE CALLER UID, and that is not a detail. /work is a bind
+# mount, so every uid the container writes is the uid on the host. A container-local
+# builder (uid 1000) would leave this directory owned by a stranger - and `mktemp -d`
+# is mode 700, so the caller loses ALL access to its own temp dir: the `ls` below
+# fails, `set -e` kills the script with no message, and the cleanup trap fails too
+# with "Operation not permitted".
+#
+# That is exactly how the first CI run of this lane failed, having passed locally -
+# because locally it was run under sudo, where root reads and removes regardless of
+# ownership. A uid-mapping bug is invisible to every root-run test.
+docker run --rm -v "$work:/work" \
+  -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+  "$build_image" bash -euo pipefail -c '
   pacman -Syu --noconfirm --needed imagemagick >/dev/null
-  useradd -m builder
-  chown -R builder:builder /work
+  uid="${HOST_UID:-1000}"
+  gid="${HOST_GID:-1000}"
+  # Running as root on the host is the one case that cannot be mirrored - uid 0
+  # already exists and makepkg would refuse anyway. Any uid works there, because
+  # root can read and clean up whatever the container leaves behind.
+  if [ "$uid" = "0" ]; then uid=1000; gid=1000; fi
+  groupadd -g "$gid" builder 2>/dev/null || true
+  useradd -m -u "$uid" -g "$gid" builder 2>/dev/null || useradd -m -u "$uid" builder
+  chown -R "$uid":"$gid" /work
   su builder -c "cd /work && makepkg -f --nodeps --noconfirm"
   ls -l /work/*.pkg.tar.zst
 '
-pkg="$(ls "$work"/*.pkg.tar.zst 2>/dev/null | head -1)"
-[[ -n "$pkg" ]] || { echo "makepkg produced no package" >&2; exit 1; }
+# `|| true` on the pipeline: without it a failed/unreadable `ls` takes the whole
+# script down through `set -e` BEFORE the diagnostic below can print, which is how
+# the uid bug above presented - a bare "Operation not permitted" from the exit trap
+# and nothing about what actually went wrong.
+pkg="$(ls "$work"/*.pkg.tar.zst 2>/dev/null | head -1 || true)"
+[[ -n "$pkg" ]] \
+  || { echo "makepkg produced no package in $work, or it is not readable by $(id -un) (uid $(id -u)) - check the uid mapping above" >&2; exit 1; }
 echo "  ok: built $(basename "$pkg")"
 
 echo

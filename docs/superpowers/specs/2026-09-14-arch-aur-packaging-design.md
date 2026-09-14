@@ -284,6 +284,28 @@ string early; an *even* number of stray quotes leaves the outer file balanced, s
 the `NoExtract` fix. `test-build-arch.sh` now extracts each body, parses it
 standalone, and rejects any single quote — applied to the CI job's inline scripts too.
 
+### Running a test as root can only prove it passes as root
+
+Two of the three CI failures were privilege artefacts invisible to every local run,
+because those were run under `sudo`:
+
+- `makepkg` **refuses to run as root**, so the generator tests died in a root
+  container at the last step — reporting "generation failed" for a PKGBUILD that had
+  been written correctly. A related trap surfaced with it: `makepkg --printsrcinfo >
+  .SRCINFO` creates the file *before* makepkg runs, so a failure left a zero-byte
+  `.SRCINFO` that every `test -f` would accept and the AUR would take.
+- The makepkg container built as a container-local uid into a **bind-mounted**
+  `mktemp -d` (mode 700), leaving the caller locked out of its own temp directory.
+  Under `sudo` this is unobservable: root reads and removes regardless of ownership.
+  The symptom was also badly misleading — `set -e` killed the script at an `ls` with
+  no message, and the only output was the exit trap's `Operation not permitted`.
+
+The general lesson is narrower than "test in CI": a privilege level is part of the
+environment under test. Verification performed as root certifies behaviour as root,
+and both of these defects live in the gap between that and how the thing actually
+runs. The smoke test now maps the caller's uid into the build container, and its
+cleanup trap can no longer determine the exit status or bury the real failure.
+
 ### Where a caveat should have been a mechanism
 
 The working-tree-versus-tag hashing problem was written down as a documented

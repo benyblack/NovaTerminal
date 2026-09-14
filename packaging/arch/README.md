@@ -142,6 +142,16 @@ re-pack it would inherit `build-deb.sh`'s Debian-specific `Depends:` derivation
   `E: Dependency hicolor-icon-theme detected and not included` and still reported
   every phase ok — a real defect surviving a passing smoke test.
 
+- **The makepkg container must build as the *caller's* uid.** `/work` is a bind
+  mount, so every uid the container writes is the uid on the host, and `mktemp -d`
+  is mode 700 — a container-local `builder` (uid 1000) leaves the caller locked out
+  of its own temp directory. The symptom is misleading: the `ls` that follows fails,
+  `set -e` kills the script silently, and the only output is
+  `rm: cannot remove '/tmp/tmp.XXXX': Operation not permitted` from the exit trap.
+  **Running the smoke test under `sudo` hides this entirely**, because root reads and
+  removes regardless of ownership — so a green local run under `sudo` is not evidence
+  the uid mapping is right. It failed on the first CI run for exactly this reason.
+
 - **`ldd` warns about the bundled `.so` files.** "you do not have execution
   permission" is expected: `package()` normalises the bundle to 0644 because the
   loader only mmaps a shared library. Do not make them executable to silence it.
