@@ -2208,25 +2208,44 @@ jobs:
       # .SRCINFO with a note - and .SRCINFO is the file the AUR rejects a push
       # without, so generating it anywhere the real publish would not is how it
       # comes to be untested.
+      #
+      # AS AN UNPRIVILEGED USER, because makepkg refuses to run as root and a
+      # container is root by default. The first CI run of this lane failed exactly
+      # there. Same `useradd builder` shape smoke-test.sh uses for its makepkg phase.
       - name: Generate AUR sources
         env:
           TAG: ${{ steps.rel.outputs.tag }}
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD:/w" -w /w -e TAG archlinux:base-devel bash -euo pipefail -c '
+          # The invocation is written on the RUNNER and executed in the container, so
+          # $TAG is substituted exactly once, here. Building it inline would need
+          # nested quoting inside the container body - the trap test-build-arch.sh
+          # gates smoke-test.sh against, and not one worth re-opening in YAML.
+          cat > /tmp/gen-aur.sh <<EOF
+          set -euo pipefail
+          # The checkout carries the runner user's uid, which builder is not; without
+          # this, every git command refuses with "detected dubious ownership" and
+          # --source-ref fails in a way that reads like a missing tag.
+          git config --global --add safe.directory /w
+          packaging/arch/build-arch.sh "$TAG" artifacts/aur --tarball "artifacts/arch/NovaTerminal-linux-x64-$TAG.tar.gz" --source-ref "$TAG"
+          EOF
+          cat /tmp/gen-aur.sh
+          docker run --rm -v "$PWD:/w" -v /tmp/gen-aur.sh:/gen.sh:ro -w /w archlinux:base-devel bash -euo pipefail -c '
             pacman -Syu --noconfirm --needed git >/dev/null
-            # The checkout is owned by the runner user, not root; without this git
-            # refuses every command with "detected dubious ownership" and
-            # --source-ref fails in a way that reads like a missing tag.
-            git config --global --add safe.directory /w
-            packaging/arch/build-arch.sh "$TAG" artifacts/aur \
-              --tarball "artifacts/arch/NovaTerminal-linux-x64-$TAG.tar.gz" \
-              --source-ref "$TAG"
+            useradd -m builder
+            mkdir -p /w/artifacts/aur
+            chown -R builder /w/artifacts/aur
+            su builder -c "bash /gen.sh"
           '
-          test -f artifacts/aur/PKGBUILD || { echo "::error::no PKGBUILD generated" >&2; exit 1; }
-          # Not decoration: this is the only assertion that makepkg --printsrcinfo
-          # actually ran, and an AUR push without .SRCINFO is rejected outright.
-          test -f artifacts/aur/.SRCINFO || { echo "::error::no .SRCINFO generated" >&2; exit 1; }
+          # -s, not -f. A failed `makepkg --printsrcinfo > .SRCINFO` leaves a
+          # ZERO-BYTE .SRCINFO behind, because the redirection creates the file
+          # before makepkg ever runs - so `test -f` would pass on metadata that says
+          # nothing. build-arch.sh now removes it on failure; this asserts that
+          # outcome rather than trusting it.
+          test -s artifacts/aur/PKGBUILD || { echo "::error::no PKGBUILD generated" >&2; exit 1; }
+          test -s artifacts/aur/.SRCINFO || { echo "::error::no .SRCINFO generated (makepkg absent, or ran as root)" >&2; exit 1; }
+          grep -q '^pkgbase = novaterminal-bin$' artifacts/aur/.SRCINFO \
+            || { echo "::error::.SRCINFO is not a novaterminal-bin srcinfo" >&2; exit 1; }
           echo "--- PKGBUILD ---"; cat artifacts/aur/PKGBUILD
           echo "--- .SRCINFO ---"; cat artifacts/aur/.SRCINFO
 

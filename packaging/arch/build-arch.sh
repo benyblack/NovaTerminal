@@ -465,10 +465,30 @@ echo "wrote $out_dir/PKGBUILD (pkgver=$pkgver, tag=$tag)"
 # faked - a hand-written .SRCINFO that disagrees with the PKGBUILD is worse than
 # an absent one, which at least fails at push time instead of installing something
 # other than what the PKGBUILD says.
-if command -v makepkg >/dev/null 2>&1; then
-  ( cd "$out_dir" && makepkg --printsrcinfo > .SRCINFO )
+#
+# A failure to produce it is NOT fatal to this script: the PKGBUILD is already
+# written and correct, and killing the run here would report "generation failed"
+# for a file that generated fine. CI learned this the hard way - the generator
+# tests run in a container as root, makepkg REFUSES to run as root, and both
+# full-generation tests failed on a step that had already done its job.
+srcinfo_note() {
+  echo "note: $1" >&2
+  echo "      .SRCINFO was not generated. Run 'makepkg --printsrcinfo > .SRCINFO' in" >&2
+  echo "      $out_dir on an Arch host, as an unprivileged user, before pushing to the AUR." >&2
+}
+if ! command -v makepkg >/dev/null 2>&1; then
+  srcinfo_note "makepkg not found"
+elif [[ "$(id -u)" -eq 0 ]]; then
+  # Checked explicitly rather than left to makepkg's own refusal, so the reason is
+  # one line instead of a wall of makepkg boilerplate about catastrophic damage.
+  srcinfo_note "running as root, and makepkg refuses to run as root"
+elif ( cd "$out_dir" && makepkg --printsrcinfo > .SRCINFO ); then
   echo "wrote $out_dir/.SRCINFO"
 else
-  echo "note: makepkg not found - .SRCINFO not generated. Run 'makepkg --printsrcinfo > .SRCINFO'" >&2
-  echo "      in $out_dir on an Arch host before pushing to the AUR." >&2
+  # The redirection above already created an empty .SRCINFO before makepkg failed.
+  # Leaving it would be worse than having none: every downstream `test -f .SRCINFO`
+  # would pass on a zero-byte file, and the AUR would accept a push whose metadata
+  # says nothing.
+  rm -f "$out_dir/.SRCINFO"
+  srcinfo_note "makepkg --printsrcinfo failed"
 fi

@@ -173,6 +173,34 @@ fi
 "$script" v0.8.0 "$tmp/bad3" --sha256 "nothex" >/dev/null 2>&1 \
   && fail "accepted a non-digest --sha256" || pass "rejects a malformed --sha256"
 
+# ---- a broken makepkg must not fail the generation -------------------------
+# The PKGBUILD is the deliverable; .SRCINFO is a derived convenience this script
+# produces when it can. CI caught the original getting this backwards: the
+# generator tests run in a container as root, makepkg refuses to run as root, and
+# BOTH full-generation tests reported "generation failed" for a PKGBUILD that had
+# already been written correctly.
+#
+# Simulated with a failing makepkg on PATH rather than by unsetting it, because
+# that also exercises the half that matters more: the `> .SRCINFO` redirection
+# creates the file BEFORE makepkg runs, so a failure leaves a zero-byte .SRCINFO
+# behind. Every downstream `test -f .SRCINFO` would pass on it, and the AUR would
+# take a push whose metadata says nothing.
+mkdir -p "$tmp/fakebin"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/fakebin/makepkg"
+chmod +x "$tmp/fakebin/makepkg"
+
+if PATH="$tmp/fakebin:$PATH" "$script" v0.8.0 "$tmp/nosrcinfo" --tarball "$fake_tarball" >/dev/null 2>&1; then
+  pass "generation succeeds even when makepkg fails"
+else
+  fail "a failing makepkg killed the whole generation"
+fi
+[[ -f "$tmp/nosrcinfo/PKGBUILD" ]] \
+  && pass "the PKGBUILD is still written when makepkg fails" \
+  || fail "no PKGBUILD written when makepkg fails"
+[[ -e "$tmp/nosrcinfo/.SRCINFO" ]] \
+  && fail "a zero-byte .SRCINFO was left behind by the failed makepkg" \
+  || pass "no empty .SRCINFO left behind when makepkg fails"
+
 # ---- --source-ref reads the REF, not the working tree ---------------------
 # The failure this prevents is subtle and would look like someone else's bug: a PR
 # that edits nova.desktop generates a PKGBUILD pinning the BRANCH's sum against the
