@@ -432,7 +432,9 @@ Each gets a tracked issue rather than a mention:
 - **Flatpak / Flathub.** A terminal emulator needs `--filesystem=host` and host-spawn
   access, which reviewers push back on; it also needs AppStream metainfo and a separate
   repo and release cadence.
-- **AUR, RPM, Snap**; **musl / Alpine**; **32-bit**.
+- **AUR, RPM, Snap**; **musl / Alpine**; **32-bit**. The AUR leg is now designed and
+  implemented — see `2026-09-14-arch-aur-packaging-design.md` and `packaging/arch/`,
+  which reuses this lane's dlopen table as the source of truth for its dependency list.
 - **GPG-signed artifacts and `SHA256SUMS`.**
 
 Tracked as: #383 (APT repository), #384 (terminal-emulator contract),
