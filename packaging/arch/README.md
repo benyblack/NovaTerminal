@@ -162,9 +162,28 @@ re-pack it would inherit `build-deb.sh`'s Debian-specific `Depends:` derivation
 
 ## Publishing to the AUR
 
-Manual for now, deliberately: the automation is worth wiring once the package
-shape has survived a real version bump. Requires an AUR account with an SSH key
-registered, and `novaterminal-bin` registered to it.
+> **BLOCKED, not deferred, as of 2026-09-14: the AUR is not accepting new
+> accounts.** After three waves of supply-chain attacks (roughly 1,500 packages
+> compromised), Arch disabled registration in June 2026, reopened it on 13 July
+> with hardening, disabled package *adoption* on 31 July after a further
+> RAT-injection wave, and on 11 August restored writes with adoption behind
+> maintainer approval — while **new account registration stays closed "for now"**,
+> so only existing verified maintainers can push. No restoration date has been
+> announced.
+>
+> Everything below is correct and ready; it cannot be executed until registration
+> reopens. Do not work around this by asking a third party to submit the package:
+> handing an unrelated account the right to push arbitrary PKGBUILDs for this
+> software is the exact shape of the attack that closed registration in the first
+> place.
+>
+> Sources: [aur-general, registration reopened
+> 13 Jul](https://lists.archlinux.org/archives/list/aur-general@lists.archlinux.org/message/TT3OCFFNM6SBMUBKIVTHTKA6UZJNMXIJ/),
+> [LWN, adoption disabled 31 Jul](https://lwn.net/Articles/1086489/).
+
+Manual, deliberately: the automation is worth wiring once the package shape has
+survived a real version bump. Requires an AUR account with an SSH key registered,
+and `novaterminal-bin` registered to it.
 
 ```sh
 # 1. Generate at the tag. --source-ref makes the four auxiliary sums describe the

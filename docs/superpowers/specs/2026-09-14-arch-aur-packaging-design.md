@@ -223,6 +223,28 @@ v0.8.0 tarball on a live Arch system (icu 78.3, glibc 2.42, pacman 7.1.0):
 - **Publishing from CI.** An `aur_publish` job after `release_linux` needs an AUR
   account and an SSH deploy key in repo secrets. The manual procedure is documented;
   automate once the package shape has survived a real bump.
+
+- **Publishing to the AUR at all, for now — blocked externally, not by this work.**
+  As of 2026-09-14 the AUR is not accepting new accounts. Three supply-chain attack
+  waves (~1,500 packages compromised) led Arch to disable registration in June 2026,
+  reopen it on 13 July with hardening, disable package adoption on 31 July, and on
+  11 August restore writes with adoption behind maintainer approval while leaving
+  **new registration closed with no announced restoration date**. Only existing
+  verified maintainers can push.
+
+  This does not invalidate anything here: the package, its gates and the CI lane
+  stand, and the publish is three commands whenever registration reopens. It does
+  mean the deliverable currently stops one step short of users.
+
+  The obvious workaround — asking an existing AUR maintainer to submit it — is
+  **rejected**, not merely deferred. It grants an unrelated account the right to
+  push arbitrary PKGBUILDs for this software, which is precisely the attack shape
+  that closed registration. If a route to Arch users is wanted before the AUR
+  reopens, the candidates are publishing the generated `PKGBUILD`/`.SRCINFO` as
+  release assets (trivial, no infrastructure, users run `makepkg -si`) or a signed
+  first-party pacman repository — and the latter carries the same GPG custody and
+  long-term-commitment burden that deferred the APT repository in #383, so it
+  belongs in that decision rather than this one.
 - **A source-built `novaterminal`**, `x-terminal-emulator`-style registration
   (tracked as #384), RPM, Flatpak and Snap (the rest of #385).
 
