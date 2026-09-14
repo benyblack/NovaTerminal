@@ -480,7 +480,21 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: unit-tests-${{ runner.os }}
+          # runner.arch too, now that two legs of this matrix are Linux. Both would
+          # otherwise upload "unit-tests-Linux".
+          #
+          # Measured rather than assumed, because the documented behaviour and the observed
+          # behaviour disagree: upload-artifact v4's README says names must be unique and a
+          # second upload fails, but the dispatch that verified this PR produced TWO
+          # artifacts both named unit-tests-Linux (1215997 and 1216570 bytes), and both legs
+          # went green. So this is not fixing a red build.
+          #
+          # It is fixing an ambiguous one. These artifacts exist solely so a human can read
+          # the trx, the blame-hang minidump and the tee'd console log after a failure - and
+          # two same-named artifacts mean whoever downloads "unit-tests-Linux" gets one of
+          # the two architectures with no way to tell which. Evidence you cannot attribute
+          # is barely evidence.
+          name: unit-tests-${{ runner.os }}-${{ runner.arch }}
           retention-days: 5
           # *.dmp captures the blame-hang minidump on a teardown hang (#81). console.log is
           # the tee'd App.Tests output, and it is here because it is the only place a
