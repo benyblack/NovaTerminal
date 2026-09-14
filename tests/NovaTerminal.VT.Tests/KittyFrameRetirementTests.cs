@@ -39,8 +39,28 @@ public class KittyFrameRetirementTests
     [Fact]
     public void ReplacedFrame_StaysBlockedWhileSnapshotSessionPredatesIt()
     {
-        var buffer = CreateBufferWithReplacedFrame(out _, out _);
+        // The session must begin BEFORE the replacement that retires the first frame.
+        // This used to call CreateBufferWithReplacedFrame first and open the session
+        // after, which inverts the very ordering the test is named for: the gate
+        // releases when `entry.Tick < minActiveSessionStart`, and with the session
+        // opened second its start tick is >= the retire tick, so the assertion below
+        // held ONLY while both Environment.TickCount64 reads landed in the same
+        // millisecond. That is a coin flip decided by runner speed - it passed on x64
+        // for months and failed on the first ubuntu-24.04-arm release run. Inserting a
+        // 2 ms sleep before the old BeginSnapshotSession call reproduced the arm64
+        // failure exactly on x64.
+        var buffer = new TerminalBuffer(80, 24);
+        buffer.AddKittyFrame(new TerminalImage(new object(), 0, 0, 1, 1), 1);
+
         buffer.BeginSnapshotSession();
+
+        // Sleep, deliberately, and it is not papering over timing: it forces the retire
+        // tick STRICTLY past the session start, which is the case the gate actually has
+        // to handle. Equal ticks - all the old test ever exercised - are the degenerate
+        // one. The assertion is now ordering-determined, so a slower or faster machine
+        // cannot change the outcome.
+        System.Threading.Thread.Sleep(2);
+        buffer.AddKittyFrame(new TerminalImage(new object(), 0, 0, 1, 1), 1);
 
         var drained = new List<object>();
         buffer.DrainRetiredImageHandles(drained, Environment.TickCount64 - 60_000);
