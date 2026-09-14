@@ -19,7 +19,32 @@ exactly the two things a human editing a checked-in file gets wrong.
 |---|---|---|
 | `PKGBUILD` | `build-arch.sh` | Pushed to the AUR; never edited in place |
 | `.SRCINFO` | `makepkg --printsrcinfo`, via `build-arch.sh` | The AUR rejects a push without it |
+| `PKGBUILD-<tag>`, `SRCINFO-<tag>` | `release_linux` in `release.yml` | The same two files, published as release assets |
 | `novaterminal-bin-<pkgver>-1-x86_64.pkg.tar.zst` | `makepkg`, on the user's machine | Not published anywhere |
+
+## Installing on Arch today
+
+The AUR is closed to new accounts (see below), so `novaterminal-bin` is not on the
+AUR yet. Every release publishes the two files an AUR repository would contain, so
+an Arch user can build the same package from them directly:
+
+```sh
+TAG=v0.8.0
+mkdir novaterminal-bin && cd novaterminal-bin
+curl -LO "https://github.com/benyblack/NovaTerminal/releases/download/$TAG/PKGBUILD-$TAG"
+mv "PKGBUILD-$TAG" PKGBUILD
+makepkg -si
+```
+
+`makepkg` fetches the release tarball named in the PKGBUILD and verifies it against
+the pinned `sha256sum` — which `release_linux` asserts is the sum of the tarball it
+published in the same run — then installs through pacman with the dependencies
+resolved. Updating means repeating this at the new tag; there is no `pacman -Syu`
+integration without a repository, and the in-app updater is inert for package
+installs by design.
+
+`SRCINFO-<tag>` is published alongside it. It is metadata for the AUR, not something
+`makepkg` needs, and is there so the AUR push is a copy rather than a regeneration.
 
 ## Why `-bin`, and why the tarball
 

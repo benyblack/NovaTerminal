@@ -245,6 +245,29 @@ v0.8.0 tarball on a live Arch system (icu 78.3, glibc 2.42, pacman 7.1.0):
   first-party pacman repository — and the latter carries the same GPG custody and
   long-term-commitment burden that deferred the APT repository in #383, so it
   belongs in that decision rather than this one.
+
+  **The first of those is now implemented**: `release_linux` generates the pair
+  after the smoke gate and uploads them as `PKGBUILD-<tag>` / `SRCINFO-<tag>`, so
+  Arch users have a route today and the AUR push becomes a copy rather than a
+  regeneration when registration reopens. A pacman repository remains out of scope
+  and parked with #383.
+
+  **What that publish does NOT do is gate the PKGBUILD functionally**, and the
+  reason is ordering: its `source_x86_64` points at the release download URL, which
+  404s until the upload step later in the same job. So the release lane asserts the
+  pair's *content* — that the pinned `sha256sums_x86_64` is the sum of the tarball
+  being uploaded in that very run, and that the `.SRCINFO` is a novaterminal-bin
+  one — while the functional gate (build, install, launch) runs in `ci.yml` against
+  the previous published release. The integrity that matters most is guaranteed by
+  construction rather than by test: the sum is computed from the exact file being
+  published.
+
+  A follow-up could close even that gap by seeding the tarball into the smoke test's
+  work directory — `makepkg` skips downloading a source already present and still
+  validates its checksum — which would let the release lane build and launch the
+  real new package before publishing anything. Not done here: it widens the failure
+  surface of the lane that publishes every Linux asset, and that is a change worth
+  making deliberately rather than as a rider.
 - **A source-built `novaterminal`**, `x-terminal-emulator`-style registration
   (tracked as #384), RPM, Flatpak and Snap (the rest of #385).
 
