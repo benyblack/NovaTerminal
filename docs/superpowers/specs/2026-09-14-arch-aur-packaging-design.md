@@ -1,7 +1,7 @@
 # Arch Linux publishing: a gated `novaterminal-bin` AUR package
 
 Date: 2026-09-14
-Status: implemented; gated locally on real Arch, never yet run in GitHub Actions
+Status: implemented; gated on real Arch locally and green in CI (run 34828132584)
 Companion to: `2026-09-02-linux-packaging-design.md` (the lane this extends)
 Closes the AUR leg of #385 ("Additional package formats: Flatpak/Flathub, AUR, RPM, Snap")
 
@@ -247,8 +247,18 @@ v0.8.0 tarball on a live Arch system (icu 78.3, glibc 2.42, pacman 7.1.0):
    under Xvfb, and on real hardware).
 5. A dlopen'd dependency cannot be added on the Debian side without failing the Arch
    build until it is mapped. **Met**, asserted with a stub in `test-build-arch.sh`.
-6. The lane runs unattended in CI. **Not yet** — the job exists and has never
-   executed on GitHub.
+6. The lane runs unattended in CI. **Met** — `Arch Packaging (AUR dry run)`, run
+   34828132584 on commit `ab9946b`. All three smoke containers executed on the
+   runner and every assertion fired, with counts identical to the local run: 5
+   bundled ELFs `ldd`-clean, 11 dlopen sonames resolving, installed `depends`
+   covering all 15 derived packages, 6 hicolor icon sizes, `nova --vt-report`
+   headless, namcap clean at error level, and a window mapped with `WM_CLASS`
+   `NovaTerminal` under Xvfb.
+
+   It took three runs to get there, and both intermediate failures are recorded
+   below. Criterion 6 was marked unmet in the first two revisions of this document
+   rather than assumed — which is what made the gap between "passes locally" and
+   "passes as a non-root CI user" visible instead of rhetorical.
 
 ## Findings during implementation
 
