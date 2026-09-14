@@ -19,7 +19,7 @@ public class AgentHostStatusProtocolTests : IDisposable
 
     public AgentHostStatusProtocolTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "nova-agentstatus-tests-" + Guid.NewGuid().ToString("N"));
+        _tempDir = AgentHostTestEndpoint.CreateTempDir("status");
         Directory.CreateDirectory(_tempDir);
     }
 
@@ -31,12 +31,14 @@ public class AgentHostStatusProtocolTests : IDisposable
 
     private AgentHostService NewRunningService(AgentSessionRegistry registry)
     {
-        var endpoint = OperatingSystem.IsWindows()
-            ? "novaterminal-agent-status-test-" + Guid.NewGuid().ToString("N")
-            : Path.Combine(_tempDir, Guid.NewGuid().ToString("N")[..8] + ".sock");
+        var endpoint = AgentHostTestEndpoint.CreateEndpoint(_tempDir);
         var service = new AgentHostService(registry, endpoint, _tempDir);
         service.Start();
-        Assert.True(service.IsRunning);
+        // This is the assertion that failed 36 times on macOS while naming nothing: Start()
+        // reports a failed bind only by leaving IsRunning false. The endpoint length that
+        // caused it is now enforced in AgentHostTestEndpoint, so a recurrence fails there
+        // with the limit in the message instead of here with "Assert.True() Failure".
+        Assert.True(service.IsRunning, $"AgentHostService did not start on endpoint '{endpoint}'.");
         return service;
     }
 

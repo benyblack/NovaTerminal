@@ -49,7 +49,7 @@ public class AgentHostCaptureProtocolTests : IDisposable
 
     public AgentHostCaptureProtocolTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "nova-agentcapture-tests-" + Guid.NewGuid().ToString("N"));
+        _tempDir = AgentHostTestEndpoint.CreateTempDir("capture");
         _exportDir = Path.Combine(_tempDir, "agent-exports");
         Directory.CreateDirectory(_tempDir);
 
@@ -65,9 +65,7 @@ public class AgentHostCaptureProtocolTests : IDisposable
 
     private AgentHostService NewService(AgentSessionRegistry registry, AgentActivityJournal? journal = null)
     {
-        var endpoint = OperatingSystem.IsWindows()
-            ? "novaterminal-agent-test-" + Guid.NewGuid().ToString("N")
-            : Path.Combine(_tempDir, Guid.NewGuid().ToString("N")[..8] + ".sock");
+        var endpoint = AgentHostTestEndpoint.CreateEndpoint(_tempDir);
         return new AgentHostService(registry, endpoint, _tempDir, _exportDir, journal);
     }
 
