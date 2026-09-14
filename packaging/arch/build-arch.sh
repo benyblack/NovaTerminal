@@ -491,6 +491,17 @@ echo "wrote $out_dir/PKGBUILD (pkgver=$pkgver, tag=$tag)"
 # tests run in a container as root, makepkg REFUSES to run as root, and both
 # full-generation tests failed on a step that had already done its job.
 srcinfo_note() {
+  # DELETE FIRST, always. Every path into this function means "there is no .SRCINFO
+  # for the PKGBUILD just written", and that must be true on disk, not merely in the
+  # message. Two ways it would otherwise be false:
+  #   * a failed makepkg leaves a ZERO-BYTE .SRCINFO, because `> .SRCINFO` creates
+  #     the file before makepkg ever runs;
+  #   * regenerating into a REUSED output directory leaves the PREVIOUS version's
+  #     .SRCINFO in place beside a freshly overwritten PKGBUILD.
+  # The second is the nastier one: the file is valid, non-empty, and describes the
+  # wrong version, so it passes `test -s` and would be pushed to the AUR as metadata
+  # for a package it does not match.
+  rm -f "$out_dir/.SRCINFO"
   echo "note: $1" >&2
   echo "      .SRCINFO was not generated. Run 'makepkg --printsrcinfo > .SRCINFO' in" >&2
   echo "      $out_dir on an Arch host, as an unprivileged user, before pushing to the AUR." >&2
@@ -504,10 +515,5 @@ elif [[ "$(id -u)" -eq 0 ]]; then
 elif ( cd "$out_dir" && makepkg --printsrcinfo > .SRCINFO ); then
   echo "wrote $out_dir/.SRCINFO"
 else
-  # The redirection above already created an empty .SRCINFO before makepkg failed.
-  # Leaving it would be worse than having none: every downstream `test -f .SRCINFO`
-  # would pass on a zero-byte file, and the AUR would accept a push whose metadata
-  # says nothing.
-  rm -f "$out_dir/.SRCINFO"
   srcinfo_note "makepkg --printsrcinfo failed"
 fi

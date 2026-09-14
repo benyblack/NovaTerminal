@@ -217,6 +217,16 @@ fi
   && fail "a zero-byte .SRCINFO was left behind by the failed makepkg" \
   || pass "no empty .SRCINFO left behind when makepkg fails"
 
+# The nastier variant of the same defect, and the one a zero-byte check misses: a
+# REUSED output directory. A stale .SRCINFO from a previous version is valid and
+# non-empty, so it survives `test -s`, sits beside a freshly overwritten PKGBUILD,
+# and would be pushed to the AUR as metadata for a package it does not describe.
+printf 'pkgbase = novaterminal-bin\npkgver = 0.0.1-stale\n' > "$tmp/nosrcinfo/.SRCINFO"
+PATH="$tmp/fakebin:$PATH" "$script" v0.8.0 "$tmp/nosrcinfo" --tarball "$fake_tarball" >/dev/null 2>&1
+[[ -e "$tmp/nosrcinfo/.SRCINFO" ]] \
+  && fail "a stale .SRCINFO from a previous version survived regeneration" \
+  || pass "a stale .SRCINFO is removed when regeneration cannot produce a new one"
+
 # ---- --source-ref reads the REF, not the working tree ---------------------
 # The failure this prevents is subtle and would look like someone else's bug: a PR
 # that edits nova.desktop generates a PKGBUILD pinning the BRANCH's sum against the

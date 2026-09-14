@@ -1828,11 +1828,21 @@ jobs:
       # an AUR repo would contain lets an Arch user run `makepkg -si` against them
       # today, and they are byte-for-byte what gets pushed when registration reopens.
       #
-      # --source-ref HEAD, not the tag: on a tag push HEAD *is* the tag commit, and
-      # on a workflow_dispatch the tag is created from target_commitish, which is
-      # this checkout. Either way HEAD carries the blobs raw.githubusercontent will
-      # serve at that tag - and unlike naming the tag, it needs no tag objects
-      # fetched, which the default shallow checkout would not have.
+      # THE SOURCE REF IS THE TAG'S OWN COMMIT, resolved by fetching the tag - not
+      # HEAD. An earlier version of this step used HEAD and justified it by claiming
+      # create_release builds the tag from inputs.target_commitish. IT DOES NOT: that
+      # job passes only tag_name, generate_release_notes and prerelease, so for a
+      # workflow_dispatch whose target_commitish differs from the ref the workflow was
+      # dispatched on, the tag can resolve to a different commit than this checkout.
+      #
+      # The failure that causes is total and silent here, loud for users: the PKGBUILD
+      # points its raw.githubusercontent URLs at the TAG while pinning sha256sums
+      # computed from HEAD, so if the desktop entry, man page, icon or licence differ
+      # between those two commits, every single `makepkg` run rejects the package on
+      # an integrity check. Nothing in this lane would notice.
+      #
+      # Hashing whatever the tag actually resolves to makes the published PKGBUILD
+      # self-consistent by construction, under every trigger.
       - name: Generate AUR sources
         if: matrix.rid == 'linux-x64'
         env:
@@ -1840,12 +1850,29 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x packaging/arch/*.sh packaging/linux/*.sh
-          # Written on the runner, executed in the container, so RELEASE_TAG is
+          # --depth=1: only the tag's own tree is needed, and this checkout is shallow.
+          # create_release runs before publish_linux, which this job needs, so the tag
+          # exists by now - if it does not, something is wrong upstream and saying so
+          # here beats generating a PKGBUILD against the wrong commit.
+          git fetch --depth=1 origin "refs/tags/$RELEASE_TAG" \
+            || { echo "::error::cannot fetch $RELEASE_TAG; the PKGBUILD would pin checksums from an unrelated commit" >&2; exit 1; }
+          tag_commit="$(git rev-parse "FETCH_HEAD^{commit}")"
+          head_commit="$(git rev-parse HEAD)"
+          echo "tag $RELEASE_TAG resolves to $tag_commit; this checkout is $head_commit"
+          # Not fatal, because the PKGBUILD is now correct either way - but it means
+          # the published BUNDLE was built from one commit while the tag names
+          # another, which is a release-lane inconsistency worth seeing rather than
+          # absorbing silently. The fix, if this ever fires, is to pass
+          # target_commitish in create_release so the tag lands on the built commit.
+          if [[ "$tag_commit" != "$head_commit" ]]; then
+            echo "::warning::$RELEASE_TAG points at $tag_commit but this job built $head_commit - the AUR sources follow the tag, the bundle does not"
+          fi
+          # Written on the runner, executed in the container, so the tag and commit are
           # substituted exactly once and the container body needs no nested quoting.
           cat > /tmp/gen-aur.sh <<EOF
           set -euo pipefail
           git config --global --add safe.directory /w
-          packaging/arch/build-arch.sh "$RELEASE_TAG" artifacts/aur --tarball "artifacts/release/NovaTerminal-linux-x64-$RELEASE_TAG.tar.gz" --source-ref HEAD
+          packaging/arch/build-arch.sh "$RELEASE_TAG" artifacts/aur --tarball "artifacts/release/NovaTerminal-linux-x64-$RELEASE_TAG.tar.gz" --source-ref "$tag_commit"
           EOF
           cat /tmp/gen-aur.sh
           # Unprivileged: makepkg refuses to run as root, and .SRCINFO is the file

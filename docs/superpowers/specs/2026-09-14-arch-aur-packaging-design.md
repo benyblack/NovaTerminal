@@ -361,6 +361,31 @@ and both of these defects live in the gap between that and how the thing actuall
 runs. The smoke test now maps the caller's uid into the build container, and its
 cleanup trap can no longer determine the exit status or bury the real failure.
 
+### A comment asserting something about another job, without checking it
+
+The release step originally hashed the auxiliary files from `HEAD`, justified by a
+comment claiming `create_release` builds the tag from `inputs.target_commitish`. It
+does not — that job passes only `tag_name`, `generate_release_notes` and
+`prerelease`. So on a `workflow_dispatch` whose `target_commitish` differs from the
+dispatch ref, the tag can resolve to a different commit than the checkout, and the
+published PKGBUILD would pin checksums from one commit against raw URLs on another:
+an integrity failure for **every** user, invisible to this lane, which never fetches
+those URLs.
+
+Caught by review (Codex P2 on #455), not by any gate here — and it would not have
+been caught by one, because no test in this repo exercises a dispatch-with-different
+-commitish release. The step now resolves the tag's own commit and hashes that, so
+the PKGBUILD is self-consistent under every trigger.
+
+It also surfaced a wider inconsistency that is **not** this lane's to fix: when those
+two commits differ, the published bundle is built from one and the tag names the
+other, for every asset rather than just these two. The step emits a warning naming
+both commits. Passing `target_commitish` in `create_release` would close it properly.
+
+The narrow lesson is about the comment, not the code: a comment asserting behaviour
+of a different job is a claim, and claims in this repository are supposed to carry
+evidence. This one was written from memory of what the job *should* do.
+
 ### Where a caveat should have been a mechanism
 
 The working-tree-versus-tag hashing problem was written down as a documented
