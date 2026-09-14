@@ -101,6 +101,26 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
+          # THE TAG MUST LAND ON THE COMMIT BEING BUILT. Without this the input is
+          # `undefined` (the action does `env.INPUT_TARGET_COMMITISH || undefined`
+          # and passes it straight through with no fallback), and the GitHub API
+          # then defaults to the REPOSITORY'S DEFAULT BRANCH. So a dispatch with
+          # target_commitish set to anything other than main - the documented
+          # recovery path, "dispatch with tag_name set from an updated branch" -
+          # built that branch while creating the tag on main's head. Every asset
+          # came from one commit and the tag named another.
+          #
+          # Safe on a tag push under either reading of the `inputs` context. If it
+          # is empty there (it is: `inputs` is populated only for workflow_dispatch
+          # and workflow_call), this is `''` and the behaviour is unchanged. If it
+          # somehow carried the "main" default, the tag already exists on a tag
+          # push and the API documents target_commitish as "unused if the Git tag
+          # already exists". Neither path can move an existing tag.
+          #
+          # NOT the same thing as release_metadata's checkout_ref, deliberately:
+          # that is `refs/tags/vX` on a push, which is not a commitish you can
+          # create a tag from.
+          target_commitish: ${{ inputs.target_commitish }}
           generate_release_notes: true
           # A SemVer tag's only legal use of '-' is the prerelease separator, so
           # contains('-') is a sound test for "v0.5.0-beta.1 is not a stable release".
@@ -1863,11 +1883,18 @@ jobs:
           tag_commit="$(git rev-parse "FETCH_HEAD^{commit}")"
           head_commit="$(git rev-parse HEAD)"
           echo "tag $RELEASE_TAG resolves to $tag_commit; this checkout is $head_commit"
-          # Not fatal, because the PKGBUILD is now correct either way - but it means
-          # the published BUNDLE was built from one commit while the tag names
-          # another, which is a release-lane inconsistency worth seeing rather than
-          # absorbing silently. The fix, if this ever fires, is to pass
-          # target_commitish in create_release so the tag lands on the built commit.
+          # create_release now passes target_commitish, so on a fresh tag these two
+          # agree by construction. STILL NOT FATAL, because one legitimate case
+          # remains: re-dispatching an EXISTING tag against updated code - the
+          # recovery path documented above publish_linux. GitHub ignores
+          # target_commitish when the tag already exists, so the tag keeps pointing
+          # at the old commit while this job builds the new one. The PKGBUILD stays
+          # correct either way (it hashes whatever the tag resolves to, which is what
+          # raw.githubusercontent will serve), but the bundle and the tag genuinely
+          # describe different code and that is worth seeing rather than absorbing.
+          #
+          # Outside that case, this firing means target_commitish stopped reaching
+          # create_release - i.e. the fix regressed.
           if [[ "$tag_commit" != "$head_commit" ]]; then
             echo "::warning::$RELEASE_TAG points at $tag_commit but this job built $head_commit - the AUR sources follow the tag, the bundle does not"
           fi
