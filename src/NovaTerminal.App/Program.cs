@@ -65,6 +65,11 @@ class Program
                 return;
             }
 
+            // Attach the debug-log sink before anything logs. Placed after the CLI dispatches
+            // above, which return without ever writing to it — a `--replay` or `backup`
+            // invocation has no business truncating the GUI's log.
+            AppLogger.Initialize();
+
             // The PTY layer cannot reference VT (Pty_must_not_depend_on_Vt), so it reports through its
             // own sink; bridge it here so its diagnostics reach the same debug log as everything else.
             // Before #109 they went to Console.WriteLine, i.e. nowhere in a GUI process.

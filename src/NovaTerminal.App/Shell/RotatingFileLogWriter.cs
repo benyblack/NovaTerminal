@@ -133,7 +133,21 @@ namespace NovaTerminal.Shell
                 // Racing another Dispose: the winner drains.
             }
 
-            try { _pump.Join(TimeSpan.FromSeconds(2)); } catch { }
+            try
+            {
+                _pump.Join(TimeSpan.FromSeconds(2));
+            }
+            catch (ThreadStateException)
+            {
+                // The pump never started (the constructor's Thread.Start threw). There is nothing
+                // to drain, and Dispose must stay safe to call on a half-built writer.
+            }
+            catch (ThreadInterruptedException)
+            {
+                // Something interrupted the disposing thread while it waited. The pump is a
+                // background thread and the queue is already closed, so stopping the wait here
+                // costs at most the tail of the buffer — never a hang on the way out.
+            }
         }
 
         private void WriterLoop()
@@ -162,12 +176,38 @@ namespace NovaTerminal.Shell
                     try { _writer?.Flush(); } catch { /* disk gone; keep draining */ }
                 }
             }
-            catch (ObjectDisposedException) { }
-            catch (InvalidOperationException) { }
+            catch (ObjectDisposedException)
+            {
+                // The queue was disposed out from under the consumer. Only reachable at
+                // shutdown, and the finally below still flushes what the stream is holding.
+            }
+            catch (InvalidOperationException)
+            {
+                // GetConsumingEnumerable racing CompleteAdding. Same shutdown path, same
+                // remedy: fall through and flush.
+            }
             finally
             {
-                try { _writer?.Flush(); } catch { }
-                try { _writer?.Dispose(); } catch { }
+                try
+                {
+                    _writer?.Flush();
+                }
+                catch (Exception ex) when (ex is IOException or ObjectDisposedException or UnauthorizedAccessException)
+                {
+                    // Nothing actionable on the way down: the destination may already be gone
+                    // (removed file, full disk, unmounted volume). Throwing here would replace a
+                    // lost diagnostic with an unhandled exception on a background thread.
+                }
+
+                try
+                {
+                    _writer?.Dispose();
+                }
+                catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+                {
+                    // Same: the handle is being abandoned regardless, and the process is exiting.
+                }
+
                 _writer = null;
             }
         }

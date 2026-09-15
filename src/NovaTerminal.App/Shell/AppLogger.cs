@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using NovaTerminal.VT;
 
 namespace NovaTerminal.Shell
@@ -17,12 +18,29 @@ namespace NovaTerminal.Shell
         /// <summary>At ~100 bytes a line this caps the hand-off queue at a megabyte or so.</summary>
         private const int MaxQueuedMessages = 8192;
 
-        private static readonly RotatingFileLogWriter Writer;
+        private static readonly RotatingFileLogWriter Writer =
+            new(LogFilePath, MaxBytes, MaxQueuedMessages);
 
-        static AppLogger()
+        private static int _initialized;
+
+        /// <summary>
+        /// Attaches this sink to <see cref="TerminalLogger"/> and arms the shutdown drain. Call it
+        /// once, before the first message worth keeping. Idempotent.
+        /// </summary>
+        /// <remarks>
+        /// Explicit rather than a static constructor, because the wiring used to happen as a side
+        /// effect of whoever touched the type first — and in <c>Program.Main</c> that was
+        /// <c>AppLogger.GetLogFilePath()</c> on the <em>second</em> startup log line, so the first
+        /// one ("NovaTerminal started with args: …") reached a <see cref="TerminalLogger.OnLog"/>
+        /// that still had no subscriber and vanished. Initialization order that matters should be
+        /// stated, not inferred from which member someone happens to touch first.
+        /// </remarks>
+        public static void Initialize()
         {
-            AppPaths.EnsureInitialized();
-            Writer = new RotatingFileLogWriter(LogFilePath, MaxBytes, MaxQueuedMessages);
+            if (Interlocked.Exchange(ref _initialized, 1) == 1)
+            {
+                return;
+            }
 
             TerminalLogger.OnLog += Log;
 

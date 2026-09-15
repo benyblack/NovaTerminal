@@ -178,19 +178,33 @@ public class RotatingFileLogWriterTests
     [Fact]
     public void AnUnwritablePath_DegradesToANoOp()
     {
-        // A diagnostic must never be able to fail the app. The directory is created for us, so an
-        // unusable path is the interesting case: a file where a directory has to go.
+        // A diagnostic must never be able to fail the app — construction included, because this
+        // runs inside AppLogger's static initializer, where an escaping exception becomes a
+        // TypeInitializationException on the first log call anywhere in the process. The directory
+        // is created for us, so an unusable path is the interesting case: a file where a directory
+        // has to go.
         string blocker = Path.Combine(Path.GetTempPath(), "nova-logwriter-blocker-" + Guid.NewGuid().ToString("N"));
         File.WriteAllText(blocker, "not a directory");
         try
         {
             string path = Path.Combine(blocker, "debug.log");
-            using var writer = new RotatingFileLogWriter(path, maxBytes: 1024, queueCapacity: 16);
-            writer.Write("this goes nowhere, quietly");
+
+            Exception? thrown = Record.Exception(() =>
+            {
+                using var writer = new RotatingFileLogWriter(path, maxBytes: 1024, queueCapacity: 16);
+                writer.Write("this goes nowhere, quietly");
+            });
+
+            Assert.Null(thrown);
+
+            // And it really is a no-op: nothing was created at or under the blocked path.
+            Assert.False(Directory.Exists(blocker));
+            Assert.False(File.Exists(path));
+            Assert.Equal("not a directory", File.ReadAllText(blocker));
         }
         finally
         {
-            try { File.Delete(blocker); } catch { }
+            try { File.Delete(blocker); } catch (IOException) { /* temp cleanup is best-effort */ }
         }
     }
 
@@ -202,9 +216,21 @@ public class RotatingFileLogWriterTests
         {
             var writer = new RotatingFileLogWriter(path, maxBytes: 1 << 20, queueCapacity: 16);
             writer.Write("once");
-            writer.Dispose();
-            writer.Dispose();
-            writer.Write("after dispose, swallowed");
+
+            Exception? thrown = Record.Exception(() =>
+            {
+                writer.Dispose();
+                writer.Dispose();
+                writer.Write("after dispose");
+            });
+
+            Assert.Null(thrown);
+
+            // The first Dispose still drained, and the post-dispose write was swallowed rather
+            // than resurrecting the writer or throwing.
+            string contents = ReadAll(path);
+            Assert.Contains("once", contents);
+            Assert.DoesNotContain("after dispose", contents);
         }
         finally { Cleanup(path); }
     }
