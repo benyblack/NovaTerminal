@@ -120,6 +120,15 @@ namespace NovaTerminal.Controls
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
         private bool _disposed;
+
+        /// <summary>
+        /// 1 while an output-driven UI refresh is already sitting in the dispatcher queue.
+        /// </summary>
+        /// <remarks>
+        /// Written from the PTY/SSH read thread and cleared on the UI thread, hence the
+        /// interlocked access. See <see cref="QueueOutputUiRefresh"/> for what it buys.
+        /// </remarks>
+        private int _outputUiRefreshQueued;
         private NovaTerminal.AgentHost.AgentSessionRegistration? _agentRegistration;
         // The registry this pane registered with, captured at SetupCommon so
         // Rekey and Unregister always target the same registry Register did —
@@ -3464,11 +3473,7 @@ namespace NovaTerminal.Controls
                 // After Parse, not before: the flag's contract is "the grid may be behind the
                 // keyboard", so it may only be cleared once these bytes are actually painted.
                 NoteSessionOutputApplied();
-                this.Dispatcher.Post(() =>
-                {
-                    UpdateScrollUI();
-                    OutputReceived?.Invoke(this);
-                });
+                QueueOutputUiRefresh();
             };
 
             // Wire up Parser responses (e.g. DA1). The accumulator invalidation for these lives in
@@ -3479,6 +3484,55 @@ namespace NovaTerminal.Controls
             };
 
             WireReusedTermViewHandlers();
+        }
+
+        /// <summary>
+        /// Queues the after-output UI work — scrollbar extent, cursor visibility, and the
+        /// <see cref="OutputReceived"/> notification the window uses for tab activity — collapsing
+        /// any number of output chunks into one pending dispatcher job.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Called on the PTY/SSH read thread, once per chunk read from the session. Posting
+        /// unconditionally (what this replaced) makes the dispatcher queue grow with the remote's
+        /// send rate rather than the UI's drain rate: a busy SSH session delivers chunks far faster
+        /// than the UI thread retires them, and each one queued a closure that did the same work as
+        /// the one in front of it. <see cref="UpdateScrollUI"/> then posts a second job of its own,
+        /// so the cost was two dispatcher items and an async state machine per chunk.
+        /// </para>
+        /// <para>
+        /// Every consumer here is a level, not an edge — the scrollbar reads the buffer's current
+        /// extent, <c>OnPaneOutputReceived</c> stamps "output seen at", and the agent status machine
+        /// records a last-output time — so the intermediate passes had nothing to contribute. What
+        /// matters is that one runs after the last chunk, which this guarantees.
+        /// </para>
+        /// <para>
+        /// The flag is cleared at the <em>start</em> of the job, not the end: a chunk that arrives
+        /// while the job is running must be able to queue the next one. Clearing at the end would
+        /// fold that chunk into a pass that had already read the buffer, and the newest output
+        /// would sit unreflected until something else happened to refresh.
+        /// </para>
+        /// </remarks>
+        private void QueueOutputUiRefresh()
+        {
+            if (Interlocked.Exchange(ref _outputUiRefreshQueued, 1) == 1)
+            {
+                return;
+            }
+
+            this.Dispatcher.Post(() =>
+            {
+                Volatile.Write(ref _outputUiRefreshQueued, 0);
+
+                // The pane can be torn down between the post and the run.
+                if (_disposed)
+                {
+                    return;
+                }
+
+                UpdateScrollUI();
+                OutputReceived?.Invoke(this);
+            });
         }
 
         /// <summary>
