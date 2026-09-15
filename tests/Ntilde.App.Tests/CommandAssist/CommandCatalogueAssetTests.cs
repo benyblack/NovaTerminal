@@ -124,14 +124,14 @@ public sealed class CommandCatalogueAssetTests
     [Fact]
     public void Entries_not_derived_from_tldr_are_marked_as_such()
     {
-        // The attribution says entries marked "o": "nova" are not tldr content. That claim is only
+        // The attribution says entries marked "o": "ntilde" are not tldr content. That claim is only
         // true if the mark is actually on them - and the supplement is the only source of them.
         CommandKnowledgeEntry[] marked = Catalogue.Value.Entries!
             .Where(entry => entry.Origin != null)
             .ToArray();
 
         Assert.NotEmpty(marked);
-        Assert.All(marked, entry => Assert.Equal("nova", entry.Origin));
+        Assert.All(marked, entry => Assert.Equal("ntilde", entry.Origin));
         Assert.Contains(marked, entry => entry.Token == "Get-Process");
     }
 
