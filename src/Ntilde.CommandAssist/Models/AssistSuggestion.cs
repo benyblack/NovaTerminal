@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.CommandAssist.Models;
+namespace Ntilde.CommandAssist.Models;
 
 /// <remarks>
 /// There is deliberately no "can execute directly" flag: V2 has no execute-from-assist action

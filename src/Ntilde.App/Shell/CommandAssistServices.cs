@@ -1,21 +1,21 @@
 using System;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.ShellIntegration.Bash;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.CommandAssist.ShellIntegration.Fish;
-using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
-using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
-using NovaTerminal.CommandAssist.ShellIntegration.Zsh;
-using NovaTerminal.CommandAssist.Storage;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.ShellIntegration.Bash;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.ShellIntegration.Fish;
+using Ntilde.CommandAssist.ShellIntegration.PowerShell;
+using Ntilde.CommandAssist.ShellIntegration.Runtime;
+using Ntilde.CommandAssist.ShellIntegration.Zsh;
+using Ntilde.CommandAssist.Storage;
 
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 /// <summary>
 /// The composed Command Assist dependency graph.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Lives in the App (not in <c>NovaTerminal.CommandAssist</c>) because it is where the assist
+/// Lives in the App (not in <c>Ntilde.CommandAssist</c>) because it is where the assist
 /// assembly's dependencies are resolved from application state: <see cref="AppPaths"/> for storage
 /// locations and <see cref="TerminalSettings"/> for limits.
 /// </para>

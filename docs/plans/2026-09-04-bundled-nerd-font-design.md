@@ -54,7 +54,7 @@ Cost is near-identical — a patched `JetBrainsMonoNLNerdFontMono-Regular.ttf` i
   system font, not only while the patched font is selected.
 - The icon cost is paid **once**, not per face and per weight. This is what makes
   Ghostty's arrangement cost 8.9 MB across four styles.
-- NovaTerminal already has the mechanism: `TerminalView.FallbackChainNames` feeds
+- Ntilde already has the mechanism: `TerminalView.FallbackChainNames` feeds
   a chain the draw operation consults for glyphs the primary face lacks. The
   symbols font is simply the first entry, and the only one guaranteed present.
 

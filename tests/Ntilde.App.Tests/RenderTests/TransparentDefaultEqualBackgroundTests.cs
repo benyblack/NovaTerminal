@@ -1,15 +1,15 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Rendering;
 using SkiaSharp;
 using System;
 using System.Collections.Concurrent;
 
-namespace NovaTerminal.Tests.RenderTests
+namespace Ntilde.Tests.RenderTests
 {
     // Regression: when window transparency is enabled, an explicit background whose color is
     // identical to the theme background (e.g. a remote SGR "40" / erased line on a dark theme

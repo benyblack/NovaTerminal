@@ -1,11 +1,11 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Controls;
+using Ntilde.Platform;
+using Ntilde.VT;
 using System.Threading;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class TerminalPaneStartupInstrumentationTests
 {

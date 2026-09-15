@@ -106,14 +106,14 @@
       "feature": "C0 controls (BEL, BS, HT, LF, CR)",
       "status": "\u26A0 Partial",
       "specOrNotes": "Basic control chars",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/TabSystemTests.cs\u0060; Replay: \u0060tests/Replays/...\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/TabSystemTests.cs\u0060; Replay: \u0060tests/Replays/...\u0060",
       "evidenceKinds": [
         "replay",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/TabSystemTests.cs",
+          "path": "tests/Ntilde.App.Tests/TabSystemTests.cs",
           "exists": true
         }
       ],
@@ -128,13 +128,13 @@
       "feature": "C1 via 7-bit ESC (ESC @.._)",
       "status": "\u26A0 Partial",
       "specOrNotes": "\u201C7-bit C1\u201D translation",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
+          "path": "tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs",
           "exists": true
         }
       ],
@@ -163,13 +163,13 @@
       "feature": "String terminators (ST = ESC \\\\, BEL)",
       "status": "\u26A0 Partial",
       "specOrNotes": "OSC/APC termination rules",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
+          "path": "tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs",
           "exists": true
         }
       ],
@@ -184,13 +184,13 @@
       "feature": "Unknown sequence handling",
       "status": "\u26A0 Partial",
       "specOrNotes": "Ignore/print/strict?",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
+          "path": "tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs",
           "exists": true
         }
       ],
@@ -205,7 +205,7 @@
       "feature": "Error recovery on malformed sequences",
       "status": "\u26A0 Partial",
       "specOrNotes": "Robustness",
-      "evidenceText": "Fuzz/Unit: \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/AnsiCorpusReplayTests.cs\u0060",
+      "evidenceText": "Fuzz/Unit: \u0060tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/Ntilde.App.Tests/AnsiCorpusReplayTests.cs\u0060",
       "evidenceKinds": [
         "fuzz",
         "replay",
@@ -213,11 +213,11 @@
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/AnsiCorpusReplayTests.cs",
+          "path": "tests/Ntilde.App.Tests/AnsiCorpusReplayTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
+          "path": "tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs",
           "exists": true
         }
       ],
@@ -232,13 +232,13 @@
       "feature": "CUU/CUD/CUF/CUB (A/B/C/D)",
       "status": "\u26A0 Partial",
       "specOrNotes": "Cursor up/down/forward/back",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/PendingWrapTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/PendingWrapTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/PendingWrapTests.cs",
+          "path": "tests/Ntilde.App.Tests/PendingWrapTests.cs",
           "exists": true
         }
       ],
@@ -253,18 +253,18 @@
       "feature": "CUP / HVP (H/f)",
       "status": "\u2705 Supported",
       "specOrNotes": "Positioning, default params",
-      "evidenceText": "Unit \u002B Replay: \u0060tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs\u0060",
+      "evidenceText": "Unit \u002B Replay: \u0060tests/Ntilde.App.Tests/CursorPositioningCompletionTests.cs\u0060, \u0060tests/Ntilde.App.Tests/ReplayTests/RegressionTests.cs\u0060",
       "evidenceKinds": [
         "replay",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs",
+          "path": "tests/Ntilde.App.Tests/CursorPositioningCompletionTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs",
+          "path": "tests/Ntilde.App.Tests/ReplayTests/RegressionTests.cs",
           "exists": true
         }
       ],
@@ -279,13 +279,13 @@
       "feature": "CHA (G)",
       "status": "\u2705 Supported",
       "specOrNotes": "Horizontal absolute",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs",
+          "path": "tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs",
           "exists": true
         }
       ],
@@ -300,13 +300,13 @@
       "feature": "CPL (F)",
       "status": "\u2705 Supported",
       "specOrNotes": "Previous line and column reset",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs",
+          "path": "tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs",
           "exists": true
         }
       ],
@@ -321,13 +321,13 @@
       "feature": "CNL (E)",
       "status": "\u2705 Supported",
       "specOrNotes": "Next line and column reset",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs",
+          "path": "tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs",
           "exists": true
         }
       ],
@@ -342,13 +342,13 @@
       "feature": "CHT (I)",
       "status": "\u2705 Supported",
       "specOrNotes": "Cursor forward tabulation",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/TabSystemTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/TabSystemTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/TabSystemTests.cs",
+          "path": "tests/Ntilde.App.Tests/TabSystemTests.cs",
           "exists": true
         }
       ],
@@ -363,13 +363,13 @@
       "feature": "CBT (Z)",
       "status": "\u2705 Supported",
       "specOrNotes": "Cursor backward tabulation",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/TabSystemTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/TabSystemTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/TabSystemTests.cs",
+          "path": "tests/Ntilde.App.Tests/TabSystemTests.cs",
           "exists": true
         }
       ],
@@ -384,13 +384,13 @@
       "feature": "VPA/HPA (d/G/\u0060)",
       "status": "\u2705 Supported",
       "specOrNotes": "Absolute row/col",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/CursorPositioningCompletionTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs",
+          "path": "tests/Ntilde.App.Tests/CursorPositioningCompletionTests.cs",
           "exists": true
         }
       ],
@@ -405,13 +405,13 @@
       "feature": "HPR/VPR (a/e)",
       "status": "\u2705 Supported",
       "specOrNotes": "Relative row/col",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/CursorPositioningCompletionTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs",
+          "path": "tests/Ntilde.App.Tests/CursorPositioningCompletionTests.cs",
           "exists": true
         }
       ],
@@ -426,7 +426,7 @@
       "feature": "ED (J)",
       "status": "\u2705 Supported",
       "specOrNotes": "0/1/2 erase display",
-      "evidenceText": "Replay: \u0060tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Fixtures/Replay/vttest_cursor.rec\u0060; Unit: \u0060tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs\u0060",
+      "evidenceText": "Replay: \u0060tests/Ntilde.App.Tests/ReplayTests/RegressionTests.cs\u0060, \u0060tests/Ntilde.App.Tests/Fixtures/Replay/vttest_cursor.rec\u0060; Unit: \u0060tests/Ntilde.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs\u0060",
       "evidenceKinds": [
         "external",
         "replay",
@@ -434,15 +434,15 @@
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/Fixtures/Replay/vttest_cursor.rec",
+          "path": "tests/Ntilde.App.Tests/Fixtures/Replay/vttest_cursor.rec",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs",
+          "path": "tests/Ntilde.App.Tests/ReplayTests/RegressionTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs",
+          "path": "tests/Ntilde.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs",
           "exists": true
         }
       ],
@@ -457,13 +457,13 @@
       "feature": "EL (K)",
       "status": "\u2705 Supported",
       "specOrNotes": "0/1/2 erase line",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs",
+          "path": "tests/Ntilde.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs",
           "exists": true
         }
       ],
@@ -542,13 +542,13 @@
       "feature": "REP (b)",
       "status": "\u2705 Supported",
       "specOrNotes": "Repeat preceding graphic character",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.VT.Tests/RepeatCharacterTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.VT.Tests/RepeatCharacterTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.VT.Tests/RepeatCharacterTests.cs",
+          "path": "tests/Ntilde.VT.Tests/RepeatCharacterTests.cs",
           "exists": true
         }
       ],
@@ -595,13 +595,13 @@
       "feature": "DECOM (origin mode)",
       "status": "\u2705 Supported",
       "specOrNotes": "Cursor relative to margins",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/DecModeTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/DecModeTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/DecModeTests.cs",
+          "path": "tests/Ntilde.App.Tests/DecModeTests.cs",
           "exists": true
         }
       ],
@@ -646,22 +646,22 @@
       "feature": "Alternate screen",
       "status": "\u26A0 Partial",
       "specOrNotes": "Switch \u002B save/restore cursor",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/AlternateScreenTests.cs\u0060; Replay: \u0060tests/NovaTerminal.App.Tests/ReplayTests/AlternateScreenReplayTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/ReplayTests/NativeSshReplayParityTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/AlternateScreenTests.cs\u0060; Replay: \u0060tests/Ntilde.App.Tests/ReplayTests/AlternateScreenReplayTests.cs\u0060, \u0060tests/Ntilde.App.Tests/ReplayTests/NativeSshReplayParityTests.cs\u0060",
       "evidenceKinds": [
         "replay",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/AlternateScreenTests.cs",
+          "path": "tests/Ntilde.App.Tests/AlternateScreenTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/ReplayTests/AlternateScreenReplayTests.cs",
+          "path": "tests/Ntilde.App.Tests/ReplayTests/AlternateScreenReplayTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/ReplayTests/NativeSshReplayParityTests.cs",
+          "path": "tests/Ntilde.App.Tests/ReplayTests/NativeSshReplayParityTests.cs",
           "exists": true
         }
       ],
@@ -676,18 +676,18 @@
       "feature": "Show cursor",
       "status": "\u2705 Supported",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/DecModeTests.cs\u0060; Replay: \u0060tests/NovaTerminal.App.Tests/ReplayTests/ReplayV2Tests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/DecModeTests.cs\u0060; Replay: \u0060tests/Ntilde.App.Tests/ReplayTests/ReplayV2Tests.cs\u0060",
       "evidenceKinds": [
         "replay",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/DecModeTests.cs",
+          "path": "tests/Ntilde.App.Tests/DecModeTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/ReplayTests/ReplayV2Tests.cs",
+          "path": "tests/Ntilde.App.Tests/ReplayTests/ReplayV2Tests.cs",
           "exists": true
         }
       ],
@@ -751,17 +751,17 @@
       "feature": "Mouse reporting",
       "status": "\u26A0 Partial",
       "specOrNotes": "Click (\u0060?1000\u0060) and drag-motion (\u0060?1002\u0060) tracking, plus hover motion with no buttons held under any-event tracking (\u0060?1003\u0060, issue #269); SGR (\u0060?1006\u0060) and legacy X10 coordinate encodings both supported. Motion reports are coalesced to at most one per distinct terminal cell (tracked last-reported cell, reset on buffer attach/resize, alternate-screen switch, pointer exit, and \u0060?1002\u0060/\u0060?1003\u0060 mode changes observed between two motion events) so a stationary-but-jittery pointer or a TUI toggling tracking modes doesn\u0027t flood the PTY",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/Input/TerminalInputModeEncoderTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Input/TerminalViewMouseMotionTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/Input/TerminalInputModeEncoderTests.cs\u0060, \u0060tests/Ntilde.App.Tests/Input/TerminalViewMouseMotionTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/Input/TerminalInputModeEncoderTests.cs",
+          "path": "tests/Ntilde.App.Tests/Input/TerminalInputModeEncoderTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/Input/TerminalViewMouseMotionTests.cs",
+          "path": "tests/Ntilde.App.Tests/Input/TerminalViewMouseMotionTests.cs",
           "exists": true
         }
       ],
@@ -776,13 +776,13 @@
       "feature": "Cursor style",
       "status": "\u2705 Supported",
       "specOrNotes": "DECSCUSR block/beam/underline \u002B blink state",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/OscUxTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
+          "path": "tests/Ntilde.App.Tests/OscUxTests.cs",
           "exists": true
         }
       ],
@@ -797,25 +797,25 @@
       "feature": "Kitty keyboard protocol",
       "status": "\u26A0 Partial",
       "specOrNotes": "Progressive-enhancement flags: query, push, pop, set. Per-screen-buffer flag stacks (depth 32, oldest evicted on overflow); RIS clears both",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.VT.Tests/KittyKeyboardProtocolTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Input/KittyKeyboardEncodingTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/CommandAssist/TerminalViewKeyHandlingTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.VT.Tests/KittyKeyboardProtocolTests.cs\u0060, \u0060tests/Ntilde.App.Tests/Input/KittyKeyboardEncodingTests.cs\u0060, \u0060tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/Ntilde.App.Tests/CommandAssist/TerminalViewKeyHandlingTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
+          "path": "tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/CommandAssist/TerminalViewKeyHandlingTests.cs",
+          "path": "tests/Ntilde.App.Tests/CommandAssist/TerminalViewKeyHandlingTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/Input/KittyKeyboardEncodingTests.cs",
+          "path": "tests/Ntilde.App.Tests/Input/KittyKeyboardEncodingTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.VT.Tests/KittyKeyboardProtocolTests.cs",
+          "path": "tests/Ntilde.VT.Tests/KittyKeyboardProtocolTests.cs",
           "exists": true
         }
       ],
@@ -830,13 +830,13 @@
       "feature": "DECRQM / DECRPM (mode query)",
       "status": "\u2705 Supported",
       "specOrNotes": "Reports live set/reset state for private modes 1, 6, 7, 25, 47, 1000, 1002, 1003, 1004, 1006, 1047, 1049, 2004, 2026 and ANSI modes 4 (IRM), 12 (SRM), 20 (LNM); unrecognized modes report \u0060Pm=0\u0060. Lets apps (e.g. probing \u0060?2026\u0060 synchronized output) detect real support instead of assuming it from unanswered queries",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.VT.Tests/DecrqmTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.VT.Tests/DecrqmTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.VT.Tests/DecrqmTests.cs",
+          "path": "tests/Ntilde.VT.Tests/DecrqmTests.cs",
           "exists": true
         }
       ],
@@ -851,13 +851,13 @@
       "feature": "Kitty in-band resize / CSI 14 t / CSI 16 t",
       "status": "\u2705 Supported",
       "specOrNotes": "Terminal-to-child reports are written to stdin only while the client has set mode 2048 (unsolicited reports would be garbage on its stdin); pixel sizes come from the live cell metrics. This is the only resize signal clients like terminal-browser get on Windows (no SIGWINCH, no console polling)",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.VT.Tests/InBandResizeTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.VT.Tests/InBandResizeTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.VT.Tests/InBandResizeTests.cs",
+          "path": "tests/Ntilde.VT.Tests/InBandResizeTests.cs",
           "exists": true
         }
       ],
@@ -872,18 +872,18 @@
       "feature": "DSR / CPR / DECXCPR",
       "status": "\u2705 Supported",
       "specOrNotes": "Operating status (\u0060CSI 5 n\u0060 -\u003E \u0060CSI 0 n\u0060) and cursor position. The bare request answers \u0060CSI r ; c R\u0060; the DEC private request \u0060CSI ? 6 n\u0060 (DECXCPR) answers in the private form \u0060CSI ? r ; c R\u0060, because a client that asked the private question parses for a private answer and would otherwise drop the reply or mistake it for an unsolicited CPR. Both frames honour DECOM: with origin mode set the row is reported relative to the top of the scrolling region, matching the frame CUP used to set it",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/VttestScenarioTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/Ntilde.App.Tests/VttestScenarioTests.cs\u0060",
       "evidenceKinds": [
         "external",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
+          "path": "tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/VttestScenarioTests.cs",
+          "path": "tests/Ntilde.App.Tests/VttestScenarioTests.cs",
           "exists": true
         }
       ],
@@ -898,14 +898,14 @@
       "feature": "Basic SGR (0,1,2,3,4,5,7,9,22,23,24,25,27,29)",
       "status": "\u26A0 Partial",
       "specOrNotes": "Bold/dim/italic/underline/blink/reverse/strike",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/SgrAttributeTests.cs\u0060; VTTEST: sgr scenario",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/SgrAttributeTests.cs\u0060; VTTEST: sgr scenario",
       "evidenceKinds": [
         "external",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/SgrAttributeTests.cs",
+          "path": "tests/Ntilde.App.Tests/SgrAttributeTests.cs",
           "exists": true
         }
       ],
@@ -982,13 +982,13 @@
       "feature": "HT (tab) movement",
       "status": "\u2705 Supported",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/TabSystemTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/TabSystemTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/TabSystemTests.cs",
+          "path": "tests/Ntilde.App.Tests/TabSystemTests.cs",
           "exists": true
         }
       ],
@@ -1003,13 +1003,13 @@
       "feature": "Tab stops set/clear",
       "status": "\u2705 Supported",
       "specOrNotes": "ESC H, CSI g",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/TabSystemTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/TabSystemTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/TabSystemTests.cs",
+          "path": "tests/Ntilde.App.Tests/TabSystemTests.cs",
           "exists": true
         }
       ],
@@ -1041,13 +1041,13 @@
       "feature": "OSC 7",
       "status": "\u2705 Supported",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/OscUxTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
+          "path": "tests/Ntilde.App.Tests/OscUxTests.cs",
           "exists": true
         }
       ],
@@ -1062,13 +1062,13 @@
       "feature": "OSC 10/11",
       "status": "\u2705 Supported",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/OscUxTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
+          "path": "tests/Ntilde.App.Tests/OscUxTests.cs",
           "exists": true
         }
       ],
@@ -1083,17 +1083,17 @@
       "feature": "OSC 52",
       "status": "\u26A0 Partial",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Controls/PaneParserWiringTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/OscUxTests.cs\u0060, \u0060tests/Ntilde.App.Tests/Controls/PaneParserWiringTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/Controls/PaneParserWiringTests.cs",
+          "path": "tests/Ntilde.App.Tests/Controls/PaneParserWiringTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
+          "path": "tests/Ntilde.App.Tests/OscUxTests.cs",
           "exists": true
         }
       ],
@@ -1108,13 +1108,13 @@
       "feature": "OSC 8",
       "status": "\u2705 Supported",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/OscUxTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
+          "path": "tests/Ntilde.App.Tests/OscUxTests.cs",
           "exists": true
         }
       ],
@@ -1129,13 +1129,13 @@
       "feature": "OSC 133",
       "status": "\u26A0 Partial",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscShellIntegrationTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/OscShellIntegrationTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/OscShellIntegrationTests.cs",
+          "path": "tests/Ntilde.App.Tests/OscShellIntegrationTests.cs",
           "exists": true
         }
       ],
@@ -1150,7 +1150,7 @@
       "feature": "OSC 1337",
       "status": "\u2705 Supported",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs\u0060, Manual: \u0060docs/qa/QA_GRAPHICS.md\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.Rendering.Tests/InlineImageEndToEndTests.cs\u0060, Manual: \u0060docs/qa/QA_GRAPHICS.md\u0060",
       "evidenceKinds": [
         "manual",
         "unit"
@@ -1161,7 +1161,7 @@
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs",
+          "path": "tests/Ntilde.Rendering.Tests/InlineImageEndToEndTests.cs",
           "exists": true
         }
       ],
@@ -1192,21 +1192,21 @@
       "feature": "Kitty graphics protocol",
       "status": "\u2705 Supported",
       "specOrNotes": "APC / OSC forms",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/GraphicsTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/GraphicsTests.cs\u0060, \u0060tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/Ntilde.Rendering.Tests/InlineImageEndToEndTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
+          "path": "tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/GraphicsTests.cs",
+          "path": "tests/Ntilde.App.Tests/GraphicsTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs",
+          "path": "tests/Ntilde.Rendering.Tests/InlineImageEndToEndTests.cs",
           "exists": true
         }
       ],
@@ -1236,18 +1236,18 @@
       "section": "10) SIXEL",
       "feature": "SIXEL decode/render",
       "status": "\u2705 Supported",
-      "specOrNotes": "Wired via \u0060NovaTerminal.Rendering.SkiaImageDecoder\u0060",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Rendering.Tests/SixelDecoderTests.cs\u0060, \u0060tests/NovaTerminal.Rendering.Tests/SkiaImageDecoderTests.cs\u0060",
+      "specOrNotes": "Wired via \u0060Ntilde.Rendering.SkiaImageDecoder\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.Rendering.Tests/SixelDecoderTests.cs\u0060, \u0060tests/Ntilde.Rendering.Tests/SkiaImageDecoderTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Rendering.Tests/SixelDecoderTests.cs",
+          "path": "tests/Ntilde.Rendering.Tests/SixelDecoderTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Rendering.Tests/SkiaImageDecoderTests.cs",
+          "path": "tests/Ntilde.Rendering.Tests/SkiaImageDecoderTests.cs",
           "exists": true
         }
       ],
@@ -1306,13 +1306,13 @@
       "feature": "Hyperlinks",
       "status": "\u2705 Supported",
       "specOrNotes": "OSC 8",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/OscUxTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
+          "path": "tests/Ntilde.App.Tests/OscUxTests.cs",
           "exists": true
         }
       ],
@@ -1327,22 +1327,22 @@
       "feature": "wcwidth-like width",
       "status": "\u26A0 Partial",
       "specOrNotes": "CJK/emoji width",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/WidthTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs\u0060; Replay: \u0060tests/NovaTerminal.App.Tests/Fixtures/Replay/mixed_unicode.rec\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/WidthTests.cs\u0060, \u0060tests/Ntilde.App.Tests/UnicodeWidthModelV2Tests.cs\u0060; Replay: \u0060tests/Ntilde.App.Tests/Fixtures/Replay/mixed_unicode.rec\u0060",
       "evidenceKinds": [
         "replay",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/Fixtures/Replay/mixed_unicode.rec",
+          "path": "tests/Ntilde.App.Tests/Fixtures/Replay/mixed_unicode.rec",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs",
+          "path": "tests/Ntilde.App.Tests/UnicodeWidthModelV2Tests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/WidthTests.cs",
+          "path": "tests/Ntilde.App.Tests/WidthTests.cs",
           "exists": true
         }
       ],
@@ -1357,25 +1357,25 @@
       "feature": "Combining marks",
       "status": "\u26A0 Partial",
       "specOrNotes": "Grapheme clusters",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/GraphemeAttachmentTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/SurrogateTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/ScrollAndWrapCorrectnessTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/GraphemeAttachmentTests.cs\u0060, \u0060tests/Ntilde.App.Tests/SurrogateTests.cs\u0060, \u0060tests/Ntilde.App.Tests/UnicodeWidthModelV2Tests.cs\u0060, \u0060tests/Ntilde.App.Tests/ScrollAndWrapCorrectnessTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/GraphemeAttachmentTests.cs",
+          "path": "tests/Ntilde.App.Tests/GraphemeAttachmentTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/ScrollAndWrapCorrectnessTests.cs",
+          "path": "tests/Ntilde.App.Tests/ScrollAndWrapCorrectnessTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/SurrogateTests.cs",
+          "path": "tests/Ntilde.App.Tests/SurrogateTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs",
+          "path": "tests/Ntilde.App.Tests/UnicodeWidthModelV2Tests.cs",
           "exists": true
         }
       ],
@@ -1390,21 +1390,21 @@
       "feature": "ZWJ emoji sequences",
       "status": "\u26A0 Partial",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/GraphemeAttachmentTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/WidthTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/Ntilde.App.Tests/GraphemeAttachmentTests.cs\u0060, \u0060tests/Ntilde.App.Tests/WidthTests.cs\u0060, \u0060tests/Ntilde.App.Tests/UnicodeWidthModelV2Tests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.App.Tests/GraphemeAttachmentTests.cs",
+          "path": "tests/Ntilde.App.Tests/GraphemeAttachmentTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs",
+          "path": "tests/Ntilde.App.Tests/UnicodeWidthModelV2Tests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.App.Tests/WidthTests.cs",
+          "path": "tests/Ntilde.App.Tests/WidthTests.cs",
           "exists": true
         }
       ],

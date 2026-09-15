@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     public readonly struct RenderSnapshotRequest
     {

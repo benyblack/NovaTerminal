@@ -1,9 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.Models;
+using Ntilde.Models;
 
-namespace NovaTerminal.Services.Ssh;
+namespace Ntilde.Services.Ssh;
 
 public interface IRemoteDirectoryBrowserService
 {

@@ -1,11 +1,11 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using Xunit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.VT.Storage;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.VT.Storage;
 
-namespace NovaTerminal.Tests.BufferTests
+namespace Ntilde.Tests.BufferTests
 {
     /// <summary>
     /// Tests for Category 1: Theme-change correctness for paged scrollback.

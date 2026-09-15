@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.ShellIntegration.Fish;
+using Ntilde.CommandAssist.ShellIntegration.Fish;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration.Integration;
 
 /// <summary>
 /// End-to-end tests for the Fish bootstrap. Skipped at runtime when fish
@@ -17,7 +17,7 @@ public sealed class FishShellIntegrationTests : IDisposable
 
     public FishShellIntegrationTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), $"nova_fish_int_{Guid.NewGuid():N}");
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_fish_int_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempRoot);
         _bootstrapPath = FishBootstrapBuilder.WriteScript(_tempRoot);
     }
@@ -82,7 +82,7 @@ public sealed class FishShellIntegrationTests : IDisposable
         // exact column is what proves the copy ran *before* the mark and emitted the
         // user's prompt byte-for-byte; "> 0" would pass even if the wrapper had painted
         // something of its own.
-        const string prompt = "nova-test$ ";
+        const string prompt = "ntilde-test$ ";
         HarnessResult result = RunFish(
             "exit 0\n",
             extraInitLine: $"function fish_prompt; printf '{prompt}'; end");
@@ -101,7 +101,7 @@ public sealed class FishShellIntegrationTests : IDisposable
         // redefinition would show up, as a burst of B per prompt.
         HarnessResult result = RunFish(
             "true\ntrue\nexit 0\n",
-            extraInitLine: "function fish_prompt; printf 'nova-test$ '; end");
+            extraInitLine: "function fish_prompt; printf 'ntilde-test$ '; end");
 
         int prompts = result.Events.Count(e => e.Kind == "A");
         int marks = result.Events.Count(e => e.Kind == "B");

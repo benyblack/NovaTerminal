@@ -6,6 +6,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="vt-capabilities.json" LogicalName="NovaTerminal.VtContract.vt-capabilities.json" />
+    <EmbeddedResource Include="vt-capabilities.json" LogicalName="Ntilde.VtContract.vt-capabilities.json" />
   </ItemGroup>
 </Project>

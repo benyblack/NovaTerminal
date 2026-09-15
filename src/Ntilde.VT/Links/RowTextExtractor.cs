@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace NovaTerminal.VT.Links
+namespace Ntilde.VT.Links
 {
     /// <summary>
     /// Turns an absolute buffer row into its display text plus a map from each text-character

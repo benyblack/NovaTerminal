@@ -1,7 +1,7 @@
-using NovaTerminal.Platform.Ssh.Launch;
-using NovaTerminal.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Platform.Ssh.Models;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public sealed class SshArgBuilderTests
 {

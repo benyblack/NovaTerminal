@@ -1,5 +1,5 @@
-using NovaTerminal.VT;
-using NovaTerminal.Replay;
+using Ntilde.VT;
+using Ntilde.Replay;
 using System;
 using System.IO;
 using System.Linq;
@@ -9,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 
-namespace NovaTerminal.Tests.ReplayTests
+namespace Ntilde.Tests.ReplayTests
 {
     /// <summary>
     /// Flight recorder core (agent-host A4 slice 1): bounded ring semantics,
@@ -181,7 +181,7 @@ namespace NovaTerminal.Tests.ReplayTests
                 Assert.True(info.TruncatedAtStart);
 
                 ReplayHeader header = ReadHeader(tempFile);
-                Assert.Equal("novarec", header.Type);
+                Assert.Equal("ntilderec", header.Type);
                 Assert.Equal(2, header.Version);
                 Assert.Equal(132, header.Cols);
                 Assert.Equal(43, header.Rows);
@@ -323,7 +323,7 @@ namespace NovaTerminal.Tests.ReplayTests
 
                         // Every export must be a well-formed v2 file with monotonic timestamps.
                         ReplayHeader header = ReadHeader(tempFile);
-                        Assert.Equal("novarec", header.Type);
+                        Assert.Equal("ntilderec", header.Type);
 
                         long previous = -1;
                         int count = 0;

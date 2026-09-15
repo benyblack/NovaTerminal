@@ -1,15 +1,15 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Platform.Ssh.Interactions;
-using NovaTerminal.Platform.Ssh.Native;
-using NovaTerminal.Services.Ssh;
-using NovaTerminal.ViewModels.Ssh;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Native;
+using Ntilde.Services.Ssh;
+using Ntilde.ViewModels.Ssh;
 
-namespace NovaTerminal.Tests.Ssh;
+namespace Ntilde.Tests.Ssh;
 
 public sealed class SshInteractionServiceTests
 {
@@ -250,7 +250,7 @@ public sealed class SshInteractionServiceTests
     [Fact]
     public async Task NativePasswordRequests_StoreSubmittedPassword_WhenRememberPasswordIsChecked()
     {
-        var vault = new VaultService(new NovaTerminal.Shell.Secrets.InMemorySecretStore());
+        var vault = new VaultService(new Ntilde.Shell.Secrets.InMemorySecretStore());
         var profile = new TerminalProfile
         {
             Id = Guid.Parse("0c25f4e2-2c2d-4f16-9d70-4d01e7c8fdb1"),
@@ -285,7 +285,7 @@ public sealed class SshInteractionServiceTests
     [Fact]
     public async Task NativePasswordRequests_DoNotStoreSubmittedPassword_WhenRememberPasswordIsUnchecked()
     {
-        var vault = new VaultService(new NovaTerminal.Shell.Secrets.InMemorySecretStore());
+        var vault = new VaultService(new Ntilde.Shell.Secrets.InMemorySecretStore());
         var profile = new TerminalProfile
         {
             Id = Guid.Parse("f0dbb9df-8e7e-4e11-9e0a-91de4a2f84be"),
@@ -318,14 +318,14 @@ public sealed class SshInteractionServiceTests
     [Fact]
     public async Task NativePasswordRequests_StoreSubmittedPassword_InRuntimeSessionCache()
     {
-        var vault = new VaultService(new NovaTerminal.Shell.Secrets.InMemorySecretStore());
+        var vault = new VaultService(new Ntilde.Shell.Secrets.InMemorySecretStore());
         Guid sessionId = Guid.Parse("6e392be4-b615-496f-b1f6-c559d7f4c4f3");
         Guid profileId = Guid.Parse("b15431d2-30e6-46de-99cd-c984f4995aaf");
         ActiveSshSessionRegistry.Instance.Unregister(sessionId);
         ActiveSshSessionRegistry.Instance.Register(new ActiveSshSessionDescriptor(
             sessionId,
             profileId,
-            NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native));
+            Ntilde.Platform.Ssh.Models.SshBackendKind.Native));
 
         var service = new SshInteractionService(
             vaultService: vault,
@@ -354,7 +354,7 @@ public sealed class SshInteractionServiceTests
     [Fact]
     public async Task NativePasswordRequests_LeavingRememberUnchecked_PreservesExistingVaultSecret()
     {
-        var vault = new VaultService(new NovaTerminal.Shell.Secrets.InMemorySecretStore());
+        var vault = new VaultService(new Ntilde.Shell.Secrets.InMemorySecretStore());
         var profile = new TerminalProfile
         {
             Id = Guid.Parse("6752a7e9-6fcb-4108-813a-45411cba6a6c"),
@@ -388,7 +388,7 @@ public sealed class SshInteractionServiceTests
     [Fact]
     public async Task PasswordRequests_AreAnsweredFromVaultWithoutShowingDialog_WhenProfileIdentityIsProvided()
     {
-        var vault = new VaultService(new NovaTerminal.Shell.Secrets.InMemorySecretStore());
+        var vault = new VaultService(new Ntilde.Shell.Secrets.InMemorySecretStore());
         var profile = new TerminalProfile
         {
             Id = Guid.Parse("3b0a5c25-9b4d-4d6b-80b4-5cf8c2ef8e6a"),
@@ -427,7 +427,7 @@ public sealed class SshInteractionServiceTests
     [Fact]
     public async Task PasswordRequests_UseLegacyVaultSecret_WhenFullProfileIdentityIsProvided()
     {
-        var vault = new VaultService(new NovaTerminal.Shell.Secrets.InMemorySecretStore());
+        var vault = new VaultService(new Ntilde.Shell.Secrets.InMemorySecretStore());
         var profile = new TerminalProfile
         {
             Id = Guid.Parse("19c4e5f0-62ed-4d56-90b1-1d53e4c90d19"),
@@ -466,7 +466,7 @@ public sealed class SshInteractionServiceTests
     [Fact]
     public async Task PasswordRequests_FallBackToDialog_WhenVaultReuseIsNotAllowed()
     {
-        var vault = new VaultService(new NovaTerminal.Shell.Secrets.InMemorySecretStore());
+        var vault = new VaultService(new Ntilde.Shell.Secrets.InMemorySecretStore());
         var profile = new TerminalProfile
         {
             Id = Guid.Parse("52e5e0a7-51c6-4c9e-8d1a-7f74e9e6d7b8"),
@@ -504,7 +504,7 @@ public sealed class SshInteractionServiceTests
     [Fact]
     public async Task PassphraseRequests_ShowDialogEvenWhenVaultHasPassword()
     {
-        var vault = new VaultService(new NovaTerminal.Shell.Secrets.InMemorySecretStore());
+        var vault = new VaultService(new Ntilde.Shell.Secrets.InMemorySecretStore());
         var profile = new TerminalProfile
         {
             Id = Guid.Parse("6e1df53b-5b8f-4d5c-bfd7-9ad6f4d3d5d5"),

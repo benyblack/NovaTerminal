@@ -1,4 +1,4 @@
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // Issue #266: kitty keyboard protocol (https://sw.kovidgoyal.net/kitty/keyboard-protocol/).
 // Covers the four control sequences (query / push / pop / set), the per-screen-buffer flag

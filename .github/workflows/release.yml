@@ -171,12 +171,12 @@ jobs:
         if: needs.release_metadata.outputs.cache_trusted == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
-          workspaces: src/NovaTerminal.App/native
+          workspaces: src/Ntilde.App/native
 
       - name: Build Rust (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          cd src/NovaTerminal.App/native
+          cd src/Ntilde.App/native
           cargo build --release --locked
           cd rusty_ssh
           cargo build --release --locked
@@ -184,7 +184,7 @@ jobs:
       - name: Build Rust (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          cd src/NovaTerminal.App/native
+          cd src/Ntilde.App/native
           cargo build --release --locked
           cd rusty_ssh
           cargo build --release --locked
@@ -194,8 +194,8 @@ jobs:
         with:
           name: native-${{ matrix.os }}
           path: |
-            src/NovaTerminal.App/native/target*/**/release/*pty.*
-            src/NovaTerminal.App/native/rusty_ssh/target*/**/release/*ssh.*
+            src/Ntilde.App/native/target*/**/release/*pty.*
+            src/Ntilde.App/native/rusty_ssh/target*/**/release/*ssh.*
 
   # ===========================================================================
   # Linux native libraries, built on the glibc floor. Split out of build_native
@@ -254,9 +254,9 @@ jobs:
     # 33740981976) was that tag: every job in the arm64 chain - this one, Release
     # Tests (ubuntu-24.04-arm), Publish Linux (linux-arm64), Release Linux
     # (linux-arm64) - finished green, AND the arm64 assets genuinely published
-    # (NovaTerminal-linux-arm64-v0.7.0-rc.1.AppImage,
-    # novaterminal_0.7.0.rc.1-1_arm64.deb,
-    # NovaTerminalApp-0.7.0-rc.1-linux-arm64-full.nupkg,
+    # (ntilde-linux-arm64-v0.7.0-rc.1.AppImage,
+    # ntilde_0.7.0.rc.1-1_arm64.deb,
+    # NtildeApp-0.7.0-rc.1-linux-arm64-full.nupkg,
     # releases.linux-arm64.json), which is proof a merely-green-but-tolerant job
     # cannot offer on its own. That answered every unknown this leg carried: vpk
     # runs on linux-arm64, ubuntu-24.04-arm provides a docker daemon and a
@@ -375,7 +375,7 @@ jobs:
         if: needs.release_metadata.outputs.cache_trusted == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
-          workspaces: src/NovaTerminal.App/native
+          workspaces: src/Ntilde.App/native
 
       # target_linux/ is an arch-agnostic staging directory and each leg builds
       # natively for its own runner, so no --target and no arch branch is needed.
@@ -383,7 +383,7 @@ jobs:
       - name: Build Rust (Linux)
         run: |
           set -euo pipefail
-          cd src/NovaTerminal.App/native
+          cd src/Ntilde.App/native
           cargo build --release --locked
           mkdir -p target_linux/release
           cp target/release/librusty_pty.so target_linux/release/
@@ -398,8 +398,8 @@ jobs:
         with:
           name: native-${{ matrix.os }}
           path: |
-            src/NovaTerminal.App/native/target*/**/release/*pty.*
-            src/NovaTerminal.App/native/rusty_ssh/target*/**/release/*ssh.*
+            src/Ntilde.App/native/target*/**/release/*pty.*
+            src/Ntilde.App/native/rusty_ssh/target*/**/release/*ssh.*
 
   # Release gate (#156): releases used to publish AOT bundles without running a
   # single test. Run the same deterministic unit lane that gates PRs in ci.yml —
@@ -445,7 +445,7 @@ jobs:
     # in-flight siblings, and every publish job needs this one - so a red
     # ubuntu-24.04-arm leg once again cancels the Windows and macOS legs mid-run,
     # skips publish_aot, and withholds Windows and macOS assets along with
-    # Linux's. This leg runs NovaTerminal.Rendering.Tests - the project with this
+    # Linux's. This leg runs Ntilde.Rendering.Tests - the project with this
     # repo's documented Linux font/Skia drift - so that risk is real, not
     # theoretical; it is accepted now (see below), not gone.
     #
@@ -496,7 +496,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
+          path: src/Ntilde.App/native
 
       - name: Restore
         run: dotnet restore
@@ -515,8 +515,8 @@ jobs:
           set -e
           filter="Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
           for proj in VT Rendering Architecture Platform McpServer; do
-            echo "::group::NovaTerminal.$proj.Tests"
-            dotnet test "tests/NovaTerminal.$proj.Tests" -c "$CONFIGURATION" --no-build --no-restore \
+            echo "::group::Ntilde.$proj.Tests"
+            dotnet test "tests/Ntilde.$proj.Tests" -c "$CONFIGURATION" --no-build --no-restore \
               --filter "$filter" --logger "trx;LogFileName=release_${proj}.trx"
             echo "::endgroup::"
           done
@@ -602,7 +602,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
+          path: src/Ntilde.App/native
 
       - name: Restore
         run: dotnet restore
@@ -622,7 +622,7 @@ jobs:
         env:
           SKIP_RUST_NATIVE_BUILD: "1"
           RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
-        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true "-p:Version=$RELEASE_VERSION" "-p:InformationalVersion=$RELEASE_VERSION" -o artifacts/publish/${{ matrix.rid }}
+        run: dotnet publish src/Ntilde.App/Ntilde.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true "-p:Version=$RELEASE_VERSION" "-p:InformationalVersion=$RELEASE_VERSION" -o artifacts/publish/${{ matrix.rid }}
 
       # ---- BLOCKING release gate for the Windows bundle, and deliberately placed here:
       # ---- everything below (Archive bundle, Upload release asset, vpk pack, Upload
@@ -644,14 +644,14 @@ jobs:
       # downloaded natives actually loads. The `Spawned ... pid=` assertion below is what
       # exercises them: no working PTY, no spawn line, red gate.
       #
-      # NOVATERM_APPDATA_ROOT points the app at an empty directory, so it starts from a
+      # NTILDE_APPDATA_ROOT points the app at an empty directory, so it starts from a
       # pristine profile - no settings.json, no themes, no session to restore. That is the
       # state a new install is in, and #443 was reported from exactly there.
       #
       # WHAT IT DOES NOT COVER, so nobody reads more into a green run than is there: it
       # opens no palette, no settings window and no dialog. It proves the bundle starts and
       # brings up its terminal UI. The command palette's own class of bug is guarded by
-      # WarningsAsErrors=IL2026;IL3050 in NovaTerminal.App.csproj (which makes the publish
+      # WarningsAsErrors=IL2026;IL3050 in Ntilde.App.csproj (which makes the publish
       # step above fail outright) and by CompiledBindingTests.
       #
       # IF THIS GOES RED ON A TAG. Do not disable it to get the release out; that reinstates
@@ -662,14 +662,14 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $root = Join-Path $env:RUNNER_TEMP 'nova-release-smoke-profile'
+          $root = Join-Path $env:RUNNER_TEMP 'ntilde-release-smoke-profile'
           New-Item -ItemType Directory -Force -Path $root | Out-Null
-          $env:NOVATERM_APPDATA_ROOT = $root
+          $env:NTILDE_APPDATA_ROOT = $root
           $errorFile = Join-Path $root 'logs/startup_error.txt'
           $debugLog  = Join-Path $root 'logs/debug.log'
 
-          $exe = Join-Path $PWD 'artifacts/publish/win-x64/NovaTerminal.exe'
-          if (-not (Test-Path $exe)) { throw "The publish produced no NovaTerminal.exe at $exe." }
+          $exe = Join-Path $PWD 'artifacts/publish/win-x64/Ntilde.exe'
+          if (-not (Test-Path $exe)) { throw "The publish produced no Ntilde.exe at $exe." }
 
           $proc = Start-Process -FilePath $exe -PassThru
           Write-Output "Started pid $($proc.Id); watching for 45s."
@@ -702,12 +702,12 @@ jobs:
           }
 
           # Asserts on the THIRD line Program.cs logs at startup, not the first: the first
-          # ("NovaTerminal started with args: ...") never reaches the file, on any machine, so
+          # ("Ntilde started with args: ...") never reaches the file, on any machine, so
           # the obvious assertion is a guaranteed false failure. Build: is the better anchor
           # anyway - it proves managed Main got through startup AND that DescribeBuild
           # resolved the executable path, the one remaining IL3000 in the tree.
-          if (-not (Select-String -Path $debugLog -Pattern 'Build:.*path=.*NovaTerminal\.exe' -Quiet)) {
-            throw "$debugLog carries no 'Build: ... path=...NovaTerminal.exe' line. Either managed Main did not reach its startup logging, or DescribeBuild could not resolve the executable path - which in an AOT bundle means Environment.ProcessPath came back empty and the Assembly.Location fallback (IL3000) was reached after all."
+          if (-not (Select-String -Path $debugLog -Pattern 'Build:.*path=.*Ntilde\.exe' -Quiet)) {
+            throw "$debugLog carries no 'Build: ... path=...Ntilde.exe' line. Either managed Main did not reach its startup logging, or DescribeBuild could not resolve the executable path - which in an AOT bundle means Environment.ProcessPath came back empty and the Assembly.Location fallback (IL3000) was reached after all."
           }
 
           # Beyond "Main ran": the window and a terminal view came up, and the downloaded
@@ -735,15 +735,15 @@ jobs:
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 
       # win-x64 only. osx-arm64's user-facing zip is the Velopack Portable bundle
-      # (NovaTerminal.app inside a ditto zip) built by the macOS Velopack steps below and
-      # uploaded under this same NovaTerminal-osx-arm64-<tag>.zip name; archiving the raw
+      # (Ntilde.app inside a ditto zip) built by the macOS Velopack steps below and
+      # uploaded under this same ntilde-osx-arm64-<tag>.zip name; archiving the raw
       # publish directory too would ship a second, near-identical zip.
       #
       # `== 'win-x64'` rather than `!= 'osx-arm64'`: with linux-x64 moved to
       # publish_linux this matrix contains exactly {win-x64, osx-arm64}, so the two
       # conditions select the identical set - the rewrite is behaviour-preserving and
       # says what it means. Linux now builds a tar.gz instead (Compress-Archive
-      # cannot write Unix mode bits, so the zip it replaces shipped a NovaTerminal
+      # cannot write Unix mode bits, so the zip it replaces shipped a Ntilde
       # binary with no executable bit).
       - name: Archive bundle
         if: matrix.rid == 'win-x64'
@@ -759,7 +759,7 @@ jobs:
           $rid = $env:RID
           $tag = $env:RELEASE_TAG
           $source = "artifacts/publish/$rid"
-          $dest = "artifacts/release/NovaTerminal-$rid-$tag.zip"
+          $dest = "artifacts/release/ntilde-$rid-$tag.zip"
           New-Item -ItemType Directory -Force -Path "artifacts/release" | Out-Null
           if (Test-Path $dest) { Remove-Item $dest -Force }
           Compress-Archive -Path "$source/*" -DestinationPath $dest
@@ -772,7 +772,7 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
-          files: artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.zip
+          files: artifacts/release/ntilde-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.zip
 
       # ---- Velopack installers + update feeds (#91). win-x64 and osx-arm64 only -
       # ---- Linux's AppImage, .deb, tarball and per-architecture update feeds are
@@ -800,7 +800,7 @@ jobs:
           # DefaultName.GetDefaultChannel: win on windows-latest, osx on macos-latest), so
           # each lane only ever sees its own channel's packages even though the step body
           # is shared.
-          vpk download github --repoUrl https://github.com/benyblack/NovaTerminal --token $env:GH_TOKEN --outputDir artifacts/velopack
+          vpk download github --repoUrl https://github.com/benyblack/ntilde --token $env:GH_TOKEN --outputDir artifacts/velopack
 
       - name: Pack Windows installer (Velopack)
         if: matrix.rid == 'win-x64'
@@ -869,19 +869,19 @@ jobs:
 
           # Make a re-run idempotent. `vpk download github` picks the max-version full out of
           # the union feed; for an already-published tag that is the tag's OWN
-          # NovaTerminalApp-$ver-full.nupkg, and `vpk pack` then hard-fails with
+          # NtildeApp-$ver-full.nupkg, and `vpk pack` then hard-fails with
           # "[FTL] There is a release in channel win which is equal or greater to the current
           # version $ver". Because the portable zips upload in an earlier step, that leaves a
           # half-published release behind a red job. This workflow supports workflow_dispatch
           # re-runs by design, so dropping this version's own artifacts first is required, not
           # defensive.
-          Get-ChildItem artifacts/velopack -Filter "NovaTerminalApp-$ver-*.nupkg" -ErrorAction SilentlyContinue | Remove-Item -Force
+          Get-ChildItem artifacts/velopack -Filter "NtildeApp-$ver-*.nupkg" -ErrorAction SilentlyContinue | Remove-Item -Force
 
-          # --packId is deliberately NOT "NovaTerminal", and this must not be "tidied" back.
+          # --packId is deliberately NOT "Ntilde", and this must not be "tidied" back.
           # Velopack installs to %LocalAppData%\<packId> and its uninstall routine deletes
           # that ENTIRE directory ("any data stored within it, such as settings or logs, will
           # be lost" - Velopack's own uninstalling docs). AppPaths.RootDirectory is
-          # %LocalAppData%\NovaTerminal, so a packId of "NovaTerminal" makes the install root
+          # %LocalAppData%\Ntilde, so a packId of "Ntilde" makes the install root
           # and the config root the same folder: uninstalling would silently destroy
           # settings.json, ssh/profiles.json, native_known_hosts.json, command-assist history,
           # workspaces, themes and recordings. Updates alone are safe (only `current` is
@@ -895,16 +895,16 @@ jobs:
           # every installed client (a different packId is a different app to the updater), so
           # this had to land before v0.5.0 or not at all.
           vpk pack `
-            --packId NovaTerminalApp `
+            --packId NtildeApp `
             --packVersion $ver `
             --packDir artifacts/publish/win-x64 `
-            --mainExe NovaTerminal.exe `
-            --packTitle NovaTerminal `
+            --mainExe Ntilde.exe `
+            --packTitle Ntilde `
             --packAuthors benyblack `
-            --icon src/NovaTerminal.App/Assets/nova_icon.ico `
+            --icon src/Ntilde.App/Assets/ntilde_icon.ico `
             --outputDir artifacts/velopack `
             --noPortable
-          # --noPortable: the release already ships NovaTerminal-win-x64-<tag>.zip, and two
+          # --noPortable: the release already ships ntilde-win-x64-<tag>.zip, and two
           # near-identical zips on the releases page is a support question waiting to happen.
 
           # The installer's file name is ours to choose - nothing resolves it by name - so
@@ -912,7 +912,7 @@ jobs:
           # includes the channel in the name it produces.
           $setup = Get-ChildItem artifacts/velopack -Filter "*Setup.exe" | Select-Object -First 1
           if (-not $setup) { throw "vpk pack produced no Setup.exe" }
-          Move-Item $setup.FullName "artifacts/velopack/NovaTerminal-Setup-win-x64-$tag.exe"
+          Move-Item $setup.FullName "artifacts/velopack/ntilde-Setup-win-x64-$tag.exe"
 
           Write-Host "Velopack output:"
           Get-ChildItem artifacts/velopack | Select-Object Name, Length | Format-Table
@@ -922,11 +922,11 @@ jobs:
           # release legitimately produces no delta, so flipping it would break exactly the
           # case it is meant to protect. The signal belongs here instead, where "was a delta
           # expected?" is known from GitHub rather than guessed from an empty directory.
-          if (-not (Test-Path "artifacts/velopack/NovaTerminalApp-$ver-full.nupkg")) {
-            throw "vpk pack produced no NovaTerminalApp-$ver-full.nupkg - the update feed would be unusable."
+          if (-not (Test-Path "artifacts/velopack/NtildeApp-$ver-full.nupkg")) {
+            throw "vpk pack produced no NtildeApp-$ver-full.nupkg - the update feed would be unusable."
           }
-          if ($expectDelta -and -not (Test-Path "artifacts/velopack/NovaTerminalApp-$ver-delta.nupkg")) {
-            throw "A prior Velopack release exists but vpk pack produced no NovaTerminalApp-$ver-delta.nupkg - delta generation silently failed."
+          if ($expectDelta -and -not (Test-Path "artifacts/velopack/NtildeApp-$ver-delta.nupkg")) {
+            throw "A prior Velopack release exists but vpk pack produced no NtildeApp-$ver-delta.nupkg - delta generation silently failed."
           }
 
       # Known and benign: the uploaded releases.win.json lists the PREVIOUS release's full
@@ -944,19 +944,19 @@ jobs:
       # clients on the previous version are actually reading.
       #
       # The version-scoped globs below are what keep stale nupkgs from being re-UPLOADED onto
-      # this release; do not broaden them to `NovaTerminalApp-*.nupkg`.
+      # this release; do not broaden them to `NtildeApp-*.nupkg`.
       - name: Upload Windows installer and update feed
         if: matrix.rid == 'win-x64'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: |
-            artifacts/velopack/NovaTerminal-Setup-win-x64-${{ needs.release_metadata.outputs.release_tag }}.exe
-            artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-full.nupkg
-            artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-delta.nupkg
+            artifacts/velopack/ntilde-Setup-win-x64-${{ needs.release_metadata.outputs.release_tag }}.exe
+            artifacts/velopack/NtildeApp-${{ needs.release_metadata.outputs.release_version }}-full.nupkg
+            artifacts/velopack/NtildeApp-${{ needs.release_metadata.outputs.release_version }}-delta.nupkg
             artifacts/velopack/releases.win.json
 
-      # ---- macOS installer + update feed. osx-arm64 only. vpk builds NovaTerminal.app
+      # ---- macOS installer + update feed. osx-arm64 only. vpk builds Ntilde.app
       # ---- from the raw publish directory (generated Info.plist, .icns into
       # ---- Contents/Resources, everything else into Contents/MacOS — which is what the
       # ---- app's AppContext.BaseDirectory resource lookups expect), a .pkg installer,
@@ -966,7 +966,7 @@ jobs:
       # ---- upload into the same GitHub release without collisions.
       - name: Generate macOS app icon (.icns)
         if: matrix.rid == 'osx-arm64'
-        run: packaging/macos/make-icns.sh src/NovaTerminal.App/Assets/nova_icon.png artifacts/icon/nova_icon.icns
+        run: packaging/macos/make-icns.sh src/Ntilde.App/Assets/ntilde_icon.png artifacts/icon/ntilde_icon.icns
 
       - name: Pack macOS installer (Velopack)
         if: matrix.rid == 'osx-arm64'
@@ -1025,18 +1025,18 @@ jobs:
 
           # Same re-run idempotency as the Windows lane: `vpk download github` picks the
           # max-version osx full, which for an already-published tag is the tag's OWN
-          # NovaTerminalApp-$ver-osx-full.nupkg — and `vpk pack` then hard-fails with
+          # NtildeApp-$ver-osx-full.nupkg — and `vpk pack` then hard-fails with
           # "There is a release in channel osx which is equal or greater to the current
           # version". Drop this version's own artifacts first.
-          rm -f artifacts/velopack/NovaTerminalApp-"$ver"-osx-*.nupkg
+          rm -f artifacts/velopack/NtildeApp-"$ver"-osx-*.nupkg
 
           # packId matches the Windows lane deliberately: it is the updater's application
           # identity. On macOS it only names the update cache
-          # (~/Library/Caches/velopack/NovaTerminalApp); the app itself installs as
-          # /Applications/NovaTerminal.app, so the Windows uninstall-hazard (packId == the
+          # (~/Library/Caches/velopack/NtildeApp); the app itself installs as
+          # /Applications/Ntilde.app, so the Windows uninstall-hazard (packId == the
           # config root) does not apply here. --bundleId: vpk's default would be
-          # com.benyblack.NovaTerminalApp; this matches the public identity (winget:
-          # benyblack.NovaTerminal) instead.
+          # com.benyblack.NtildeApp; this matches the public identity (winget:
+          # benyblack.ntilde) instead.
           #
           # Signing is secret-gated (the keychain is set up at the top of this job):
           # when that step ran, vpk signs the app bundle and dylibs (deep signing), signs
@@ -1046,13 +1046,13 @@ jobs:
           # unsigned; the app still runs, because on arm64 the linker ad-hoc-signs the
           # AOT binary and the Rust dylibs. Details: packaging/macos/README.md.
           #
-          # StripSymbols=true leaves a ~94 MB NovaTerminal.dSYM beside the binary (3x the
+          # StripSymbols=true leaves a ~94 MB Ntilde.dSYM beside the binary (3x the
           # binary's own size). Delete it at the source AND exclude it in vpk: deletion
           # keeps empty dSYM directory skeletons out of the bundle entirely, --exclude
           # (vpk's built-in default exclusion only covers Windows .pdb files) is
           # defense-in-depth. Nothing else consumes the symbols - the raw publish-dir zip
           # this dSYM used to ship in no longer exists for macOS.
-          rm -rf artifacts/publish/osx-arm64/NovaTerminal.dSYM
+          rm -rf artifacts/publish/osx-arm64/Ntilde.dSYM
           # The +guarded expansion keeps an empty array valid under set -u even if the
           # runner resolves shell: bash to macOS's 3.2 /bin/bash.
           sign_args=()
@@ -1065,36 +1065,36 @@ jobs:
             )
           fi
           vpk pack \
-            --packId NovaTerminalApp \
+            --packId NtildeApp \
             --packVersion "$ver" \
             --packDir artifacts/publish/osx-arm64 \
-            --mainExe NovaTerminal \
-            --packTitle NovaTerminal \
+            --mainExe Ntilde \
+            --packTitle Ntilde \
             --packAuthors benyblack \
-            --bundleId com.benyblack.NovaTerminal \
-            --icon artifacts/icon/nova_icon.icns \
-            --exclude 'NovaTerminal\.dSYM' \
+            --bundleId com.benyblack.Ntilde \
+            --icon artifacts/icon/ntilde_icon.icns \
+            --exclude 'Ntilde\.dSYM' \
             --outputDir artifacts/velopack \
             ${sign_args[@]+"${sign_args[@]}"}
 
           # The installer's and the zip's file names are ours to choose — nothing
           # resolves them by name. The zip keeps the exact name the raw publish
           # directory used to ship under, so existing download links keep working;
-          # its content is now the NovaTerminal.app bundle instead of loose files.
+          # its content is now the Ntilde.app bundle instead of loose files.
           # Matched by glob because vpk includes the channel in the names it produces.
           setup_pkg=$(ls artifacts/velopack/*-osx-Setup.pkg 2>/dev/null | head -n 1 || true)
           if [[ -z "$setup_pkg" ]]; then
             echo "vpk pack produced no -osx-Setup.pkg" >&2
             exit 1
           fi
-          mv "$setup_pkg" "artifacts/velopack/NovaTerminal-Setup-osx-arm64-$tag.pkg"
+          mv "$setup_pkg" "artifacts/velopack/ntilde-Setup-osx-arm64-$tag.pkg"
 
           portable_zip=$(ls artifacts/velopack/*-osx-Portable.zip 2>/dev/null | head -n 1 || true)
           if [[ -z "$portable_zip" ]]; then
             echo "vpk pack produced no -osx-Portable.zip" >&2
             exit 1
           fi
-          mv "$portable_zip" "artifacts/velopack/NovaTerminal-osx-arm64-$tag.zip"
+          mv "$portable_zip" "artifacts/velopack/ntilde-osx-arm64-$tag.zip"
 
           echo "Velopack output:"
           ls -l artifacts/velopack
@@ -1102,12 +1102,12 @@ jobs:
           # Assert here rather than at the upload step, for the same reason as the
           # Windows lane: the first mac release legitimately produces no delta, so
           # fail_on_unmatched_files must stay permissive and the signal belongs here.
-          if [[ ! -f "artifacts/velopack/NovaTerminalApp-$ver-osx-full.nupkg" ]]; then
-            echo "vpk pack produced no NovaTerminalApp-$ver-osx-full.nupkg - the osx update feed would be unusable." >&2
+          if [[ ! -f "artifacts/velopack/NtildeApp-$ver-osx-full.nupkg" ]]; then
+            echo "vpk pack produced no NtildeApp-$ver-osx-full.nupkg - the osx update feed would be unusable." >&2
             exit 1
           fi
-          if (( expect_delta )) && [[ ! -f "artifacts/velopack/NovaTerminalApp-$ver-osx-delta.nupkg" ]]; then
-            echo "A prior Velopack osx release exists but vpk pack produced no NovaTerminalApp-$ver-osx-delta.nupkg - delta generation silently failed." >&2
+          if (( expect_delta )) && [[ ! -f "artifacts/velopack/NtildeApp-$ver-osx-delta.nupkg" ]]; then
+            echo "A prior Velopack osx release exists but vpk pack produced no NtildeApp-$ver-osx-delta.nupkg - delta generation silently failed." >&2
             exit 1
           fi
 
@@ -1122,10 +1122,10 @@ jobs:
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: |
-            artifacts/velopack/NovaTerminal-Setup-osx-arm64-${{ needs.release_metadata.outputs.release_tag }}.pkg
-            artifacts/velopack/NovaTerminal-osx-arm64-${{ needs.release_metadata.outputs.release_tag }}.zip
-            artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-osx-full.nupkg
-            artifacts/velopack/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-osx-delta.nupkg
+            artifacts/velopack/ntilde-Setup-osx-arm64-${{ needs.release_metadata.outputs.release_tag }}.pkg
+            artifacts/velopack/ntilde-osx-arm64-${{ needs.release_metadata.outputs.release_tag }}.zip
+            artifacts/velopack/NtildeApp-${{ needs.release_metadata.outputs.release_version }}-osx-full.nupkg
+            artifacts/velopack/NtildeApp-${{ needs.release_metadata.outputs.release_version }}-osx-delta.nupkg
             artifacts/velopack/releases.osx.json
 
   # ===========================================================================
@@ -1148,7 +1148,7 @@ jobs:
   # made the identical split for the identical reason.
   #
   # ORDERING IS THE POINT OF THIS REWRITE. The lane this replaces uploaded
-  # NovaTerminal-linux-x64-<tag>.zip from publish_aot's `Upload release asset` step -
+  # ntilde-linux-x64-<tag>.zip from publish_aot's `Upload release asset` step -
   # before anything had packed, let alone launched, anything. Now every asset for a
   # given architecture is produced, asserted, and smoke-launched in a bare
   # ubuntu:22.04 container before a single byte reaches the release.
@@ -1410,7 +1410,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
+          path: src/Ntilde.App/native
 
       - name: Restore
         run: dotnet restore
@@ -1426,14 +1426,14 @@ jobs:
           RELEASE_VERSION: ${{ needs.release_metadata.outputs.release_version }}
         run: |
           set -euo pipefail
-          dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj \
+          dotnet publish src/Ntilde.App/Ntilde.App.csproj \
             -c "$CONFIGURATION" -r ${{ matrix.rid }} --self-contained true \
             -p:PublishAot=true -p:SkipCliShim=true \
             "-p:Version=$RELEASE_VERSION" "-p:InformationalVersion=$RELEASE_VERSION" \
             -o artifacts/publish/${{ matrix.rid }}
 
       # BEFORE anything packages this directory, not after. StripSymbols=true
-      # (NovaTerminal.App.csproj) emits a ~79 MB NovaTerminal.dbg beside the AOT
+      # (Ntilde.App.csproj) emits a ~79 MB Ntilde.dbg beside the AOT
       # binary - larger than the binary itself - and every consumer below reads this
       # same directory: the tarball, the .deb, and vpk's full/delta nupkgs. Deleting
       # once at the source is why the tarball is not triple-sized; build-deb.sh does
@@ -1449,11 +1449,11 @@ jobs:
 
           # A PTY-LESS BUNDLE OTHERWISE PASSES THIS ENTIRE LANE GREEN. Both Content
           # items that place these are `Condition="... and Exists(...)"`
-          # (NovaTerminal.App.csproj:387-405), so a native library that did not survive
+          # (Ntilde.App.csproj:387-405), so a native library that did not survive
           # the cross-job artifact hop is not an error - the item is simply DROPPED, and
           # the csproj comment at :73-77 says what happens next: "the app ships with no
           # PTY". Nothing downstream would notice:
-          #   - build-deb.sh:47 preflights only the NovaTerminal binary;
+          #   - build-deb.sh:47 preflights only the Ntilde binary;
           #   - smoke-test.sh:87-88 derives its expected ELF count FROM THE FILES
           #     PRESENT (`so_total + 1`), so a bundle with one fewer .so just expects
           #     one fewer .so and passes;
@@ -1469,7 +1469,7 @@ jobs:
             test -f "$pubdir/$lib" || {
               echo "FATAL: $lib is missing from $pubdir." >&2
               echo "The csproj Content item for it is Exists()-conditional, so this did NOT fail the publish - it silently shipped a bundle without it. librusty_pty.so missing means no PTY at all." >&2
-              echo "Check that build_native_linux's artifact (native-${{ matrix.os }}) unpacked into src/NovaTerminal.App/native with its directory layout intact: librusty_pty.so is consumed from native/target_linux/release/ and librusty_ssh.so from native/rusty_ssh/target/release/." >&2
+              echo "Check that build_native_linux's artifact (native-${{ matrix.os }}) unpacked into src/Ntilde.App/native with its directory layout intact: librusty_pty.so is consumed from native/target_linux/release/ and librusty_ssh.so from native/rusty_ssh/target/release/." >&2
               exit 1
             }
             echo "ok: $lib present ($(stat -c '%s bytes, mode %a' "$pubdir/$lib"))"
@@ -1492,13 +1492,13 @@ jobs:
       - name: Show derived Depends
         run: |
           set -euo pipefail
-          deb="$(ls artifacts/deb/novaterminal_*_${{ matrix.debarch }}.deb | head -1)"
+          deb="$(ls artifacts/deb/ntilde_*_${{ matrix.debarch }}.deb | head -1)"
           echo "$deb"
           dpkg-deb -f "$deb" Depends
 
       - name: Archive tarball
         # tar, NOT Compress-Archive. System.IO.Compression cannot write Unix mode
-        # bits, so the zip this replaces shipped a NovaTerminal binary with no
+        # bits, so the zip this replaces shipped a Ntilde binary with no
         # executable bit and every user had to chmod +x before first launch. That is
         # the original bug, so the exec bit is asserted rather than assumed.
         env:
@@ -1507,7 +1507,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/release
-          tarball="artifacts/release/NovaTerminal-$RID-$RELEASE_TAG.tar.gz"
+          tarball="artifacts/release/ntilde-$RID-$RELEASE_TAG.tar.gz"
           tar -czf "$tarball" -C "artifacts/publish/$RID" .
           # Capture first, then match: `tar | grep` would hide a tar failure behind
           # grep's status, which is the vacuous-check shape this branch has already
@@ -1520,13 +1520,13 @@ jobs:
           # so nothing has ever printed what `dotnet publish` emits for the AOT binary,
           # and this step first executes on a real tag. build-deb.sh is the evidence
           # that 0755 is an assumption rather than a fact - at :185-191 it chmods the
-          # whole bundle to 0644 and then RE-ASSERTS 0755 on NovaTerminal specifically,
+          # whole bundle to 0644 and then RE-ASSERTS 0755 on Ntilde specifically,
           # which is only necessary because the publish directory's modes are not
           # trusted. A stricter regex would therefore risk a false red on the
           # publishing lane - the worst possible place for one - while catching nothing
           # the loose one misses.
-          grep -qE '^-rwx.* \./NovaTerminal$' <<<"$listing" \
-            || { echo "tarball lost the executable bit on NovaTerminal - this is the bug the zip had" >&2
+          grep -qE '^-rwx.* \./Ntilde$' <<<"$listing" \
+            || { echo "tarball lost the executable bit on Ntilde - this is the bug the zip had" >&2
                  # `head -40 <<<...`, not `echo ... | head -40`: a here-string is
                  # a temp file bash has already written in full, so head reads a
                  # finished file rather than closing a pipe on a live writer -
@@ -1535,10 +1535,10 @@ jobs:
                  head -40 <<<"$listing" >&2
                  exit 1; }
           if grep -q '\.dbg$' <<<"$listing"; then
-            echo "NovaTerminal.dbg leaked into the tarball - the Strip debug symbols step did not run, or ran too late" >&2
+            echo "Ntilde.dbg leaked into the tarball - the Strip debug symbols step did not run, or ran too late" >&2
             exit 1
           fi
-          echo "ok: tarball preserved the exec bit on ./NovaTerminal and carries no .dbg"
+          echo "ok: tarball preserved the exec bit on ./Ntilde and carries no .dbg"
 
       # Pinned to 1.2.0, in lockstep with Directory.Packages.props and the other
       # install sites in these workflows.
@@ -1564,7 +1564,7 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/linux
           vpk download github \
-            --repoUrl https://github.com/benyblack/NovaTerminal \
+            --repoUrl https://github.com/benyblack/ntilde \
             --token "$GH_TOKEN" \
             --channel "$RID" \
             --outputDir artifacts/linux
@@ -1583,7 +1583,7 @@ jobs:
           # The channel and the RID are intentionally the same string, so this is
           # correct by construction rather than by coincidence. It must keep matching
           # VelopackUpdateService.ResolveExplicitChannel
-          # (src/NovaTerminal.App/Update/VelopackUpdateService.cs); never the platform
+          # (src/Ntilde.App/Update/VelopackUpdateService.cs); never the platform
           # default 'linux', because a Velopack feed is per-channel and one shared
           # 'linux' channel would offer arm64 clients an x64 package.
           channel="$RID"
@@ -1663,40 +1663,40 @@ jobs:
           # fails with "There is a release in channel <c> which is equal or greater to
           # the current version". This workflow supports workflow_dispatch re-runs by
           # design, so dropping this version's own artifacts first is required.
-          rm -f artifacts/linux/NovaTerminalApp-"$ver"-"$channel"-*.nupkg
+          rm -f artifacts/linux/NtildeApp-"$ver"-"$channel"-*.nupkg
 
-          # --packId NovaTerminalApp, matching the win and osx lanes: it is the
-          # updater's application identity and must not be "tidied" to NovaTerminal
+          # --packId NtildeApp, matching the win and osx lanes: it is the
+          # updater's application identity and must not be "tidied" to Ntilde
           # (see the Windows lane's long comment on the uninstall hazard).
           # One --exclude, not two: `vpk pack --help` documents it as a single REGEX,
           # so both patterns are one alternation. mksquashfs (squashfs-tools) is a hard
           # prerequisite - a type-2 AppImage IS a squashfs image.
           vpk pack \
-            --packId NovaTerminalApp \
+            --packId NtildeApp \
             --packVersion "$ver" \
             --packDir "artifacts/publish/$RID" \
-            --mainExe NovaTerminal \
-            --packTitle NovaTerminal \
+            --mainExe Ntilde \
+            --packTitle Ntilde \
             --packAuthors benyblack \
             --channel "$channel" \
-            --icon src/NovaTerminal.App/Assets/nova_icon.png \
-            --exclude '.*\.pdb|NovaTerminal\.dbg' \
+            --icon src/Ntilde.App/Assets/ntilde_icon.png \
+            --exclude '.*\.pdb|Ntilde\.dbg' \
             --outputDir artifacts/linux
 
           echo "Velopack output:"
           ls -l artifacts/linux
 
-          test -f "artifacts/linux/NovaTerminalApp-$ver-$channel-full.nupkg" \
-            || { echo "vpk pack produced no NovaTerminalApp-$ver-$channel-full.nupkg - the $channel update feed would be unusable." >&2; exit 1; }
+          test -f "artifacts/linux/NtildeApp-$ver-$channel-full.nupkg" \
+            || { echo "vpk pack produced no NtildeApp-$ver-$channel-full.nupkg - the $channel update feed would be unusable." >&2; exit 1; }
           test -f "artifacts/linux/releases.$channel.json" \
             || { echo "vpk pack produced no releases.$channel.json" >&2; exit 1; }
-          if (( expect_delta )) && [[ ! -f "artifacts/linux/NovaTerminalApp-$ver-$channel-delta.nupkg" ]]; then
-            echo "A prior Velopack $channel release exists but vpk pack produced no NovaTerminalApp-$ver-$channel-delta.nupkg - delta generation silently failed." >&2
+          if (( expect_delta )) && [[ ! -f "artifacts/linux/NtildeApp-$ver-$channel-delta.nupkg" ]]; then
+            echo "A prior Velopack $channel release exists but vpk pack produced no NtildeApp-$ver-$channel-delta.nupkg - delta generation silently failed." >&2
             exit 1
           fi
 
           # vpk names the AppImage from packId plus channel with NO version in it -
-          # NovaTerminalApp-linux-x64.AppImage - so it is matched by glob and renamed
+          # NtildeApp-linux-x64.AppImage - so it is matched by glob and renamed
           # to the tagged asset name, as the macOS lane renames its .pkg and .zip.
           # Do not assume a version appears in vpk's own output name.
           appimage="$(ls artifacts/linux/*.AppImage 2>/dev/null | head -1 || true)"
@@ -1704,7 +1704,7 @@ jobs:
             echo "vpk pack produced no .AppImage (is squashfs-tools installed? mksquashfs is required)" >&2
             exit 1
           fi
-          mv "$appimage" "artifacts/release/NovaTerminal-$RID-$tag.AppImage"
+          mv "$appimage" "artifacts/release/ntilde-$RID-$tag.AppImage"
 
           # Stage everything the release will carry into ONE flat directory, because
           # that is both what smoke-test.sh takes as its argument and what the upload
@@ -1719,11 +1719,11 @@ jobs:
           # glob over a directory a downloader writes into, build-deb.sh gets its own
           # out-dir (argument 4, which it already takes) and this glob can only ever see
           # the .deb this run just built.
-          cp artifacts/deb/novaterminal_*_${{ matrix.debarch }}.deb artifacts/release/
-          cp "artifacts/linux/NovaTerminalApp-$ver-$channel-full.nupkg" artifacts/release/
+          cp artifacts/deb/ntilde_*_${{ matrix.debarch }}.deb artifacts/release/
+          cp "artifacts/linux/NtildeApp-$ver-$channel-full.nupkg" artifacts/release/
           cp "artifacts/linux/releases.$channel.json" artifacts/release/
-          if [[ -f "artifacts/linux/NovaTerminalApp-$ver-$channel-delta.nupkg" ]]; then
-            cp "artifacts/linux/NovaTerminalApp-$ver-$channel-delta.nupkg" artifacts/release/
+          if [[ -f "artifacts/linux/NtildeApp-$ver-$channel-delta.nupkg" ]]; then
+            cp "artifacts/linux/NtildeApp-$ver-$channel-delta.nupkg" artifacts/release/
           fi
           echo "Staged for release:"
           ls -l artifacts/release
@@ -1741,10 +1741,10 @@ jobs:
           set -euo pipefail
           cd artifacts/release
           ls -la
-          test -f "NovaTerminal-$RID-$RELEASE_TAG.AppImage" || { echo "no AppImage" >&2; exit 1; }
-          test -f "NovaTerminal-$RID-$RELEASE_TAG.tar.gz" || { echo "no tarball" >&2; exit 1; }
-          test -n "$(ls ./novaterminal_*_${{ matrix.debarch }}.deb 2>/dev/null)" || { echo "no ${{ matrix.debarch }} .deb" >&2; exit 1; }
-          test -f "NovaTerminalApp-$RELEASE_VERSION-$RID-full.nupkg" || { echo "no $RID full nupkg" >&2; exit 1; }
+          test -f "ntilde-$RID-$RELEASE_TAG.AppImage" || { echo "no AppImage" >&2; exit 1; }
+          test -f "ntilde-$RID-$RELEASE_TAG.tar.gz" || { echo "no tarball" >&2; exit 1; }
+          test -n "$(ls ./ntilde_*_${{ matrix.debarch }}.deb 2>/dev/null)" || { echo "no ${{ matrix.debarch }} .deb" >&2; exit 1; }
+          test -f "NtildeApp-$RELEASE_VERSION-$RID-full.nupkg" || { echo "no $RID full nupkg" >&2; exit 1; }
           test -f "releases.$RID.json" || { echo "no releases.$RID.json" >&2; exit 1; }
           # No .dbg may appear in the full nupkg. `unzip` is preflighted and its
           # output captured BEFORE grepping: pipefail alone does not help, because a
@@ -1752,9 +1752,9 @@ jobs:
           # would pass green having checked nothing.
           command -v unzip >/dev/null \
             || { echo "unzip is not installed, so the .dbg leak assertion cannot run. Add it back to the container toolchain step - do not let this check silently no-op." >&2; exit 1; }
-          nupkg_listing="$(unzip -l "NovaTerminalApp-$RELEASE_VERSION-$RID-full.nupkg")"
+          nupkg_listing="$(unzip -l "NtildeApp-$RELEASE_VERSION-$RID-full.nupkg")"
           if grep -q '\.dbg' <<<"$nupkg_listing"; then
-            echo "NovaTerminal.dbg leaked into the $RID full nupkg" >&2
+            echo "Ntilde.dbg leaked into the $RID full nupkg" >&2
             exit 1
           fi
           echo "ok: all expected $RID assets present, no .dbg in the full nupkg"
@@ -1848,7 +1848,7 @@ jobs:
       #
       # WHY THESE ARE RELEASE ASSETS AT ALL: the AUR stopped accepting new accounts
       # in 2026 after three supply-chain attack waves, with no announced restoration
-      # date, so novaterminal-bin cannot be pushed there yet. Shipping the two files
+      # date, so ntilde-bin cannot be pushed there yet. Shipping the two files
       # an AUR repo would contain lets an Arch user run `makepkg -si` against them
       # today, and they are byte-for-byte what gets pushed when registration reopens.
       #
@@ -1920,7 +1920,7 @@ jobs:
           [[ -n "$RELEASE_TAG" ]] || { echo "no tag passed into the container" >&2; exit 1; }
           [[ "$TAG_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "no commit sha passed into the container" >&2; exit 1; }
           git config --global --add safe.directory /w
-          packaging/arch/build-arch.sh "$RELEASE_TAG" artifacts/aur --tarball "artifacts/release/NovaTerminal-linux-x64-$RELEASE_TAG.tar.gz" --source-ref "$TAG_COMMIT"
+          packaging/arch/build-arch.sh "$RELEASE_TAG" artifacts/aur --tarball "artifacts/release/ntilde-linux-x64-$RELEASE_TAG.tar.gz" --source-ref "$TAG_COMMIT"
           EOF
           cat /tmp/gen-aur.sh
           # Unprivileged: makepkg refuses to run as root, and .SRCINFO is the file
@@ -1953,11 +1953,11 @@ jobs:
           # assuming: a future refactor that passed --sha256 from somewhere else, or
           # pointed --tarball at a different path, would publish a PKGBUILD whose
           # integrity check fails for every user and for nobody here.
-          tarball_sha="$(sha256sum "artifacts/release/NovaTerminal-linux-x64-$RELEASE_TAG.tar.gz" | awk '{print $1}')"
+          tarball_sha="$(sha256sum "artifacts/release/ntilde-linux-x64-$RELEASE_TAG.tar.gz" | awk '{print $1}')"
           grep -q "sha256sums_x86_64=('$tarball_sha')" artifacts/aur/PKGBUILD \
             || { echo "::error::the generated PKGBUILD does not pin the tarball being published ($tarball_sha)" >&2; exit 1; }
-          grep -q "^pkgbase = novaterminal-bin$" artifacts/aur/.SRCINFO \
-            || { echo "::error::.SRCINFO is not a novaterminal-bin srcinfo" >&2; exit 1; }
+          grep -q "^pkgbase = ntilde-bin$" artifacts/aur/.SRCINFO \
+            || { echo "::error::.SRCINFO is not a ntilde-bin srcinfo" >&2; exit 1; }
           # Named for the tag, because a release page holds one flat namespace and
           # "PKGBUILD" alone says nothing about which version it builds.
           cp artifacts/aur/PKGBUILD "artifacts/release/PKGBUILD-$RELEASE_TAG"
@@ -1982,7 +1982,7 @@ jobs:
       # the PKGBUILD into the build directory, and makepkg skips downloading a source
       # already present while still validating its sha256 - verified against a real
       # makepkg with the release host replaced by an unreachable one ("-> Found
-      # NovaTerminal-linux-x64-v0.8.0.tar.gz", checksum passed). The other four
+      # ntilde-linux-x64-v0.8.0.tar.gz", checksum passed). The other four
       # sources come from raw.githubusercontent at the tag, which exists by now.
       #
       # This widens what can fail before any Linux asset publishes, deliberately:
@@ -1995,7 +1995,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x packaging/arch/*.sh packaging/linux/*.sh
-          cp "artifacts/release/NovaTerminal-linux-x64-$RELEASE_TAG.tar.gz" artifacts/aur/
+          cp "artifacts/release/ntilde-linux-x64-$RELEASE_TAG.tar.gz" artifacts/aur/
           packaging/arch/smoke-test.sh artifacts/aur
 
       # Only now. The .deb is globbed rather than named because build-deb.sh maps a
@@ -2019,11 +2019,11 @@ jobs:
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: |
-            artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.AppImage
-            artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.tar.gz
+            artifacts/release/ntilde-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.AppImage
+            artifacts/release/ntilde-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.tar.gz
             artifacts/release/*.deb
-            artifacts/release/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-${{ matrix.rid }}-full.nupkg
-            artifacts/release/NovaTerminalApp-${{ needs.release_metadata.outputs.release_version }}-${{ matrix.rid }}-delta.nupkg
+            artifacts/release/NtildeApp-${{ needs.release_metadata.outputs.release_version }}-${{ matrix.rid }}-full.nupkg
+            artifacts/release/NtildeApp-${{ needs.release_metadata.outputs.release_version }}-${{ matrix.rid }}-delta.nupkg
             artifacts/release/releases.${{ matrix.rid }}.json
             artifacts/release/PKGBUILD-${{ needs.release_metadata.outputs.release_tag }}
             artifacts/release/SRCINFO-${{ needs.release_metadata.outputs.release_tag }}
@@ -2033,7 +2033,7 @@ jobs:
   # runs only on real tag pushes and only when the WINGET_PAT secret is set.
   #
   # wingetcreate re-downloads the asset, recomputes the SHA256, and updates the
-  # latest manifest from winget-pkgs — so it requires benyblack.NovaTerminal to
+  # latest manifest from winget-pkgs — so it requires benyblack.ntilde to
   # ALREADY exist there. Bootstrap the first version manually (see
   # packaging/winget/README.md); subsequent releases flow through this job.
   submit_winget:
@@ -2063,6 +2063,6 @@ jobs:
           }
           $tag = $env:RELEASE_TAG
           $ver = $tag.TrimStart('v')
-          $url = "https://github.com/benyblack/NovaTerminal/releases/download/$tag/NovaTerminal-win-x64-$tag.zip"
+          $url = "https://github.com/benyblack/ntilde/releases/download/$tag/ntilde-win-x64-$tag.zip"
           Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
-          ./wingetcreate.exe update benyblack.NovaTerminal --version $ver --urls "$url" --submit --token $env:WINGET_PAT
+          ./wingetcreate.exe update benyblack.ntilde --version $ver --urls "$url" --submit --token $env:WINGET_PAT

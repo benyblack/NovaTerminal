@@ -1,7 +1,7 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     /// <summary>
     /// Guards the #126 gating rule: the cursor-blink timer must only run when the cursor is

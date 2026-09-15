@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public sealed class WorkspacePolicyHooks
     {

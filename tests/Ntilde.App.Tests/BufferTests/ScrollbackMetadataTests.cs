@@ -1,11 +1,11 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using Xunit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.VT.Storage;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.VT.Storage;
 
-namespace NovaTerminal.Tests.BufferTests
+namespace Ntilde.Tests.BufferTests
 {
     /// <summary>
     /// Tests for extended text and hyperlink preservation in paged scrollback.
@@ -14,8 +14,8 @@ namespace NovaTerminal.Tests.BufferTests
     {
         // #95 gap 2: hyperlinks carry identity now, not a bare URI. Build them through the registry, the
         // same way the parser does, rather than reaching for an internal constructor.
-        private static readonly NovaTerminal.VT.Links.HyperlinkRegistry Registry = new();
-        private static NovaTerminal.VT.Links.Hyperlink Link(string uri) => Registry.Resolve(null, uri)!;
+        private static readonly Ntilde.VT.Links.HyperlinkRegistry Registry = new();
+        private static Ntilde.VT.Links.Hyperlink Link(string uri) => Registry.Resolve(null, uri)!;
 
         [Fact]
         public void AppendRow_WithExtendedText_IsRetained()
@@ -44,7 +44,7 @@ namespace NovaTerminal.Tests.BufferTests
             var pool = new TerminalPagePool();
             var scrollback = new ScrollbackPages(10, pool, maxScrollbackBytes: 16L * 1024 * 1024);
 
-            var links = new SmallMap<NovaTerminal.VT.Links.Hyperlink>();
+            var links = new SmallMap<Ntilde.VT.Links.Hyperlink>();
             links.Set(5, Link("https://example.com"));
 
             var row = new TerminalCell[10];
@@ -75,7 +75,7 @@ namespace NovaTerminal.Tests.BufferTests
             scrollback.AppendRow(row);
 
             // Row 2: hyperlink in col 3
-            var links2 = new SmallMap<NovaTerminal.VT.Links.Hyperlink>(); links2.Set(3, Link("https://nova.dev"));
+            var links2 = new SmallMap<Ntilde.VT.Links.Hyperlink>(); links2.Set(3, Link("https://ntilde.dev"));
             scrollback.AppendRow(row, false, hyperlinks: links2);
 
             Assert.Equal(3, scrollback.Count);
@@ -91,7 +91,7 @@ namespace NovaTerminal.Tests.BufferTests
             var m2 = scrollback.GetHyperlinkMap(2);
             Assert.NotNull(m2);
             Assert.True(m2!.TryGet(3, out var u2));
-            Assert.Equal("https://nova.dev", u2!.Uri);
+            Assert.Equal("https://ntilde.dev", u2!.Uri);
 
             pool.Clear();
         }
@@ -163,7 +163,7 @@ namespace NovaTerminal.Tests.BufferTests
             page.SetExtendedTextFromMap(0, extMap);
 
             // Row 1: hyperlink — build map separately and attach
-            var linkMap = new SmallMap<NovaTerminal.VT.Links.Hyperlink>();
+            var linkMap = new SmallMap<Ntilde.VT.Links.Hyperlink>();
             linkMap.Set(9, Link("http://test.io"));
             page.SetHyperlinkFromMap(1, linkMap);
 

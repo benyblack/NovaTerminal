@@ -1,6 +1,6 @@
-using NovaTerminal.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Native;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public sealed class NativeKnownHostsStoreTests
 {
@@ -64,7 +64,7 @@ public sealed class NativeKnownHostsStoreTests
 
     private static string CreateTempDirectory()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"nova_known_hosts_test_{Guid.NewGuid():N}");
+        string path = Path.Combine(Path.GetTempPath(), $"ntilde_known_hosts_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
     }

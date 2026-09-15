@@ -1,7 +1,7 @@
 using System.Text.Json;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 public sealed class TabStripSettingsTests
 {

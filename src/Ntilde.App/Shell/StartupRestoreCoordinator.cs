@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 public sealed class StartupRestoreCoordinator
 {

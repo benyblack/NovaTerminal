@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 
-namespace NovaTerminal.Platform.Input
+namespace Ntilde.Platform.Input
 {
     public static class TextFileDetector
     {

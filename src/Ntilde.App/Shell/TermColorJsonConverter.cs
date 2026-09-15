@@ -2,9 +2,9 @@ using System;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Avalonia.Media;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public sealed class TermColorJsonConverter : JsonConverter<TermColor>
     {

@@ -1,8 +1,8 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public class VaultServiceSshKeyTests
 {
@@ -109,7 +109,7 @@ public class VaultServiceSshKeyTests
     [Fact]
     public void VaultInstances_SharingAStore_SeeAndRemoveEachOthersSecrets()
     {
-        var store = new NovaTerminal.Shell.Secrets.InMemorySecretStore();
+        var store = new Ntilde.Shell.Secrets.InMemorySecretStore();
         TerminalProfile profile = CreateProfile();
 
         var writer = new VaultService(store);

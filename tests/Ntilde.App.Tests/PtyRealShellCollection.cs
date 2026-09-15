@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     /// <summary>
     /// Serializes every test class that spawns a real shell through a PTY.

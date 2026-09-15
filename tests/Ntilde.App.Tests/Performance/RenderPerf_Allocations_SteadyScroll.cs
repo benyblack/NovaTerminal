@@ -1,9 +1,9 @@
-using NovaTerminal.Tests.Performance.Infra;
+using Ntilde.Tests.Performance.Infra;
 using Avalonia.Headless.XUnit;
 using Xunit;
 
 
-namespace NovaTerminal.Tests.Performance
+namespace Ntilde.Tests.Performance
 {
     [Collection("RendererStatistics")]
     public class RenderPerf_Allocations_SteadyScroll

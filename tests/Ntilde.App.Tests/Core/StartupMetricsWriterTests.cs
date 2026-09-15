@@ -1,37 +1,37 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Text.Json;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class StartupMetricsWriterTests
 {
     [Fact]
     public void CreateFromEnvironment_DisabledFlag_ReturnsNull()
     {
-        string? previousEnabled = Environment.GetEnvironmentVariable("NOVATERM_STARTUP_METRICS");
-        string? previousOut = Environment.GetEnvironmentVariable("NOVATERM_STARTUP_METRICS_OUT");
+        string? previousEnabled = Environment.GetEnvironmentVariable("NTILDE_STARTUP_METRICS");
+        string? previousOut = Environment.GetEnvironmentVariable("NTILDE_STARTUP_METRICS_OUT");
 
         try
         {
-            Environment.SetEnvironmentVariable("NOVATERM_STARTUP_METRICS", null);
-            Environment.SetEnvironmentVariable("NOVATERM_STARTUP_METRICS_OUT", null);
+            Environment.SetEnvironmentVariable("NTILDE_STARTUP_METRICS", null);
+            Environment.SetEnvironmentVariable("NTILDE_STARTUP_METRICS_OUT", null);
 
             using StartupMetricsWriter? writer = StartupMetricsWriter.CreateFromEnvironment();
             Assert.Null(writer);
         }
         finally
         {
-            Environment.SetEnvironmentVariable("NOVATERM_STARTUP_METRICS", previousEnabled);
-            Environment.SetEnvironmentVariable("NOVATERM_STARTUP_METRICS_OUT", previousOut);
+            Environment.SetEnvironmentVariable("NTILDE_STARTUP_METRICS", previousEnabled);
+            Environment.SetEnvironmentVariable("NTILDE_STARTUP_METRICS_OUT", previousOut);
         }
     }
 
     [Fact]
     public void TryWriteSnapshot_WritesOneStructuredRecordPerLaunch()
     {
-        string tempDir = Path.Combine(Path.GetTempPath(), "novaterm-startup-tests", Guid.NewGuid().ToString("N"));
+        string tempDir = Path.Combine(Path.GetTempPath(), "ntilde-startup-tests", Guid.NewGuid().ToString("N"));
         string outPath = Path.Combine(tempDir, "startup_metrics.jsonl");
         Directory.CreateDirectory(tempDir);
 
@@ -73,7 +73,7 @@ public sealed class StartupMetricsWriterTests
     [Fact]
     public void TryWriteSnapshot_InvalidOutputPath_FailsSafely()
     {
-        string tempDir = Path.Combine(Path.GetTempPath(), "novaterm-startup-tests", Guid.NewGuid().ToString("N"));
+        string tempDir = Path.Combine(Path.GetTempPath(), "ntilde-startup-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
 
         try

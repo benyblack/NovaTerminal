@@ -1,7 +1,7 @@
 using System;
 using Microsoft.Win32.SafeHandles;
 
-namespace NovaTerminal.Platform.Ssh.Native;
+namespace Ntilde.Platform.Ssh.Native;
 
 // Owns a native SSH session registry id (returned by nova_ssh_connect). Passing
 // this to every session P/Invoke makes the marshaller AddRef before / Release

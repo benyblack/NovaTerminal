@@ -1,9 +1,9 @@
 using System;
 using System.IO;
 using System.Text;
-using NovaTerminal.Replay;
+using Ntilde.Replay;
 
-namespace NovaTerminal.Tests.Tools
+namespace Ntilde.Tests.Tools
 {
     public static class RecordingGenerator
     {
@@ -100,9 +100,9 @@ namespace NovaTerminal.Tests.Tools
 
             using var recorder = new PtyRecorder(path, 80, 24);
 
-            // \u1b[38;2;40;44;52m\u1b[48;2;152;195;121m \uf17c \u1b[38;2;152;195;121m\u1b[48;2;97;175;239m\ue0b0\u1b[38;2;40;44;52m \uf07c ~/nova \u1b[38;2;97;175;239m\u1b[49m\ue0b0\u1b[0m 
+            // \u1b[38;2;40;44;52m\u1b[48;2;152;195;121m \uf17c \u1b[38;2;152;195;121m\u1b[48;2;97;175;239m\ue0b0\u1b[38;2;40;44;52m \uf07c ~/ntilde \u1b[38;2;97;175;239m\u1b[49m\ue0b0\u1b[0m 
             // Simplified powerline-like sequence
-            string prompt = "\x1b[42;30m \uf17c Linux \x1b[44;32m\ue0b0\x1b[30m ~/nova \x1b[0;34m\ue0b0\x1b[0m ";
+            string prompt = "\x1b[42;30m \uf17c Linux \x1b[44;32m\ue0b0\x1b[30m ~/ntilde \x1b[0;34m\ue0b0\x1b[0m ";
             var data = Encoding.UTF8.GetBytes(prompt);
             recorder.RecordChunk(data, data.Length);
         }
@@ -226,7 +226,7 @@ namespace NovaTerminal.Tests.Tools
             using var recorder = new PtyRecorder(path, 80, 24);
 
             // Prompt on left, Time on right (column 70)
-            string prompt = "\x1b[1;1H\x1b[42;30m nova \x1b[44;32m\ue0b0\x1b[30m ~/projects \x1b[0;34m\ue0b0\x1b[0m ";
+            string prompt = "\x1b[1;1H\x1b[42;30m ntilde \x1b[44;32m\ue0b0\x1b[30m ~/projects \x1b[0;34m\ue0b0\x1b[0m ";
             string rightPart = "\x1b[1;70H\x1b[90m10:37:00\x1b[0m";
             string total = prompt + rightPart + "\x1b[1;20H"; // Cursor back to input area
 

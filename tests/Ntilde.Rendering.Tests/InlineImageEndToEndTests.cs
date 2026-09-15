@@ -1,10 +1,10 @@
 using System;
-using NovaTerminal.Rendering;
-using NovaTerminal.VT;
+using Ntilde.Rendering;
+using Ntilde.VT;
 using SkiaSharp;
 using Xunit;
 
-namespace NovaTerminal.Rendering.Tests;
+namespace Ntilde.Rendering.Tests;
 
 /// <summary>
 /// Decoder-wired end-to-end coverage for the inline image paths that reach

@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.Models;
+namespace Ntilde.CommandAssist.Models;
 
 /// <summary>
 /// Everything the fix heuristics get to see about a command that exited non-zero.

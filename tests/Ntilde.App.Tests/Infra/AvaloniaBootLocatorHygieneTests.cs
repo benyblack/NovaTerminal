@@ -2,7 +2,7 @@ using System.Threading;
 using Avalonia.Headless.XUnit;
 using Xunit;
 
-namespace NovaTerminal.Tests.Infra;
+namespace Ntilde.Tests.Infra;
 
 /// <summary>
 /// In-process canary for the <c>PlatformBoot</c> lane split.

@@ -1,12 +1,12 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
 using System;
 using System.Diagnostics;
 using Xunit;
 
 
-namespace NovaTerminal.Tests.Performance
+namespace Ntilde.Tests.Performance
 {
     public class LatencyTests
     {

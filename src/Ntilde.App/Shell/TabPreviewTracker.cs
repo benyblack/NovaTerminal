@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     /// <summary>
     /// Tracks the vertical tab sidebar's one-line output preview for a single tab, picking the

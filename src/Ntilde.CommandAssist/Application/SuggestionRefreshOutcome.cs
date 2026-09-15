@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// The result of one ranking pass, handed back to the controller on the dispatcher thread.

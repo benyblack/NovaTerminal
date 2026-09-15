@@ -2,16 +2,16 @@
 // Astro's `base` config prefixes Vite-managed assets automatically, but
 // `public/` references are passed through unchanged. We resolve them
 // against `import.meta.env.BASE_URL` so the deployed site works on the
-// project Pages URL (`/NovaTerminal/...`) without changing the source.
+// project Pages URL (`/Ntilde/...`) without changing the source.
 const basePrefix = (import.meta.env.BASE_URL ?? '/').endsWith('/')
   ? import.meta.env.BASE_URL
   : `${import.meta.env.BASE_URL}/`;
 const images = [
-  { src: `${basePrefix}screenshots/screen-1.png`, alt: 'NovaTerminal showing a multi-pane session with a code editor and a build pane' },
-  { src: `${basePrefix}screenshots/screen-2.png`, alt: 'NovaTerminal with the command palette open and a profile switcher' },
-  { src: `${basePrefix}screenshots/screen-3.png`, alt: 'A fullscreen TUI application running inside NovaTerminal' },
-  { src: `${basePrefix}screenshots/screen-4.png`, alt: 'NovaTerminal with the search overlay and tabs panel visible' },
-  { src: `${basePrefix}screenshots/screen-5.png`, alt: 'NovaTerminal showing inline graphics rendered in the terminal grid' },
+  { src: `${basePrefix}screenshots/screen-1.png`, alt: 'Ntilde showing a multi-pane session with a code editor and a build pane' },
+  { src: `${basePrefix}screenshots/screen-2.png`, alt: 'Ntilde with the command palette open and a profile switcher' },
+  { src: `${basePrefix}screenshots/screen-3.png`, alt: 'A fullscreen TUI application running inside Ntilde' },
+  { src: `${basePrefix}screenshots/screen-4.png`, alt: 'Ntilde with the search overlay and tabs panel visible' },
+  { src: `${basePrefix}screenshots/screen-5.png`, alt: 'Ntilde showing inline graphics rendered in the terminal grid' },
 ];
 ---
 
@@ -30,7 +30,7 @@ const images = [
         Built for the way you actually work.
       </h2>
       <p class="lede mt-4 max-w-2xl">
-        From quick REPL sessions to fullscreen TUIs, NovaTerminal keeps the
+        From quick REPL sessions to fullscreen TUIs, Ntilde keeps the
         same predictable behavior across operating systems.
       </p>
     </div>

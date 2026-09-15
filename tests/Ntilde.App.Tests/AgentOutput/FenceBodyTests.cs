@@ -4,12 +4,12 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
-using NovaTerminal.AgentOutput;
-using NovaTerminal.AgentOutput.Fences;
+using Ntilde.AgentOutput;
+using Ntilde.AgentOutput.Fences;
 using Avalonia.Headless.XUnit;
 using Xunit;
 
-namespace NovaTerminal.Tests.AgentOutput;
+namespace Ntilde.Tests.AgentOutput;
 
 /// <summary>
 /// The fence-body seam: which info strings resolve, and what each handler makes of a body.

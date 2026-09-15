@@ -21,10 +21,10 @@
   closing the "no B mark, so `ShellIntegrationEventType.CommandStarted` is dead code" gap.
   Because bash/zsh/pwsh emit `A` *before* the prompt is printed, `B` cannot come from the
   same hook — it has to sit at the tail of the prompt itself:
-  - **bash**: `\[\e]133;B\a\]` appended to `PS1`, re-applied from `__nova_arm` (last entry in
+  - **bash**: `\[\e]133;B\a\]` appended to `PS1`, re-applied from `__ntilde_arm` (last entry in
     the `PROMPT_COMMAND` chain, so themes that rewrite `PS1` there cannot drop it)
-  - **zsh**: `%{...%}`-wrapped suffix appended to `PROMPT`, re-applied from `__nova_precmd`
-  - **fish**: `fish_prompt` is copied to `__nova_user_fish_prompt` and re-defined as
+  - **zsh**: `%{...%}`-wrapped suffix appended to `PROMPT`, re-applied from `__ntilde_precmd`
+  - **fish**: `fish_prompt` is copied to `__ntilde_user_fish_prompt` and re-defined as
     "original, then `B`" (the `fish_prompt` *event* fires before the prompt renders, so it
     can only carry `A`)
   - **PowerShell**: appended to the string the wrapped `prompt` function returns (anything the
@@ -37,9 +37,9 @@
 
 ## Added In V2 Phase 1b
 
-`NovaTerminal.VT.GridQueryReader.TryReadCommandLine(buffer, mark, out GridCommandLine)` reads the
+`Ntilde.VT.GridQueryReader.TryReadCommandLine(buffer, mark, out GridCommandLine)` reads the
 live command line straight out of the grid: the cells from the newest `OSC 133;B` mark to the
-cursor. It lives in `NovaTerminal.VT` rather than the CommandAssist assembly the plan first
+cursor. It lives in `Ntilde.VT` rather than the CommandAssist assembly the plan first
 sketched, because the work is pure buffer walking (wrap flags, paged scrollback, wide-cell
 continuations, deferred autowrap) and the layering tests forbid CommandAssist from referencing
 VT; the App-side seam is the internal `TerminalPane.TryGetGridCommandLine`, which pairs the
@@ -436,10 +436,10 @@ which the parser does not currently make reachable.
 
 Injection is still local-only and always will be: `--rcfile`, `ZDOTDIR`, `XDG_CONFIG_HOME` and
 `-File` all die at the SSH boundary. What Phase 2b adds is the other half — the user installs the
-emitter on the remote host, and Nova consumes it exactly as it consumes a local one.
+emitter on the remote host, and Ntilde consumes it exactly as it consumes a local one.
 
-**The snippets.** `assets/shell-integration/nova-shell-integration.{sh,fish,ps1}`, embedded into
-`NovaTerminal.CommandAssist` and surfaced through `RemoteShellIntegrationSnippets` for the Settings
+**The snippets.** `assets/shell-integration/ntilde-shell-integration.{sh,fish,ps1}`, embedded into
+`Ntilde.CommandAssist` and surfaced through `RemoteShellIntegrationSnippets` for the Settings
 copy action. Three files, not four: the `.sh` dispatches on `$BASH_VERSION` / `$ZSH_VERSION` at load
 time and carries both wirings, because a user pasting a file should not first have to know which of
 the two they are on; fish gets its own because `case`, `$-`, `local`, function syntax and array
@@ -482,7 +482,7 @@ the heuristic path down, and a shell emitting a bare C forever would then have b
 (`CommandCaptureSource.ShellIntegration`), structured exit code and duration enrichment, grid-truth
 query state between B and C, insertion, Fix-mode command text, trusted overlay anchoring (already
 lifted in 2a). Kept off for every remote session regardless of marks:
-`FileSystemPathSuggestionProvider`, which completes against the machine Nova runs on and would offer
+`FileSystemPathSuggestionProvider`, which completes against the machine Ntilde runs on and would offer
 the user's laptop directories at a prompt sitting on a server. Everything keyed on the *session type*
 rather than on the marks — the conservative markless anchoring stack, the SSH-only anchor
 diagnostics, the pane-estimated-rows startup workaround — stays, because markless SSH remains a
@@ -502,7 +502,7 @@ hypotheses were on the table (the mark being invalidated after capture, or the t
 too late). Instrumented live, it was the first, and the mechanism is worth writing down because the
 "first prompt" framing is a symptom, not the rule.
 
-**Measured timeline** (probe logging on a real `pwsh` pane, isolated `NOVATERM_APPDATA_ROOT`):
+**Measured timeline** (probe logging on a real `pwsh` pane, isolated `NTILDE_APPDATA_ROOT`):
 
 ```
 t=233ms  InitializeSession cols=138 rows=45          (buffer generation 3)
@@ -576,7 +576,7 @@ two race. Reproduced live before and after this change, so it is pre-existing an
   `FileSystemPathSuggestionProvider` reads the local disk; completing the remote one needs a remote
   listing channel, which belongs to the remote-files sidebar rather than to Command Assist
 - the remote snippets are static text the user pastes, so they cannot be versioned or updated in
-  place: a host instrumented from an older Nova keeps whatever it was given. The marks are a stable
+  place: a host instrumented from an older Ntilde keeps whatever it was given. The marks are a stable
   contract, so this degrades to "an older snippet, still emitting the same four marks", but a future
   mark addition would need the user to re-copy
 - a remote shell that is neither bash, zsh, fish nor PowerShell (dash, ash, ksh, tcsh) gets nothing.

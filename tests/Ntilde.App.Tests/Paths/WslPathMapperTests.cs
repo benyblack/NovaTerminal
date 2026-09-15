@@ -2,10 +2,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Moq;
 using Xunit;
-using NovaTerminal.Platform.Paths;
-using NovaTerminal.Platform.Execution;
+using Ntilde.Platform.Paths;
+using Ntilde.Platform.Execution;
 
-namespace NovaTerminal.Tests.Paths
+namespace Ntilde.Tests.Paths
 {
     public class WslPathMapperTests
     {

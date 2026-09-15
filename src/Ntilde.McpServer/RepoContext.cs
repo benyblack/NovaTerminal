@@ -2,18 +2,18 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-namespace NovaTerminal.McpServer;
+namespace Ntilde.McpServer;
 
 /// <summary>
-/// Read-only, path-safe access to the NovaTerminal repository for the MCP Dev Companion.
+/// Read-only, path-safe access to the Ntilde repository for the MCP Dev Companion.
 /// Resolves the repo root once (env override or by walking up to the solution file) and
 /// constrains all file reads to the <c>docs/</c> subtree — no traversal, no arbitrary FS access,
 /// matching the server's read-only/local-only security model (#97).
 /// </summary>
 public sealed class RepoContext
 {
-    public const string RepoRootEnvVar = "NOVATERMINAL_REPO_ROOT";
-    private const string SolutionFileName = "NovaTerminal.sln";
+    public const string RepoRootEnvVar = "NTILDE_REPO_ROOT";
+    private const string SolutionFileName = "Ntilde.sln";
 
     /// <summary>Absolute path to the repo root, or null if it could not be located.</summary>
     public string? RepoRoot { get; }

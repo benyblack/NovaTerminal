@@ -1,12 +1,12 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.Collections.Generic;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using Xunit;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class StartupOrchestratorTests
 {
@@ -16,9 +16,9 @@ public sealed class StartupOrchestratorTests
     private static StartupRestoreCoordinator CreateCapturingCoordinator(List<Action> captured)
         => new(action => captured.Add(action));
 
-    private static NovaSession SessionWith(int tabCount, int activeIndex)
+    private static NtildeSession SessionWith(int tabCount, int activeIndex)
     {
-        var session = new NovaSession { ActiveTabIndex = activeIndex };
+        var session = new NtildeSession { ActiveTabIndex = activeIndex };
         for (int i = 0; i < tabCount; i++)
         {
             session.Tabs.Add(new TabSession { Title = $"tab-{i}" });

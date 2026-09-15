@@ -1,6 +1,6 @@
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// OSC 133;B (prompt end / start of user input) and the buffer position captured with it.

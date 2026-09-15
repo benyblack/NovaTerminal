@@ -1,4 +1,4 @@
-namespace NovaTerminal.Shell.Shortcuts;
+namespace Ntilde.Shell.Shortcuts;
 
 public enum ShortcutScope
 {

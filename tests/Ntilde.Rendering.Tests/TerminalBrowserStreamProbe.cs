@@ -1,11 +1,11 @@
 using System;
 using System.Text;
-using NovaTerminal.Rendering;
-using NovaTerminal.VT;
+using Ntilde.Rendering;
+using Ntilde.VT;
 using SkiaSharp;
 using Xunit;
 
-namespace NovaTerminal.Rendering.Tests;
+namespace Ntilde.Rendering.Tests;
 
 /// <summary>
 /// Offline reproduction of terminal-browser's frame wire shape: mode 2026 sync wrapper,

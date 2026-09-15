@@ -1,7 +1,7 @@
 using System;
 using System.ComponentModel;
 
-namespace NovaTerminal.AgentOutput;
+namespace Ntilde.AgentOutput;
 
 /// <summary>
 /// State of the per-pane Agent Output panel.

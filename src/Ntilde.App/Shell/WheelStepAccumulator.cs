@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     /// <summary>
     /// Accumulates fractional, high-resolution mouse-wheel deltas and emits whole

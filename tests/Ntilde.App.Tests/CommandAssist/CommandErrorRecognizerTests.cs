@@ -1,7 +1,7 @@
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// The Fix-mode recogniser table, exercised against the messages the tools actually print.
@@ -146,12 +146,12 @@ public sealed class CommandErrorRecognizerTests
     public async Task AScriptInTheCurrentDirectory_GetsTheDotSlashHint()
     {
         IReadOnlyList<CommandFixSuggestion> result = await Analyze(
-            "novarun.sh",
+            "ntilderun.sh",
             127,
             "bash",
-            "/usr/bin/bash: line 1: novarun.sh: command not found");
+            "/usr/bin/bash: line 1: ntilderun.sh: command not found");
 
-        Assert.Contains(result, item => item.SuggestedCommand == "./novarun.sh");
+        Assert.Contains(result, item => item.SuggestedCommand == "./ntilderun.sh");
     }
 
     [Fact]

@@ -1,9 +1,9 @@
 using System;
 using System.IO;
-using NovaTerminal.Shell;
-using NovaTerminal.Shell.Secrets;
+using Ntilde.Shell;
+using Ntilde.Shell.Secrets;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public class VaultServiceDisabledModeTests
 {
@@ -57,13 +57,13 @@ public class VaultServiceDisabledModeTests
     [Fact]
     public void DeleteLegacyVaultFile_RemovesFile_WhenPresent()
     {
-        string dir = Path.Combine(Path.GetTempPath(), "nova-legacy-" + Guid.NewGuid().ToString("N"));
+        string dir = Path.Combine(Path.GetTempPath(), "ntilde-legacy-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         string legacy = Path.Combine(dir, "vault.dat");
         File.WriteAllBytes(legacy, new byte[] { 1, 2, 3 });
         try
         {
-            NovaTerminal.Shell.Secrets.SecretStore.DeleteLegacyVaultFile(legacy);
+            Ntilde.Shell.Secrets.SecretStore.DeleteLegacyVaultFile(legacy);
             Assert.False(File.Exists(legacy));
         }
         finally
@@ -75,7 +75,7 @@ public class VaultServiceDisabledModeTests
     [Fact]
     public void DeleteLegacyVaultFile_DoesNotThrow_WhenAbsent()
     {
-        NovaTerminal.Shell.Secrets.SecretStore.DeleteLegacyVaultFile(
-            Path.Combine(Path.GetTempPath(), "nova-missing-" + Guid.NewGuid().ToString("N"), "vault.dat"));
+        Ntilde.Shell.Secrets.SecretStore.DeleteLegacyVaultFile(
+            Path.Combine(Path.GetTempPath(), "ntilde-missing-" + Guid.NewGuid().ToString("N"), "vault.dat"));
     }
 }

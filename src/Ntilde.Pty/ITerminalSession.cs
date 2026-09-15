@@ -1,7 +1,7 @@
 using System;
-using NovaTerminal.Replay;
+using Ntilde.Replay;
 
-namespace NovaTerminal.Pty
+namespace Ntilde.Pty
 {
     /// <summary>Raw input/output for a terminal session.</summary>
     public interface ITerminalIO

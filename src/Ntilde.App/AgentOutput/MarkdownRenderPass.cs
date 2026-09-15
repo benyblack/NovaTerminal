@@ -1,4 +1,4 @@
-namespace NovaTerminal.AgentOutput;
+namespace Ntilde.AgentOutput;
 
 /// <summary>Mutable state for one render pass of <see cref="MarkdownRenderer.Build"/>.</summary>
 /// <remarks>

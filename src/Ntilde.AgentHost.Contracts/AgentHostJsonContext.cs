@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace NovaTerminal.AgentHost.Contracts;
+namespace Ntilde.AgentHost.Contracts;
 
 /// <summary>
 /// Source-generated JSON context for every wire type on the control channel.

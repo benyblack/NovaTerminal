@@ -1,4 +1,4 @@
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class TabBehaviorTests
 {
@@ -12,7 +12,7 @@ public sealed class TabBehaviorTests
         bool isRightPressed,
         string expected)
     {
-        var action = NovaTerminal.MainWindow.ResolveTabHeaderPointerAction(isMiddlePressed, isRightPressed);
+        var action = Ntilde.MainWindow.ResolveTabHeaderPointerAction(isMiddlePressed, isRightPressed);
         Assert.Equal(expected, action.ToString());
     }
 
@@ -23,7 +23,7 @@ public sealed class TabBehaviorTests
         bool wasSelected,
         bool expected)
     {
-        bool shouldDefer = NovaTerminal.MainWindow.ShouldDeferTabContextMenuOpen(wasSelected);
+        bool shouldDefer = Ntilde.MainWindow.ShouldDeferTabContextMenuOpen(wasSelected);
         Assert.Equal(expected, shouldDefer);
     }
 
@@ -36,7 +36,7 @@ public sealed class TabBehaviorTests
         int[] expected = { 1, 2, 3, 4, 5, 0 };
         foreach (int next in expected)
         {
-            current = NovaTerminal.MainWindow.GetNextMruIndex(current, count, reverse: false);
+            current = Ntilde.MainWindow.GetNextMruIndex(current, count, reverse: false);
             Assert.Equal(next, current);
         }
     }
@@ -44,7 +44,7 @@ public sealed class TabBehaviorTests
     [Fact]
     public void GetNextMruIndex_Reverse_WrapsToTail()
     {
-        int next = NovaTerminal.MainWindow.GetNextMruIndex(0, 4, reverse: true);
+        int next = Ntilde.MainWindow.GetNextMruIndex(0, 4, reverse: true);
         Assert.Equal(3, next);
     }
 
@@ -55,14 +55,14 @@ public sealed class TabBehaviorTests
     [InlineData(0, 0)]
     public void GetNextMruIndex_InvalidInputs_ReturnMinusOne(int selectedIndex, int count)
     {
-        int next = NovaTerminal.MainWindow.GetNextMruIndex(selectedIndex, count, reverse: false);
+        int next = Ntilde.MainWindow.GetNextMruIndex(selectedIndex, count, reverse: false);
         Assert.Equal(-1, next);
     }
 
     [Fact]
     public void CountHiddenTabs_ComputesExpectedHiddenCount()
     {
-        int hidden = NovaTerminal.MainWindow.CountHiddenTabs(
+        int hidden = Ntilde.MainWindow.CountHiddenTabs(
             viewportWidth: 600,
             tabWidths: Enumerable.Repeat(120d, 20));
 
@@ -72,7 +72,7 @@ public sealed class TabBehaviorTests
     [Fact]
     public void CountHiddenTabs_UsesFallbackWidthWhenUnmeasured()
     {
-        int hidden = NovaTerminal.MainWindow.CountHiddenTabs(
+        int hidden = Ntilde.MainWindow.CountHiddenTabs(
             viewportWidth: 250,
             tabWidths: new[] { 100d, 0d, -1d });
 
@@ -98,46 +98,46 @@ public sealed class TabBehaviorTests
         int delta,
         int expected)
     {
-        int target = NovaTerminal.MainWindow.ComputeMoveTabIndex(currentIndex, count, delta);
+        int target = Ntilde.MainWindow.ComputeMoveTabIndex(currentIndex, count, delta);
         Assert.Equal(expected, target);
     }
 
     [Fact]
     public void GetTabHeaderViewportMargin_NonMac_UsesOnlyRightReservation()
     {
-        var margin = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(
+        var margin = Ntilde.MainWindow.GetTabHeaderViewportMargin(
             isMacOs: false,
             titleBarWidth: 0,
             titleBarRightMargin: 0);
 
         Assert.Equal(0, margin.Left);
-        Assert.Equal(NovaTerminal.MainWindow.MinimumTabHeaderRightReserve, margin.Right);
+        Assert.Equal(Ntilde.MainWindow.MinimumTabHeaderRightReserve, margin.Right);
     }
 
     [Fact]
     public void GetTabHeaderViewportMargin_Mac_AddsLeftReservation()
     {
-        var margin = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(
+        var margin = Ntilde.MainWindow.GetTabHeaderViewportMargin(
             isMacOs: true,
             titleBarWidth: 0,
             titleBarRightMargin: 0);
 
-        Assert.Equal(NovaTerminal.MainWindow.MacOsTrafficLightReserve, margin.Left);
-        Assert.Equal(NovaTerminal.MainWindow.MinimumTabHeaderRightReserve, margin.Right);
+        Assert.Equal(Ntilde.MainWindow.MacOsTrafficLightReserve, margin.Left);
+        Assert.Equal(Ntilde.MainWindow.MinimumTabHeaderRightReserve, margin.Right);
     }
 
     [Fact]
     public void GetTabHeaderViewportMargin_GrowsRightReservationToFitTitleBarActions()
     {
-        var margin = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(
+        var margin = Ntilde.MainWindow.GetTabHeaderViewportMargin(
             isMacOs: false,
             titleBarWidth: 360,
             titleBarRightMargin: 140);
 
         Assert.Equal(0, margin.Left);
         double expectedRight = Math.Max(
-            NovaTerminal.MainWindow.MinimumTabHeaderRightReserve,
-            Math.Ceiling(360 + 140 + NovaTerminal.MainWindow.TabHeaderViewportPadding));
+            Ntilde.MainWindow.MinimumTabHeaderRightReserve,
+            Math.Ceiling(360 + 140 + Ntilde.MainWindow.TabHeaderViewportPadding));
         Assert.Equal(expectedRight, margin.Right);
     }
 
@@ -148,27 +148,27 @@ public sealed class TabBehaviorTests
         // right reservation can drop below the Windows-sized MinimumTabHeaderRightReserve.
         // The viewport must trust the actual measurement; otherwise a visible gap appears
         // between the last tab and the right-side custom buttons.
-        var margin = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(
+        var margin = Ntilde.MainWindow.GetTabHeaderViewportMargin(
             isMacOs: true,
             titleBarWidth: 340,
             titleBarRightMargin: 8);
 
-        double expectedRight = Math.Ceiling(340 + 8 + NovaTerminal.MainWindow.TabHeaderViewportPadding);
+        double expectedRight = Math.Ceiling(340 + 8 + Ntilde.MainWindow.TabHeaderViewportPadding);
         Assert.Equal(expectedRight, margin.Right);
-        Assert.True(margin.Right < NovaTerminal.MainWindow.MinimumTabHeaderRightReserve);
+        Assert.True(margin.Right < Ntilde.MainWindow.MinimumTabHeaderRightReserve);
     }
 
     [Fact]
     public void TruncateTabLabel_TruncatesWithEllipsis()
     {
-        string value = NovaTerminal.MainWindow.TruncateTabLabel("abcdefgh", 6);
+        string value = Ntilde.MainWindow.TruncateTabLabel("abcdefgh", 6);
         Assert.Equal("abcde…", value);
     }
 
     [Fact]
     public void TruncateTabLabelWithSuffix_PreservesSuffixHint()
     {
-        string value = NovaTerminal.MainWindow.TruncateTabLabelWithSuffix(
+        string value = Ntilde.MainWindow.TruncateTabLabelWithSuffix(
             "this-is-a-very-long-tab-title",
             maxLength: 12,
             suffix: "~ab12");
@@ -187,7 +187,7 @@ public sealed class TabBehaviorTests
         bool isProtected,
         bool expected)
     {
-        bool skip = NovaTerminal.MainWindow.ShouldSkipTabWhenClosingOthers(isPinned, isProtected);
+        bool skip = Ntilde.MainWindow.ShouldSkipTabWhenClosingOthers(isPinned, isProtected);
         Assert.Equal(expected, skip);
     }
 
@@ -196,7 +196,7 @@ public sealed class TabBehaviorTests
     [InlineData(true, "Unpin Tab")]
     public void GetPinTabActionLabel_ReflectsPinnedState(bool isPinned, string expected)
     {
-        string label = NovaTerminal.MainWindow.GetPinTabActionLabel(isPinned);
+        string label = Ntilde.MainWindow.GetPinTabActionLabel(isPinned);
         Assert.Equal(expected, label);
     }
 
@@ -205,7 +205,7 @@ public sealed class TabBehaviorTests
     [InlineData(true, "Unprotect Tab")]
     public void GetProtectTabActionLabel_ReflectsProtectedState(bool isProtected, string expected)
     {
-        string label = NovaTerminal.MainWindow.GetProtectTabActionLabel(isProtected);
+        string label = Ntilde.MainWindow.GetProtectTabActionLabel(isProtected);
         Assert.Equal(expected, label);
     }
 }

@@ -1,4 +1,4 @@
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 /// <summary>Where a title bar catalog entry appears.</summary>
 public enum TitleBarItemState

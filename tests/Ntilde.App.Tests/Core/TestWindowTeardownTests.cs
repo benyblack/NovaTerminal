@@ -5,13 +5,13 @@ using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.AgentHost;
-using NovaTerminal.Controls;
-using NovaTerminal.Pty;
-using NovaTerminal.Shell;
+using Ntilde.AgentHost;
+using Ntilde.Controls;
+using Ntilde.Pty;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// That <see cref="TestMainWindowFactory.DisposeCreatedWindows"/> actually tears panes down, in
@@ -198,7 +198,7 @@ public sealed class TestWindowTeardownTests : IDisposable
             added.Length > 0,
             "Test setup failed: creating a window registered no new panes, so there is nothing for "
             + "the teardown assertion below to be about. The window's startup path built no "
-            + "TerminalPane synchronously - check that NOVATERM_APPDATA_ROOT is still redirected "
+            + "TerminalPane synchronously - check that NTILDE_APPDATA_ROOT is still redirected "
             + "to an empty scratch directory, since a saved session there sends the constructor "
             + "down the restore path instead of AddTab.");
 

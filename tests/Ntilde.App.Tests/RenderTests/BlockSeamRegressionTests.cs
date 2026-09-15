@@ -1,16 +1,16 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Rendering;
 using SkiaSharp;
 using System;
 using System.Collections.Concurrent;
 using System.Reflection;
 
-namespace NovaTerminal.Tests.RenderTests
+namespace Ntilde.Tests.RenderTests
 {
     public class BlockSeamRegressionTests
     {

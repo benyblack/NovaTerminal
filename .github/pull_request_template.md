@@ -1,5 +1,5 @@
 <!--
-Thanks for contributing to NovaTerminal.
+Thanks for contributing to Ntilde.
 
 Answer the questions below. "Not applicable" is a fine answer for a docs or
 tooling change — just say so rather than leaving a section blank, so the
@@ -22,7 +22,7 @@ Fixes #
        interprets VT semantics", or "none — docs only" -->
 
 - **Which module owns that invariant?**
-  <!-- See docs/MODULE_OWNERSHIP.md. e.g. NovaTerminal.VT -->
+  <!-- See docs/MODULE_OWNERSHIP.md. e.g. Ntilde.VT -->
 
 ## Tests
 
@@ -34,7 +34,7 @@ Fixes #
   <!-- A bare `scripts/build.sh test` applies no filter and runs everything. But
        CI's gating job EXCLUDES Replay, RenderMetrics, PtySmoke, Stress and
        GoldenSharedPng (each gets a dedicated job), and
-       tests/NovaTerminal.App.Tests is NON-BLOCKING there (#81) — so a failure in
+       tests/Ntilde.App.Tests is NON-BLOCKING there (#81) — so a failure in
        it will not turn the check red. If your change touches either area, run it
        locally and say so here. -->
 
@@ -42,7 +42,7 @@ Fixes #
   - [ ] `Category=Replay`
   - [ ] `Category=RenderMetrics`
   - [ ] `Category=PtySmoke`
-  - [ ] `tests/NovaTerminal.App.Tests` (non-blocking in CI — check it yourself)
+  - [ ] `tests/Ntilde.App.Tests` (non-blocking in CI — check it yourself)
   - [ ] full local CI rehearsal (`ci/run.sh` / `ci/run.ps1`)
 
 ## Impact
@@ -56,8 +56,8 @@ Fixes #
 
 - **Does this change VT coverage?**
   <!-- If you added or changed a catalog-owned sequence: update
-       src/NovaTerminal.VtContract/vt-capabilities.json and add or update its
-       executable case in tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs.
+       src/Ntilde.VtContract/vt-capabilities.json and add or update its
+       executable case in tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs.
        Also update docs/vt_coverage_matrix.md AND regenerate
-       src/NovaTerminal.App/Resources/vt-conformance-report.json, or the VT
+       src/Ntilde.App/Resources/vt-conformance-report.json, or the VT
        Conformance check goes red. See CONTRIBUTING.md. -->

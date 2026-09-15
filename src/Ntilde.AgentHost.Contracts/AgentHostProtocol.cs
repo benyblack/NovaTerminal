@@ -1,4 +1,4 @@
-namespace NovaTerminal.AgentHost.Contracts;
+namespace Ntilde.AgentHost.Contracts;
 
 /// <summary>
 /// Protocol constants for the agent-host control channel between the running
@@ -24,7 +24,7 @@ public static class AgentHostProtocol
     public const string DiscoveryFileName = "agent-endpoint.json";
 
     /// <summary>Windows named-pipe name prefix; the user SID is appended.</summary>
-    public const string WindowsPipeNamePrefix = "novaterminal-agent-";
+    public const string WindowsPipeNamePrefix = "ntilde-agent-";
 
     /// <summary>Unix domain socket file name (created in the app's runtime directory).</summary>
     public const string UnixSocketFileName = "agent.sock";

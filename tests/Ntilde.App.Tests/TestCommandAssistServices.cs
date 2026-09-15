@@ -1,8 +1,8 @@
 using System;
 using System.IO;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests;
+namespace Ntilde.Tests;
 
 /// <summary>
 /// The Command Assist dependency graph pane-level tests inject into <c>TerminalPane</c>.
@@ -27,7 +27,7 @@ internal static class TestCommandAssistServices
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
-            $"nova_command_assist_tests_{Environment.ProcessId}_{Guid.NewGuid():N}");
+            $"ntilde_command_assist_tests_{Environment.ProcessId}_{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
 
         return new CommandAssistServices(

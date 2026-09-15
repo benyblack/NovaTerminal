@@ -1,8 +1,8 @@
-using NovaTerminal.AgentHost;
-using NovaTerminal.Shell;
+using Ntilde.AgentHost;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     /// <summary>
     /// Full matrix for the pure vertical-header presentation rules: which marker chips
@@ -90,7 +90,7 @@ namespace NovaTerminal.Tests
         [InlineData("garbage")]
         public void ResolveTabMarkers_WatchedTier_AgreesWithMainWindowTabStripRule(string? policy)
             => Assert.Equal(
-                NovaTerminal.MainWindow.ShouldShowTierInTabStrip(policy, AgentAttentionTier.Watched),
+                Ntilde.MainWindow.ShouldShowTierInTabStrip(policy, AgentAttentionTier.Watched),
                 TabStatusPresentation.ResolveTabMarkers(
                     hasBell: false, hasActivity: false, AgentAttentionTier.Watched, rollupPolicy: policy).AgentWatched);
 

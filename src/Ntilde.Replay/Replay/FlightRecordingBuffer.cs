@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 
-namespace NovaTerminal.Replay
+namespace Ntilde.Replay
 {
     /// <summary>Summary of a completed flight-recording export.</summary>
     public readonly struct FlightExportInfo

@@ -1,7 +1,7 @@
 using System;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // Regression tests for #405: after an inline image is placed, the cursor must be at column 0 of
 // the row below the picture, so whatever the program writes next — in practice the shell's next

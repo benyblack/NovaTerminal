@@ -1,4 +1,4 @@
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     /// <summary>Which single calm state the vertical tab header's status dot paints.</summary>
     internal enum TabDotVisual

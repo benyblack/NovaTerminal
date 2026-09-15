@@ -1,8 +1,8 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Rendering;
 using SkiaSharp;
 using System;
 using System.IO;
@@ -11,7 +11,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using Xunit.Sdk;
 
-namespace NovaTerminal.Tests.Infra
+namespace Ntilde.Tests.Infra
 {
     public enum BaselineScope
     {
@@ -388,7 +388,7 @@ namespace NovaTerminal.Tests.Infra
                     return;
                 }
 
-                NovaTerminal.Tests.TestAppBuilder.BuildAvaloniaApp().SetupWithoutStarting();
+                Ntilde.Tests.TestAppBuilder.BuildAvaloniaApp().SetupWithoutStarting();
             }
         }
 
@@ -450,9 +450,9 @@ namespace NovaTerminal.Tests.Infra
             var dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
             while (dir != null)
             {
-                if (Directory.Exists(Path.Combine(dir.FullName, "tests", "NovaTerminal.App.Tests")))
+                if (Directory.Exists(Path.Combine(dir.FullName, "tests", "Ntilde.App.Tests")))
                 {
-                    return Path.Combine(dir.FullName, "tests", "NovaTerminal.App.Tests");
+                    return Path.Combine(dir.FullName, "tests", "Ntilde.App.Tests");
                 }
 
                 dir = dir.Parent;

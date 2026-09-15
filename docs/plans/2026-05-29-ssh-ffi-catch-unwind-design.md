@@ -1,14 +1,14 @@
 # Design: catch_unwind guards on the native FFI boundary (rusty_ssh + rusty_pty)
 
 **Date:** 2026-05-29
-**Issue:** [#75](https://github.com/benyblack/NovaTerminal/issues/75) — "rusty_ssh FFI: no catch_unwind guards on extern \"C\" boundary (panic = instant process abort)"
+**Issue:** [#75](https://github.com/benyblack/ntilde/issues/75) — "rusty_ssh FFI: no catch_unwind guards on extern \"C\" boundary (panic = instant process abort)"
 **Status:** Approved design — ready for implementation plan
 
 ---
 
 ## Problem
 
-`src/NovaTerminal.App/native/rusty_ssh/src/lib.rs` exposes 13 `#[no_mangle] extern "C"` functions with **zero `catch_unwind` guards**, while the body contains 45 `.unwrap()`, 4 `panic!`/`unreachable!`, and 20 `.lock()` (4 of which are poison-prone `std::sync::Mutex::lock().unwrap()`). A Rust panic unwinding across an `extern "C"` boundary is **undefined behavior**; with the crate's default `panic = "unwind"`, hitting any panic inside an FFI call — or locking a mutex poisoned by a panicked worker thread — aborts the process instantly with no .NET exception, no log, no WER managed event. This is the same user-visible signature as the #74 GlobalHotkey crash, still latent. `rusty_pty` (`src/NovaTerminal.App/native/src/lib.rs`, 8 `extern "C"` fns) has the identical pattern and risk.
+`src/Ntilde.App/native/rusty_ssh/src/lib.rs` exposes 13 `#[no_mangle] extern "C"` functions with **zero `catch_unwind` guards**, while the body contains 45 `.unwrap()`, 4 `panic!`/`unreachable!`, and 20 `.lock()` (4 of which are poison-prone `std::sync::Mutex::lock().unwrap()`). A Rust panic unwinding across an `extern "C"` boundary is **undefined behavior**; with the crate's default `panic = "unwind"`, hitting any panic inside an FFI call — or locking a mutex poisoned by a panicked worker thread — aborts the process instantly with no .NET exception, no log, no WER managed event. This is the same user-visible signature as the #74 GlobalHotkey crash, still latent. `rusty_pty` (`src/Ntilde.App/native/src/lib.rs`, 8 `extern "C"` fns) has the identical pattern and risk.
 
 ## Goals / Acceptance
 
@@ -63,10 +63,10 @@ Because the boundary guard (§2) already neutralizes all 45 `.unwrap()`s, a full
 ## Testing
 - **Rust unit tests (per crate):** a test that calls `ffi_guard(SENTINEL, || panic!("boom"))` and asserts it returns `SENTINEL` (proves the guard catches and does not abort). A second test forces a poisoned `std::sync::Mutex` and asserts the poison-tolerant lock still yields the inner value.
 - **Boundary smoke test:** drive one real `extern "C"` fn (e.g. `nova_ssh_poll_event`) with inputs that previously panicked and assert it returns the sentinel/`CLOSED` rather than aborting.
-- **Build gate:** `cargo build --release` for both crates + the existing .NET suites (`scripts/build.ps1 test tests/NovaTerminal.Platform.Tests/...` and the Pty tests) stay green. The native crates build via the existing MSBuild `BuildRustSshNativeForTests` / pty targets.
+- **Build gate:** `cargo build --release` for both crates + the existing .NET suites (`scripts/build.ps1 test tests/Ntilde.Platform.Tests/...` and the Pty tests) stay green. The native crates build via the existing MSBuild `BuildRustSshNativeForTests` / pty targets.
 
 ## Files (anticipated)
-- `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs` — `ffi_guard`, `NOVA_SSH_RESULT_PANIC`, wrap 13 fns, poison-tolerant locks, hot-path returns, tests.
-- `src/NovaTerminal.App/native/src/lib.rs` (rusty_pty) — `ffi_guard`, wrap 8 fns, poison-tolerant locks, tests.
-- `src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs` — `ResultPanic` constant + message.
+- `src/Ntilde.App/native/rusty_ssh/src/lib.rs` — `ffi_guard`, `NOVA_SSH_RESULT_PANIC`, wrap 13 fns, poison-tolerant locks, hot-path returns, tests.
+- `src/Ntilde.App/native/src/lib.rs` (rusty_pty) — `ffi_guard`, wrap 8 fns, poison-tolerant locks, tests.
+- `src/Ntilde.Platform/Ssh/Native/NativeSshInterop.cs` — `ResultPanic` constant + message.
 - Neither `Cargo.toml` changes (no `panic` profile added — confirming the default stays `unwind`).

@@ -1,9 +1,9 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core
+namespace Ntilde.Tests.Core
 {
     public class BatchWriteTests
     {

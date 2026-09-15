@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace NovaTerminal.AgentHost.Contracts;
+namespace Ntilde.AgentHost.Contracts;
 
 /// <summary>Params for <c>exportReplay</c> (A4).</summary>
 public sealed record ExportReplayParams

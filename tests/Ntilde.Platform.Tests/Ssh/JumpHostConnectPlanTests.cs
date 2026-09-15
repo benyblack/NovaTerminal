@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Native;
-using NovaTerminal.Platform.Ssh.Sessions;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Sessions;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public sealed class JumpHostConnectPlanTests
 {

@@ -4,10 +4,10 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.Storage;
+namespace Ntilde.CommandAssist.Storage;
 
 public sealed class JsonSnippetStore : ISnippetStore
 {

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace NovaTerminal.CommandAssist.Domain;
+namespace Ntilde.CommandAssist.Domain;
 
 /// <summary>
 /// The small, hand-kept list of command names the typo corrector is allowed to propose, plus the

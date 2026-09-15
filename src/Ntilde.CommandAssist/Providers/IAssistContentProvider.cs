@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.CommandAssist.Providers;
+namespace Ntilde.CommandAssist.Providers;
 
 /// <summary>
 /// A source of assist content. The one interface the orchestrator asks for Help rows and Fix rows,

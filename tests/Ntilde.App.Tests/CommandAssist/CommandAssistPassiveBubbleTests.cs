@@ -1,9 +1,9 @@
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// The V2 Phase 3b passive bubble: what appears while the user types, when, and what takes it away.

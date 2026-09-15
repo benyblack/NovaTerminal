@@ -1,7 +1,7 @@
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.OpenSsh;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.OpenSsh;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public sealed class OpenSshConfigCompilerTests
 {
@@ -24,8 +24,8 @@ public sealed class OpenSshConfigCompilerTests
             OpenSshCompilationResult result = compiler.Compile(new[] { profile }, profile.Id);
             string text = File.ReadAllText(result.ConfigFilePath);
 
-            Assert.Equal("nova_65e4a32f98174b89b6076f3472580e81", result.Alias);
-            Assert.Contains("Host nova_65e4a32f98174b89b6076f3472580e81", text);
+            Assert.Equal("ntilde_65e4a32f98174b89b6076f3472580e81", result.Alias);
+            Assert.Contains("Host ntilde_65e4a32f98174b89b6076f3472580e81", text);
             Assert.Contains("HostName example.com", text);
             Assert.Contains("User alice", text);
             Assert.Contains("Port 2222", text);

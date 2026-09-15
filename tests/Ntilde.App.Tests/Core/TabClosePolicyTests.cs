@@ -1,15 +1,15 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class TabClosePolicyTests
 {
     [Fact]
     public void NonRunningPane_IsAlwaysAutoAccepted()
     {
-        bool accepted = NovaTerminal.MainWindow.ShouldAutoAcceptRunningPaneClose(
+        bool accepted = Ntilde.MainWindow.ShouldAutoAcceptRunningPaneClose(
             isProcessRunning: false,
             hasActiveChildProcesses: false,
             hasUserInteraction: true,
@@ -24,7 +24,7 @@ public sealed class TabClosePolicyTests
     [Fact]
     public void IdleLocalShell_IsAutoAccepted()
     {
-        bool accepted = NovaTerminal.MainWindow.ShouldAutoAcceptRunningPaneClose(
+        bool accepted = Ntilde.MainWindow.ShouldAutoAcceptRunningPaneClose(
             isProcessRunning: true,
             hasActiveChildProcesses: false,
             hasUserInteraction: false,
@@ -39,7 +39,7 @@ public sealed class TabClosePolicyTests
     [Fact]
     public void IdleSshShell_IsNotAutoAccepted()
     {
-        bool accepted = NovaTerminal.MainWindow.ShouldAutoAcceptRunningPaneClose(
+        bool accepted = Ntilde.MainWindow.ShouldAutoAcceptRunningPaneClose(
             isProcessRunning: true,
             hasActiveChildProcesses: false,
             hasUserInteraction: false,
@@ -54,7 +54,7 @@ public sealed class TabClosePolicyTests
     [Fact]
     public void RunningInteractedPane_WithForcePolicy_IsAutoAccepted()
     {
-        bool accepted = NovaTerminal.MainWindow.ShouldAutoAcceptRunningPaneClose(
+        bool accepted = Ntilde.MainWindow.ShouldAutoAcceptRunningPaneClose(
             isProcessRunning: true,
             hasActiveChildProcesses: true,
             hasUserInteraction: true,
@@ -69,7 +69,7 @@ public sealed class TabClosePolicyTests
     [Fact]
     public void RunningInteractedPane_WithConfirmPolicy_IsNotAutoAccepted()
     {
-        bool accepted = NovaTerminal.MainWindow.ShouldAutoAcceptRunningPaneClose(
+        bool accepted = Ntilde.MainWindow.ShouldAutoAcceptRunningPaneClose(
             isProcessRunning: true,
             hasActiveChildProcesses: true,
             hasUserInteraction: true,
@@ -84,7 +84,7 @@ public sealed class TabClosePolicyTests
     [Fact]
     public void WslIdledPane_IsAutoAccepted()
     {
-        bool accepted = NovaTerminal.MainWindow.ShouldAutoAcceptRunningPaneClose(
+        bool accepted = Ntilde.MainWindow.ShouldAutoAcceptRunningPaneClose(
             isProcessRunning: true,
             hasActiveChildProcesses: false,
             hasUserInteraction: false,
@@ -99,7 +99,7 @@ public sealed class TabClosePolicyTests
     [Fact]
     public void WslInteractedPane_IsNotAutoAccepted()
     {
-        bool accepted = NovaTerminal.MainWindow.ShouldAutoAcceptRunningPaneClose(
+        bool accepted = Ntilde.MainWindow.ShouldAutoAcceptRunningPaneClose(
             isProcessRunning: true,
             hasActiveChildProcesses: false,
             hasUserInteraction: true,

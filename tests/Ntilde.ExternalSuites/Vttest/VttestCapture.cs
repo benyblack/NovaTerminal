@@ -4,10 +4,10 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.VT;
-using NovaTerminal.Pty;
+using Ntilde.VT;
+using Ntilde.Pty;
 
-namespace NovaTerminal.ExternalSuites.Vttest
+namespace Ntilde.ExternalSuites.Vttest
 {
     public sealed class VttestCapture : ITerminalSession, IAsyncDisposable
     {
@@ -126,7 +126,7 @@ namespace NovaTerminal.ExternalSuites.Vttest
         public bool IsFlightRecording => false;
         public void EnableFlightRecording(long maxTotalBytes) { }
         public void DisableFlightRecording() { }
-        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info)
+        public bool TryExportFlightRecording(string filePath, out Ntilde.Replay.FlightExportInfo info)
         {
             info = default;
             return false;

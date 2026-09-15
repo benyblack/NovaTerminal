@@ -1,7 +1,7 @@
 using System.IO;
 using System.Runtime.CompilerServices;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 /// <summary>
 /// Where shell-integration tests let providers write their generated bootstrap.
@@ -9,7 +9,7 @@ namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
 /// <remarks>
 /// These tests used to pass <c>AppPaths.CommandAssistDirectory</c>, which is the developer's
 /// <em>live</em> config directory — so every run rewrote the bootstrap the developer's own
-/// NovaTerminal uses, and test classes running in parallel raced each other for the same file.
+/// Ntilde uses, and test classes running in parallel raced each other for the same file.
 /// That surfaced as an IOException ("used by another process") on whichever class lost, which
 /// reads like a product bug and isn't one. Same class of problem as #365, where MainWindow tests
 /// were reading the developer's live settings.json.
@@ -24,7 +24,7 @@ internal static class BootstrapTestDirectory
     {
         string dir = Path.Combine(
             Path.GetTempPath(),
-            "nova-bootstrap-tests",
+            "ntilde-bootstrap-tests",
             Path.GetFileNameWithoutExtension(callerFilePath));
 
         Directory.CreateDirectory(dir);

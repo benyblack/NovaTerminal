@@ -1,4 +1,4 @@
-; EditorConfig for NovaTerminal. See #174.
+; EditorConfig for Ntilde. See #174.
 ;
 ; Purpose: make the toolchain agree with the code that already exists. Before this
 ; file, `dotnet format` fell back to its built-in defaults, and `EnforceCodeStyleInBuild`

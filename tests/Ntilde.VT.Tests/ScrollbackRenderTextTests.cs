@@ -1,6 +1,6 @@
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // #164 item 4: the paged-scrollback branch of the render-snapshot builder hard-coded
 // `Text = null, // TODO Step 5`, so any grapheme wider than one UTF-16 code unit was *drawn* as

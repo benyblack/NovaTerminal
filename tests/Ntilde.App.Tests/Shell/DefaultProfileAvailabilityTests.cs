@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Shell;
+namespace Ntilde.Tests.Shell;
 
 /// <summary>
 /// The default profile list used to advertise shells that were not installed. On a stock

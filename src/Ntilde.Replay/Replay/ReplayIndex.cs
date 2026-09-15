@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Replay
+namespace Ntilde.Replay
 {
     public sealed class ReplayIndexEntry
     {

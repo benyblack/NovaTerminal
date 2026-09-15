@@ -1,14 +1,14 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Replay;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Replay;
 using System;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Xunit;
 
-namespace NovaTerminal.Tests.ReplayTests
+namespace Ntilde.Tests.ReplayTests
 {
     public class ReplayRunnerTruncationTests
     {
@@ -18,7 +18,7 @@ namespace NovaTerminal.Tests.ReplayTests
             string tempFile = Path.GetTempFileName();
             try
             {
-                string header = "{\"type\":\"novarec\",\"v\":2,\"cols\":40,\"rows\":5,\"date\":\"2026-01-01T00:00:00.0000000Z\",\"shell\":\"pwsh.exe\"}";
+                string header = "{\"type\":\"ntilderec\",\"v\":2,\"cols\":40,\"rows\":5,\"date\":\"2026-01-01T00:00:00.0000000Z\",\"shell\":\"pwsh.exe\"}";
                 string event1 = BuildDataEvent(10, "Hello");
                 string event2 = BuildDataEvent(20, " World");
                 string event3 = BuildDataEvent(30, " !!!");

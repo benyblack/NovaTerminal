@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     public class TerminalTheme
     {

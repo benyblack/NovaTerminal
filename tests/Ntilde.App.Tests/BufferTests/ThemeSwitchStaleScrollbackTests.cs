@@ -1,11 +1,11 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.IO;
 using System.Text.Json;
-using NovaTerminal.VT;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.BufferTests
+namespace Ntilde.Tests.BufferTests
 {
     /// <summary>
     /// Reproduces the "stale text after a live theme switch" report: a plain (default-attribute)
@@ -41,7 +41,7 @@ namespace NovaTerminal.Tests.BufferTests
             DirectoryInfo? directory = new(AppContext.BaseDirectory);
             while (directory != null)
             {
-                string candidate = Path.Combine(directory.FullName, "src", "NovaTerminal.App", "themes");
+                string candidate = Path.Combine(directory.FullName, "src", "Ntilde.App", "themes");
                 if (Directory.Exists(candidate) && Directory.GetFiles(candidate, "*.json").Length > 0)
                 {
                     return candidate;
@@ -139,9 +139,9 @@ namespace NovaTerminal.Tests.BufferTests
             // explicitly request a truecolor that happens to equal the active theme's default
             // (e.g. after an OSC 11 query). Explicit colors must stay explicit across theme
             // switches - only flagged default cells migrate.
-            var pool = new NovaTerminal.VT.Storage.TerminalPagePool();
+            var pool = new Ntilde.VT.Storage.TerminalPagePool();
             int cols = 10;
-            var scrollback = new NovaTerminal.VT.Storage.ScrollbackPages(cols, pool, maxScrollbackBytes: 16L * 1024 * 1024);
+            var scrollback = new Ntilde.VT.Storage.ScrollbackPages(cols, pool, maxScrollbackBytes: 16L * 1024 * 1024);
 
             var oldTheme = LoadTheme("SolarizedDark");
             var newTheme = LoadTheme("GitHubLight");

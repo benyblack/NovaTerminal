@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 public static class AppServices
 {

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let a user export NovaTerminal's configuration to one portable `.novabackup` file, import it back with merge or replace semantics, and roll back to an automatic local snapshot.
+**Goal:** Let a user export Ntilde's configuration to one portable `.ntildebackup` file, import it back with merge or replace semantics, and roll back to an automatic local snapshot.
 
-**Architecture:** One module, `src/NovaTerminal.App/Shell/Backup/`, containing a `BackupCatalog` (the single map from category to on-disk paths), a zip reader/writer pair, and a `BackupService` that every surface calls. The service takes a root directory in its constructor rather than reading `AppPaths` statically, so all of it is testable against a temp tree. Four thin surfaces — Settings window, command palette, CLI, MCP — wrap the same service.
+**Architecture:** One module, `src/Ntilde.App/Shell/Backup/`, containing a `BackupCatalog` (the single map from category to on-disk paths), a zip reader/writer pair, and a `BackupService` that every surface calls. The service takes a root directory in its constructor rather than reading `AppPaths` statically, so all of it is testable against a temp tree. Four thin surfaces — Settings window, command palette, CLI, MCP — wrap the same service.
 
 **Tech Stack:** C# / .NET 10, Avalonia (UI), `System.IO.Compression.ZipArchive` (in-box, no new package), `System.Text.Json` source-generated contexts, xunit.v3 + Moq for tests.
 
@@ -14,17 +14,17 @@
 
 - Target framework is `net10.0`, `Nullable` is `enable`, `LangVersion` is `latest`. All new code must be null-annotation clean.
 - **Never use raw `dotnet build` / `dotnet test`.** Always `scripts/build.ps1 <args>` (PowerShell) or `scripts/build.sh <args>` (bash). Raw invocations spawn MSBuild daemons that inherit stdout and hang the caller.
-- Run tests targeted, never solution-wide — a full `dotnet test` is 20–30 minutes. Use `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "..."`.
+- Run tests targeted, never solution-wide — a full `dotnet test` is 20–30 minutes. Use `scripts/build.ps1 test tests/Ntilde.App.Tests --filter "..."`.
 - **No secret material in a bundle, ever.** No reads from `ISecretStore`/`VaultService` anywhere in `Shell/Backup/`. This is the position from issue #100.
 - Bundle manifest JSON is **camelCase**. `settings.json` on disk is **PascalCase** and must stay that way — the import path must not re-case it.
-- `NovaTerminal.App.Tests` runs on ubuntu in CI as well as Windows. Tests must be POSIX-portable: no `FileShare.None` lock tricks (a lock blocks reads but not rename/delete on POSIX), no backslash path literals — use `Path.Combine`.
-- No new test project. Everything lands in `tests/NovaTerminal.App.Tests`, so `.github/workflows/ci.yml` needs no changes.
-- File writes to live config go through the existing `AtomicFile` helper (`src/NovaTerminal.App/Shell/AtomicFile.cs`, `internal static`).
+- `Ntilde.App.Tests` runs on ubuntu in CI as well as Windows. Tests must be POSIX-portable: no `FileShare.None` lock tricks (a lock blocks reads but not rename/delete on POSIX), no backslash path literals — use `Path.Combine`.
+- No new test project. Everything lands in `tests/Ntilde.App.Tests`, so `.github/workflows/ci.yml` needs no changes.
+- File writes to live config go through the existing `AtomicFile` helper (`src/Ntilde.App/Shell/AtomicFile.cs`, `internal static`).
 - Commit after every task with a `feat:`/`test:`/`docs:` prefix. Do not push unless asked.
 
 ## File Structure
 
-**Create — `src/NovaTerminal.App/Shell/Backup/`:**
+**Create — `src/Ntilde.App/Shell/Backup/`:**
 
 | File | Responsibility |
 | --- | --- |
@@ -42,18 +42,18 @@
 
 | File | Change |
 | --- | --- |
-| `src/NovaTerminal.App/Shell/AppPaths.cs` | Add `BackupsDirectory`; create it in `EnsureInitialized`. |
-| `src/NovaTerminal.Cli/Program.cs` | Add the `BackupCommand` branch to the dispatch chain. |
-| `src/NovaTerminal.App/Program.cs` | **Also** add the branch here. This is the shipped entry point: the self-contained/AOT bundle ships no separate `NovaTerminal.Cli`, so the app executable dispatches CLI modes itself (see `VtReportCommand`/`SshAskPassCommand`/`ReplayCommand` there). Wiring only the Cli shim leaves the verbs unreachable in a real build. |
-| `tests/NovaTerminal.Architecture.Tests` | Guard test cross-checking that every CLI-command type is dispatched from `NovaTerminal.App/Program.cs`, so the next command cannot repeat this. |
-| `src/NovaTerminal.App/SettingsWindow.axaml` | New `DataNav` sidebar group + a new `TabItem` at the END of the `TabControl`. |
-| `src/NovaTerminal.App/SettingsWindow.axaml.cs` | Wire the new nav group and extend `SyncSidebarFromTabs`; wire the buttons. |
-| `src/NovaTerminal.App/MainWindow.axaml.cs` | Register three palette commands in `SetupCommandPalette()`. |
-| `src/NovaTerminal.McpServer/Tools/BackupTools.cs` | New MCP tool type (create). |
+| `src/Ntilde.App/Shell/AppPaths.cs` | Add `BackupsDirectory`; create it in `EnsureInitialized`. |
+| `src/Ntilde.Cli/Program.cs` | Add the `BackupCommand` branch to the dispatch chain. |
+| `src/Ntilde.App/Program.cs` | **Also** add the branch here. This is the shipped entry point: the self-contained/AOT bundle ships no separate `Ntilde.Cli`, so the app executable dispatches CLI modes itself (see `VtReportCommand`/`SshAskPassCommand`/`ReplayCommand` there). Wiring only the Cli shim leaves the verbs unreachable in a real build. |
+| `tests/Ntilde.Architecture.Tests` | Guard test cross-checking that every CLI-command type is dispatched from `Ntilde.App/Program.cs`, so the next command cannot repeat this. |
+| `src/Ntilde.App/SettingsWindow.axaml` | New `DataNav` sidebar group + a new `TabItem` at the END of the `TabControl`. |
+| `src/Ntilde.App/SettingsWindow.axaml.cs` | Wire the new nav group and extend `SyncSidebarFromTabs`; wire the buttons. |
+| `src/Ntilde.App/MainWindow.axaml.cs` | Register three palette commands in `SetupCommandPalette()`. |
+| `src/Ntilde.McpServer/Tools/BackupTools.cs` | New MCP tool type (create). |
 
-**Test files — all under `tests/NovaTerminal.App.Tests/Backup/`:** `BackupCatalogTests.cs`, `BundleRoundTripTests.cs`, `BackupExportTests.cs`, `BackupImportTests.cs`, `SnapshotTests.cs`, `SnapshotSchedulerTests.cs`, `BackupCommandTests.cs`. Plus `tests/NovaTerminal.McpServer.Tests/BackupToolsTests.cs`.
+**Test files — all under `tests/Ntilde.App.Tests/Backup/`:** `BackupCatalogTests.cs`, `BundleRoundTripTests.cs`, `BackupExportTests.cs`, `BackupImportTests.cs`, `SnapshotTests.cs`, `SnapshotSchedulerTests.cs`, `BackupCommandTests.cs`. Plus `tests/Ntilde.McpServer.Tests/BackupToolsTests.cs`.
 
-**Shared test helper** (created in Task 1, used by every later task): `tests/NovaTerminal.App.Tests/Backup/BackupTestTree.cs`.
+**Shared test helper** (created in Task 1, used by every later task): `tests/Ntilde.App.Tests/Backup/BackupTestTree.cs`.
 
 ---
 
@@ -62,26 +62,26 @@
 Establishes the single source of truth for what gets backed up, and the test that stops a future `AppPaths` member from silently escaping.
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/Backup/BackupCategory.cs`
-- Create: `src/NovaTerminal.App/Shell/Backup/BackupCatalog.cs`
-- Modify: `src/NovaTerminal.App/Shell/AppPaths.cs` (add `BackupsDirectory`, create it in `EnsureInitialized`)
-- Create: `tests/NovaTerminal.App.Tests/Backup/BackupTestTree.cs`
-- Test: `tests/NovaTerminal.App.Tests/Backup/BackupCatalogTests.cs`
+- Create: `src/Ntilde.App/Shell/Backup/BackupCategory.cs`
+- Create: `src/Ntilde.App/Shell/Backup/BackupCatalog.cs`
+- Modify: `src/Ntilde.App/Shell/AppPaths.cs` (add `BackupsDirectory`, create it in `EnsureInitialized`)
+- Create: `tests/Ntilde.App.Tests/Backup/BackupTestTree.cs`
+- Test: `tests/Ntilde.App.Tests/Backup/BackupCatalogTests.cs`
 
 **Interfaces:**
-- Consumes: `NovaTerminal.Shell.AppPaths` (existing).
+- Consumes: `Ntilde.Shell.AppPaths` (existing).
 - Produces: `BackupCategory`, `SnapshotReason`, `ImportMode` enums; `CatalogEntry` record; `BackupCatalog.Entries`, `BackupCatalog.EntriesFor(BackupCategory)`, `BackupCatalog.ExcludedRelativePaths`, `BackupCatalog.IsClassified(string relativePath)`, `BackupCatalog.AllCategories`; `AppPaths.BackupsDirectory`; test helper `BackupTestTree`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Backup/BackupCatalogTests.cs`:
+Create `tests/Ntilde.App.Tests/Backup/BackupCatalogTests.cs`:
 
 ```csharp
 using System.Reflection;
-using NovaTerminal.Shell;
-using NovaTerminal.Shell.Backup;
+using Ntilde.Shell;
+using Ntilde.Shell.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class BackupCatalogTests
 {
@@ -178,14 +178,14 @@ public sealed class BackupCatalogTests
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BackupCatalogTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~BackupCatalogTests"
 ```
 
 Expected: compile failure — `BackupCatalog` and `AppPaths.BackupsDirectory` do not exist.
 
 - [ ] **Step 3: Add `BackupsDirectory` to AppPaths**
 
-In `src/NovaTerminal.App/Shell/AppPaths.cs`, add next to the other directory properties (after `RecordingsDirectory`):
+In `src/Ntilde.App/Shell/AppPaths.cs`, add next to the other directory properties (after `RecordingsDirectory`):
 
 ```csharp
         /// <summary>Automatic configuration snapshots written by <c>BackupService</c>.</summary>
@@ -200,10 +200,10 @@ and inside `EnsureInitialized`'s `try` block, next to the other `Directory.Creat
 
 - [ ] **Step 4: Create the enums**
 
-Create `src/NovaTerminal.App/Shell/Backup/BackupCategory.cs`:
+Create `src/Ntilde.App/Shell/Backup/BackupCategory.cs`:
 
 ```csharp
-namespace NovaTerminal.Shell.Backup;
+namespace Ntilde.Shell.Backup;
 
 /// <summary>
 /// A unit of configuration a bundle can carry. The manifest stores these as
@@ -245,7 +245,7 @@ public enum ImportMode
 
 - [ ] **Step 5: Create the catalog**
 
-Create `src/NovaTerminal.App/Shell/Backup/BackupCatalog.cs`:
+Create `src/Ntilde.App/Shell/Backup/BackupCatalog.cs`:
 
 ```csharp
 using System;
@@ -253,7 +253,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-namespace NovaTerminal.Shell.Backup;
+namespace Ntilde.Shell.Backup;
 
 /// <summary>One backed-up path: where it lives in the app data tree, where it goes in the zip.</summary>
 /// <param name="Category">Owning category.</param>
@@ -358,16 +358,16 @@ public static class BackupCatalog
 
 - [ ] **Step 6: Create the shared test helper**
 
-Create `tests/NovaTerminal.App.Tests/Backup/BackupTestTree.cs`. Every later task uses this — it builds a populated fake app-data root and disposes it.
+Create `tests/Ntilde.App.Tests/Backup/BackupTestTree.cs`. Every later task uses this — it builds a populated fake app-data root and disposes it.
 
 ```csharp
 using System.Text.Json;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 /// <summary>
 /// A disposable temp app-data root pre-populated with realistic content, so backup tests
-/// never touch the real profile. Not tied to NOVATERM_APPDATA_ROOT — BackupService takes a
+/// never touch the real profile. Not tied to NTILDE_APPDATA_ROOT — BackupService takes a
 /// root explicitly, which keeps these tests parallel-safe.
 /// </summary>
 public sealed class BackupTestTree : IDisposable
@@ -378,7 +378,7 @@ public sealed class BackupTestTree : IDisposable
 
     public static BackupTestTree CreatePopulated()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"nova_backup_test_{Guid.NewGuid():N}");
+        string root = Path.Combine(Path.GetTempPath(), $"ntilde_backup_test_{Guid.NewGuid():N}");
         var tree = new BackupTestTree(root);
 
         tree.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Default"}""");
@@ -403,7 +403,7 @@ public sealed class BackupTestTree : IDisposable
     /// <summary>An empty root, for import-into-fresh-machine tests.</summary>
     public static BackupTestTree CreateEmpty()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"nova_backup_test_{Guid.NewGuid():N}");
+        string root = Path.Combine(Path.GetTempPath(), $"ntilde_backup_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         return new BackupTestTree(root);
     }
@@ -432,7 +432,7 @@ public sealed class BackupTestTree : IDisposable
 - [ ] **Step 7: Run tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BackupCatalogTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~BackupCatalogTests"
 ```
 
 Expected: PASS, 6 tests. If `EveryAppPathsMember_IsClassified` fails, its message names the offending members — add each to `Entries` or `ExcludedRelativePaths`.
@@ -440,7 +440,7 @@ Expected: PASS, 6 tests. If `EveryAppPathsMember_IsClassified` fails, its messag
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/Backup tests/NovaTerminal.App.Tests/Backup src/NovaTerminal.App/Shell/AppPaths.cs
+git add src/Ntilde.App/Shell/Backup tests/Ntilde.App.Tests/Backup src/Ntilde.App/Shell/AppPaths.cs
 git commit -m "feat(backup): catalog of backed-up paths with AppPaths drift guard"
 ```
 
@@ -449,11 +449,11 @@ git commit -m "feat(backup): catalog of backed-up paths with AppPaths drift guar
 ### Task 2: Manifest, results, and the zip round trip
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/Backup/BackupManifest.cs`
-- Create: `src/NovaTerminal.App/Shell/Backup/BackupResults.cs`
-- Create: `src/NovaTerminal.App/Shell/Backup/BundleWriter.cs`
-- Create: `src/NovaTerminal.App/Shell/Backup/BundleReader.cs`
-- Test: `tests/NovaTerminal.App.Tests/Backup/BundleRoundTripTests.cs`
+- Create: `src/Ntilde.App/Shell/Backup/BackupManifest.cs`
+- Create: `src/Ntilde.App/Shell/Backup/BackupResults.cs`
+- Create: `src/Ntilde.App/Shell/Backup/BundleWriter.cs`
+- Create: `src/Ntilde.App/Shell/Backup/BundleReader.cs`
+- Test: `tests/Ntilde.App.Tests/Backup/BundleRoundTripTests.cs`
 
 **Interfaces:**
 - Consumes: `BackupCatalog`, `CatalogEntry`, `BackupCategory` from Task 1; `BackupTestTree` in tests.
@@ -461,14 +461,14 @@ git commit -m "feat(backup): catalog of backed-up paths with AppPaths drift guar
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Backup/BundleRoundTripTests.cs`:
+Create `tests/Ntilde.App.Tests/Backup/BundleRoundTripTests.cs`:
 
 ```csharp
 using System.IO.Compression;
 using System.Text;
-using NovaTerminal.Shell.Backup;
+using Ntilde.Shell.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class BundleRoundTripTests
 {
@@ -476,7 +476,7 @@ public sealed class BundleRoundTripTests
     public void Write_ProducesManifestAndCategoryEntries()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "out.novabackup");
+        string bundle = Path.Combine(tree.Root, "out.ntildebackup");
 
         BundleWriter.Write(tree.Root, bundle, BackupCatalog.AllCategories, NewManifest());
 
@@ -494,7 +494,7 @@ public sealed class BundleRoundTripTests
     public void Write_OmitsExcludedContent()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "out.novabackup");
+        string bundle = Path.Combine(tree.Root, "out.ntildebackup");
 
         BundleWriter.Write(tree.Root, bundle, BackupCatalog.AllCategories, NewManifest());
 
@@ -510,7 +510,7 @@ public sealed class BundleRoundTripTests
     public void Write_HonorsCategorySubset()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "themes-only.novabackup");
+        string bundle = Path.Combine(tree.Root, "themes-only.ntildebackup");
 
         BundleWriter.Write(tree.Root, bundle, new[] { BackupCategory.Themes }, NewManifest());
 
@@ -525,7 +525,7 @@ public sealed class BundleRoundTripTests
     public void Open_ReturnsManifestAndItemCounts()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "out.novabackup");
+        string bundle = Path.Combine(tree.Root, "out.ntildebackup");
         BundleWriter.Write(tree.Root, bundle, BackupCatalog.AllCategories, NewManifest());
 
         var outcome = BundleReader.Open(bundle);
@@ -542,7 +542,7 @@ public sealed class BundleRoundTripTests
     {
         using var source = BackupTestTree.CreatePopulated();
         using var target = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(source.Root, "out.novabackup");
+        string bundle = Path.Combine(source.Root, "out.ntildebackup");
         BundleWriter.Write(source.Root, bundle, BackupCatalog.AllCategories, NewManifest());
 
         BundleReader.ExtractTo(bundle, target.Root, BackupCatalog.AllCategories);
@@ -560,7 +560,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsNonZipFile()
     {
         using var tree = BackupTestTree.CreateEmpty();
-        string bogus = Path.Combine(tree.Root, "not-a-zip.novabackup");
+        string bogus = Path.Combine(tree.Root, "not-a-zip.ntildebackup");
         File.WriteAllText(bogus, "this is plain text");
 
         var outcome = BundleReader.Open(bogus);
@@ -573,7 +573,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsTruncatedZip()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "out.novabackup");
+        string bundle = Path.Combine(tree.Root, "out.ntildebackup");
         BundleWriter.Write(tree.Root, bundle, BackupCatalog.AllCategories, NewManifest());
 
         // Lop off the central directory — the classic half-copied-file case.
@@ -591,7 +591,7 @@ public sealed class BundleRoundTripTests
     {
         using var tree = BackupTestTree.CreateEmpty();
 
-        var outcome = BundleReader.Open(Path.Combine(tree.Root, "nope.novabackup"));
+        var outcome = BundleReader.Open(Path.Combine(tree.Root, "nope.ntildebackup"));
 
         Assert.False(outcome.Success);
         Assert.Equal(BackupFailureKind.NotFound, outcome.Failure);
@@ -601,7 +601,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsZipWithoutManifest()
     {
         using var tree = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(tree.Root, "no-manifest.novabackup");
+        string bundle = Path.Combine(tree.Root, "no-manifest.ntildebackup");
         using (var zip = ZipFile.Open(bundle, ZipArchiveMode.Create))
         {
             var entry = zip.CreateEntry("settings/settings.json");
@@ -619,7 +619,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsMalformedManifest()
     {
         using var tree = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(tree.Root, "bad-manifest.novabackup");
+        string bundle = Path.Combine(tree.Root, "bad-manifest.ntildebackup");
         WriteManifestOnlyBundle(bundle, "{ this is not json");
 
         var outcome = BundleReader.Open(bundle);
@@ -632,7 +632,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsNewerSchemaVersion()
     {
         using var tree = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(tree.Root, "future.novabackup");
+        string bundle = Path.Combine(tree.Root, "future.ntildebackup");
         int future = BackupManifest.CurrentSchemaVersion + 1;
         WriteManifestOnlyBundle(
             bundle,
@@ -649,7 +649,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsManifestCategoryWithNoContent()
     {
         using var tree = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(tree.Root, "corrupt.novabackup");
+        string bundle = Path.Combine(tree.Root, "corrupt.ntildebackup");
         WriteManifestOnlyBundle(
             bundle,
             """{"schemaVersion":1,"appVersion":"1.0.0","createdUtc":"2026-08-27T00:00:00+00:00","machine":"X","categories":["settings"]}""");
@@ -682,14 +682,14 @@ public sealed class BundleRoundTripTests
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BundleRoundTripTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~BundleRoundTripTests"
 ```
 
 Expected: compile failure — `BundleWriter`, `BundleReader`, `BackupManifest`, `BackupFailureKind` do not exist.
 
 - [ ] **Step 3: Create the manifest**
 
-Create `src/NovaTerminal.App/Shell/Backup/BackupManifest.cs`:
+Create `src/Ntilde.App/Shell/Backup/BackupManifest.cs`:
 
 ```csharp
 using System;
@@ -697,7 +697,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace NovaTerminal.Shell.Backup;
+namespace Ntilde.Shell.Backup;
 
 /// <summary>
 /// The <c>manifest.json</c> at the root of every bundle. camelCase on the wire — note this
@@ -726,13 +726,13 @@ internal partial class BackupJsonContext : JsonSerializerContext
 
 - [ ] **Step 4: Create the result types**
 
-Create `src/NovaTerminal.App/Shell/Backup/BackupResults.cs`:
+Create `src/Ntilde.App/Shell/Backup/BackupResults.cs`:
 
 ```csharp
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.Shell.Backup;
+namespace Ntilde.Shell.Backup;
 
 /// <summary>Why a backup operation failed. <see cref="None"/> means it succeeded.</summary>
 public enum BackupFailureKind
@@ -787,7 +787,7 @@ public sealed record SnapshotInfo(
 
 - [ ] **Step 5: Create the writer**
 
-Create `src/NovaTerminal.App/Shell/Backup/BundleWriter.cs`:
+Create `src/Ntilde.App/Shell/Backup/BundleWriter.cs`:
 
 ```csharp
 using System.Collections.Generic;
@@ -797,9 +797,9 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 
-namespace NovaTerminal.Shell.Backup;
+namespace Ntilde.Shell.Backup;
 
-/// <summary>Writes a <c>.novabackup</c> zip from an app-data root.</summary>
+/// <summary>Writes a <c>.ntildebackup</c> zip from an app-data root.</summary>
 public static class BundleWriter
 {
     public static void Write(
@@ -878,7 +878,7 @@ public static class BundleWriter
 
 - [ ] **Step 6: Create the reader**
 
-Create `src/NovaTerminal.App/Shell/Backup/BundleReader.cs`:
+Create `src/Ntilde.App/Shell/Backup/BundleReader.cs`:
 
 ```csharp
 using System;
@@ -888,9 +888,9 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
 
-namespace NovaTerminal.Shell.Backup;
+namespace Ntilde.Shell.Backup;
 
-/// <summary>Reads and validates a <c>.novabackup</c> zip.</summary>
+/// <summary>Reads and validates a <c>.ntildebackup</c> zip.</summary>
 public static class BundleReader
 {
     /// <summary>Reads the manifest and counts entries per category. Extracts nothing.</summary>
@@ -910,7 +910,7 @@ public static class BundleReader
             {
                 return InspectOutcome.Fail(
                     BackupFailureKind.NotABackup,
-                    $"{Path.GetFileName(bundlePath)} has no manifest.json — not a NovaTerminal backup.");
+                    $"{Path.GetFileName(bundlePath)} has no manifest.json — not a Ntilde backup.");
             }
 
             BackupManifest? manifest;
@@ -938,7 +938,7 @@ public static class BundleReader
                 return InspectOutcome.Fail(
                     BackupFailureKind.UnsupportedSchemaVersion,
                     $"Bundle uses schema version {manifest.SchemaVersion}; this build understands up to " +
-                    $"{BackupManifest.CurrentSchemaVersion}. Update NovaTerminal to import it.");
+                    $"{BackupManifest.CurrentSchemaVersion}. Update Ntilde to import it.");
             }
 
             // Schema v1 is the first version, so there are no migrations yet. When v2 lands,
@@ -1059,7 +1059,7 @@ public static class BundleReader
 - [ ] **Step 7: Run tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BundleRoundTripTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~BundleRoundTripTests"
 ```
 
 Expected: PASS, 12 tests.
@@ -1067,7 +1067,7 @@ Expected: PASS, 12 tests.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/Backup tests/NovaTerminal.App.Tests/Backup
+git add src/Ntilde.App/Shell/Backup tests/Ntilde.App.Tests/Backup
 git commit -m "feat(backup): bundle manifest, writer, reader with validation"
 ```
 
@@ -1076,23 +1076,23 @@ git commit -m "feat(backup): bundle manifest, writer, reader with validation"
 ### Task 3: BackupService.Export and Inspect
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/Backup/BackupService.cs`
-- Test: `tests/NovaTerminal.App.Tests/Backup/BackupExportTests.cs`
+- Create: `src/Ntilde.App/Shell/Backup/BackupService.cs`
+- Test: `tests/Ntilde.App.Tests/Backup/BackupExportTests.cs`
 
 **Interfaces:**
 - Consumes: everything from Tasks 1–2.
-- Produces: `BackupService(string rootDirectory, TimeProvider? timeProvider = null)`; `BackupService.RootDirectory`; `BackupOutcome Export(string destinationPath, IReadOnlyCollection<BackupCategory>? categories = null)`; `InspectOutcome Inspect(string bundlePath)`; `const string BundleExtension = ".novabackup"`.
+- Produces: `BackupService(string rootDirectory, TimeProvider? timeProvider = null)`; `BackupService.RootDirectory`; `BackupOutcome Export(string destinationPath, IReadOnlyCollection<BackupCategory>? categories = null)`; `InspectOutcome Inspect(string bundlePath)`; `const string BundleExtension = ".ntildebackup"`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Backup/BackupExportTests.cs`:
+Create `tests/Ntilde.App.Tests/Backup/BackupExportTests.cs`:
 
 ```csharp
 using System.IO.Compression;
 using System.Text;
-using NovaTerminal.Shell.Backup;
+using Ntilde.Shell.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class BackupExportTests
 {
@@ -1101,7 +1101,7 @@ public sealed class BackupExportTests
     {
         using var tree = BackupTestTree.CreatePopulated();
         var service = new BackupService(tree.Root, FixedClock());
-        string bundle = Path.Combine(tree.Root, "export.novabackup");
+        string bundle = Path.Combine(tree.Root, "export.ntildebackup");
 
         var outcome = service.Export(bundle);
 
@@ -1120,7 +1120,7 @@ public sealed class BackupExportTests
     {
         using var tree = BackupTestTree.CreatePopulated();
         var service = new BackupService(tree.Root, FixedClock());
-        string bundle = Path.Combine(tree.Root, "export.novabackup");
+        string bundle = Path.Combine(tree.Root, "export.ntildebackup");
 
         service.Export(bundle);
         var inspection = service.Inspect(bundle);
@@ -1137,7 +1137,7 @@ public sealed class BackupExportTests
     {
         using var tree = BackupTestTree.CreatePopulated();
         var service = new BackupService(tree.Root, FixedClock());
-        string bundle = Path.Combine(tree.Root, "subset.novabackup");
+        string bundle = Path.Combine(tree.Root, "subset.ntildebackup");
 
         service.Export(bundle, new[] { BackupCategory.Themes, BackupCategory.Snippets });
         var inspection = service.Inspect(bundle);
@@ -1162,7 +1162,7 @@ public sealed class BackupExportTests
         tree.WriteFile(Path.Combine("logs", "debug.log"), sentinel);
 
         var service = new BackupService(tree.Root, FixedClock());
-        string bundle = Path.Combine(tree.Root, "export.novabackup");
+        string bundle = Path.Combine(tree.Root, "export.ntildebackup");
         service.Export(bundle);
 
         byte[] bytes = File.ReadAllBytes(bundle);
@@ -1183,7 +1183,7 @@ public sealed class BackupExportTests
         using var tree = BackupTestTree.CreateEmpty();
         tree.WriteFile("settings.json", """{"FontSize":16}""");
         var service = new BackupService(tree.Root, FixedClock());
-        string bundle = Path.Combine(tree.Root, "sparse.novabackup");
+        string bundle = Path.Combine(tree.Root, "sparse.ntildebackup");
 
         var outcome = service.Export(bundle);
 
@@ -1200,7 +1200,7 @@ public sealed class BackupExportTests
         var service = new BackupService(tree.Root, FixedClock());
 
         // A directory parked on the destination path blocks the file write on every OS.
-        string blocked = Path.Combine(tree.Root, "blocked.novabackup");
+        string blocked = Path.Combine(tree.Root, "blocked.ntildebackup");
         Directory.CreateDirectory(blocked);
 
         var outcome = service.Export(blocked);
@@ -1227,14 +1227,14 @@ public sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BackupExportTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~BackupExportTests"
 ```
 
 Expected: compile failure — `BackupService` does not exist.
 
 - [ ] **Step 3: Create BackupService with Export and Inspect**
 
-Create `src/NovaTerminal.App/Shell/Backup/BackupService.cs`:
+Create `src/Ntilde.App/Shell/Backup/BackupService.cs`:
 
 ```csharp
 using System;
@@ -1243,10 +1243,10 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 
-namespace NovaTerminal.Shell.Backup;
+namespace Ntilde.Shell.Backup;
 
 /// <summary>
-/// Export, import, snapshot, and restore of NovaTerminal configuration.
+/// Export, import, snapshot, and restore of Ntilde configuration.
 ///
 /// Takes its app-data root as a constructor argument rather than reading <see cref="AppPaths"/>
 /// statically, so tests drive it against a temp tree without touching the real profile.
@@ -1256,7 +1256,7 @@ namespace NovaTerminal.Shell.Backup;
 /// </summary>
 public sealed class BackupService
 {
-    public const string BundleExtension = ".novabackup";
+    public const string BundleExtension = ".ntildebackup";
 
     private readonly TimeProvider _timeProvider;
 
@@ -1353,7 +1353,7 @@ public sealed class BackupService
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BackupExportTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~BackupExportTests"
 ```
 
 Expected: PASS, 9 tests.
@@ -1361,7 +1361,7 @@ Expected: PASS, 9 tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/Backup/BackupService.cs tests/NovaTerminal.App.Tests/Backup/BackupExportTests.cs
+git add src/Ntilde.App/Shell/Backup/BackupService.cs tests/Ntilde.App.Tests/Backup/BackupExportTests.cs
 git commit -m "feat(backup): BackupService export and inspect"
 ```
 
@@ -1372,8 +1372,8 @@ git commit -m "feat(backup): BackupService export and inspect"
 Snapshots come before import so that `Import` can call a real `Snapshot`, and `Restore` (Task 5) can call a real `Import`. No stubs, no circular dependency.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/Backup/BackupService.cs` (add `Snapshot`, `ListSnapshots`, retention, hashing)
-- Test: `tests/NovaTerminal.App.Tests/Backup/SnapshotTests.cs`
+- Modify: `src/Ntilde.App/Shell/Backup/BackupService.cs` (add `Snapshot`, `ListSnapshots`, retention, hashing)
+- Test: `tests/Ntilde.App.Tests/Backup/SnapshotTests.cs`
 
 **Interfaces:**
 - Consumes: `BackupService` from Task 3, `SnapshotInfo` and `SnapshotReason` from Tasks 1–2.
@@ -1387,12 +1387,12 @@ The hash in the id is the **first 16 hex characters** of the SHA-256, and `ListS
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Backup/SnapshotTests.cs`:
+Create `tests/Ntilde.App.Tests/Backup/SnapshotTests.cs`:
 
 ```csharp
-using NovaTerminal.Shell.Backup;
+using Ntilde.Shell.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class SnapshotTests
 {
@@ -1543,7 +1543,7 @@ public sealed class SnapshotTests
 
         using var zip = System.IO.Compression.ZipFile.OpenRead(second!.FilePath);
         Assert.DoesNotContain(zip.Entries, e => e.FullName.Contains("backups", StringComparison.Ordinal));
-        Assert.DoesNotContain(zip.Entries, e => e.FullName.EndsWith(".novabackup", StringComparison.Ordinal));
+        Assert.DoesNotContain(zip.Entries, e => e.FullName.EndsWith(".ntildebackup", StringComparison.Ordinal));
     }
 
     private static FixedTimeProvider Clock() =>
@@ -1554,14 +1554,14 @@ public sealed class SnapshotTests
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~SnapshotTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~SnapshotTests"
 ```
 
 Expected: compile failure — `Snapshot`, `ListSnapshots`, `MaxSnapshots` do not exist.
 
 - [ ] **Step 3: Add snapshot support to BackupService**
 
-In `src/NovaTerminal.App/Shell/Backup/BackupService.cs`, add `using System.Globalization;` and `using System.Security.Cryptography;` at the top, then add these members after `Inspect`:
+In `src/Ntilde.App/Shell/Backup/BackupService.cs`, add `using System.Globalization;` and `using System.Security.Cryptography;` at the top, then add these members after `Inspect`:
 
 ```csharp
     /// <summary>Snapshots kept regardless of age.</summary>
@@ -1764,14 +1764,14 @@ In `src/NovaTerminal.App/Shell/Backup/BackupService.cs`, add `using System.Globa
     }
 ```
 
-`AppLogger.Log(string)` is `public static` in `NovaTerminal.Shell` (`src/NovaTerminal.App/Shell/AppLogger.cs`), the parent namespace, so it resolves without an extra `using`.
+`AppLogger.Log(string)` is `public static` in `Ntilde.Shell` (`src/Ntilde.App/Shell/AppLogger.cs`), the parent namespace, so it resolves without an extra `using`.
 
 Two consequences of the hash living in the id: `ListSnapshots` reads `ContentHash` straight from the file name, so no zip is opened to list, and the dedupe check in `Snapshot` compares against the newest snapshot's parsed hash.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~SnapshotTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~SnapshotTests"
 ```
 
 Expected: PASS, 9 tests.
@@ -1779,7 +1779,7 @@ Expected: PASS, 9 tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/Backup/BackupService.cs tests/NovaTerminal.App.Tests/Backup/SnapshotTests.cs
+git add src/Ntilde.App/Shell/Backup/BackupService.cs tests/Ntilde.App.Tests/Backup/SnapshotTests.cs
 git commit -m "feat(backup): snapshots with hash dedupe and retention"
 ```
 
@@ -1800,8 +1800,8 @@ git commit -m "feat(backup): snapshots with hash dedupe and retention"
 The riskiest task — it writes over live config. Staging plus a forced pre-import snapshot is what makes it safe. `Snapshot` already exists from Task 4, so `Import` calls the real thing and `Restore` is a thin wrapper over `Import`.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/Backup/BackupService.cs` (add `Import`, `Restore`, and their private helpers)
-- Test: `tests/NovaTerminal.App.Tests/Backup/BackupImportTests.cs`
+- Modify: `src/Ntilde.App/Shell/Backup/BackupService.cs` (add `Import`, `Restore`, and their private helpers)
+- Test: `tests/Ntilde.App.Tests/Backup/BackupImportTests.cs`
 
 **Interfaces:**
 - Consumes: `BackupService` with `Export`/`Inspect`/`Snapshot`/`ListSnapshots` from Tasks 3–4, `BundleReader.ExtractTo` from Task 2, `ImportMode` from Task 1.
@@ -1820,13 +1820,13 @@ The riskiest task — it writes over live config. Staging plus a forced pre-impo
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Backup/BackupImportTests.cs`:
+Create `tests/Ntilde.App.Tests/Backup/BackupImportTests.cs`:
 
 ```csharp
 using System.Text.Json;
-using NovaTerminal.Shell.Backup;
+using Ntilde.Shell.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class BackupImportTests
 {
@@ -1970,7 +1970,7 @@ public sealed class BackupImportTests
         using var target = BackupTestTree.CreatePopulated();
         target.WriteFile(Path.Combine("policy", "workspace_policy.json"), """{"local":true}""");
 
-        string bundle = Path.Combine(source.Root, "themes-only.novabackup");
+        string bundle = Path.Combine(source.Root, "themes-only.ntildebackup");
         new BackupService(source.Root, Clock()).Export(bundle, new[] { BackupCategory.Themes });
 
         new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
@@ -2001,7 +2001,7 @@ public sealed class BackupImportTests
     {
         using var source = BackupTestTree.CreatePopulated();
         using var target = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(source.Root, "themes-only.novabackup");
+        string bundle = Path.Combine(source.Root, "themes-only.ntildebackup");
         new BackupService(source.Root, Clock()).Export(bundle, new[] { BackupCategory.Themes });
 
         var outcome = new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
@@ -2030,7 +2030,7 @@ public sealed class BackupImportTests
     {
         using var target = BackupTestTree.CreatePopulated();
         string original = target.ReadFile("settings.json");
-        string bogus = Path.Combine(target.Root, "bogus.novabackup");
+        string bogus = Path.Combine(target.Root, "bogus.ntildebackup");
         File.WriteAllText(bogus, "not a zip");
 
         var service = new BackupService(target.Root, Clock());
@@ -2048,7 +2048,7 @@ public sealed class BackupImportTests
     {
         using var target = BackupTestTree.CreatePopulated();
         string original = target.ReadFile("settings.json");
-        string future = Path.Combine(target.Root, "future.novabackup");
+        string future = Path.Combine(target.Root, "future.ntildebackup");
         WriteFutureSchemaBundle(future);
 
         var outcome = new BackupService(target.Root, Clock()).Import(future, ImportMode.Replace);
@@ -2151,7 +2151,7 @@ public sealed class BackupImportTests
 
     private static string ExportFrom(BackupTestTree tree)
     {
-        string bundle = Path.Combine(tree.Root, "export.novabackup");
+        string bundle = Path.Combine(tree.Root, "export.ntildebackup");
         var outcome = new BackupService(tree.Root, Clock()).Export(bundle);
         Assert.True(outcome.Success, outcome.Message);
         return bundle;
@@ -2174,14 +2174,14 @@ public sealed class BackupImportTests
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BackupImportTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~BackupImportTests"
 ```
 
 Expected: compile failure — `BackupService.Import` and `BackupService.Restore` do not exist.
 
 - [ ] **Step 3: Add Import and Restore to BackupService**
 
-Add these `using` directives at the top of `src/NovaTerminal.App/Shell/Backup/BackupService.cs`:
+Add these `using` directives at the top of `src/Ntilde.App/Shell/Backup/BackupService.cs`:
 
 ```csharp
 using System.Text.Json;
@@ -2222,7 +2222,7 @@ Add the following members to the `BackupService` class:
 
         Snapshot(SnapshotReason.PreImport);
 
-        string staging = Path.Combine(Path.GetTempPath(), $"nova_import_{Guid.NewGuid():N}");
+        string staging = Path.Combine(Path.GetTempPath(), $"ntilde_import_{Guid.NewGuid():N}");
 
         try
         {
@@ -2446,12 +2446,12 @@ Add the following members to the `BackupService` class:
     }
 ```
 
-`AtomicFile` is `internal static` in namespace `NovaTerminal.Shell`, the same assembly and the parent namespace, so it resolves without an extra `using`.
+`AtomicFile` is `internal static` in namespace `Ntilde.Shell`, the same assembly and the parent namespace, so it resolves without an extra `using`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BackupImportTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~BackupImportTests"
 ```
 
 Expected: PASS, 18 tests.
@@ -2459,7 +2459,7 @@ Expected: PASS, 18 tests.
 - [ ] **Step 5: Re-run the whole Backup namespace to confirm no regression**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~NovaTerminal.Tests.Backup"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Ntilde.Tests.Backup"
 ```
 
 Expected: PASS, all Backup tests.
@@ -2467,7 +2467,7 @@ Expected: PASS, all Backup tests.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/Backup/BackupService.cs tests/NovaTerminal.App.Tests/Backup/BackupImportTests.cs
+git add src/Ntilde.App/Shell/Backup/BackupService.cs tests/Ntilde.App.Tests/Backup/BackupImportTests.cs
 git commit -m "feat(backup): staged import with merge/replace semantics and snapshot restore"
 ```
 
@@ -2476,8 +2476,8 @@ git commit -m "feat(backup): staged import with merge/replace semantics and snap
 ### Task 6: SnapshotScheduler
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/Backup/SnapshotScheduler.cs`
-- Test: `tests/NovaTerminal.App.Tests/Backup/SnapshotSchedulerTests.cs`
+- Create: `src/Ntilde.App/Shell/Backup/SnapshotScheduler.cs`
+- Test: `tests/Ntilde.App.Tests/Backup/SnapshotSchedulerTests.cs`
 
 **Interfaces:**
 - Consumes: `BackupService` (Tasks 3–5), `BackupCatalog` (Task 1).
@@ -2487,12 +2487,12 @@ git commit -m "feat(backup): staged import with merge/replace semantics and snap
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Backup/SnapshotSchedulerTests.cs`:
+Create `tests/Ntilde.App.Tests/Backup/SnapshotSchedulerTests.cs`:
 
 ```csharp
-using NovaTerminal.Shell.Backup;
+using Ntilde.Shell.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class SnapshotSchedulerTests
 {
@@ -2617,14 +2617,14 @@ assert on and hit inotify limits on CI's ubuntu runners.
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~SnapshotSchedulerTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~SnapshotSchedulerTests"
 ```
 
 Expected: compile failure — `SnapshotScheduler` does not exist.
 
 - [ ] **Step 3: Create the scheduler**
 
-Create `src/NovaTerminal.App/Shell/Backup/SnapshotScheduler.cs`:
+Create `src/Ntilde.App/Shell/Backup/SnapshotScheduler.cs`:
 
 ```csharp
 using System;
@@ -2634,7 +2634,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Shell.Backup;
+namespace Ntilde.Shell.Backup;
 
 /// <summary>
 /// Watches the backed-up paths and writes one snapshot after changes go quiet.
@@ -2791,7 +2791,7 @@ public sealed class SnapshotScheduler : IDisposable
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~SnapshotSchedulerTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~SnapshotSchedulerTests"
 ```
 
 Expected: PASS, 9 tests.
@@ -2799,7 +2799,7 @@ Expected: PASS, 9 tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/Backup/SnapshotScheduler.cs tests/NovaTerminal.App.Tests/Backup/SnapshotSchedulerTests.cs
+git add src/Ntilde.App/Shell/Backup/SnapshotScheduler.cs tests/Ntilde.App.Tests/Backup/SnapshotSchedulerTests.cs
 git commit -m "feat(backup): debounced snapshot scheduler"
 ```
 
@@ -2808,26 +2808,26 @@ git commit -m "feat(backup): debounced snapshot scheduler"
 ### Task 7: CLI verbs
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/Backup/BackupCommand.cs`
-- Modify: `src/NovaTerminal.Cli/Program.cs`
-- Modify: `src/NovaTerminal.App/Program.cs` — the shipped entry point; the AOT bundle has no separate Cli
-- Test: `tests/NovaTerminal.Architecture.Tests` — guard that both dispatch tables stay in sync
-- Test: `tests/NovaTerminal.App.Tests/Backup/BackupCommandTests.cs`
+- Create: `src/Ntilde.App/Shell/Backup/BackupCommand.cs`
+- Modify: `src/Ntilde.Cli/Program.cs`
+- Modify: `src/Ntilde.App/Program.cs` — the shipped entry point; the AOT bundle has no separate Cli
+- Test: `tests/Ntilde.Architecture.Tests` — guard that both dispatch tables stay in sync
+- Test: `tests/Ntilde.App.Tests/Backup/BackupCommandTests.cs`
 
 **Interfaces:**
 - Consumes: `BackupService` (Tasks 3–5).
 - Produces: `BackupCommand.IsSupportedCliMode(string[] args)`; `BackupCommand.Execute(string[] args, TextWriter stdout, TextWriter stderr, string? rootOverride = null)` returning an exit code (0 success, 1 operation failure, 2 usage error).
 
-**Pattern to follow:** `src/NovaTerminal.App/Shell/SshAskPassCommand.cs` — a static class with exactly those two entry points, dispatched from `Program.Main`.
+**Pattern to follow:** `src/Ntilde.App/Shell/SshAskPassCommand.cs` — a static class with exactly those two entry points, dispatched from `Program.Main`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Backup/BackupCommandTests.cs`:
+Create `tests/Ntilde.App.Tests/Backup/BackupCommandTests.cs`:
 
 ```csharp
-using NovaTerminal.Shell.Backup;
+using Ntilde.Shell.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class BackupCommandTests
 {
@@ -2843,12 +2843,12 @@ public sealed class BackupCommandTests
     public void Export_WritesBundleAndReportsPath()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "cli.novabackup");
+        string bundle = Path.Combine(tree.Root, "cli.ntildebackup");
         var (code, stdout, _) = Run(tree, "backup", "export", bundle);
 
         Assert.Equal(0, code);
         Assert.True(File.Exists(bundle));
-        Assert.Contains("cli.novabackup", stdout);
+        Assert.Contains("cli.ntildebackup", stdout);
     }
 
     [Fact]
@@ -2879,7 +2879,7 @@ public sealed class BackupCommandTests
     public void Import_RequiresAModeFlag()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "cli.novabackup");
+        string bundle = Path.Combine(tree.Root, "cli.ntildebackup");
         new BackupService(tree.Root).Export(bundle);
 
         var (code, _, stderr) = Run(tree, "backup", "import", bundle);
@@ -2893,7 +2893,7 @@ public sealed class BackupCommandTests
     public void Import_RejectsBothModeFlags()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "cli.novabackup");
+        string bundle = Path.Combine(tree.Root, "cli.ntildebackup");
         new BackupService(tree.Root).Export(bundle);
 
         var (code, _, stderr) = Run(tree, "backup", "import", bundle, "--merge", "--replace");
@@ -2907,7 +2907,7 @@ public sealed class BackupCommandTests
     {
         using var source = BackupTestTree.CreatePopulated();
         source.WriteFile("settings.json", """{"FontSize":33}""");
-        string bundle = Path.Combine(source.Root, "cli.novabackup");
+        string bundle = Path.Combine(source.Root, "cli.ntildebackup");
         new BackupService(source.Root).Export(bundle);
 
         using var target = BackupTestTree.CreatePopulated();
@@ -2953,14 +2953,14 @@ public sealed class BackupCommandTests
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BackupCommandTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~BackupCommandTests"
 ```
 
 Expected: compile failure — `BackupCommand` does not exist.
 
 - [ ] **Step 3: Create the command**
 
-Create `src/NovaTerminal.App/Shell/Backup/BackupCommand.cs`:
+Create `src/Ntilde.App/Shell/Backup/BackupCommand.cs`:
 
 ```csharp
 using System;
@@ -2968,7 +2968,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 
-namespace NovaTerminal.Shell.Backup;
+namespace Ntilde.Shell.Backup;
 
 /// <summary>
 /// The <c>backup</c> CLI verb. Follows the same shape as <see cref="SshAskPassCommand"/>:
@@ -3110,7 +3110,7 @@ public static class BackupCommand
 
 - [ ] **Step 4: Wire it into the CLI**
 
-In `src/NovaTerminal.Cli/Program.cs`, add `using NovaTerminal.Shell.Backup;` at the top and insert this branch after the `ReplayCommand` branch, before the "Unsupported CLI mode." fallback:
+In `src/Ntilde.Cli/Program.cs`, add `using Ntilde.Shell.Backup;` at the top and insert this branch after the `ReplayCommand` branch, before the "Unsupported CLI mode." fallback:
 
 ```csharp
         if (BackupCommand.IsSupportedCliMode(args))
@@ -3122,7 +3122,7 @@ In `src/NovaTerminal.Cli/Program.cs`, add `using NovaTerminal.Shell.Backup;` at 
 - [ ] **Step 5: Run tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~BackupCommandTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~BackupCommandTests"
 ```
 
 Expected: PASS, 9 tests.
@@ -3130,7 +3130,7 @@ Expected: PASS, 9 tests.
 - [ ] **Step 6: Verify the CLI project still builds**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.Cli
+scripts/build.ps1 build src/Ntilde.Cli
 ```
 
 Expected: build succeeded, 0 errors.
@@ -3138,7 +3138,7 @@ Expected: build succeeded, 0 errors.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/Backup/BackupCommand.cs src/NovaTerminal.Cli/Program.cs src/NovaTerminal.App/Program.cs tests/NovaTerminal.App.Tests/Backup/BackupCommandTests.cs tests/NovaTerminal.Architecture.Tests
+git add src/Ntilde.App/Shell/Backup/BackupCommand.cs src/Ntilde.Cli/Program.cs src/Ntilde.App/Program.cs tests/Ntilde.App.Tests/Backup/BackupCommandTests.cs tests/Ntilde.Architecture.Tests
 git commit -m "feat(backup): backup export/import/list/restore CLI verbs"
 ```
 
@@ -3147,8 +3147,8 @@ git commit -m "feat(backup): backup export/import/list/restore CLI verbs"
 ### Task 8: Settings window "Backup & Restore" page
 
 **Files:**
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml`
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml.cs`
+- Modify: `src/Ntilde.App/SettingsWindow.axaml`
+- Modify: `src/Ntilde.App/SettingsWindow.axaml.cs`
 
 **Interfaces:**
 - Consumes: `BackupService` (Tasks 3–5).
@@ -3160,7 +3160,7 @@ Also note: `MainWindow.SetupCommandPalette()` runs on palette-open and on settin
 
 - [ ] **Step 1: Add the sidebar group to the AXAML**
 
-In `src/NovaTerminal.App/SettingsWindow.axaml`, after the `ConnectionNav` `ListBox`'s closing `</ListBox>` tag, add:
+In `src/Ntilde.App/SettingsWindow.axaml`, after the `ConnectionNav` `ListBox`'s closing `</ListBox>` tag, add:
 
 ```xml
                         <TextBlock Classes="SectionHeader" Text="DATA" Margin="14,18,14,8"/>
@@ -3213,7 +3213,7 @@ Find the `TabControl` and add this as the **last** `TabItem`, after the existing
 
 - [ ] **Step 3: Extend the nav dispatcher**
 
-In `src/NovaTerminal.App/SettingsWindow.axaml.cs`, in the block that resolves the nav list boxes (around line 152), add `DataNav` and its mapping. Replace:
+In `src/Ntilde.App/SettingsWindow.axaml.cs`, in the block that resolves the nav list boxes (around line 152), add `DataNav` and its mapping. Replace:
 
 ```csharp
             var interfaceNav = this.FindControl<ListBox>("InterfaceNav");
@@ -3289,7 +3289,7 @@ Replace the whole `SyncSidebarFromTabs` method (around line 918) with:
 
 - [ ] **Step 5: Wire the buttons**
 
-Add `using NovaTerminal.Shell.Backup;` at the top of `SettingsWindow.axaml.cs`, and add a call to `WireBackupSection();` at the end of the same constructor region that wires the other buttons. Then add the method:
+Add `using Ntilde.Shell.Backup;` at the top of `SettingsWindow.axaml.cs`, and add a call to `WireBackupSection();` at the end of the same constructor region that wires the other buttons. Then add the method:
 
 ```csharp
         /// <summary>
@@ -3341,8 +3341,8 @@ Add `using NovaTerminal.Shell.Backup;` at the top of `SettingsWindow.axaml.cs`, 
                     var file = await topLevel.StorageProvider.SaveFilePickerAsync(
                         new Avalonia.Platform.Storage.FilePickerSaveOptions
                         {
-                            Title = "Export NovaTerminal configuration",
-                            SuggestedFileName = $"novaterminal-{DateTime.Now:yyyy-MM-dd}{BackupService.BundleExtension}",
+                            Title = "Export Ntilde configuration",
+                            SuggestedFileName = $"ntilde-{DateTime.Now:yyyy-MM-dd}{BackupService.BundleExtension}",
                             DefaultExtension = BackupService.BundleExtension.TrimStart('.')
                         });
 
@@ -3363,7 +3363,7 @@ Add `using NovaTerminal.Shell.Backup;` at the top of `SettingsWindow.axaml.cs`, 
                     var files = await topLevel.StorageProvider.OpenFilePickerAsync(
                         new Avalonia.Platform.Storage.FilePickerOpenOptions
                         {
-                            Title = "Import NovaTerminal configuration",
+                            Title = "Import Ntilde configuration",
                             AllowMultiple = false
                         });
 
@@ -3384,7 +3384,7 @@ Add `using NovaTerminal.Shell.Backup;` at the top of `SettingsWindow.axaml.cs`, 
                     var outcome = service.Import(path, mode.Value);
                     SetStatus(
                         outcome.Success
-                            ? $"Imported ({mode}). Restart NovaTerminal to pick up all changes."
+                            ? $"Imported ({mode}). Restart Ntilde to pick up all changes."
                             : outcome.Message,
                         outcome.Success);
                     RefreshSnapshots();
@@ -3404,7 +3404,7 @@ Add `using NovaTerminal.Shell.Backup;` at the top of `SettingsWindow.axaml.cs`, 
                     var outcome = service.Restore(row.Id);
                     SetStatus(
                         outcome.Success
-                            ? "Restored. Restart NovaTerminal to pick up all changes."
+                            ? "Restored. Restart Ntilde to pick up all changes."
                             : outcome.Message,
                         outcome.Success);
                     RefreshSnapshots();
@@ -3497,7 +3497,7 @@ Add this method to `SettingsWindow`. It uses a plain `Window` rather than a new 
 - [ ] **Step 7: Build and verify**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 Expected: build succeeded, 0 errors. AXAML errors surface here, not at runtime.
@@ -3505,7 +3505,7 @@ Expected: build succeeded, 0 errors. AXAML errors surface here, not at runtime.
 - [ ] **Step 8: Run the full App.Tests Backup suite plus the settings tests**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Backup|FullyQualifiedName~Settings"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Backup|FullyQualifiedName~Settings"
 ```
 
 Expected: PASS. Any existing settings test that asserts a tab count or nav mapping will fail here — update it to expect 7 tabs and the `DataNav` group.
@@ -3514,7 +3514,7 @@ Expected: PASS. Any existing settings test that asserts a tab count or nav mappi
 
 Automated GUI driving is unreliable on Windows, so verify by hand:
 
-1. `scripts/build.ps1 build src/NovaTerminal.App`, then launch NovaTerminal.
+1. `scripts/build.ps1 build src/Ntilde.App`, then launch Ntilde.
 2. Open Settings. Confirm a **DATA** group with **Backup & Restore** appears in the sidebar, and that clicking every other sidebar item still lands on its own page (this is the regression the offsets can break).
 3. Click **Export…**, save a file, confirm the green status line names it.
 4. Change a setting, wait ~30s, return to Backup & Restore, reopen Settings, and confirm a snapshot row appeared.
@@ -3524,7 +3524,7 @@ Automated GUI driving is unreliable on Windows, so verify by hand:
 - [ ] **Step 10: Commit**
 
 ```bash
-git add src/NovaTerminal.App/SettingsWindow.axaml src/NovaTerminal.App/SettingsWindow.axaml.cs
+git add src/Ntilde.App/SettingsWindow.axaml src/Ntilde.App/SettingsWindow.axaml.cs
 git commit -m "feat(backup): Backup & Restore settings page"
 ```
 
@@ -3533,7 +3533,7 @@ git commit -m "feat(backup): Backup & Restore settings page"
 ### Task 9: Command palette entries and scheduler startup
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
 
 **Interfaces:**
 - Consumes: `BackupService`, `SnapshotScheduler`, `CommandRegistry.Register(string title, string category, Action action, string shortcut = "", string id = "")`.
@@ -3543,7 +3543,7 @@ git commit -m "feat(backup): Backup & Restore settings page"
 
 - [ ] **Step 1: Register the palette commands**
 
-In `src/NovaTerminal.App/MainWindow.axaml.cs`, add `using NovaTerminal.Shell.Backup;` and, inside `SetupCommandPalette()` alongside the other `CommandRegistry.Register` calls, add:
+In `src/Ntilde.App/MainWindow.axaml.cs`, add `using Ntilde.Shell.Backup;` and, inside `SetupCommandPalette()` alongside the other `CommandRegistry.Register` calls, add:
 
 ```csharp
             CommandRegistry.Register(
@@ -3588,7 +3588,7 @@ If `SettingsWindow`'s constructor signature differs, match the existing call sit
 
 - [ ] **Step 3: Add SelectBackupPage to SettingsWindow**
 
-In `src/NovaTerminal.App/SettingsWindow.axaml.cs`:
+In `src/Ntilde.App/SettingsWindow.axaml.cs`:
 
 ```csharp
         /// <summary>Selects the Backup &amp; Restore tab. Used by the command palette entries.</summary>
@@ -3631,7 +3631,7 @@ and disposal wherever `MainWindow` already tears down its services (its `OnClose
 - [ ] **Step 5: Build and verify**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 Expected: build succeeded, 0 errors.
@@ -3639,21 +3639,21 @@ Expected: build succeeded, 0 errors.
 - [ ] **Step 6: Run the App.Tests suite**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Backup|FullyQualifiedName~CommandPalette"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Backup|FullyQualifiedName~CommandPalette"
 ```
 
 Expected: PASS. If a palette-ordering test asserts an exact command count, update it for the three new entries.
 
 - [ ] **Step 7: Manual smoke test**
 
-1. Launch NovaTerminal, open the command palette.
+1. Launch Ntilde, open the command palette.
 2. Type "backup" — confirm all three entries appear under a Backup category.
 3. Pick "Restore from snapshot…" and confirm Settings opens on the Backup & Restore page.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs src/NovaTerminal.App/SettingsWindow.axaml.cs
+git add src/Ntilde.App/MainWindow.axaml.cs src/Ntilde.App/SettingsWindow.axaml.cs
 git commit -m "feat(backup): palette entries and snapshot scheduler startup"
 ```
 
@@ -3661,24 +3661,24 @@ git commit -m "feat(backup): palette entries and snapshot scheduler startup"
 
 ### Task 10a: Move the backup module to Platform
 
-`NovaTerminal.McpServer` references only `NovaTerminal.AgentHost.Contracts` — never `NovaTerminal.App` — so the MCP tools in Task 10b cannot reach `BackupService` where it currently lives. Referencing the Avalonia app from a stdio MCP server is the wrong fix; it would drag the whole GUI into the server and break its publish story.
+`Ntilde.McpServer` references only `Ntilde.AgentHost.Contracts` — never `Ntilde.App` — so the MCP tools in Task 10b cannot reach `BackupService` where it currently lives. Referencing the Avalonia app from a stdio MCP server is the wrong fix; it would drag the whole GUI into the server and break its publish story.
 
-Move the module to `NovaTerminal.Platform`, which is the shared non-UI layer and is already referenced by both `NovaTerminal.App` and (transitively, once added) anything else that needs it. Backup is non-UI logic operating on files, so this is where it belonged all along.
+Move the module to `Ntilde.Platform`, which is the shared non-UI layer and is already referenced by both `Ntilde.App` and (transitively, once added) anything else that needs it. Backup is non-UI logic operating on files, so this is where it belonged all along.
 
 This is a pure refactor: **no behavior changes, no new features, no test-semantics changes.** Every existing test must still pass, unmodified except for `using` directives.
 
 **Files:**
-- Move: `src/NovaTerminal.App/Shell/Backup/*.cs` → `src/NovaTerminal.Platform/Backup/`, namespace `NovaTerminal.Shell.Backup` → `NovaTerminal.Platform.Backup`
-- Modify: `src/NovaTerminal.McpServer/NovaTerminal.McpServer.csproj` — add a `ProjectReference` to `NovaTerminal.Platform`
-- Modify: every consumer's `using` — `SettingsWindow.axaml.cs`, `MainWindow.axaml.cs`, `src/NovaTerminal.Cli/Program.cs`, `src/NovaTerminal.App/Program.cs`
-- Modify: `tests/NovaTerminal.App.Tests/Backup/*.cs` and `tests/NovaTerminal.App.Tests/Core/SettingsWindow*Tests.cs`, `MainWindowBackupPaletteTests.cs` — `using` only
-- Modify: `tests/NovaTerminal.Architecture.Tests` if a boundary rule needs updating
+- Move: `src/Ntilde.App/Shell/Backup/*.cs` → `src/Ntilde.Platform/Backup/`, namespace `Ntilde.Shell.Backup` → `Ntilde.Platform.Backup`
+- Modify: `src/Ntilde.McpServer/Ntilde.McpServer.csproj` — add a `ProjectReference` to `Ntilde.Platform`
+- Modify: every consumer's `using` — `SettingsWindow.axaml.cs`, `MainWindow.axaml.cs`, `src/Ntilde.Cli/Program.cs`, `src/Ntilde.App/Program.cs`
+- Modify: `tests/Ntilde.App.Tests/Backup/*.cs` and `tests/Ntilde.App.Tests/Core/SettingsWindow*Tests.cs`, `MainWindowBackupPaletteTests.cs` — `using` only
+- Modify: `tests/Ntilde.Architecture.Tests` if a boundary rule needs updating
 
 **Interfaces:**
-- Consumes: `NovaTerminal.Platform`'s existing conventions.
-- Produces: the same public surface under `NovaTerminal.Platform.Backup`, plus an injectable logger replacing the static `AppLogger` dependency.
+- Consumes: `Ntilde.Platform`'s existing conventions.
+- Produces: the same public surface under `Ntilde.Platform.Backup`, plus an injectable logger replacing the static `AppLogger` dependency.
 
-**What stays behind:** `BackupCommand` may stay in `NovaTerminal.App/Shell/Backup/` if moving it is awkward — it is the only file that touches `AppPaths`, and the CLI already lives in App. Decide based on what keeps the layering clean, and say which you chose and why. Everything else moves.
+**What stays behind:** `BackupCommand` may stay in `Ntilde.App/Shell/Backup/` if moving it is awkward — it is the only file that touches `AppPaths`, and the CLI already lives in App. Decide based on what keeps the layering clean, and say which you chose and why. Everything else moves.
 
 **The two couplings to break:**
 
@@ -3693,8 +3693,8 @@ This is a pure refactor: **no behavior changes, no new features, no test-semanti
 Record the exact pass count you are preserving.
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Backup|FullyQualifiedName~Settings|FullyQualifiedName~CommandPalette"
-scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Backup|FullyQualifiedName~Settings|FullyQualifiedName~CommandPalette"
+scripts/build.ps1 test tests/Ntilde.Architecture.Tests
 ```
 
 Write both totals into your report. They are the contract for this task: the same tests must pass afterward.
@@ -3702,7 +3702,7 @@ Write both totals into your report. They are the contract for this task: the sam
 - [ ] **Step 2: Confirm the couplings**
 
 ```bash
-grep -rn "AtomicFile\|AppLogger\|AppPaths" src/NovaTerminal.App/Shell/Backup/
+grep -rn "AtomicFile\|AppLogger\|AppPaths" src/Ntilde.App/Shell/Backup/
 ```
 
 Expect `AppLogger` in `BackupService.cs` and `SnapshotScheduler.cs`, `AppPaths` in `BackupCommand.cs`, and no `AtomicFile`. If reality differs, report it before proceeding — an unexpected coupling changes the shape of this task.
@@ -3713,25 +3713,25 @@ Add the optional logger parameter to `BackupService` and `SnapshotScheduler`, re
 
 - [ ] **Step 4: Move the files and rename the namespace**
 
-`git mv` each file so history follows it, change the namespace declarations, and fix every `using`. Add the `ProjectReference` from `NovaTerminal.McpServer` to `NovaTerminal.Platform`.
+`git mv` each file so history follows it, change the namespace declarations, and fix every `using`. Add the `ProjectReference` from `Ntilde.McpServer` to `Ntilde.Platform`.
 
 - [ ] **Step 5: Build everything that could be affected**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.Platform
-scripts/build.ps1 build src/NovaTerminal.App
-scripts/build.ps1 build src/NovaTerminal.Cli
-scripts/build.ps1 build src/NovaTerminal.McpServer
+scripts/build.ps1 build src/Ntilde.Platform
+scripts/build.ps1 build src/Ntilde.App
+scripts/build.ps1 build src/Ntilde.Cli
+scripts/build.ps1 build src/Ntilde.McpServer
 ```
 
 - [ ] **Step 6: Re-run the baseline and the architecture tests**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Backup|FullyQualifiedName~Settings|FullyQualifiedName~CommandPalette"
-scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Backup|FullyQualifiedName~Settings|FullyQualifiedName~CommandPalette"
+scripts/build.ps1 test tests/Ntilde.Architecture.Tests
 ```
 
-Both totals must match Step 1 exactly. A changed count means you altered behavior or lost a test — find out which before continuing. `NovaTerminal.Architecture.Tests` enforces module boundaries; if it now fails, that is the layering telling you something, not a test to weaken.
+Both totals must match Step 1 exactly. A changed count means you altered behavior or lost a test — find out which before continuing. `Ntilde.Architecture.Tests` enforces module boundaries; if it now fails, that is the layering telling you something, not a test to weaken.
 
 Note the CLI-dispatch guard test added in Task 7 reflects over the App assembly for types with the CLI-command shape. If `BackupCommand` moved, that guard may need its search widened — fix the guard, do not delete it.
 
@@ -3741,7 +3741,7 @@ Note the CLI-dispatch guard test added in Task 7 reflects over the App assembly 
 git add -A
 git commit -m "refactor(backup): move the backup module to Platform
 
-NovaTerminal.McpServer references only AgentHost.Contracts, so the MCP
+Ntilde.McpServer references only AgentHost.Contracts, so the MCP
 tools cannot reach BackupService in the App assembly, and referencing an
 Avalonia GUI app from a stdio server is the wrong fix. Backup is non-UI
 file logic, so Platform is its right home. The static AppLogger
@@ -3755,23 +3755,23 @@ dependency becomes an injected delegate; no behavior changes."
 Read-only by design. No import, no restore: the MCP server is out-of-process and its existing tools are schema/validation helpers, so an agent silently replacing live connection profiles is a destructive action the user never sees.
 
 **Files:**
-- Create: `src/NovaTerminal.McpServer/Tools/BackupTools.cs`
-- Test: `tests/NovaTerminal.McpServer.Tests/BackupToolsTests.cs`
+- Create: `src/Ntilde.McpServer/Tools/BackupTools.cs`
+- Test: `tests/Ntilde.McpServer.Tests/BackupToolsTests.cs`
 
 **Interfaces:**
-- Consumes: `NovaTerminal.Backup` — Task 10a extracted the module into a zero-reference leaf project and added the `ProjectReference`. An architecture test enforces that leaf status, so do NOT add any `ProjectReference` to `NovaTerminal.Backup.csproj`. Use `BackupService` directly; do not reimplement anything.
-- Produces: MCP tools `novaterminal.backup_export` and `novaterminal.backup_list`.
+- Consumes: `Ntilde.Backup` — Task 10a extracted the module into a zero-reference leaf project and added the `ProjectReference`. An architecture test enforces that leaf status, so do NOT add any `ProjectReference` to `Ntilde.Backup.csproj`. Use `BackupService` directly; do not reimplement anything.
+- Produces: MCP tools `ntilde.backup_export` and `ntilde.backup_list`.
 
-**Pattern to follow:** `src/NovaTerminal.McpServer/Tools/SettingsTools.cs` — `[McpServerToolType]` on a static class, `[McpServerTool(Name = "...")]` plus `[Description(...)]` on each static method, returning a string.
+**Pattern to follow:** `src/Ntilde.McpServer/Tools/SettingsTools.cs` — `[McpServerToolType]` on a static class, `[McpServerTool(Name = "...")]` plus `[Description(...)]` on each static method, returning a string.
 
 - [ ] **Step 2: Write the failing test**
 
-Create `tests/NovaTerminal.McpServer.Tests/BackupToolsTests.cs`. Match the existing tests' namespace and helper style in that project — read one first.
+Create `tests/Ntilde.McpServer.Tests/BackupToolsTests.cs`. Match the existing tests' namespace and helper style in that project — read one first.
 
 ```csharp
-using NovaTerminal.McpServer.Tools;
+using Ntilde.McpServer.Tools;
 
-namespace NovaTerminal.McpServer.Tests;
+namespace Ntilde.McpServer.Tests;
 
 public sealed class BackupToolsTests
 {
@@ -3781,12 +3781,12 @@ public sealed class BackupToolsTests
         string root = CreateTree();
         try
         {
-            string destination = Path.Combine(root, "agent-export.novabackup");
+            string destination = Path.Combine(root, "agent-export.ntildebackup");
 
             string result = BackupTools.BackupExport(destination, root);
 
             Assert.True(File.Exists(destination));
-            Assert.Contains("agent-export.novabackup", result);
+            Assert.Contains("agent-export.ntildebackup", result);
         }
         finally
         {
@@ -3800,7 +3800,7 @@ public sealed class BackupToolsTests
         string root = CreateTree();
         try
         {
-            string blocked = Path.Combine(root, "blocked.novabackup");
+            string blocked = Path.Combine(root, "blocked.ntildebackup");
             Directory.CreateDirectory(blocked);
 
             string result = BackupTools.BackupExport(blocked, root);
@@ -3830,7 +3830,7 @@ public sealed class BackupToolsTests
 
     private static string CreateTree()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"nova_mcp_backup_{Guid.NewGuid():N}");
+        string root = Path.Combine(Path.GetTempPath(), $"ntilde_mcp_backup_{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         File.WriteAllText(Path.Combine(root, "settings.json"), """{"FontSize":14}""");
         return root;
@@ -3841,23 +3841,23 @@ public sealed class BackupToolsTests
 - [ ] **Step 3: Run test to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~BackupToolsTests"
+scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~BackupToolsTests"
 ```
 
 Expected: compile failure — `BackupTools` does not exist.
 
 - [ ] **Step 4: Create the tools**
 
-Create `src/NovaTerminal.McpServer/Tools/BackupTools.cs`. Adjust the `using` for the backup namespace to whatever Step 1 settled on.
+Create `src/Ntilde.McpServer/Tools/BackupTools.cs`. Adjust the `using` for the backup namespace to whatever Step 1 settled on.
 
 ```csharp
 using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using ModelContextProtocol.Server;
-using NovaTerminal.Backup;
+using Ntilde.Backup;
 
-namespace NovaTerminal.McpServer.Tools;
+namespace Ntilde.McpServer.Tools;
 
 /// <summary>
 /// Read-only backup tools. Export and list only — deliberately no import or restore.
@@ -3868,13 +3868,13 @@ namespace NovaTerminal.McpServer.Tools;
 [McpServerToolType]
 public static class BackupTools
 {
-    [McpServerTool(Name = "novaterminal.backup_export"),
-     Description("Export NovaTerminal's configuration (settings, themes, connections, workspaces, policy, snippets) " +
-                 "to a .novabackup file. Passwords are never included. Use this before changing configuration " +
+    [McpServerTool(Name = "ntilde.backup_export"),
+     Description("Export Ntilde's configuration (settings, themes, connections, workspaces, policy, snippets) " +
+                 "to a .ntildebackup file. Passwords are never included. Use this before changing configuration " +
                  "so the user can roll back.")]
     public static string BackupExport(
-        [Description("Absolute path for the .novabackup file to write.")] string destinationPath,
-        [Description("App data root. Omit to use the current user's NovaTerminal directory.")] string? rootDirectory = null)
+        [Description("Absolute path for the .ntildebackup file to write.")] string destinationPath,
+        [Description("App data root. Omit to use the current user's Ntilde directory.")] string? rootDirectory = null)
     {
         var service = new BackupService(rootDirectory ?? ResolveDefaultRoot());
         var outcome = service.Export(destinationPath);
@@ -3883,11 +3883,11 @@ public static class BackupTools
             : outcome.Message;
     }
 
-    [McpServerTool(Name = "novaterminal.backup_list"),
-     Description("List NovaTerminal's automatic configuration snapshots, newest first, with id, reason, " +
+    [McpServerTool(Name = "ntilde.backup_list"),
+     Description("List Ntilde's automatic configuration snapshots, newest first, with id, reason, " +
                  "timestamp, and size. The user restores a snapshot from Settings > Backup & Restore.")]
     public static string BackupList(
-        [Description("App data root. Omit to use the current user's NovaTerminal directory.")] string? rootDirectory = null)
+        [Description("App data root. Omit to use the current user's Ntilde directory.")] string? rootDirectory = null)
     {
         var snapshots = new BackupService(rootDirectory ?? ResolveDefaultRoot()).ListSnapshots();
         if (snapshots.Count == 0) return "No snapshots yet.";
@@ -3908,17 +3908,17 @@ public static class BackupTools
     }
 
     /// <summary>
-    /// Mirrors AppPaths.RootDirectory, including the NOVATERM_APPDATA_ROOT override, without
+    /// Mirrors AppPaths.RootDirectory, including the NTILDE_APPDATA_ROOT override, without
     /// depending on the App assembly's static initializer (which creates directories).
     /// </summary>
     private static string ResolveDefaultRoot()
     {
-        string? overrideRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        string? overrideRoot = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
         if (!string.IsNullOrWhiteSpace(overrideRoot)) return Path.GetFullPath(overrideRoot);
 
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "NovaTerminal");
+            "Ntilde");
     }
 }
 ```
@@ -3926,7 +3926,7 @@ public static class BackupTools
 - [ ] **Step 5: Run tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~BackupToolsTests"
+scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~BackupToolsTests"
 ```
 
 Expected: PASS, 3 tests.
@@ -3934,19 +3934,19 @@ Expected: PASS, 3 tests.
 - [ ] **Step 6: Run the McpServer suite in full**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests
+scripts/build.ps1 test tests/Ntilde.McpServer.Tests
 ```
 
 Expected: PASS. This project has drift-guard tests that enumerate registered tools — if one asserts an exact tool count or list, add the two new tools to it.
 
 - [ ] **Step 7: Update the MCP README**
 
-Add the two tools to `src/NovaTerminal.McpServer/README.md`'s tool table, matching the existing rows' format, and note that import and restore are intentionally absent.
+Add the two tools to `src/Ntilde.McpServer/README.md`'s tool table, matching the existing rows' format, and note that import and restore are intentionally absent.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/NovaTerminal.McpServer tests/NovaTerminal.McpServer.Tests/BackupToolsTests.cs
+git add src/Ntilde.McpServer tests/Ntilde.McpServer.Tests/BackupToolsTests.cs
 git commit -m "feat(backup): read-only MCP export and list tools"
 ```
 
@@ -3959,19 +3959,19 @@ git commit -m "feat(backup): read-only MCP export and list tools"
 - [ ] **Step 1: Run every affected test project**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng&Category!=ShellIntegration"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng&Category!=ShellIntegration"
 ```
 
 Expected: PASS. This mirrors the CI unit-test filter plus the `ShellIntegration` quarantine.
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests
+scripts/build.ps1 test tests/Ntilde.McpServer.Tests
 ```
 
 Expected: PASS.
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests
+scripts/build.ps1 test tests/Ntilde.Architecture.Tests
 ```
 
 Expected: PASS. This project enforces module boundaries — if the Task 10 namespace move happened, it is the test that catches a bad layering.
@@ -3987,7 +3987,7 @@ Expected: build succeeded, 0 errors, 0 new warnings.
 - [ ] **Step 3: Verify the secret guarantee by hand**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.Cli
+scripts/build.ps1 build src/Ntilde.Cli
 ```
 
 Then, in a terminal, export from a real profile and inspect the archive listing to confirm it contains only the expected categories and no `logs/`, `recordings/`, `history`, or `vault` entries.

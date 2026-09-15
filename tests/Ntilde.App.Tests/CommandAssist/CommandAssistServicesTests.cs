@@ -1,8 +1,8 @@
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.Shell;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// The retention cap must never be expressed as a history-store swap.
@@ -20,7 +20,7 @@ public sealed class CommandAssistServicesTests : IDisposable
 
     public CommandAssistServicesTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), $"nova_command_assist_services_{Guid.NewGuid():N}");
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_command_assist_services_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempRoot);
     }
 

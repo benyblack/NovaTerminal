@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.Shell.Shortcuts;
+using Ntilde.Shell.Shortcuts;
 
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 public static class CommandPaletteOrdering
 {

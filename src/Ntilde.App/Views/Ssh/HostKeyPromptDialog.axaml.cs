@@ -1,10 +1,10 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
-using NovaTerminal.Platform.Ssh.Interactions;
-using NovaTerminal.ViewModels.Ssh;
+using Ntilde.Platform.Ssh.Interactions;
+using Ntilde.ViewModels.Ssh;
 
-namespace NovaTerminal.Views.Ssh;
+namespace Ntilde.Views.Ssh;
 
 public partial class HostKeyPromptDialog : Window
 {

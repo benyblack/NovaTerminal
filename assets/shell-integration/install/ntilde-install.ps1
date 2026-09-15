@@ -1,4 +1,4 @@
-# Nova Terminal remote shell integration installer (PowerShell).
+# Ntilde remote shell integration installer (PowerShell).
 #
 # Decoded to a temp file by the one-liner Settings copies, invoked with the call operator (& ) so it
 # runs in a CHILD SCOPE - nothing it defines reaches your session - and then deleted. $PROFILE is
@@ -12,9 +12,9 @@ param(
     [string]$DestDir = $HOME
 )
 
-$dest = Join-Path $DestDir '.nova-shell-integration.ps1'
+$dest = Join-Path $DestDir '.ntilde-shell-integration.ps1'
 $snippet = @'
-@@NOVA_SNIPPET@@
+@@NTILDE_SNIPPET@@
 '@
 
 # WriteAllText with an explicit no-BOM UTF-8 rather than Set-Content -Encoding utf8NoBOM: that
@@ -25,18 +25,18 @@ try {
 } catch {
     # try/catch rather than a Test-Path afterwards: WriteAllText throws on failure, so the file
     # always exists by the time a Test-Path could run and the check could never fire.
-    Write-Host "nova: could not write $dest - $($_.Exception.Message)"
+    Write-Host "ntilde: could not write $dest - $($_.Exception.Message)"
     exit 1
 }
-Write-Host 'nova: wrote ~/.nova-shell-integration.ps1'
+Write-Host 'ntilde: wrote ~/.ntilde-shell-integration.ps1'
 
-$loader = '. ~/.nova-shell-integration.ps1'
+$loader = '. ~/.ntilde-shell-integration.ps1'
 $profileDir = Split-Path -Parent $ProfilePath
 if ($profileDir -and -not (Test-Path -LiteralPath $profileDir)) {
     New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
 }
 
-$novaStatus = 0
+$ntildeStatus = 0
 
 # A regex anchored to the start of a non-comment line rather than -SimpleMatch anywhere in the
 # file. The marker is the file name, so a hand-typed variant of the loader line still counts, but
@@ -44,8 +44,8 @@ $novaStatus = 0
 # must not be read as "already installed" and left without a loader line. '#' is PowerShell's
 # comment character too, so this is the same rule the sh installer applies.
 if ((Test-Path -LiteralPath $ProfilePath) -and
-    (Select-String -LiteralPath $ProfilePath -Pattern '^[^#]*nova-shell-integration' -Quiet)) {
-    Write-Host "nova: loader line already present in $ProfilePath - unchanged"
+    (Select-String -LiteralPath $ProfilePath -Pattern '^[^#]*ntilde-shell-integration' -Quiet)) {
+    Write-Host "ntilde: loader line already present in $ProfilePath - unchanged"
 } else {
     # Add-Content appends at the exact end of the file with no separator of its own. A profile
     # that does not end in a newline (common - many editors don't add one) would otherwise get the
@@ -66,14 +66,14 @@ if ((Test-Path -LiteralPath $ProfilePath) -and
             }
         }
         Add-Content -LiteralPath $ProfilePath -Value $loader -ErrorAction Stop
-        Write-Host "nova: added loader line to $ProfilePath"
+        Write-Host "ntilde: added loader line to $ProfilePath"
     } catch {
-        Write-Host "nova: could not write $ProfilePath - add this line to it by hand:"
-        Write-Host "nova:   $loader"
-        $novaStatus = 1
+        Write-Host "ntilde: could not write $ProfilePath - add this line to it by hand:"
+        Write-Host "ntilde:   $loader"
+        $ntildeStatus = 1
     }
 }
 
-Write-Host 'nova: run  . ~/.nova-shell-integration.ps1  to enable it in this session,'
-Write-Host 'nova: or open a new Nova session to this host.'
-exit $novaStatus
+Write-Host 'ntilde: run  . ~/.ntilde-shell-integration.ps1  to enable it in this session,'
+Write-Host 'ntilde: or open a new Ntilde session to this host.'
+exit $ntildeStatus

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <IsPackable>false</IsPackable>
-    <NativeProjectDir>$(MSBuildProjectDirectory)\..\..\src\NovaTerminal.App\native\</NativeProjectDir>
+    <NativeProjectDir>$(MSBuildProjectDirectory)\..\..\src\Ntilde.App\native\</NativeProjectDir>
     <RustSshNativeProjectDir>$(NativeProjectDir)rusty_ssh\</RustSshNativeProjectDir>
     <RustSshNativeOutput Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">$(RustSshNativeProjectDir)target\release\rusty_ssh.dll</RustSshNativeOutput>
     <RustSshNativeOutput Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">$(RustSshNativeProjectDir)target\release\librusty_ssh.so</RustSshNativeOutput>
@@ -20,8 +20,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\NovaTerminal.Platform\NovaTerminal.Platform.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Conformance\NovaTerminal.Conformance.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Platform\Ntilde.Platform.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Conformance\Ntilde.Conformance.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -48,17 +48,17 @@
   </Target>
 
   <ItemGroup>
-    <Content Include="..\..\src\NovaTerminal.App\native\rusty_ssh\target\release\rusty_ssh.dll"
+    <Content Include="..\..\src\Ntilde.App\native\rusty_ssh\target\release\rusty_ssh.dll"
       Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">
       <Link>rusty_ssh.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="..\..\src\NovaTerminal.App\native\rusty_ssh\target\release\librusty_ssh.so"
+    <Content Include="..\..\src\Ntilde.App\native\rusty_ssh\target\release\librusty_ssh.so"
       Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
       <Link>librusty_ssh.so</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="..\..\src\NovaTerminal.App\native\rusty_ssh\target\release\librusty_ssh.dylib"
+    <Content Include="..\..\src\Ntilde.App\native\rusty_ssh\target\release\librusty_ssh.dylib"
       Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))">
       <Link>librusty_ssh.dylib</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

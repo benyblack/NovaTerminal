@@ -1,6 +1,6 @@
 # Issue Triage — 2026-07-31
 
-**Scope:** the 16 issues open on `benyblack/NovaTerminal` after the 07-29→07-31 fix run
+**Scope:** the 16 issues open on `benyblack/ntilde` after the 07-29→07-31 fix run
 (`main@c083803`).
 **Method:** every factual claim in every body re-verified against the current tree. Line counts were
 counted, not quoted. Diagnostic counts were produced by running the tool. Verdicts carry `file:line`.
@@ -79,8 +79,8 @@ Two further corrections:
   manipulation** (`RenderDetail` :372-397, `SetText` :399, `UpdateLaunchPreview` :415-438) that should be
   XAML bindings. Reframe it that way — it is still worth doing, for a different reason.
 - "SSH smeared across two assemblies and five App folders" — accurate, but the shape matters: SSH *core*
-  already lives in `NovaTerminal.Platform\Ssh\` (43 files, 8 subfolders). So the decision is not
-  "consolidate the scatter" but **"create `NovaTerminal.Ssh`, or finish moving into Platform"** — and the
+  already lives in `Ntilde.Platform\Ssh\` (43 files, 8 subfolders). So the decision is not
+  "consolidate the scatter" but **"create `Ntilde.Ssh`, or finish moving into Platform"** — and the
   single clearest misplacement is `App\Shell\SftpService.cs` (**864 lines** of transport code in `Shell\`).
 
 ### #112 — DI composition root; remove GlobalCommandRegistry static ⚠️
@@ -103,7 +103,7 @@ Two further corrections:
 - Second-instance risk is real: MainWindow has **two public constructors** (:1930 designer, :1934 real),
   and tests already build several (`MainWindowStartupTests.cs:90,103,115,139`).
 
-### #113 — Move TerminalView/TerminalDrawOperation into NovaTerminal.Rendering ⛔ **not executable as written**
+### #113 — Move TerminalView/TerminalDrawOperation into Ntilde.Rendering ⛔ **not executable as written**
 
 The premise is right — the renderer is in the wrong assembly, and `ARCHITECTURE.md:263` says so. But a
 literal move is blocked:
@@ -112,10 +112,10 @@ literal move is blocked:
   interface** — with usings on `Avalonia`, `.Media`, `.Platform`, `.Rendering.SceneGraph`, `.Skia`.
 - `TerminalView : Control` (`TerminalView.cs:41`) — an **Avalonia Control** — using nine Avalonia
   namespaces.
-- `NovaTerminal.Rendering.csproj` references **no Avalonia at all** (VT + SkiaSharp only).
+- `Ntilde.Rendering.csproj` references **no Avalonia at all** (VT + SkiaSharp only).
 - Two tests would fail: `LayeringTests.cs:34-49` lists `"Avalonia"` in Rendering's
   `NotHaveDependencyOnAny` (:44), and `ProjectFileLayeringTests.cs:63-68` asserts Rendering's project
-  references equal exactly `["NovaTerminal.VT"]`.
+  references equal exactly `["Ntilde.VT"]`.
 - And `ARCHITECTURE.md:118-120` states the invariant *"Rendering is a pure function of (buffer snapshot,
   metrics, theme)"* — which is the reason those tests exist.
 
@@ -133,9 +133,9 @@ Also: **both the issue's and ARCHITECTURE.md's line counts are wrong.** Actual `
 
 ### #117 — coverage reporting; re-gate headless App tests — **item 1 done, item 2 blocked upstream**
 
-- **Item 1 done.** `ci.yml:316-420` job `Coverage (NovaTerminal.VT floor)`; `tests/coverage.runsettings`
+- **Item 1 done.** `ci.yml:316-420` job `Coverage (Ntilde.VT floor)`; `tests/coverage.runsettings`
   drives the XPlat collector for VT/Rendering/Platform/McpServer; the floor gate is
-  `ci.yml:406-412` → `scripts/check-coverage.ps1 -MinimumLinePercent 50 -Label NovaTerminal.VT`, with
+  `ci.yml:406-412` → `scripts/check-coverage.ps1 -MinimumLinePercent 50 -Label Ntilde.VT`, with
   the measured baseline (53.14% line / 46.51% branch) recorded at :400-405. Exactly the assembly the
   issue asked for. Note the *test* step is `continue-on-error` (:364) but the **floor check is not**, so
   the gate is real.
@@ -156,7 +156,7 @@ thin issue tracking the upstream flake.
   `Render Metrics` job (`ci.yml:649-651`, filter at :696-700).
 - **Still open:** no frame-time threshold anywhere. `FrameTimeMs` is captured
   (`RenderPerfMetrics.cs:6`, serialized `RenderPerfWriter.cs:94`) but the only tests touching it are
-  JSONL serialization tests. No render benchmark in `tests/NovaTerminal.Benchmarks/` — that project has
+  JSONL serialization tests. No render benchmark in `tests/Ntilde.Benchmarks/` — that project has
   three classes and all are parser/reflow/scrollback. No sustained-output stress case comparing render
   rate to parse rate (`StressTests.DataFlood_Backpressure_StressTest` :24 never renders; it asserts only
   wall-clock <10 s :57 and <100 MB :62).
@@ -221,13 +221,13 @@ thin issue tracking the upstream flake.
 - **Gap 2 open.** The parser discards everything before the second `;` — `AnsiParser.cs:1584-1592` takes
   only `data.Substring(secondSep + 1)` as the URI, so `id=` is dropped unparsed. The side table is
   `SmallMap<string>` (`TerminalRow.cs:19,50,78`), URI only; no hyperlink-id type exists in
-  `NovaTerminal.VT`.
+  `Ntilde.VT`.
 - **Gap 3 open.** `TerminalView.cs:1943` stores `(absRow, col, col, osc8)` — a single cell — while the
   auto-detected path 20 lines below stores a real span (:1967, via `RowTextExtractor.SpanToColumns`
   :1962). Same shortcut in the click path (:2027-2028). So **explicit** author-intent links get *worse*
   hover treatment than regex-guessed ones, which is the wrong way round.
 - **Gaps 4-7 open.** Zero `hyperlink` references in `RenderSnapshots.cs`, `ReplayModels.cs`, or anywhere
-  in `NovaTerminal.Replay` — replay/snapshot fidelity does not exist.
+  in `Ntilde.Replay` — replay/snapshot fidelity does not exist.
 
 ### #173 — Native SSH output path — **item 1's copy half done, rest open**
 
@@ -375,7 +375,7 @@ The four MainWindow-area refactors are not independent, and the issues do not sa
    OSC 8 open". Adopting that means every hyperlink cell has an identity, so **gap 3 can group by identity
    instead of walking outward while URIs match** — the adjacent-same-URI merge bug I had planned to
    document as a known limitation simply cannot occur. Gap 3 is now the smaller, self-contained half.
-   Contained to `NovaTerminal.VT`: `GetHyperlinkAbsolute` still returns `string?` so both App call sites
+   Contained to `Ntilde.VT`: `GetHyperlinkAbsolute` still returns `string?` so both App call sites
    were untouched, nothing in Rendering or Replay reads hyperlinks, and scrollback is never serialised so
    reference identity survives paging (asserted by a test).
    *Process note:* my first mutation set had six mutations, all caught — but `SameUriDifferentIds_

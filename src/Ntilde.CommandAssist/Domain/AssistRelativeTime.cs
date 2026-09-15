@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace NovaTerminal.CommandAssist.Domain;
+namespace Ntilde.CommandAssist.Domain;
 
 /// <summary>
 /// Renders a history timestamp the way a person reads one: "2m ago", "yesterday".

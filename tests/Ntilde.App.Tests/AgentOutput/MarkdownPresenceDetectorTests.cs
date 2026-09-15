@@ -1,8 +1,8 @@
 using System;
-using NovaTerminal.AgentOutput;
+using Ntilde.AgentOutput;
 using Xunit;
 
-namespace NovaTerminal.Tests.AgentOutput;
+namespace Ntilde.Tests.AgentOutput;
 
 /// <summary>
 /// The markdown-presence heuristic that gates the MD toggle's visibility. The two error

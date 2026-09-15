@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
-namespace NovaTerminal.CommandAssist.ViewModels;
+namespace Ntilde.CommandAssist.ViewModels;
 
 public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
 {

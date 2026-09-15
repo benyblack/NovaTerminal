@@ -47,7 +47,7 @@ Anchor reliability today is a per-session-type guess. In V2 it is a per-prompt f
 
 Injection cannot cross SSH, but marks can:
 
-- Ship `nova-shell-integration.{sh,ps1}` as installable snippets (documented, plus a "copy install command" affordance in Settings) that users source on remote hosts. The parser already consumes OSC 133/7 from any source; capture, cwd, exit codes, and trusted anchoring then work identically over SSH.
+- Ship `ntilde-shell-integration.{sh,ps1}` as installable snippets (documented, plus a "copy install command" affordance in Settings) that users source on remote hosts. The parser already consumes OSC 133/7 from any source; capture, cwd, exit codes, and trusted anchoring then work identically over SSH.
 - Detect remote marks at runtime (`_hasObservedShellIntegrationMarker` already exists) and lift SSH restrictions dynamically: `FileSystemPathSuggestionProvider` stays disabled for remote (local FS is wrong), but history capture, fix mode, and trusted anchoring turn on.
 
 ### Pillar 4 — Visible usefulness (auto-open policy v2)
@@ -83,7 +83,7 @@ public interface IAssistContentProvider
 - Local heuristics (`HeuristicErrorInsightService`, `CommandKnowledgeService`) implement the same interface, so the orchestrator has one code path.
 - No network code, no API clients, no model selection in V2 — that is a separate milestone with its own design.
 
-**Shipped in V2 Phase 5** (`src/NovaTerminal.CommandAssist/Providers/`, documented in `CommandAssist.md` §8 and in the plan's Phase 5 section). Three points where the shipped seam is more specific than the sketch above, each because the sketch left a hole a reviewer would have found:
+**Shipped in V2 Phase 5** (`src/Ntilde.CommandAssist/Providers/`, documented in `CommandAssist.md` §8 and in the plan's Phase 5 section). Three points where the shipped seam is more specific than the sketch above, each because the sketch left a hole a reviewer would have found:
 
 - *"`SecretsFilter` runs before the seam, always"* is a **type**, not a discipline. `RedactedText` is the only shape the request carries free text in; it has no public constructor and its one factory takes an `ISecretsFilter` as a parameter, so there is no path from `string` to a provider that does not run the filter. `AssistContentRequestFactory` is the single construction site, pinned by an architecture test. No field is exempted for being structured enough — including cwd.
 - *"opt-in per capability in Settings"* landed as `IAssistContentProvider.RequiresExplicitOptIn` plus `AssistProviderPolicy`. A provider that can leave the machine declares that in its own type and is not queried until the policy names its id for that capability; local providers cannot be switched off, because that is a way to break Help rather than a privacy control. The settings *shape* is reserved and documented; the `settings.json` key is deliberately not added while every value of it would be the empty object.
@@ -91,7 +91,7 @@ public interface IAssistContentProvider
 
 ### Pillar 7 — Architecture
 
-- **Extract `NovaTerminal.CommandAssist` assembly** (#114). Blockers are exactly two files: `CommandAssistKeyRouter` (introduce an `AssistKey`/`AssistModifiers` abstraction mapped from `Avalonia.Input` at the App boundary) and `CommandAssistAnchorCalculator` (introduce plain geometry records). Domain, Models, Storage, ShellIntegration, ViewModels move as-is.
+- **Extract `Ntilde.CommandAssist` assembly** (#114). Blockers are exactly two files: `CommandAssistKeyRouter` (introduce an `AssistKey`/`AssistModifiers` abstraction mapped from `Avalonia.Input` at the App boundary) and `CommandAssistAnchorCalculator` (introduce plain geometry records). Domain, Models, Storage, ShellIntegration, ViewModels move as-is.
 - **Kill the static service locator.** `CommandAssistInfrastructure` becomes a composed `CommandAssistServices` built once at the App composition root and passed to panes.
 - **Split the controller** along the seams it already has: `AssistSessionStateMachine` (enum-based state per #114: Hidden / PassiveBubble / PopupBrowse / Search / Help / Fix), `CapturePipeline` (heuristic + structured history capture, dedup, enrichment), `SuggestionOrchestrator` (scope resolution, debounced `CancellationToken`-based refresh, single ranking).
 - **One ranking implementation.** Stores return candidates; only `CommandAssistSuggestionEngine` scores. Delete `JsonHistoryStore.Score` and the dead `HistorySuggestionEngine`.

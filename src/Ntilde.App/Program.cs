@@ -1,14 +1,14 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Shell.Backup;
+using Ntilde.Shell;
+using Ntilde.Shell.Backup;
 using Avalonia;
 using Avalonia.Media;
 using System;
-using NovaTerminal.Platform;
-using NovaTerminal.Pty;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.Pty;
+using Ntilde.VT;
 using Velopack;
 
-namespace NovaTerminal;
+namespace Ntilde;
 
 class Program
 {
@@ -43,7 +43,7 @@ class Program
             }
 
             // Headless replay (A4) — the self-contained AOT bundle ships no separate
-            // NovaTerminal.Cli, so the app executable serves `--replay <file>` itself.
+            // Ntilde.Cli, so the app executable serves `--replay <file>` itself.
             // Rooting ReplayCommand here also keeps AOT trimming from dropping it.
             if (ReplayCommand.IsSupportedCliMode(args))
             {
@@ -54,7 +54,7 @@ class Program
 
             // Same reasoning as ReplayCommand above: `backup` must be servable by this
             // executable directly, because the AOT/self-contained bundle this dispatch chain
-            // exists for ships no NovaTerminal.Cli. Task 7 originally wired BackupCommand only
+            // exists for ships no Ntilde.Cli. Task 7 originally wired BackupCommand only
             // into the dev-only Cli shim, which left it unreachable (falling through to the GUI
             // launch below) in exactly the build shape this feature has to work in. Rooting it
             // here also keeps AOT trimming from dropping it, same as ReplayCommand.
@@ -83,7 +83,7 @@ class Program
             TerminalLogger.MinimumLevel = ResolveLogLevel();
 
             // Log startup info
-            TerminalLogger.Log("NovaTerminal started with args: " + string.Join(" ", args));
+            TerminalLogger.Log("Ntilde started with args: " + string.Join(" ", args));
             TerminalLogger.Log("Log file path: " + AppLogger.GetLogFilePath());
             TerminalLogger.Log("Build: " + DescribeBuild());
             StartupPerformanceTracker.StartNewCurrent();
@@ -109,13 +109,13 @@ class Program
     /// <c>PtyLogLevelsMatchAppLogLevels</c> in the architecture tests pins the correspondence.
     /// </remarks>
     /// <summary>
-    /// The debug log's threshold, from <c>NOVATERM_LOG_LEVEL</c> (debug|info|warning|error).
+    /// The debug log's threshold, from <c>NTILDE_LOG_LEVEL</c> (debug|info|warning|error).
     /// Defaults to Info: enough for the startup banner, the session lifecycle and every warning
     /// or error, without the per-event stream that made <c>debug.log</c> grow by gigabytes a day.
     /// </summary>
     internal static LogLevel ResolveLogLevel()
     {
-        string? requested = Environment.GetEnvironmentVariable("NOVATERM_LOG_LEVEL");
+        string? requested = Environment.GetEnvironmentVariable("NTILDE_LOG_LEVEL");
         if (string.IsNullOrWhiteSpace(requested))
         {
             return LogLevel.Info;
@@ -184,7 +184,7 @@ class Program
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             // MainWindow is a client-side-decorated window: ExtendClientAreaToDecorationsHint plus
-            // NovaWindowDecorationsTheme (App.axaml) draw our own min/max/close buttons, and the
+            // NtildeWindowDecorationsTheme (App.axaml) draw our own min/max/close buttons, and the
             // title bar overlay reserves a 140px right margin for them. On Windows and macOS that
             // opt-in is enough. On X11 - which is what Linux gets from UsePlatformDetect, including
             // under Wayland compositors via XWayland - Avalonia 12 gates drawn decorations behind

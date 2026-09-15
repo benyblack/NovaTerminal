@@ -1,7 +1,7 @@
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// The full transition table. Every state gets every event, so a new state or a new transition

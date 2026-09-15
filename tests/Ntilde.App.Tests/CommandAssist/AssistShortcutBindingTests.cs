@@ -1,10 +1,10 @@
 using Avalonia.Input;
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.ViewModels;
-using NovaTerminal.Controls;
-using NovaTerminal.Shell.Shortcuts;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.ViewModels;
+using Ntilde.Controls;
+using Ntilde.Shell.Shortcuts;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// V2 Phase 3b task 2: the in-surface Command Assist keys are catalogued and rebindable, pin has its
@@ -331,8 +331,8 @@ public sealed class AssistShortcutBindingTests
     {
         return new CommandAssistController(
             new NoHistoryStore(),
-            new NovaTerminal.CommandAssist.Domain.SecretsFilter(),
-            new NovaTerminal.CommandAssist.Domain.CommandAssistSuggestionEngine(),
+            new Ntilde.CommandAssist.Domain.SecretsFilter(),
+            new Ntilde.CommandAssist.Domain.CommandAssistSuggestionEngine(),
             snippetStore: null,
             commandDocsProvider: null,
             recipeProvider: null,
@@ -341,18 +341,18 @@ public sealed class AssistShortcutBindingTests
             resultBuilder: null);
     }
 
-    private sealed class NoHistoryStore : NovaTerminal.CommandAssist.Domain.IHistoryStore
+    private sealed class NoHistoryStore : Ntilde.CommandAssist.Domain.IHistoryStore
     {
-        public Task AppendAsync(NovaTerminal.CommandAssist.Models.CommandHistoryEntry entry, CancellationToken cancellationToken = default)
+        public Task AppendAsync(Ntilde.CommandAssist.Models.CommandHistoryEntry entry, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
         public Task ClearAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-        public Task<IReadOnlyList<NovaTerminal.CommandAssist.Models.CommandHistoryEntry>> GetRecentAsync(int maxResults, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<NovaTerminal.CommandAssist.Models.CommandHistoryEntry>>(Array.Empty<NovaTerminal.CommandAssist.Models.CommandHistoryEntry>());
+        public Task<IReadOnlyList<Ntilde.CommandAssist.Models.CommandHistoryEntry>> GetRecentAsync(int maxResults, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<Ntilde.CommandAssist.Models.CommandHistoryEntry>>(Array.Empty<Ntilde.CommandAssist.Models.CommandHistoryEntry>());
 
-        public Task<IReadOnlyList<NovaTerminal.CommandAssist.Models.CommandHistoryEntry>> SearchAsync(string query, int maxCandidates, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<NovaTerminal.CommandAssist.Models.CommandHistoryEntry>>(Array.Empty<NovaTerminal.CommandAssist.Models.CommandHistoryEntry>());
+        public Task<IReadOnlyList<Ntilde.CommandAssist.Models.CommandHistoryEntry>> SearchAsync(string query, int maxCandidates, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<Ntilde.CommandAssist.Models.CommandHistoryEntry>>(Array.Empty<Ntilde.CommandAssist.Models.CommandHistoryEntry>());
 
         public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
             => Task.FromResult(false);

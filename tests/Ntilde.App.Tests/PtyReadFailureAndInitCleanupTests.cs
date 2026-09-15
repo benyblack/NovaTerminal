@@ -5,11 +5,11 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.Pty;
-using NovaTerminal.Shell;
+using Ntilde.Pty;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     /// <summary>
     /// Regression guards for #107.
@@ -18,7 +18,7 @@ namespace NovaTerminal.Tests
     /// so a permanently failing handle span at 20 Hz for the life of the process while the
     /// tab sat frozen with no error. It is now bounded and reports a distinct exit code.
     ///
-    /// (b) The PowerShell post-launch init wrote <c>nova_init_{guid}.ps1</c> into %TEMP%
+    /// (b) The PowerShell post-launch init wrote <c>ntilde_init_{guid}.ps1</c> into %TEMP%
     /// and never deleted it, leaking one file per PowerShell session.
     /// </summary>
     [Collection(PtyRealShellCollection.Name)]
@@ -67,7 +67,7 @@ namespace NovaTerminal.Tests
                 return;
             }
 
-            string[] before = Directory.GetFiles(Path.GetTempPath(), "nova_init_*.ps1");
+            string[] before = Directory.GetFiles(Path.GetTempPath(), "ntilde_init_*.ps1");
 
             var session = new RustPtySession("powershell.exe", 80, 24);
             try
@@ -84,7 +84,7 @@ namespace NovaTerminal.Tests
             // script at all - it is typed into the shell - because loading a .ps1 is blocked
             // under the default execution policy. So there is nothing to clean up rather
             // than something cleaned up correctly, and #107 cannot recur.
-            string[] after = Directory.GetFiles(Path.GetTempPath(), "nova_init_*.ps1");
+            string[] after = Directory.GetFiles(Path.GetTempPath(), "ntilde_init_*.ps1");
 
             Assert.Equal(before.Length, after.Length);
         }
@@ -116,7 +116,7 @@ namespace NovaTerminal.Tests
             // No script is written on any path now, cancelled or not.
             await Task.Delay(750);
 
-            Assert.Empty(Directory.GetFiles(Path.GetTempPath(), "nova_init_*.ps1"));
+            Assert.Empty(Directory.GetFiles(Path.GetTempPath(), "ntilde_init_*.ps1"));
         }
     }
 }

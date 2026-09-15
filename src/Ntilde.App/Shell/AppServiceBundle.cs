@@ -1,4 +1,4 @@
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 /// <summary>
 /// <paramref name="Settings"/> is null in production (MainWindow loads settings.json from disk).

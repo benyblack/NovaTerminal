@@ -9,10 +9,10 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using NovaTerminal.Models;
-using NovaTerminal.Services.Ssh;
+using Ntilde.Models;
+using Ntilde.Services.Ssh;
 
-namespace NovaTerminal.Controls;
+namespace Ntilde.Controls;
 
 public partial class RemotePathTextBox : UserControl
 {

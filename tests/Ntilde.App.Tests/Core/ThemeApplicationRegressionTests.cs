@@ -4,12 +4,12 @@ using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
-using NovaTerminal.Shell;
-using NovaTerminal.Shell.TitleBar;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Shell.TitleBar;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Regression tests for the theme-application fixes:
@@ -108,7 +108,7 @@ public sealed class ThemeApplicationRegressionTests : IDisposable
     [AvaloniaFact]
     public void SettingsWindow_CardRows_UseTheWindowPaletteBrushes()
     {
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var panelBrush = Assert.IsType<SolidColorBrush>(window.Resources["NtPanel"]);
         var hairlineBrush = Assert.IsType<SolidColorBrush>(window.Resources["NtHairline"]);
@@ -155,23 +155,23 @@ public sealed class ThemeApplicationRegressionTests : IDisposable
         Assert.Equal(Colors.Black, Assert.IsType<SolidColorBrush>(icon.Foreground).Color);
     }
 
-    private static StackPanel GetTitleBarHost(NovaTerminal.MainWindow window)
+    private static StackPanel GetTitleBarHost(Ntilde.MainWindow window)
     {
         var host = window.FindControl<StackPanel>("TitleBarItemsHost");
         Assert.NotNull(host);
         return host!;
     }
 
-    private static TerminalSettings GetSettings(NovaTerminal.MainWindow window)
+    private static TerminalSettings GetSettings(Ntilde.MainWindow window)
     {
-        var field = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var field = typeof(Ntilde.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         return (TerminalSettings)field!.GetValue(window)!;
     }
 
-    private static void InvokeRebuildTitleBar(NovaTerminal.MainWindow window)
+    private static void InvokeRebuildTitleBar(Ntilde.MainWindow window)
     {
-        var method = typeof(NovaTerminal.MainWindow).GetMethod("RebuildTitleBar", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.MainWindow).GetMethod("RebuildTitleBar", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(window, System.Array.Empty<object>());
     }

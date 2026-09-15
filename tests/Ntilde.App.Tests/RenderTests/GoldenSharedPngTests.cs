@@ -1,13 +1,13 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Platform;
-using NovaTerminal.Rendering;
-using NovaTerminal.VT;
-using NovaTerminal.Tests.Infra;
+using Ntilde.Platform;
+using Ntilde.Rendering;
+using Ntilde.VT;
+using Ntilde.Tests.Infra;
 using System;
 using Xunit;
 
-namespace NovaTerminal.Tests.RenderTests
+namespace Ntilde.Tests.RenderTests
 {
     /// <summary>
     /// CI-safe shared golden PNG contracts.

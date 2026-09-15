@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Platform.Ssh.Storage;
-using NovaTerminal.Services.Ssh;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Platform.Ssh.Storage;
+using Ntilde.Services.Ssh;
 
-namespace NovaTerminal.Tests.Ssh;
+namespace Ntilde.Tests.Ssh;
 
 public sealed class SshLegacyProfileMigrationTests
 {

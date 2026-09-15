@@ -4,7 +4,7 @@
 
 **Goal:** Replace Settings' "copy 300 lines and paste them into `cat >`" remote shell-integration flow with a single line the user pastes at the remote prompt, which writes a temp file, runs it as a child process, and deletes it.
 
-**Architecture:** `RemoteShellIntegrationSnippets` gains `BuildInstallerCommand(shell)`. It reads a new installer template asset, substitutes the existing snippet into the template's `@@NOVA_SNIPPET@@` line, gzips, base64-encodes, and wraps the blob in a per-shell one-liner. The installer runs as a **child process** (`sh "$t" "$shell"` / `& $t`) and is never sourced into the live shell — the shell's identity is expanded by the live shell and passed in as an argument instead. The Settings row keeps the shell picker, promotes **Copy installer** to primary, and keeps today's whole-file copy as **Copy plain snippet**.
+**Architecture:** `RemoteShellIntegrationSnippets` gains `BuildInstallerCommand(shell)`. It reads a new installer template asset, substitutes the existing snippet into the template's `@@NTILDE_SNIPPET@@` line, gzips, base64-encodes, and wraps the blob in a per-shell one-liner. The installer runs as a **child process** (`sh "$t" "$shell"` / `& $t`) and is never sourced into the live shell — the shell's identity is expanded by the live shell and passed in as an argument instead. The Settings row keeps the shell picker, promotes **Copy installer** to primary, and keeps today's whole-file copy as **Copy plain snippet**.
 
 **Tech Stack:** C# / .NET 10, Avalonia (Settings window), xunit, POSIX sh + PowerShell installer assets, `System.IO.Compression.GZipStream`.
 
@@ -15,14 +15,14 @@
 - **Build and test only via the wrappers:** `scripts/build.ps1 <args>` (PowerShell) or `scripts/build.sh <args>`. A raw `dotnet build` hangs when stdout is captured.
 - **Run tests targeted, never solution-wide.** Full-solution `dotnet test` is 20–30 minutes here. Every test step in this plan names one project plus a `--filter`.
 - **All new assets are LF-only.** A CRLF surviving a Windows checkout gives bash `$'\r': command not found` on every line. `RemoteShellIntegrationSnippets.Read` already normalizes, and the new reader path must too.
-- **Asset files live in `assets/shell-integration/install/`** and are embedded via `EmbeddedResource` + explicit `LogicalName` in `src/NovaTerminal.CommandAssist/NovaTerminal.CommandAssist.csproj`, exactly like the three existing snippets. The files live outside the project directory, so a missing `LogicalName` produces a missing resource at runtime rather than a build error.
-- **Embedded resource logical-name prefix:** `NovaTerminal.CommandAssist.ShellIntegration.Remote.` (const `ResourcePrefix`, already defined).
+- **Asset files live in `assets/shell-integration/install/`** and are embedded via `EmbeddedResource` + explicit `LogicalName` in `src/Ntilde.CommandAssist/Ntilde.CommandAssist.csproj`, exactly like the three existing snippets. The files live outside the project directory, so a missing `LogicalName` produces a missing resource at runtime rather than a build error.
+- **Embedded resource logical-name prefix:** `Ntilde.CommandAssist.ShellIntegration.Remote.` (const `ResourcePrefix`, already defined).
 - **Paths and loader lines are never re-typed.** Anything user-visible comes from the existing `SnippetDescriptor` (`GetRemotePath`, `GetLoaderLine`, `GetLoaderTarget`, `GetFileName`, `GetDisplayName`).
 - **No new `TerminalSettings` field.** This row is an action, not a preference — so `TerminalPane.ApplySettings`'s effective-settings whitelist is not involved.
-- **The installer must never be sourced into the live shell**, and must not leave any variable or function behind in it beyond the one-liner's own `__nova_t`, which is unset on the same line.
+- **The installer must never be sourced into the live shell**, and must not leave any variable or function behind in it beyond the one-liner's own `__ntilde_t`, which is unset on the same line.
 - **Every generated command is exactly one line** — no `\n`, no `\r`, anywhere in the returned string.
-- **Test namespaces:** static tests `NovaTerminal.Tests.CommandAssist.ShellIntegration`; shell-running tests `NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration`, marked `[Trait("Category", "ShellIntegration")]` and `[Collection(nameof(ShellIntegrationCollection))]`.
-- **`nova:` output strings are contracts.** Tests assert on them; copy them verbatim from this plan.
+- **Test namespaces:** static tests `Ntilde.Tests.CommandAssist.ShellIntegration`; shell-running tests `Ntilde.Tests.CommandAssist.ShellIntegration.Integration`, marked `[Trait("Category", "ShellIntegration")]` and `[Collection(nameof(ShellIntegrationCollection))]`.
+- **`ntilde:` output strings are contracts.** Tests assert on them; copy them verbatim from this plan.
 
 ---
 
@@ -30,15 +30,15 @@
 
 | File | Responsibility |
 |---|---|
-| `assets/shell-integration/install/nova-install.sh` | **Create.** POSIX sh installer for bash and zsh: writes the snippet, resolves the rc file from `$1`, patches it idempotently, prints what it did. |
-| `assets/shell-integration/install/nova-install-fish.sh` | **Create.** POSIX sh installer for the fish snippet: creates `conf.d`, writes the file. No rc step. |
-| `assets/shell-integration/install/nova-install.ps1` | **Create.** PowerShell installer: writes the snippet, ensures `$PROFILE`'s directory, patches `$PROFILE` idempotently. Takes `-ProfilePath`/`-DestDir` so it is testable. |
-| `src/NovaTerminal.CommandAssist/NovaTerminal.CommandAssist.csproj` | **Modify.** Three more `EmbeddedResource` entries. |
-| `src/NovaTerminal.CommandAssist/ShellIntegration/Remote/RemoteShellIntegrationSnippets.cs` | **Modify.** `InstallerFileName` on the descriptor; `ReadResource` extracted; `BuildInstallerScript` (internal, for tests); `BuildInstallerCommand` (public); `Compress`. |
-| `tests/NovaTerminal.App.Tests/CommandAssist/ShellIntegration/RemoteShellIntegrationInstallerTests.cs` | **Create.** Static assertions: one line, base64 charset, round-trip, collision guard, descriptor agreement. |
-| `tests/NovaTerminal.App.Tests/CommandAssist/ShellIntegration/Integration/RemoteInstallerIntegrationTests.cs` | **Create.** Runs the generated command through a real bash with `HOME` redirected: fresh install, re-run, hand-placed loader, decode failure, marks flow in a new shell. |
-| `src/NovaTerminal.App/SettingsWindow.axaml` | **Modify (line ~636).** Rename the primary button, add the secondary one, update the row description. |
-| `src/NovaTerminal.App/SettingsWindow.axaml.cs` | **Modify (lines 1447–1498).** Wire both buttons; new status text. |
+| `assets/shell-integration/install/ntilde-install.sh` | **Create.** POSIX sh installer for bash and zsh: writes the snippet, resolves the rc file from `$1`, patches it idempotently, prints what it did. |
+| `assets/shell-integration/install/ntilde-install-fish.sh` | **Create.** POSIX sh installer for the fish snippet: creates `conf.d`, writes the file. No rc step. |
+| `assets/shell-integration/install/ntilde-install.ps1` | **Create.** PowerShell installer: writes the snippet, ensures `$PROFILE`'s directory, patches `$PROFILE` idempotently. Takes `-ProfilePath`/`-DestDir` so it is testable. |
+| `src/Ntilde.CommandAssist/Ntilde.CommandAssist.csproj` | **Modify.** Three more `EmbeddedResource` entries. |
+| `src/Ntilde.CommandAssist/ShellIntegration/Remote/RemoteShellIntegrationSnippets.cs` | **Modify.** `InstallerFileName` on the descriptor; `ReadResource` extracted; `BuildInstallerScript` (internal, for tests); `BuildInstallerCommand` (public); `Compress`. |
+| `tests/Ntilde.App.Tests/CommandAssist/ShellIntegration/RemoteShellIntegrationInstallerTests.cs` | **Create.** Static assertions: one line, base64 charset, round-trip, collision guard, descriptor agreement. |
+| `tests/Ntilde.App.Tests/CommandAssist/ShellIntegration/Integration/RemoteInstallerIntegrationTests.cs` | **Create.** Runs the generated command through a real bash with `HOME` redirected: fresh install, re-run, hand-placed loader, decode failure, marks flow in a new shell. |
+| `src/Ntilde.App/SettingsWindow.axaml` | **Modify (line ~636).** Rename the primary button, add the secondary one, update the row description. |
+| `src/Ntilde.App/SettingsWindow.axaml.cs` | **Modify (lines 1447–1498).** Wire both buttons; new status text. |
 | `docs/command-assist/RemoteShellIntegration.md` | **Modify.** § Install rewritten; the broken PowerShell `cat >` recipe removed. |
 
 ---
@@ -46,10 +46,10 @@
 ## Task 1: The sh installer asset and `BuildInstallerCommand` for bash/zsh
 
 **Files:**
-- Create: `assets/shell-integration/install/nova-install.sh`
-- Modify: `src/NovaTerminal.CommandAssist/NovaTerminal.CommandAssist.csproj:17-24`
-- Modify: `src/NovaTerminal.CommandAssist/ShellIntegration/Remote/RemoteShellIntegrationSnippets.cs`
-- Test: `tests/NovaTerminal.App.Tests/CommandAssist/ShellIntegration/RemoteShellIntegrationInstallerTests.cs`
+- Create: `assets/shell-integration/install/ntilde-install.sh`
+- Modify: `src/Ntilde.CommandAssist/Ntilde.CommandAssist.csproj:17-24`
+- Modify: `src/Ntilde.CommandAssist/ShellIntegration/Remote/RemoteShellIntegrationSnippets.cs`
+- Test: `tests/Ntilde.App.Tests/CommandAssist/ShellIntegration/RemoteShellIntegrationInstallerTests.cs`
 
 **Interfaces:**
 - Consumes: existing `RemoteShellIntegrationSnippets.Read(shell)`, `Get(shell)`, `ResourcePrefix`, `SnippetDescriptor`.
@@ -64,89 +64,89 @@
 
 - [ ] **Step 1: Write the installer asset**
 
-Create `assets/shell-integration/install/nova-install.sh` with LF endings:
+Create `assets/shell-integration/install/ntilde-install.sh` with LF endings:
 
 ```sh
 #!/bin/sh
-# Nova Terminal remote shell integration installer (bash and zsh).
+# Ntilde remote shell integration installer (bash and zsh).
 #
 # Settings copies a one-line command that decodes this file into a temp file, runs it as a CHILD
 # process, and deletes it. It is deliberately never sourced into your interactive shell: $1 carries
 # the shell name, expanded by the live shell inside that one-liner, so nothing has to be sourced to
 # find out which rc file to patch, and nothing this file defines can leak into your session.
 #
-# It writes ~/.nova-shell-integration.sh, adds the loader line to the matching rc file if it is not
+# It writes ~/.ntilde-shell-integration.sh, adds the loader line to the matching rc file if it is not
 # already there, and prints what it did. Running it twice changes nothing the second time.
 
-__nova_shell="$1"
-if [ -z "$__nova_shell" ]; then
-    __nova_shell=$(basename "${SHELL:-}" 2>/dev/null)
+__ntilde_shell="$1"
+if [ -z "$__ntilde_shell" ]; then
+    __ntilde_shell=$(basename "${SHELL:-}" 2>/dev/null)
 fi
 
-__nova_dest="$HOME/.nova-shell-integration.sh"
+__ntilde_dest="$HOME/.ntilde-shell-integration.sh"
 
-cat > "$__nova_dest" <<'__NOVA_SNIPPET_EOF__'
-@@NOVA_SNIPPET@@
-__NOVA_SNIPPET_EOF__
+cat > "$__ntilde_dest" <<'__NTILDE_SNIPPET_EOF__'
+@@NTILDE_SNIPPET@@
+__NTILDE_SNIPPET_EOF__
 
-if [ ! -s "$__nova_dest" ]; then
-    echo "nova: could not write $__nova_dest"
+if [ ! -s "$__ntilde_dest" ]; then
+    echo "ntilde: could not write $__ntilde_dest"
     exit 1
 fi
-echo "nova: wrote ~/.nova-shell-integration.sh"
+echo "ntilde: wrote ~/.ntilde-shell-integration.sh"
 
-case "$__nova_shell" in
+case "$__ntilde_shell" in
     zsh)
-        __nova_rc="$HOME/.zshrc"
-        __nova_rc_display="~/.zshrc"
+        __ntilde_rc="$HOME/.zshrc"
+        __ntilde_rc_display="~/.zshrc"
         ;;
     bash)
-        __nova_rc="$HOME/.bashrc"
-        __nova_rc_display="~/.bashrc"
+        __ntilde_rc="$HOME/.bashrc"
+        __ntilde_rc_display="~/.bashrc"
         ;;
     *)
-        __nova_rc=""
-        __nova_rc_display=""
+        __ntilde_rc=""
+        __ntilde_rc_display=""
         ;;
 esac
 
-__nova_loader='[ -f ~/.nova-shell-integration.sh ] && . ~/.nova-shell-integration.sh'
+__ntilde_loader='[ -f ~/.ntilde-shell-integration.sh ] && . ~/.ntilde-shell-integration.sh'
 
-if [ -z "$__nova_rc" ]; then
-    echo "nova: could not tell which shell you use - add this line to your rc file:"
-    echo "nova:   $__nova_loader"
-elif [ -f "$__nova_rc" ] && grep -q 'nova-shell-integration' "$__nova_rc" 2>/dev/null; then
-    echo "nova: loader line already in $__nova_rc_display - unchanged"
+if [ -z "$__ntilde_rc" ]; then
+    echo "ntilde: could not tell which shell you use - add this line to your rc file:"
+    echo "ntilde:   $__ntilde_loader"
+elif [ -f "$__ntilde_rc" ] && grep -q 'ntilde-shell-integration' "$__ntilde_rc" 2>/dev/null; then
+    echo "ntilde: loader line already in $__ntilde_rc_display - unchanged"
 else
-    printf '%s\n' "$__nova_loader" >> "$__nova_rc"
-    echo "nova: added loader line to $__nova_rc_display"
+    printf '%s\n' "$__ntilde_loader" >> "$__ntilde_rc"
+    echo "ntilde: added loader line to $__ntilde_rc_display"
 fi
 
-echo "nova: run  . ~/.nova-shell-integration.sh  to enable it in this session,"
-echo "nova: or open a new Nova session to this host."
+echo "ntilde: run  . ~/.ntilde-shell-integration.sh  to enable it in this session,"
+echo "ntilde: or open a new Ntilde session to this host."
 ```
 
-Two things to preserve if you edit it: the loader line must be byte-identical to `GetLoaderLine(BashOrZsh)` (Task 1 Step 6 asserts this), and the `grep -q 'nova-shell-integration'` marker must match a hand-placed loader line as well as ours.
+Two things to preserve if you edit it: the loader line must be byte-identical to `GetLoaderLine(BashOrZsh)` (Task 1 Step 6 asserts this), and the `grep -q 'ntilde-shell-integration'` marker must match a hand-placed loader line as well as ours.
 
 - [ ] **Step 2: Embed it**
 
-In `src/NovaTerminal.CommandAssist/NovaTerminal.CommandAssist.csproj`, inside the existing `ItemGroup` that holds the three snippets (line 17), add:
+In `src/Ntilde.CommandAssist/Ntilde.CommandAssist.csproj`, inside the existing `ItemGroup` that holds the three snippets (line 17), add:
 
 ```xml
-    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\assets\shell-integration\install\nova-install.sh"
-                      LogicalName="NovaTerminal.CommandAssist.ShellIntegration.Remote.nova-install.sh" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\assets\shell-integration\install\ntilde-install.sh"
+                      LogicalName="Ntilde.CommandAssist.ShellIntegration.Remote.ntilde-install.sh" />
 ```
 
 - [ ] **Step 3: Write the failing tests**
 
-Create `tests/NovaTerminal.App.Tests/CommandAssist/ShellIntegration/RemoteShellIntegrationInstallerTests.cs`:
+Create `tests/Ntilde.App.Tests/CommandAssist/ShellIntegration/RemoteShellIntegrationInstallerTests.cs`:
 
 ```csharp
 using System.Text;
 using System.Text.RegularExpressions;
-using NovaTerminal.CommandAssist.ShellIntegration.Remote;
+using Ntilde.CommandAssist.ShellIntegration.Remote;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 /// <summary>
 /// The one-line installer Settings copies (see
@@ -249,7 +249,7 @@ public sealed class RemoteShellIntegrationInstallerTests
 - [ ] **Step 4: Run the tests to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~RemoteShellIntegrationInstallerTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~RemoteShellIntegrationInstallerTests"
 ```
 
 Expected: compile error — `BuildInstallerCommand` and `BuildInstallerScript` do not exist.
@@ -272,25 +272,25 @@ and give each entry in `Descriptors` its installer, keeping the existing values:
 
 ```csharp
             [RemoteShellIntegrationShell.BashOrZsh] = new(
-                FileName: "nova-shell-integration.sh",
-                InstallerFileName: "nova-install.sh",
+                FileName: "ntilde-shell-integration.sh",
+                InstallerFileName: "ntilde-install.sh",
                 DisplayName: "bash / zsh",
-                RemotePath: "~/.nova-shell-integration.sh",
-                LoaderLine: "[ -f ~/.nova-shell-integration.sh ] && . ~/.nova-shell-integration.sh",
+                RemotePath: "~/.ntilde-shell-integration.sh",
+                LoaderLine: "[ -f ~/.ntilde-shell-integration.sh ] && . ~/.ntilde-shell-integration.sh",
                 LoaderTarget: "~/.bashrc (bash) or ~/.zshrc (zsh)"),
             [RemoteShellIntegrationShell.Fish] = new(
-                FileName: "nova-shell-integration.fish",
-                InstallerFileName: "nova-install-fish.sh",
+                FileName: "ntilde-shell-integration.fish",
+                InstallerFileName: "ntilde-install-fish.sh",
                 DisplayName: "fish",
-                RemotePath: "~/.config/fish/conf.d/nova-shell-integration.fish",
+                RemotePath: "~/.config/fish/conf.d/ntilde-shell-integration.fish",
                 LoaderLine: null,
                 LoaderTarget: null),
             [RemoteShellIntegrationShell.PowerShell] = new(
-                FileName: "nova-shell-integration.ps1",
-                InstallerFileName: "nova-install.ps1",
+                FileName: "ntilde-shell-integration.ps1",
+                InstallerFileName: "ntilde-install.ps1",
                 DisplayName: "PowerShell",
-                RemotePath: "~/.nova-shell-integration.ps1",
-                LoaderLine: ". ~/.nova-shell-integration.ps1",
+                RemotePath: "~/.ntilde-shell-integration.ps1",
+                LoaderLine: ". ~/.ntilde-shell-integration.ps1",
                 LoaderTarget: "$PROFILE"),
 ```
 
@@ -333,7 +333,7 @@ Replace the body of `Read` so both it and the installer path share one reader, a
         {
             RemoteShellIntegrationShell.BashOrZsh =>
                 """
-                __nova_t=$(mktemp 2>/dev/null || printf /tmp/nova-si.%s "$$"); printf %s '@@BLOB@@' | base64 -d 2>/dev/null | gzip -dc 2>/dev/null > "$__nova_t"; if [ -s "$__nova_t" ]; then sh "$__nova_t" "${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}"; else echo "nova: install failed - this host needs base64 and gzip"; fi; rm -f "$__nova_t"; unset __nova_t
+                __ntilde_t=$(mktemp 2>/dev/null || printf /tmp/ntilde-si.%s "$$"); printf %s '@@BLOB@@' | base64 -d 2>/dev/null | gzip -dc 2>/dev/null > "$__ntilde_t"; if [ -s "$__ntilde_t" ]; then sh "$__ntilde_t" "${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}"; else echo "ntilde: install failed - this host needs base64 and gzip"; fi; rm -f "$__ntilde_t"; unset __ntilde_t
                 """,
             _ => throw new ArgumentOutOfRangeException(nameof(shell), shell, "No installer ships for this shell."),
         };
@@ -366,7 +366,7 @@ Replace the body of `Read` so both it and the installer path share one reader, a
         SnippetDescriptor descriptor = Get(shell);
         string template = ReadResource(descriptor.InstallerFileName);
 
-        const string Delimiter = "__NOVA_SNIPPET_EOF__";
+        const string Delimiter = "__NTILDE_SNIPPET_EOF__";
         foreach (string line in snippet.Split('\n'))
         {
             if (line.StartsWith(Delimiter, StringComparison.Ordinal))
@@ -378,7 +378,7 @@ Replace the body of `Read` so both it and the installer path share one reader, a
             }
         }
 
-        return template.Replace("@@NOVA_SNIPPET@@", snippet.TrimEnd('\n'), StringComparison.Ordinal);
+        return template.Replace("@@NTILDE_SNIPPET@@", snippet.TrimEnd('\n'), StringComparison.Ordinal);
     }
 
     private static string ReadResource(string fileName)
@@ -392,7 +392,7 @@ Replace the body of `Read` so both it and the installer path share one reader, a
             throw new InvalidOperationException(
                 $"Embedded shell-integration resource '{resourceName}' is missing from " +
                 $"{typeof(RemoteShellIntegrationSnippets).Assembly.GetName().Name}. It is embedded " +
-                "from assets/shell-integration/ by NovaTerminal.CommandAssist.csproj.");
+                "from assets/shell-integration/ by Ntilde.CommandAssist.csproj.");
         }
 
         using var reader = new StreamReader(stream, Encoding.UTF8);
@@ -417,7 +417,7 @@ Keep `Read`'s existing XML doc comment — it now documents the "Copy plain snip
 - [ ] **Step 7: Run the tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~RemoteShellIntegrationInstallerTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~RemoteShellIntegrationInstallerTests"
 ```
 
 Expected: 5 passed. If `PayloadDecodesToTheInstallerScript` fails on trailing whitespace, the cause is `TrimEnd('\n')` being applied in one place and not the other — fix the production side, not the test.
@@ -435,14 +435,14 @@ Append to `RemoteShellIntegrationInstallerTests`:
     [Fact]
     public void BuildInstallerScript_ThrowsWhenTheSnippetCollidesWithTheDelimiter()
     {
-        string colliding = "echo one\n__NOVA_SNIPPET_EOF__\necho two\n";
+        string colliding = "echo one\n__NTILDE_SNIPPET_EOF__\necho two\n";
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
             RemoteShellIntegrationSnippets.BuildInstallerScript(
                 RemoteShellIntegrationShell.BashOrZsh,
                 colliding));
 
-        Assert.Contains("__NOVA_SNIPPET_EOF__", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("__NTILDE_SNIPPET_EOF__", exception.Message, StringComparison.Ordinal);
     }
 
     /// <summary>And no shipped snippet collides, which is why the guard never fires in practice.</summary>
@@ -453,15 +453,15 @@ Append to `RemoteShellIntegrationInstallerTests`:
         string installer = RemoteShellIntegrationSnippets.BuildInstallerScript(shell);
         string snippet = RemoteShellIntegrationSnippets.Read(shell);
 
-        Assert.Contains("__NOVA_SNIPPET_EOF__", installer, StringComparison.Ordinal);
-        Assert.DoesNotContain("__NOVA_SNIPPET_EOF__", snippet, StringComparison.Ordinal);
+        Assert.Contains("__NTILDE_SNIPPET_EOF__", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("__NTILDE_SNIPPET_EOF__", snippet, StringComparison.Ordinal);
     }
 ```
 
 - [ ] **Step 9: Run the tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~RemoteShellIntegrationInstallerTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~RemoteShellIntegrationInstallerTests"
 ```
 
 Expected: 7 passed.
@@ -469,7 +469,7 @@ Expected: 7 passed.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add assets/shell-integration/install/nova-install.sh src/NovaTerminal.CommandAssist tests/NovaTerminal.App.Tests/CommandAssist/ShellIntegration/RemoteShellIntegrationInstallerTests.cs
+git add assets/shell-integration/install/ntilde-install.sh src/Ntilde.CommandAssist tests/Ntilde.App.Tests/CommandAssist/ShellIntegration/RemoteShellIntegrationInstallerTests.cs
 git commit -m "feat(command-assist): one-line installer command for the bash/zsh remote snippet"
 ```
 
@@ -478,10 +478,10 @@ git commit -m "feat(command-assist): one-line installer command for the bash/zsh
 ## Task 2: Prove the sh installer works, on a real bash
 
 **Files:**
-- Test: `tests/NovaTerminal.App.Tests/CommandAssist/ShellIntegration/Integration/RemoteInstallerIntegrationTests.cs` (create)
+- Test: `tests/Ntilde.App.Tests/CommandAssist/ShellIntegration/Integration/RemoteInstallerIntegrationTests.cs` (create)
 
 **Interfaces:**
-- Consumes: `RemoteShellIntegrationSnippets.BuildInstallerCommand` (Task 1); `ShellHarness.FindBash()`, `ShellHarness.Run(shellPath, arguments, scriptedStdin, environmentOverrides, timeout)`, `HarnessResult`, `OscEvent` from `tests/NovaTerminal.App.Tests/CommandAssist/ShellIntegration/Integration/ShellHarness.cs`.
+- Consumes: `RemoteShellIntegrationSnippets.BuildInstallerCommand` (Task 1); `ShellHarness.FindBash()`, `ShellHarness.Run(shellPath, arguments, scriptedStdin, environmentOverrides, timeout)`, `HarnessResult`, `OscEvent` from `tests/Ntilde.App.Tests/CommandAssist/ShellIntegration/Integration/ShellHarness.cs`.
 - Produces: nothing consumed by later tasks.
 
 Why a separate task: Task 1's assertions are all about text. This one runs the command a user would paste and looks at the filesystem afterwards, which is the only way to catch a quoting slip, a heredoc that eats a line, or non-idempotent rc patching. It is also the layer that would catch `grep -q` matching too loosely.
@@ -495,9 +495,9 @@ Create the file:
 ```csharp
 using System.Diagnostics;
 using System.Text;
-using NovaTerminal.CommandAssist.ShellIntegration.Remote;
+using Ntilde.CommandAssist.ShellIntegration.Remote;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration.Integration;
 
 /// <summary>
 /// The generated one-liner, run the way a user pastes it: through a real bash, with
@@ -529,7 +529,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
     public RemoteInstallerIntegrationTests()
     {
-        _home = Path.Combine(Path.GetTempPath(), $"nova_installer_{Guid.NewGuid():N}");
+        _home = Path.Combine(Path.GetTempPath(), $"ntilde_installer_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_home);
     }
 
@@ -540,7 +540,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
     private string HomeForShell => _home.Replace('\\', '/');
 
-    private string SnippetPath => Path.Combine(_home, ".nova-shell-integration.sh");
+    private string SnippetPath => Path.Combine(_home, ".ntilde-shell-integration.sh");
 
     private string BashrcPath => Path.Combine(_home, ".bashrc");
 
@@ -580,7 +580,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
     private static int CountLoaderLines(string rcContent) => rcContent
         .Split('\n')
-        .Count(line => line.Contains("nova-shell-integration", StringComparison.Ordinal));
+        .Count(line => line.Contains("ntilde-shell-integration", StringComparison.Ordinal));
 
     // ---- the happy path -------------------------------------------------------------------------
 
@@ -593,7 +593,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         Assert.Equal(
             RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh).TrimEnd('\n'),
             File.ReadAllText(SnippetPath).Replace("\r\n", "\n").TrimEnd('\n'));
-        Assert.Contains("nova: wrote ~/.nova-shell-integration.sh", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: wrote ~/.ntilde-shell-integration.sh", output, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -612,7 +612,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.BashOrZsh)!,
             rc,
             StringComparison.Ordinal);
-        Assert.Contains("nova: added loader line to ~/.bashrc", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: added loader line to ~/.bashrc", output, StringComparison.Ordinal);
     }
 
     // ---- idempotency ----------------------------------------------------------------------------
@@ -636,7 +636,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     {
         File.WriteAllText(
             BashrcPath,
-            "PS1='test$ '\nsource ~/.nova-shell-integration.sh\n",
+            "PS1='test$ '\nsource ~/.ntilde-shell-integration.sh\n",
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         RunInstaller();
@@ -659,7 +659,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
         string output = RunInstaller(pathOverride: emptyDir.Replace('\\', '/'));
 
-        Assert.Contains("nova: install failed", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: install failed", output, StringComparison.Ordinal);
         Assert.False(File.Exists(SnippetPath), "snippet written despite a failed decode");
     }
 
@@ -686,7 +686,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         string rc = File.ReadAllText(BashrcPath);
         File.WriteAllText(
             BashrcPath,
-            "PS1='nova-test$ '\n" + rc,
+            "PS1='ntilde-test$ '\n" + rc,
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         var env = new Dictionary<string, string> { ["HOME"] = HomeForShell };
@@ -725,8 +725,8 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             RemoteShellIntegrationShell.BashOrZsh);
         string probe =
             command +
-            "; echo \"probe-dest=[${__nova_dest-}]\"" +
-            "; echo \"probe-temp=[${__nova_t-}]\"";
+            "; echo \"probe-dest=[${__ntilde_dest-}]\"" +
+            "; echo \"probe-temp=[${__ntilde_t-}]\"";
 
         var startInfo = new ProcessStartInfo(bash)
         {
@@ -751,7 +751,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 - [ ] **Step 2: Run them to verify they fail for the right reason**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~RemoteInstallerIntegrationTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~RemoteInstallerIntegrationTests"
 ```
 
 Expected: the suite compiles and runs. Any failure here is a real defect in Task 1's asset or composition — these tests need no new production code. If every test reports `bash not found`, install Git Bash or run this task on Linux; do not mark it done on skips.
@@ -760,14 +760,14 @@ Expected: the suite compiles and runs. Any failure here is a real defect in Task
 
 Likely candidates, in the order they show up:
 
-- `WritesTheSnippetByteForByte` fails with an empty file → the heredoc delimiter line in `nova-install.sh` has trailing whitespace, or `@@NOVA_SNIPPET@@` was indented. Both must be at column 0.
+- `WritesTheSnippetByteForByte` fails with an empty file → the heredoc delimiter line in `ntilde-install.sh` has trailing whitespace, or `@@NTILDE_SNIPPET@@` was indented. Both must be at column 0.
 - `AddsTheLoaderLineToBashrc` says "could not tell which shell you use" → the `${BASH_VERSION:+bash}` expansion is being quoted wrong in the one-liner template; it must reach the installer as `$1`.
-- `WithoutBase64OrGzip` finds a snippet anyway → Git Bash resolved `base64` outside `PATH`; assert instead on the `nova: install failed` line only, and note it in the test's remarks.
+- `WithoutBase64OrGzip` finds a snippet anyway → Git Bash resolved `base64` outside `PATH`; assert instead on the `ntilde: install failed` line only, and note it in the test's remarks.
 
 - [ ] **Step 4: Run to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~RemoteInstallerIntegrationTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~RemoteInstallerIntegrationTests"
 ```
 
 Expected: 7 passed, 0 skipped on a machine with bash.
@@ -775,7 +775,7 @@ Expected: 7 passed, 0 skipped on a machine with bash.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.App.Tests/CommandAssist/ShellIntegration/Integration/RemoteInstallerIntegrationTests.cs assets/shell-integration/install/nova-install.sh src/NovaTerminal.CommandAssist
+git add tests/Ntilde.App.Tests/CommandAssist/ShellIntegration/Integration/RemoteInstallerIntegrationTests.cs assets/shell-integration/install/ntilde-install.sh src/Ntilde.CommandAssist
 git commit -m "test(command-assist): run the generated installer through a real bash"
 ```
 
@@ -784,10 +784,10 @@ git commit -m "test(command-assist): run the generated installer through a real 
 ## Task 3: The fish installer
 
 **Files:**
-- Create: `assets/shell-integration/install/nova-install-fish.sh`
-- Modify: `src/NovaTerminal.CommandAssist/NovaTerminal.CommandAssist.csproj`
-- Modify: `src/NovaTerminal.CommandAssist/ShellIntegration/Remote/RemoteShellIntegrationSnippets.cs` (the `switch` in `BuildInstallerCommand`)
-- Test: `tests/NovaTerminal.App.Tests/CommandAssist/ShellIntegration/RemoteShellIntegrationInstallerTests.cs`, `.../Integration/RemoteInstallerIntegrationTests.cs`
+- Create: `assets/shell-integration/install/ntilde-install-fish.sh`
+- Modify: `src/Ntilde.CommandAssist/Ntilde.CommandAssist.csproj`
+- Modify: `src/Ntilde.CommandAssist/ShellIntegration/Remote/RemoteShellIntegrationSnippets.cs` (the `switch` in `BuildInstallerCommand`)
+- Test: `tests/Ntilde.App.Tests/CommandAssist/ShellIntegration/RemoteShellIntegrationInstallerTests.cs`, `.../Integration/RemoteInstallerIntegrationTests.cs`
 
 **Interfaces:**
 - Consumes: everything Task 1 produced.
@@ -797,38 +797,38 @@ The installer is sh, not fish: fish cannot parse a heredoc, and the fish snippet
 
 - [ ] **Step 1: Write the asset**
 
-Create `assets/shell-integration/install/nova-install-fish.sh` with LF endings:
+Create `assets/shell-integration/install/ntilde-install-fish.sh` with LF endings:
 
 ```sh
 #!/bin/sh
-# Nova Terminal remote shell integration installer (fish).
+# Ntilde remote shell integration installer (fish).
 #
 # POSIX sh, not fish: fish cannot parse a heredoc, and the snippet below is data. Run as a child
 # process by the one-liner Settings copies, then deleted. $1 is the shell name ("fish"), accepted
-# for symmetry with nova-install.sh and unused - conf.d is sourced automatically, so there is no
+# for symmetry with ntilde-install.sh and unused - conf.d is sourced automatically, so there is no
 # rc file to patch and no shell to detect.
 
-__nova_dir="$HOME/.config/fish/conf.d"
-if ! mkdir -p "$__nova_dir"; then
-    echo "nova: could not create $__nova_dir"
+__ntilde_dir="$HOME/.config/fish/conf.d"
+if ! mkdir -p "$__ntilde_dir"; then
+    echo "ntilde: could not create $__ntilde_dir"
     exit 1
 fi
 
-__nova_dest="$__nova_dir/nova-shell-integration.fish"
+__ntilde_dest="$__ntilde_dir/ntilde-shell-integration.fish"
 
-cat > "$__nova_dest" <<'__NOVA_SNIPPET_EOF__'
-@@NOVA_SNIPPET@@
-__NOVA_SNIPPET_EOF__
+cat > "$__ntilde_dest" <<'__NTILDE_SNIPPET_EOF__'
+@@NTILDE_SNIPPET@@
+__NTILDE_SNIPPET_EOF__
 
-if [ ! -s "$__nova_dest" ]; then
-    echo "nova: could not write $__nova_dest"
+if [ ! -s "$__ntilde_dest" ]; then
+    echo "ntilde: could not write $__ntilde_dest"
     exit 1
 fi
 
-echo "nova: wrote ~/.config/fish/conf.d/nova-shell-integration.fish"
-echo "nova: conf.d is sourced automatically - there is nothing to add to a config file."
-echo "nova: run  source ~/.config/fish/conf.d/nova-shell-integration.fish  to enable it in this session,"
-echo "nova: or open a new Nova session to this host."
+echo "ntilde: wrote ~/.config/fish/conf.d/ntilde-shell-integration.fish"
+echo "ntilde: conf.d is sourced automatically - there is nothing to add to a config file."
+echo "ntilde: run  source ~/.config/fish/conf.d/ntilde-shell-integration.fish  to enable it in this session,"
+echo "ntilde: or open a new Ntilde session to this host."
 ```
 
 - [ ] **Step 2: Embed it**
@@ -836,8 +836,8 @@ echo "nova: or open a new Nova session to this host."
 Add to the same `ItemGroup`:
 
 ```xml
-    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\assets\shell-integration\install\nova-install-fish.sh"
-                      LogicalName="NovaTerminal.CommandAssist.ShellIntegration.Remote.nova-install-fish.sh" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\assets\shell-integration\install\ntilde-install-fish.sh"
+                      LogicalName="Ntilde.CommandAssist.ShellIntegration.Remote.ntilde-install-fish.sh" />
 ```
 
 - [ ] **Step 3: Write the failing tests**
@@ -865,8 +865,8 @@ Add to `RemoteShellIntegrationInstallerTests`:
         string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
             RemoteShellIntegrationShell.Fish);
 
-        Assert.Contains("set -l __nova_t (mktemp)", command, StringComparison.Ordinal);
-        Assert.Contains("set -e __nova_t", command, StringComparison.Ordinal);
+        Assert.Contains("set -l __ntilde_t (mktemp)", command, StringComparison.Ordinal);
+        Assert.Contains("set -e __ntilde_t", command, StringComparison.Ordinal);
         Assert.DoesNotContain("$(mktemp)", command, StringComparison.Ordinal);
     }
 
@@ -928,7 +928,7 @@ And add to `RemoteInstallerIntegrationTests` — the fish *installer* is sh, so 
         // cannot parse, and what is under test here is the installer it decodes to.
         string installer = RemoteShellIntegrationSnippets.BuildInstallerScript(
             RemoteShellIntegrationShell.Fish);
-        string installerPath = Path.Combine(_home, "nova-install-fish.sh");
+        string installerPath = Path.Combine(_home, "ntilde-install-fish.sh");
         File.WriteAllText(installerPath, installer, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         var startInfo = new ProcessStartInfo(bash)
@@ -945,7 +945,7 @@ And add to `RemoteInstallerIntegrationTests` — the fish *installer* is sh, so 
         string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
         Assert.True(process.WaitForExit(30_000), "fish installer did not finish within 30s");
 
-        string dest = Path.Combine(_home, ".config", "fish", "conf.d", "nova-shell-integration.fish");
+        string dest = Path.Combine(_home, ".config", "fish", "conf.d", "ntilde-shell-integration.fish");
         Assert.True(File.Exists(dest), $"fish snippet not written. output:\n{output}");
         Assert.Equal(
             RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.Fish).TrimEnd('\n'),
@@ -956,7 +956,7 @@ And add to `RemoteInstallerIntegrationTests` — the fish *installer* is sh, so 
 - [ ] **Step 4: Run to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Installer"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Installer"
 ```
 
 Expected: the four new static tests fail with `ArgumentOutOfRangeException: No installer ships for this shell.`
@@ -968,14 +968,14 @@ In `BuildInstallerCommand`'s `switch`, before the `_ =>` arm:
 ```csharp
             RemoteShellIntegrationShell.Fish =>
                 """
-                set -l __nova_t (mktemp); printf %s '@@BLOB@@' | base64 -d | gzip -dc > $__nova_t; sh $__nova_t fish; rm -f $__nova_t; set -e __nova_t
+                set -l __ntilde_t (mktemp); printf %s '@@BLOB@@' | base64 -d | gzip -dc > $__ntilde_t; sh $__ntilde_t fish; rm -f $__ntilde_t; set -e __ntilde_t
                 """,
 ```
 
 - [ ] **Step 6: Run to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Installer"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Installer"
 ```
 
 Expected: all pass — 12 static, 8 integration.
@@ -983,7 +983,7 @@ Expected: all pass — 12 static, 8 integration.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add assets/shell-integration/install/nova-install-fish.sh src/NovaTerminal.CommandAssist tests/NovaTerminal.App.Tests
+git add assets/shell-integration/install/ntilde-install-fish.sh src/Ntilde.CommandAssist tests/Ntilde.App.Tests
 git commit -m "feat(command-assist): one-line installer for the fish remote snippet"
 ```
 
@@ -992,23 +992,23 @@ git commit -m "feat(command-assist): one-line installer for the fish remote snip
 ## Task 4: The PowerShell installer
 
 **Files:**
-- Create: `assets/shell-integration/install/nova-install.ps1`
-- Modify: `src/NovaTerminal.CommandAssist/NovaTerminal.CommandAssist.csproj`
-- Modify: `src/NovaTerminal.CommandAssist/ShellIntegration/Remote/RemoteShellIntegrationSnippets.cs` (`BuildInstallerScript` delimiter selection, `BuildInstallerCommand` switch)
+- Create: `assets/shell-integration/install/ntilde-install.ps1`
+- Modify: `src/Ntilde.CommandAssist/Ntilde.CommandAssist.csproj`
+- Modify: `src/Ntilde.CommandAssist/ShellIntegration/Remote/RemoteShellIntegrationSnippets.cs` (`BuildInstallerScript` delimiter selection, `BuildInstallerCommand` switch)
 - Test: both test files from Tasks 1–3
 
 **Interfaces:**
 - Consumes: everything Tasks 1–3 produced.
-- Produces: `BuildInstallerCommand(RemoteShellIntegrationShell.PowerShell)`; `BuildInstallerScript` now selects its delimiter per shell — `'@` for PowerShell (the here-string terminator), `__NOVA_SNIPPET_EOF__` otherwise.
+- Produces: `BuildInstallerCommand(RemoteShellIntegrationShell.PowerShell)`; `BuildInstallerScript` now selects its delimiter per shell — `'@` for PowerShell (the here-string terminator), `__NTILDE_SNIPPET_EOF__` otherwise.
 
 Two shell-specific points. `& $t` rather than `. $t`: the call operator runs the installer in a child scope, so nothing it defines leaks into the session, and `$PROFILE` is still visible because it is an automatic variable in every scope. And the writes go through `[IO.File]::WriteAllText` with an explicit no-BOM UTF-8 rather than `Set-Content -Encoding utf8NoBOM`, because that parameter value does not exist on Windows PowerShell 5.1, which a remote host may well be running.
 
 - [ ] **Step 1: Write the asset**
 
-Create `assets/shell-integration/install/nova-install.ps1` with LF endings:
+Create `assets/shell-integration/install/ntilde-install.ps1` with LF endings:
 
 ```powershell
-# Nova Terminal remote shell integration installer (PowerShell).
+# Ntilde remote shell integration installer (PowerShell).
 #
 # Decoded to a temp file by the one-liner Settings copies, invoked with the call operator (& ) so it
 # runs in a CHILD SCOPE - nothing it defines reaches your session - and then deleted. $PROFILE is
@@ -1022,9 +1022,9 @@ param(
     [string]$DestDir = $HOME
 )
 
-$dest = Join-Path $DestDir '.nova-shell-integration.ps1'
+$dest = Join-Path $DestDir '.ntilde-shell-integration.ps1'
 $snippet = @'
-@@NOVA_SNIPPET@@
+@@NTILDE_SNIPPET@@
 '@
 
 # WriteAllText with an explicit no-BOM UTF-8 rather than Set-Content -Encoding utf8NoBOM: that
@@ -1033,27 +1033,27 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [IO.File]::WriteAllText($dest, $snippet, $utf8NoBom)
 
 if (-not (Test-Path -LiteralPath $dest)) {
-    Write-Host "nova: could not write $dest"
+    Write-Host "ntilde: could not write $dest"
     exit 1
 }
-Write-Host 'nova: wrote ~/.nova-shell-integration.ps1'
+Write-Host 'ntilde: wrote ~/.ntilde-shell-integration.ps1'
 
-$loader = '. ~/.nova-shell-integration.ps1'
+$loader = '. ~/.ntilde-shell-integration.ps1'
 $profileDir = Split-Path -Parent $ProfilePath
 if ($profileDir -and -not (Test-Path -LiteralPath $profileDir)) {
     New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
 }
 
 if ((Test-Path -LiteralPath $ProfilePath) -and
-    (Select-String -LiteralPath $ProfilePath -SimpleMatch 'nova-shell-integration' -Quiet)) {
-    Write-Host 'nova: loader line already in $PROFILE - unchanged'
+    (Select-String -LiteralPath $ProfilePath -SimpleMatch 'ntilde-shell-integration' -Quiet)) {
+    Write-Host 'ntilde: loader line already in $PROFILE - unchanged'
 } else {
     Add-Content -LiteralPath $ProfilePath -Value $loader
-    Write-Host 'nova: added loader line to $PROFILE'
+    Write-Host 'ntilde: added loader line to $PROFILE'
 }
 
-Write-Host 'nova: run  . ~/.nova-shell-integration.ps1  to enable it in this session,'
-Write-Host 'nova: or open a new Nova session to this host.'
+Write-Host 'ntilde: run  . ~/.ntilde-shell-integration.ps1  to enable it in this session,'
+Write-Host 'ntilde: or open a new Ntilde session to this host.'
 ```
 
 The `Write-Host` strings are single-quoted deliberately: `$PROFILE` is meant to print literally, as the name of the file, not expand to a path.
@@ -1061,8 +1061,8 @@ The `Write-Host` strings are single-quoted deliberately: `$PROFILE` is meant to 
 - [ ] **Step 2: Embed it**
 
 ```xml
-    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\assets\shell-integration\install\nova-install.ps1"
-                      LogicalName="NovaTerminal.CommandAssist.ShellIntegration.Remote.nova-install.ps1" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\assets\shell-integration\install\ntilde-install.ps1"
+                      LogicalName="Ntilde.CommandAssist.ShellIntegration.Remote.ntilde-install.ps1" />
 ```
 
 - [ ] **Step 3: Write the failing tests**
@@ -1098,7 +1098,7 @@ Add to `RemoteShellIntegrationInstallerTests`:
 
     /// <summary>
     /// The call operator, not dot-sourcing: a child scope is what keeps the installer out of the
-    /// user's session. A stray `. $__nova_t` here would reintroduce exactly what the design gave up.
+    /// user's session. A stray `. $__ntilde_t` here would reintroduce exactly what the design gave up.
     /// </summary>
     [Fact]
     public void PowerShellInstaller_InvokesTheScriptInAChildScope()
@@ -1106,8 +1106,8 @@ Add to `RemoteShellIntegrationInstallerTests`:
         string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
             RemoteShellIntegrationShell.PowerShell);
 
-        Assert.Contains("& $__nova_t", command, StringComparison.Ordinal);
-        Assert.DoesNotContain(". $__nova_t", command, StringComparison.Ordinal);
+        Assert.Contains("& $__ntilde_t", command, StringComparison.Ordinal);
+        Assert.DoesNotContain(". $__ntilde_t", command, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1156,7 +1156,7 @@ Add to `RemoteInstallerIntegrationTests`:
             Assert.Skip("pwsh not found on this system");
         }
 
-        string installerPath = Path.Combine(_home, "nova-install.ps1");
+        string installerPath = Path.Combine(_home, "ntilde-install.ps1");
         File.WriteAllText(
             installerPath,
             RemoteShellIntegrationSnippets.BuildInstallerScript(
@@ -1166,7 +1166,7 @@ Add to `RemoteInstallerIntegrationTests`:
         string profilePath = Path.Combine(_home, "profile.ps1");
         string output = RunPwsh(pwsh, installerPath, profilePath) + RunPwsh(pwsh, installerPath, profilePath);
 
-        string dest = Path.Combine(_home, ".nova-shell-integration.ps1");
+        string dest = Path.Combine(_home, ".ntilde-shell-integration.ps1");
         Assert.True(File.Exists(dest), $"snippet not written. output:\n{output}");
         Assert.Equal(
             RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell).TrimEnd('\n'),
@@ -1215,7 +1215,7 @@ Add to `RemoteInstallerIntegrationTests`:
 - [ ] **Step 4: Run to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Installer"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Installer"
 ```
 
 Expected: the PowerShell static tests fail with `ArgumentOutOfRangeException: No installer ships for this shell.`
@@ -1231,7 +1231,7 @@ In the two-argument `BuildInstallerScript(shell, snippet)` overload, replace the
         // snippet into code.
         string delimiter = shell == RemoteShellIntegrationShell.PowerShell
             ? "'@"
-            : "__NOVA_SNIPPET_EOF__";
+            : "__NTILDE_SNIPPET_EOF__";
 
         foreach (string line in snippet.Split('\n'))
         {
@@ -1252,14 +1252,14 @@ In `BuildInstallerCommand`'s `switch`:
 ```csharp
             RemoteShellIntegrationShell.PowerShell =>
                 """
-                $__nova_t=[IO.Path]::GetTempPath()+[Guid]::NewGuid().ToString('N')+'.ps1'; $__nova_g=[IO.Compression.GZipStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String('@@BLOB@@')),[IO.Compression.CompressionMode]::Decompress); $__nova_o=[IO.File]::Create($__nova_t); $__nova_g.CopyTo($__nova_o); $__nova_o.Dispose(); $__nova_g.Dispose(); & $__nova_t; Remove-Item $__nova_t; Remove-Variable __nova_t,__nova_g,__nova_o
+                $__ntilde_t=[IO.Path]::GetTempPath()+[Guid]::NewGuid().ToString('N')+'.ps1'; $__ntilde_g=[IO.Compression.GZipStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String('@@BLOB@@')),[IO.Compression.CompressionMode]::Decompress); $__ntilde_o=[IO.File]::Create($__ntilde_t); $__ntilde_g.CopyTo($__ntilde_o); $__ntilde_o.Dispose(); $__ntilde_g.Dispose(); & $__ntilde_t; Remove-Item $__ntilde_t; Remove-Variable __ntilde_t,__ntilde_g,__ntilde_o
                 """,
 ```
 
 - [ ] **Step 7: Run to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Installer"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Installer"
 ```
 
 Expected: all pass — 17 static, 9 integration. `PowerShellInstaller_WritesTheSnippetAndPatchesTheProfileOnce` skips only if `pwsh` is not on `PATH`; on this machine it should run.
@@ -1267,7 +1267,7 @@ Expected: all pass — 17 static, 9 integration. `PowerShellInstaller_WritesTheS
 - [ ] **Step 8: Commit**
 
 ```bash
-git add assets/shell-integration/install/nova-install.ps1 src/NovaTerminal.CommandAssist tests/NovaTerminal.App.Tests
+git add assets/shell-integration/install/ntilde-install.ps1 src/Ntilde.CommandAssist tests/Ntilde.App.Tests
 git commit -m "feat(command-assist): one-line installer for the PowerShell remote snippet"
 ```
 
@@ -1276,8 +1276,8 @@ git commit -m "feat(command-assist): one-line installer for the PowerShell remot
 ## Task 5: Settings row and docs
 
 **Files:**
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml:628-638`
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml.cs:1447-1498`
+- Modify: `src/Ntilde.App/SettingsWindow.axaml:628-638`
+- Modify: `src/Ntilde.App/SettingsWindow.axaml.cs:1447-1498`
 - Modify: `docs/command-assist/RemoteShellIntegration.md:30-75`
 
 **Interfaces:**
@@ -1288,10 +1288,10 @@ Docs ship with the UI in one task on purpose: the row's copy and the docs' Insta
 
 - [ ] **Step 1: Update the XAML**
 
-In `src/NovaTerminal.App/SettingsWindow.axaml`, replace the row description text at line 631 and the button panel at lines 634–637:
+In `src/Ntilde.App/SettingsWindow.axaml`, replace the row description text at line 631 and the button panel at lines 634–637:
 
 ```xml
-                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Nova cannot install shell integration over SSH. Copy the one-line installer for the remote shell, paste it at the prompt on that host, and the command assistant works there too: history, suggestions read from the prompt line, exit codes and prompt-anchored placement. Filesystem path suggestions stay off for remote sessions - they would list the local disk."/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Ntilde cannot install shell integration over SSH. Copy the one-line installer for the remote shell, paste it at the prompt on that host, and the command assistant works there too: history, suggestions read from the prompt line, exit codes and prompt-anchored placement. Filesystem path suggestions stay off for remote sessions - they would list the local disk."/>
 ```
 
 ```xml
@@ -1395,7 +1395,7 @@ Leave `CopyRemoteShellIntegrationSnippetAsync` as it is — it is now the second
 - [ ] **Step 4: Build and check for warnings**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 Expected: build succeeded, no new warnings. A `CS0168`/unused-variable warning means the `copySnippetButton` null branch was dropped.
@@ -1405,16 +1405,16 @@ Expected: build succeeded, no new warnings. A `CS0168`/unused-variable warning m
 Automated GUI verification is unreliable here, so verify by hand:
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 Then run the app, open Settings → **Command assistant**, scroll to **Remote shell integration**, and confirm:
 
 1. The picker still offers `bash / zsh`, `fish`, `PowerShell`.
-2. **Copy installer** with `bash / zsh` selected → the status line names bash / zsh and `~/.nova-shell-integration.sh`; the clipboard holds **one line** starting `__nova_t=$(mktemp` (paste it into a text editor to confirm there is no second line).
-3. Switch to `PowerShell`, press **Copy installer** → clipboard starts `$__nova_t=[IO.Path]::GetTempPath()`.
+2. **Copy installer** with `bash / zsh` selected → the status line names bash / zsh and `~/.ntilde-shell-integration.sh`; the clipboard holds **one line** starting `__ntilde_t=$(mktemp` (paste it into a text editor to confirm there is no second line).
+3. Switch to `PowerShell`, press **Copy installer** → clipboard starts `$__ntilde_t=[IO.Path]::GetTempPath()`.
 4. **Copy plain snippet** → clipboard holds the full multi-line snippet and the status line reverts to the `cat >` instructions.
-5. Paste the bash/zsh installer into a real SSH session to a Linux host and confirm the four `nova:` lines, then open a new session to that host and confirm the assistant reports the session as integrated.
+5. Paste the bash/zsh installer into a real SSH session to a Linux host and confirm the four `ntilde:` lines, then open a new session to that host and confirm the assistant reports the session as integrated.
 
 Record the result of step 5 in the commit message. If no remote host is available, say so explicitly rather than claiming it passed.
 
@@ -1430,10 +1430,10 @@ Settings → **Command assistant** → **Remote shell integration**: pick the re
 did:
 
 ```
-nova: wrote ~/.nova-shell-integration.sh
-nova: added loader line to ~/.zshrc
-nova: run  . ~/.nova-shell-integration.sh  to enable it in this session,
-nova: or open a new Nova session to this host.
+ntilde: wrote ~/.ntilde-shell-integration.sh
+ntilde: added loader line to ~/.zshrc
+ntilde: run  . ~/.ntilde-shell-integration.sh  to enable it in this session,
+ntilde: or open a new Ntilde session to this host.
 ```
 
 One line and one history entry, rather than the 300-line paste this replaced. The line decodes a
@@ -1481,7 +1481,7 @@ In `RemoteShellIntegrationSnippets.cs`, the `BuildInstallInstructions` remark st
 - [ ] **Step 8: Run the full installer and snippet suites once more**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~RemoteShellIntegration|FullyQualifiedName~RemoteInstaller|FullyQualifiedName~RemoteBashSnippet"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~RemoteShellIntegration|FullyQualifiedName~RemoteInstaller|FullyQualifiedName~RemoteBashSnippet"
 ```
 
 Expected: all pass. The pre-existing `RemoteShellIntegrationSnippetTests` and `RemoteBashSnippetIntegrationTests` must be untouched by this work — a failure there means a snippet or descriptor was edited when it should not have been.
@@ -1489,7 +1489,7 @@ Expected: all pass. The pre-existing `RemoteShellIntegrationSnippetTests` and `R
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/NovaTerminal.App/SettingsWindow.axaml src/NovaTerminal.App/SettingsWindow.axaml.cs src/NovaTerminal.CommandAssist docs/command-assist/RemoteShellIntegration.md
+git add src/Ntilde.App/SettingsWindow.axaml src/Ntilde.App/SettingsWindow.axaml.cs src/Ntilde.CommandAssist docs/command-assist/RemoteShellIntegration.md
 git commit -m "feat(command-assist): Settings copies a one-line remote installer, plain snippet secondary"
 ```
 
@@ -1501,4 +1501,4 @@ git commit -m "feat(command-assist): Settings copies a one-line remote installer
 - The generated bash/zsh command, run through a real bash, writes the snippet, patches `~/.bashrc` exactly once across two runs, reports a hand-placed loader line as already present, reports failure when `base64`/`gzip` are unreachable, leaves nothing in the calling shell, and yields a shell that emits the full OSC 133 lifecycle afterwards.
 - The fish installer writes into `conf.d`; the PowerShell installer writes the snippet and patches its profile once across two runs.
 - Settings offers **Copy installer** and **Copy plain snippet**, manually verified, including one real paste into a remote host.
-- `docs/command-assist/RemoteShellIntegration.md` documents the new flow and no longer contains the `cat > ~/.nova-shell-integration.ps1` recipe.
+- `docs/command-assist/RemoteShellIntegration.md` documents the new flow and no longer contains the `cat > ~/.ntilde-shell-integration.ps1` recipe.

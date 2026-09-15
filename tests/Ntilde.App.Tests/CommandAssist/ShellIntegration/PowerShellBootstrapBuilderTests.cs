@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
+using Ntilde.CommandAssist.ShellIntegration.PowerShell;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 public sealed class PowerShellBootstrapBuilderTests : IDisposable
 {
@@ -8,7 +8,7 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
 
     public PowerShellBootstrapBuilderTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), $"nova_command_assist_bootstrap_{Guid.NewGuid():N}");
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_command_assist_bootstrap_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempRoot);
     }
 
@@ -33,9 +33,9 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
         // because the host prints the returned string afterwards. A is written
         // (prompt start); B has to be appended to the returned string so it
         // lands on the first cell of the user's input.
-        Assert.Contains("return \"$novaPromptText$([char]27)]133;B$([char]7)\"", script);
+        Assert.Contains("return \"$ntildePromptText$([char]27)]133;B$([char]7)\"", script);
 
-        int promptReadyIndex = script.IndexOf("    Write-NovaPromptReady", StringComparison.Ordinal);
+        int promptReadyIndex = script.IndexOf("    Write-NtildePromptReady", StringComparison.Ordinal);
         int markIndex = script.IndexOf("]133;B", StringComparison.Ordinal);
         Assert.True(promptReadyIndex > 0 && markIndex > promptReadyIndex,
             "the B mark must be produced after the A mark within the prompt function");
@@ -48,8 +48,8 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
 
         // The wrapped original prompt still supplies the prompt text; we only
         // concatenate the zero-width mark onto whatever it produced.
-        Assert.Contains("$novaPromptText = if ($script:NovaOriginalPrompt -ne $null) {", script);
-        Assert.Contains("(& $script:NovaOriginalPrompt) -join ''", script);
+        Assert.Contains("$ntildePromptText = if ($script:NtildeOriginalPrompt -ne $null) {", script);
+        Assert.Contains("(& $script:NtildeOriginalPrompt) -join ''", script);
     }
 
     [Fact]
@@ -90,8 +90,8 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
     {
         string script = PowerShellBootstrapBuilder.BuildScript();
 
-        Assert.Contains("$script:NovaAcceptedCommandText = $null", script);
-        Assert.Contains("$script:NovaCommandStart = $null", script);
+        Assert.Contains("$script:NtildeAcceptedCommandText = $null", script);
+        Assert.Contains("$script:NtildeCommandStart = $null", script);
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
         string script = PowerShellBootstrapBuilder.BuildScript();
 
         Assert.Contains("Get-Command prompt", script);
-        Assert.Contains("& $script:NovaOriginalPrompt", script);
+        Assert.Contains("& $script:NtildeOriginalPrompt", script);
     }
 
     [Fact]
@@ -130,22 +130,22 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
         // itself forever. Two guards, because a second -File pass gets a fresh
         // script scope in which the first guard alone cannot see the earlier capture.
         Assert.Contains(
-            "if (-not (Get-Variable -Name 'NovaOriginalPrompt' -Scope Script -ErrorAction SilentlyContinue)) {",
+            "if (-not (Get-Variable -Name 'NtildeOriginalPrompt' -Scope Script -ErrorAction SilentlyContinue)) {",
             script);
-        Assert.Contains("if ($null -eq $script:NovaOriginalPrompt -and", script);
-        Assert.Contains("-notlike '*__nova_prompt_wrapper*'", script);
+        Assert.Contains("if ($null -eq $script:NtildeOriginalPrompt -and", script);
+        Assert.Contains("-notlike '*__ntilde_prompt_wrapper*'", script);
 
         // The sentinel the second guard looks for must actually be inside the
         // wrapper body, or the check silently never fires.
         int promptIndex = script.IndexOf("function Global:prompt {", StringComparison.Ordinal);
-        int sentinelIndex = script.IndexOf("    # __nova_prompt_wrapper", StringComparison.Ordinal);
+        int sentinelIndex = script.IndexOf("    # __ntilde_prompt_wrapper", StringComparison.Ordinal);
         Assert.True(promptIndex >= 0 && sentinelIndex > promptIndex,
             "the wrapper sentinel must live inside the Global:prompt body");
 
         // The pre-fix shape: an unconditional reset followed by an unconditional
         // capture. Its presence would re-enable the recursion.
         Assert.DoesNotContain(
-            "$script:NovaOriginalPrompt = $null\n$script:NovaPromptCommand = Get-Command prompt",
+            "$script:NtildeOriginalPrompt = $null\n$script:NtildePromptCommand = Get-Command prompt",
             script);
     }
 
@@ -157,18 +157,18 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
         // The pwsh analogue of the bash accumulation test. PowerShell cannot grow a
         // marker per cycle the way a PS1/PROMPT *string* can: the mark is concatenated
         // onto the value the wrapper RETURNS, and the wrapper composes that value fresh
-        // from $script:NovaOriginalPrompt on every call. So the invariants to pin are
+        // from $script:NtildeOriginalPrompt on every call. So the invariants to pin are
         // (a) exactly one place emits B, in the return expression, and (b) the wrapper
         // never mutates the stored original.
         Assert.Equal(1, CountOccurrences(script, "]133;B"));
-        Assert.Contains("return \"$novaPromptText$([char]27)]133;B$([char]7)\"", script);
+        Assert.Contains("return \"$ntildePromptText$([char]27)]133;B$([char]7)\"", script);
 
         // The only assignment to the captured original is the guarded capture above --
         // nothing inside the prompt function writes to it.
         int promptIndex = script.IndexOf("function Global:prompt {", StringComparison.Ordinal);
         Assert.True(promptIndex > 0);
         Assert.DoesNotContain(
-            "$script:NovaOriginalPrompt =",
+            "$script:NtildeOriginalPrompt =",
             script[promptIndex..]);
     }
 
@@ -190,7 +190,7 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
         string script = PowerShellBootstrapBuilder.BuildScript();
 
         Assert.DoesNotContain("if ($global:LASTEXITCODE -ne $null -or $?)", script);
-        Assert.Contains("if ($script:NovaCommandStart -eq $null) { return }", script);
+        Assert.Contains("if ($script:NtildeCommandStart -eq $null) { return }", script);
     }
 
     [Fact]
@@ -211,8 +211,8 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
     {
         string script = PowerShellBootstrapBuilder.BuildScript();
 
-        Assert.DoesNotContain("Write-NovaSequence \"]133;C;", script);
-        Assert.DoesNotContain("Write-NovaSequence ']133;B'", script);
+        Assert.DoesNotContain("Write-NtildeSequence \"]133;C;", script);
+        Assert.DoesNotContain("Write-NtildeSequence ']133;B'", script);
     }
 
     /// <summary>
@@ -237,8 +237,8 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
     {
         string script = PowerShellBootstrapBuilder.BuildScript();
 
-        Assert.Contains("Write-NovaSequence \"]7;file://$novaPath\"", script);
-        Assert.Contains("if (-not $novaPath.StartsWith('/')) { $novaPath = '/' + $novaPath }", script);
+        Assert.Contains("Write-NtildeSequence \"]7;file://$ntildePath\"", script);
+        Assert.Contains("if (-not $ntildePath.StartsWith('/')) { $ntildePath = '/' + $ntildePath }", script);
         Assert.Contains("[Uri]::EscapeDataString($_) -replace '%3A', ':'", script);
 
         // The three shapes of the bug, each named so a revert cannot pass.

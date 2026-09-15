@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a NovaTerminal .deb from a NativeAOT publish directory.
+# Build a Ntilde .deb from a NativeAOT publish directory.
 #
 # Usage: build-deb.sh <publish-dir> <version> <debarch> <out-dir>
 #        build-deb.sh --print-debian-version <version>
@@ -66,7 +66,7 @@ DLOPEN_LIBS=(
   "libICE.so.6|libice6"            # X session management
   "libSM.so.6|libsm6"              # X session management
   "libGL.so.1|libgl1"              # GLX/OpenGL rendering path
-  # src/NovaTerminal.App/Shell/Secrets/LinuxSecretStore.cs - the Secret Service
+  # src/Ntilde.App/Shell/Secrets/LinuxSecretStore.cs - the Secret Service
   # (GNOME Keyring / KWallet) vault that backs persistent SSH password storage.
   # libsecret via [DllImport("libsecret-1.so.0")]; glib via NativeLibrary.Load plus
   # [DllImport("libglib-2.0.so.0")] for the GHashTable the non-varargs
@@ -136,7 +136,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$here/../.." && pwd)"
 
 [[ -d "$publish_dir" ]] || { echo "publish dir not found: $publish_dir" >&2; exit 1; }
-[[ -f "$publish_dir/NovaTerminal" ]] || { echo "no NovaTerminal binary in $publish_dir" >&2; exit 1; }
+[[ -f "$publish_dir/Ntilde" ]] || { echo "no Ntilde binary in $publish_dir" >&2; exit 1; }
 
 # Preflight the tools dependency derivation needs. Without this, a missing 'file' or
 # 'dpkg-query' does not fail the build - find/grep just match nothing, and
@@ -251,16 +251,16 @@ done
 
 # --- stage the tree --------------------------------------------------------
 install -d "$stage/DEBIAN"
-install -d "$stage/usr/lib/novaterminal"
+install -d "$stage/usr/lib/ntilde"
 install -d "$stage/usr/bin"
 install -d "$stage/usr/share/applications"
 install -d "$stage/usr/share/man/man1"
-install -d "$stage/usr/share/doc/novaterminal"
+install -d "$stage/usr/share/doc/ntilde"
 
-cp -a "$publish_dir/." "$stage/usr/lib/novaterminal/"
+cp -a "$publish_dir/." "$stage/usr/lib/ntilde/"
 # A .deb ships no build leftovers; the AOT publish can contain debug symbols.
-find "$stage/usr/lib/novaterminal" -name '*.pdb' -delete
-find "$stage/usr/lib/novaterminal" -name '*.dbg' -delete
+find "$stage/usr/lib/ntilde" -name '*.pdb' -delete
+find "$stage/usr/lib/ntilde" -name '*.dbg' -delete
 
 # Strip debug symbols from the bundled native libraries (SkiaSharp, HarfBuzzSharp,
 # the Rust natives) - standard Debian practice, and lintian's
@@ -270,11 +270,11 @@ find "$stage/usr/lib/novaterminal" -name '*.dbg' -delete
 # names, so a future native library added here is stripped too without editing
 # this script again - '*.so' alone would silently miss a real .so.N and leave
 # it to redden lintian on the next unrelated change.
-# Deliberately NOT the NovaTerminal AOT binary itself: lintian does not flag it,
+# Deliberately NOT the Ntilde AOT binary itself: lintian does not flag it,
 # and NativeAOT output is not something to strip-and-hope on.
 while IFS= read -r -d '' so; do
   strip --strip-unneeded "$so"
-done < <(find "$stage/usr/lib/novaterminal" -name '*.so*' -print0)
+done < <(find "$stage/usr/lib/ntilde" -name '*.so*' -print0)
 
 # cp -a inherits every mode bit from the publish directory verbatim, including
 # the 0744 SkiaSharp/HarfBuzzSharp ship with - lintian correctly flags a shared
@@ -284,27 +284,27 @@ done < <(find "$stage/usr/lib/novaterminal" -name '*.so*' -print0)
 # 0755 on the one file that must stay executable: the entry point binary. Order
 # matters - reversing these two steps would have the blanket pass clobber the
 # binary's own exec bit right back off.
-find "$stage/usr/lib/novaterminal" -type f -exec chmod 0644 {} +
-find "$stage/usr/lib/novaterminal" -type d -exec chmod 0755 {} +
-chmod 0755 "$stage/usr/lib/novaterminal/NovaTerminal"
+find "$stage/usr/lib/ntilde" -type f -exec chmod 0644 {} +
+find "$stage/usr/lib/ntilde" -type d -exec chmod 0755 {} +
+chmod 0755 "$stage/usr/lib/ntilde/Ntilde"
 
-ln -s /usr/lib/novaterminal/NovaTerminal "$stage/usr/bin/nova"
-install -m 0644 "$here/nova.desktop" "$stage/usr/share/applications/novaterminal.desktop"
-gzip -9nc "$here/nova.1" > "$stage/usr/share/man/man1/nova.1.gz"
-chmod 0644 "$stage/usr/share/man/man1/nova.1.gz"
+ln -s /usr/lib/ntilde/Ntilde "$stage/usr/bin/ntilde"
+install -m 0644 "$here/ntilde.desktop" "$stage/usr/share/applications/ntilde.desktop"
+gzip -9nc "$here/ntilde.1" > "$stage/usr/share/man/man1/ntilde.1.gz"
+chmod 0644 "$stage/usr/share/man/man1/ntilde.1.gz"
 
 # --- icons -----------------------------------------------------------------
 # Derived at packaging time from the one committed PNG, which stays the single
 # cross-platform source of truth (same principle as packaging/macos/make-icns.sh).
-icon_src="$repo_root/src/NovaTerminal.App/Assets/nova_icon.png"
+icon_src="$repo_root/src/Ntilde.App/Assets/ntilde_icon.png"
 
 # A MISSING ICON SOURCE IS FATAL - it used to warn and continue, which meant this
 # script could exit 0 having produced a package with no /usr/share/icons/hicolor/**
 # at all. Nothing downstream catches that: desktop-file-validate does not check that
-# `Icon=novaterminal` resolves to an installed file, and lintian's icon-size-mismatch
+# `Icon=ntilde` resolves to an installed file, and lintian's icon-size-mismatch
 # is a warning, so `--fail-on error` passes it too. Spec acceptance criterion 5
-# ("NovaTerminal appears in the app menu with its icon") would then have zero
-# coverage while ci.yml's change-detection pattern watches nova_icon.png, implying
+# ("Ntilde appears in the app menu with its icon") would then have zero
+# coverage while ci.yml's change-detection pattern watches ntilde_icon.png, implying
 # coverage that did not exist. Same reasoning as the missing-scaler case below: an
 # iconless package is not a degraded package, it is a broken one.
 if [[ ! -f "$icon_src" ]]; then
@@ -332,11 +332,11 @@ fi
 for size in 16 32 48 64 128 256; do
   dir="$stage/usr/share/icons/hicolor/${size}x${size}/apps"
   install -d "$dir"
-  if resize "$icon_src" "$size" "$dir/novaterminal.png" 2>/dev/null; then
-    chmod 0644 "$dir/novaterminal.png"
+  if resize "$icon_src" "$size" "$dir/ntilde.png" 2>/dev/null; then
+    chmod 0644 "$dir/ntilde.png"
   else
     echo "warning: could not scale icon to ${size}x${size}; installing unscaled" >&2
-    install -m 0644 "$icon_src" "$dir/novaterminal.png"
+    install -m 0644 "$icon_src" "$dir/ntilde.png"
   fi
 done
 
@@ -357,61 +357,61 @@ done
 # this tag has no brackets. The printed message adds them for readability; the
 # override text must match the tag's raw info field, not the rendered message.
 install -d "$stage/usr/share/lintian/overrides"
-cat > "$stage/usr/share/lintian/overrides/novaterminal" <<'EOF'
+cat > "$stage/usr/share/lintian/overrides/ntilde" <<'EOF'
 # SkiaSharp's prebuilt native binary statically links freetype. Vendored
 # upstream by the SkiaSharp NuGet package - not something this script builds
 # or can unbundle.
-novaterminal: embedded-library freetype usr/lib/novaterminal/libSkiaSharp.so
+ntilde: embedded-library freetype usr/lib/ntilde/libSkiaSharp.so
 # Same as above: SkiaSharp statically links libjpeg.
-novaterminal: embedded-library libjpeg usr/lib/novaterminal/libSkiaSharp.so
+ntilde: embedded-library libjpeg usr/lib/ntilde/libSkiaSharp.so
 # Same as above: SkiaSharp statically links libpng.
-novaterminal: embedded-library libpng usr/lib/novaterminal/libSkiaSharp.so
+ntilde: embedded-library libpng usr/lib/ntilde/libSkiaSharp.so
 # NativeAOT statically links zlib into the published binary. A self-contained
 # AOT publish has no "link against the system libz at runtime" mode to fall
 # back to - this is what --self-contained true -p:PublishAot=true produces.
-novaterminal: embedded-library zlib usr/lib/novaterminal/NovaTerminal
+ntilde: embedded-library zlib usr/lib/ntilde/Ntilde
 EOF
-chmod 0644 "$stage/usr/share/lintian/overrides/novaterminal"
+chmod 0644 "$stage/usr/share/lintian/overrides/ntilde"
 
 # --- control + docs --------------------------------------------------------
 installed_kb="$(du -sk "$stage/usr" | cut -f1)"
 
 cat > "$stage/DEBIAN/control" <<EOF
-Package: novaterminal
+Package: ntilde
 Version: $debver
 Section: utils
 Priority: optional
 Architecture: $debarch
 Depends: $depends
 Maintainer: benyblack <noreply@github.com>
-Homepage: https://github.com/benyblack/NovaTerminal
+Homepage: https://github.com/benyblack/ntilde
 Installed-Size: $installed_kb
 Description: Modern terminal emulator
- NovaTerminal is a cross-platform terminal emulator with GPU-accelerated
+ Ntilde is a cross-platform terminal emulator with GPU-accelerated
  rendering, native SSH support, and tight shell integration.
  .
  This package installs the graphical application and the "nova" command. It does
- not register NovaTerminal as the system x-terminal-emulator; see nova(1) for how
+ not register Ntilde as the system x-terminal-emulator; see ntilde(1) for how
  to do that yourself.
  .
  Updates are delivered through your package manager. The in-app updater is
  inactive for package installs, and applies only to the AppImage build.
 EOF
 
-install -m 0644 "$repo_root/LICENSE" "$stage/usr/share/doc/novaterminal/copyright"
+install -m 0644 "$repo_root/LICENSE" "$stage/usr/share/doc/ntilde/copyright"
 
-printf 'novaterminal (%s) unstable; urgency=low\n\n  * Release %s. See %s\n\n -- %s  %s\n' \
+printf 'ntilde (%s) unstable; urgency=low\n\n  * Release %s. See %s\n\n -- %s  %s\n' \
   "$debver" "${version#v}" \
-  "https://github.com/benyblack/NovaTerminal/releases/tag/${version}" \
+  "https://github.com/benyblack/ntilde/releases/tag/${version}" \
   "benyblack <noreply@github.com>" "$(date -R)" \
-  | gzip -9nc > "$stage/usr/share/doc/novaterminal/changelog.Debian.gz"
-chmod 0644 "$stage/usr/share/doc/novaterminal/changelog.Debian.gz"
+  | gzip -9nc > "$stage/usr/share/doc/ntilde/changelog.Debian.gz"
+chmod 0644 "$stage/usr/share/doc/ntilde/changelog.Debian.gz"
 
 # --- build -----------------------------------------------------------------
 # --root-owner-group so files are root-owned without fakeroot; otherwise every path
 # in the package carries the CI runner's uid.
 mkdir -p "$out_dir"
-deb="$out_dir/novaterminal_${debver}_${debarch}.deb"
+deb="$out_dir/ntilde_${debver}_${debarch}.deb"
 dpkg-deb --build --root-owner-group "$stage" "$deb"
 
 echo "built $deb"

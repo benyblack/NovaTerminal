@@ -1,6 +1,6 @@
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // #95 gap 1: the scrollback *storage* already carried row side tables (see
 // ScrollbackSideTableTests), but the read accessors did not consult them -

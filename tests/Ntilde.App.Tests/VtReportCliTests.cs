@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using NovaTerminal.Conformance;
+using Ntilde.Conformance;
 
-namespace NovaTerminal.Tests;
+namespace Ntilde.Tests;
 
 public sealed class VtReportCliTests
 {
@@ -31,7 +31,7 @@ public sealed class VtReportCliTests
         Assert.Equal(string.Empty, stderr.ToString());
 
         string output = stdout.ToString();
-        Assert.Contains("NovaTerminal VT Report", output);
+        Assert.Contains("Ntilde VT Report", output);
         Assert.Contains("Matrix:", output);
         Assert.Contains("Supported:", output);
         Assert.Contains("Validation:", output);
@@ -74,8 +74,8 @@ public sealed class VtReportCliTests
     public void CliShim_PrintsHumanReadableSummary()
     {
         string repoRoot = FindRepositoryRoot();
-        string cliProjectPath = Path.Combine(repoRoot, "src", "NovaTerminal.Cli", "NovaTerminal.Cli.csproj");
-        string cliExecutablePath = GetExecutablePath(Path.Combine(repoRoot, "src", "NovaTerminal.Cli", "bin", "Release", "net10.0"), "NovaTerminal.Cli");
+        string cliProjectPath = Path.Combine(repoRoot, "src", "Ntilde.Cli", "Ntilde.Cli.csproj");
+        string cliExecutablePath = GetExecutablePath(Path.Combine(repoRoot, "src", "Ntilde.Cli", "bin", "Release", "net10.0"), "Ntilde.Cli");
         (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
             repoRoot,
             "dotnet",
@@ -89,7 +89,7 @@ public sealed class VtReportCliTests
         Assert.Equal(string.Empty, buildStdErr);
         Assert.Equal(0, exitCode);
         Assert.Equal(string.Empty, stderr);
-        Assert.Contains("NovaTerminal VT Report", stdout);
+        Assert.Contains("Ntilde VT Report", stdout);
         Assert.Contains("Matrix:", stdout);
         Assert.Contains("Validation:", stdout);
     }
@@ -98,8 +98,8 @@ public sealed class VtReportCliTests
     public void AppBinary_PrintsHumanReadableSummary()
     {
         string repoRoot = FindRepositoryRoot();
-        string appProjectPath = Path.Combine(repoRoot, "src", "NovaTerminal.App", "NovaTerminal.App.csproj");
-        string appExecutablePath = GetExecutablePath(Path.Combine(repoRoot, "src", "NovaTerminal.App", "bin", "Release", "net10.0"), "NovaTerminal");
+        string appProjectPath = Path.Combine(repoRoot, "src", "Ntilde.App", "Ntilde.App.csproj");
+        string appExecutablePath = GetExecutablePath(Path.Combine(repoRoot, "src", "Ntilde.App", "bin", "Release", "net10.0"), "Ntilde");
         (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
             repoRoot,
             "dotnet",
@@ -113,7 +113,7 @@ public sealed class VtReportCliTests
         Assert.Equal(string.Empty, buildStdErr);
         Assert.Equal(0, exitCode);
         Assert.Equal(string.Empty, stderr);
-        Assert.Contains("NovaTerminal VT Report", stdout);
+        Assert.Contains("Ntilde VT Report", stdout);
         Assert.Contains("Matrix:", stdout);
         Assert.Contains("Validation:", stdout);
     }
@@ -122,8 +122,8 @@ public sealed class VtReportCliTests
     public void AppBuild_CopiesCliShim_AsNamedSidecar()
     {
         string repoRoot = FindRepositoryRoot();
-        string appProjectPath = Path.Combine(repoRoot, "src", "NovaTerminal.App", "NovaTerminal.App.csproj");
-        string appOutputDirectory = Path.Combine(repoRoot, "src", "NovaTerminal.App", "bin", "Release", "net10.0");
+        string appProjectPath = Path.Combine(repoRoot, "src", "Ntilde.App", "Ntilde.App.csproj");
+        string appOutputDirectory = Path.Combine(repoRoot, "src", "Ntilde.App", "bin", "Release", "net10.0");
         (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
             repoRoot,
             "dotnet",
@@ -131,16 +131,16 @@ public sealed class VtReportCliTests
 
         Assert.Equal(0, buildExitCode);
         Assert.Equal(string.Empty, buildStdErr);
-        Assert.True(File.Exists(GetExecutablePath(appOutputDirectory, "NovaTerminal")));
-        Assert.True(File.Exists(GetExecutablePath(appOutputDirectory, "NovaTerminal.Cli")));
-        Assert.False(File.Exists(GetExecutablePath(appOutputDirectory, "NovaTerminal.Gui")));
+        Assert.True(File.Exists(GetExecutablePath(appOutputDirectory, "Ntilde")));
+        Assert.True(File.Exists(GetExecutablePath(appOutputDirectory, "Ntilde.Cli")));
+        Assert.False(File.Exists(GetExecutablePath(appOutputDirectory, "Ntilde.Gui")));
     }
 
     [Fact]
     public void ShippedArtifact_MatchesFreshToolOutput()
     {
         string repoRoot = FindRepositoryRoot();
-        string artifactPath = Path.Combine(repoRoot, "src", "NovaTerminal.App", "Resources", "vt-conformance-report.json");
+        string artifactPath = Path.Combine(repoRoot, "src", "Ntilde.App", "Resources", "vt-conformance-report.json");
         string expected = VtConformanceReportTool.Serialize(
             VtConformanceReportTool.Generate(repoRoot, Path.Combine(repoRoot, "docs", "vt_coverage_matrix.md")));
         string actual = File.ReadAllText(artifactPath);
@@ -153,7 +153,7 @@ public sealed class VtReportCliTests
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
         while (directory != null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "NovaTerminal.sln")))
+            if (File.Exists(Path.Combine(directory.FullName, "Ntilde.sln")))
             {
                 return directory.FullName;
             }

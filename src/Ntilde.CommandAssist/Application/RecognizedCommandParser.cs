@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 public static class RecognizedCommandParser
 {

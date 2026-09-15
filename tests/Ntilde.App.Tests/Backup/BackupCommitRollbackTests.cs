@@ -1,6 +1,6 @@
-using NovaTerminal.Backup;
+using Ntilde.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 /// <summary>
 /// Final whole-branch review, I3 and Deferred minor #5: the commit-phase undo journal that makes
@@ -78,7 +78,7 @@ public sealed class BackupCommitRollbackTests
     public void Import_WhenCommitPhaseThrowsAnUnrecognizedException_PreservesStagingForManualRecovery()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(Path.GetTempPath(), $"nova_backup_test_{Guid.NewGuid():N}.novabackup");
+        string bundle = Path.Combine(Path.GetTempPath(), $"ntilde_backup_test_{Guid.NewGuid():N}.ntildebackup");
         try
         {
             Assert.True(new BackupService(tree.Root).Export(bundle).Success);
@@ -119,7 +119,7 @@ public sealed class BackupCommitRollbackTests
     public void Import_WhenRollbackSucceeds_StillReturnsATypedFailure_AndCleansUpStaging()
     {
         using var source = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(Path.GetTempPath(), $"nova_backup_test_{Guid.NewGuid():N}.novabackup");
+        string bundle = Path.Combine(Path.GetTempPath(), $"ntilde_backup_test_{Guid.NewGuid():N}.ntildebackup");
         try
         {
             Assert.True(new BackupService(source.Root).Export(bundle).Success);

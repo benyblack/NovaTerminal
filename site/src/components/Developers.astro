@@ -1,5 +1,5 @@
 ---
-const repoUrl = 'https://github.com/benyblack/NovaTerminal';
+const repoUrl = 'https://github.com/benyblack/ntilde';
 
 const programs = [
   {
@@ -75,7 +75,7 @@ const lanes = [
         Correctness culture, enforced.
       </h2>
       <p class="lede mt-4 max-w-2xl">
-        NovaTerminal has a strong correctness culture — terminal core
+        Ntilde has a strong correctness culture — terminal core
         invariants are enforced and automated tests gate changes. If you
         care about that, you'll feel at home here.
       </p>
@@ -89,7 +89,7 @@ const lanes = [
               <h3 class="text-base font-semibold text-white">
                 {prog.title}
               </h3>
-              <span class="font-mono text-[10px] uppercase tracking-wider text-nova-300">
+              <span class="font-mono text-[10px] uppercase tracking-wider text-ntilde-300">
                 {prog.status}
               </span>
             </div>
@@ -101,7 +101,7 @@ const lanes = [
                 <li>
                   <a
                     href={link.href}
-                    class="text-nova-300 hover:text-nova-200"
+                    class="text-ntilde-300 hover:text-ntilde-200"
                   >
                     {link.label} →
                   </a>
@@ -118,7 +118,7 @@ const lanes = [
         Test lanes
       </h3>
       <p class="mt-2 text-sm leading-relaxed text-ink-300">
-        NovaTerminal splits tests into focused, deterministic lanes. The
+        Ntilde splits tests into focused, deterministic lanes. The
         blocking CI lane is fast and runs on every PR; the long-running
         lanes (replay parity, render metrics, golden PNG) run on
         schedule.
@@ -127,7 +127,7 @@ const lanes = [
         {
           lanes.map((lane) => (
             <li class="flex items-center justify-between gap-3 rounded-md border border-ink-800 bg-ink-950/40 px-3 py-2 text-sm">
-              <span class="font-mono text-nova-200">
+              <span class="font-mono text-ntilde-200">
                 {lane.name}
               </span>
               <span class="text-xs text-ink-400">{lane.kind}</span>
@@ -138,15 +138,15 @@ const lanes = [
     </div>
 
     <div
-      class="mt-12 flex flex-col items-start gap-4 rounded-2xl border border-nova-500/30 bg-gradient-to-br from-nova-900/40 to-ink-900/40 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8"
+      class="mt-12 flex flex-col items-start gap-4 rounded-2xl border border-ntilde-500/30 bg-gradient-to-br from-ntilde-900/40 to-ink-900/40 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8"
     >
       <div>
         <h3 class="text-xl font-semibold text-white sm:text-2xl">
           Want to contribute?
         </h3>
         <p class="mt-2 max-w-2xl text-sm leading-relaxed text-ink-200">
-          See <a href={`${repoUrl}/blob/main/CONTRIBUTING.md`} class="text-white underline decoration-nova-400/60 underline-offset-4 hover:decoration-nova-200">CONTRIBUTING.md</a> for the workflow and
-          {' '}<a href={`${repoUrl}/tree/main/docs/reviews`} class="text-white underline decoration-nova-400/60 underline-offset-4 hover:decoration-nova-200">docs/reviews</a> for periodic deep code reviews with the current known-issues backlog.
+          See <a href={`${repoUrl}/blob/main/CONTRIBUTING.md`} class="text-white underline decoration-ntilde-400/60 underline-offset-4 hover:decoration-ntilde-200">CONTRIBUTING.md</a> for the workflow and
+          {' '}<a href={`${repoUrl}/tree/main/docs/reviews`} class="text-white underline decoration-ntilde-400/60 underline-offset-4 hover:decoration-ntilde-200">docs/reviews</a> for periodic deep code reviews with the current known-issues backlog.
         </p>
       </div>
       <a

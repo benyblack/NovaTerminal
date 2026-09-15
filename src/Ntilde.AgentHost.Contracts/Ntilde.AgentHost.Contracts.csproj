@@ -2,9 +2,9 @@
 
   <!--
     Leaf contracts library for the agent-host control channel
-    (docs/agent-host/DIRECTION.md, milestone A1). Shared by NovaTerminal.App
-    (endpoint) and NovaTerminal.McpServer (client). Must have zero project
-    references; enforced by NovaTerminal.Architecture.Tests.
+    (docs/agent-host/DIRECTION.md, milestone A1). Shared by Ntilde.App
+    (endpoint) and Ntilde.McpServer (client). Must have zero project
+    references; enforced by Ntilde.Architecture.Tests.
   -->
 
   <PropertyGroup>
@@ -14,7 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="NovaTerminal.McpServer.Tests" />
+    <InternalsVisibleTo Include="Ntilde.McpServer.Tests" />
   </ItemGroup>
 
 </Project>

@@ -1,7 +1,7 @@
 using System.Text.Json;
-using NovaTerminal.Platform.Ssh.Storage;
+using Ntilde.Platform.Ssh.Storage;
 
-namespace NovaTerminal.Platform.Ssh.Native;
+namespace Ntilde.Platform.Ssh.Native;
 
 public enum NativeKnownHostMatch
 {

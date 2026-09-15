@@ -1,50 +1,50 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.IO;
 using System.Text.Json;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Rendering;
 using Xunit;
 
-namespace NovaTerminal.Tests.RenderTests
+namespace Ntilde.Tests.RenderTests
 {
     public sealed class RenderPerfWriterTests
     {
         [Fact]
         public void CreateFromEnvironment_DisabledFlag_ReturnsNull()
         {
-            string? previousEnabled = Environment.GetEnvironmentVariable("NOVATERM_RENDER_METRICS");
-            string? previousOut = Environment.GetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT");
+            string? previousEnabled = Environment.GetEnvironmentVariable("NTILDE_RENDER_METRICS");
+            string? previousOut = Environment.GetEnvironmentVariable("NTILDE_RENDER_METRICS_OUT");
 
             try
             {
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS", null);
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT", null);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS", null);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS_OUT", null);
 
                 using RenderPerfWriter? writer = RenderPerfWriter.CreateFromEnvironment();
                 Assert.Null(writer);
             }
             finally
             {
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS", previousEnabled);
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT", previousOut);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS", previousEnabled);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS_OUT", previousOut);
             }
         }
 
         [Fact]
         public void CreateFromEnvironment_Enabled_WritesCompactJsonl()
         {
-            string? previousEnabled = Environment.GetEnvironmentVariable("NOVATERM_RENDER_METRICS");
-            string? previousOut = Environment.GetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT");
-            string tempDir = Path.Combine(Path.GetTempPath(), "novaterm-renderperf-tests", Guid.NewGuid().ToString("N"));
+            string? previousEnabled = Environment.GetEnvironmentVariable("NTILDE_RENDER_METRICS");
+            string? previousOut = Environment.GetEnvironmentVariable("NTILDE_RENDER_METRICS_OUT");
+            string tempDir = Path.Combine(Path.GetTempPath(), "ntilde-renderperf-tests", Guid.NewGuid().ToString("N"));
             string outPath = Path.Combine(tempDir, "render_metrics.jsonl");
 
             try
             {
                 Directory.CreateDirectory(tempDir);
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS", "1");
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT", outPath);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS", "1");
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS_OUT", outPath);
 
                 using (RenderPerfWriter? writer = RenderPerfWriter.CreateFromEnvironment())
                 {
@@ -84,8 +84,8 @@ namespace NovaTerminal.Tests.RenderTests
             }
             finally
             {
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS", previousEnabled);
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT", previousOut);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS", previousEnabled);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS_OUT", previousOut);
                 if (Directory.Exists(tempDir))
                 {
                     Directory.Delete(tempDir, recursive: true);
@@ -96,23 +96,23 @@ namespace NovaTerminal.Tests.RenderTests
         [Fact]
         public void CreateFromEnvironment_InvalidOutput_DoesNotThrow()
         {
-            string? previousEnabled = Environment.GetEnvironmentVariable("NOVATERM_RENDER_METRICS");
-            string? previousOut = Environment.GetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT");
-            string tempDir = Path.Combine(Path.GetTempPath(), "novaterm-renderperf-tests", Guid.NewGuid().ToString("N"));
+            string? previousEnabled = Environment.GetEnvironmentVariable("NTILDE_RENDER_METRICS");
+            string? previousOut = Environment.GetEnvironmentVariable("NTILDE_RENDER_METRICS_OUT");
+            string tempDir = Path.Combine(Path.GetTempPath(), "ntilde-renderperf-tests", Guid.NewGuid().ToString("N"));
 
             try
             {
                 Directory.CreateDirectory(tempDir);
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS", "1");
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT", tempDir);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS", "1");
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS_OUT", tempDir);
 
                 using RenderPerfWriter? writer = RenderPerfWriter.CreateFromEnvironment();
                 Assert.Null(writer);
             }
             finally
             {
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS", previousEnabled);
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT", previousOut);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS", previousEnabled);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS_OUT", previousOut);
                 if (Directory.Exists(tempDir))
                 {
                     Directory.Delete(tempDir, recursive: true);
@@ -123,7 +123,7 @@ namespace NovaTerminal.Tests.RenderTests
         [Fact]
         public void TryWrite_BuffersUntilFlushThresholdOrDispose()
         {
-            string tempDir = Path.Combine(Path.GetTempPath(), "novaterm-renderperf-tests", Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "ntilde-renderperf-tests", Guid.NewGuid().ToString("N"));
             string outPath = Path.Combine(tempDir, "render_metrics_buffered.jsonl");
 
             try

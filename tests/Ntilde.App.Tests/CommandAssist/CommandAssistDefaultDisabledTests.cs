@@ -1,7 +1,7 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 public sealed class CommandAssistDefaultDisabledTests
 {

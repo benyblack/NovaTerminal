@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 
-namespace NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
+namespace Ntilde.CommandAssist.ShellIntegration.PowerShell;
 
 public static class PowerShellBootstrapBuilder
 {
@@ -13,8 +13,8 @@ public static class PowerShellBootstrapBuilder
         builder.Append("$ErrorActionPreference = 'Stop'").Append(nl);
         builder.Append("$esc = [char]27").Append(nl);
         builder.Append("$bel = [char]7").Append(nl);
-        builder.Append("$script:NovaCommandStart = $null").Append(nl);
-        builder.Append("$script:NovaAcceptedCommandText = $null").Append(nl);
+        builder.Append("$script:NtildeCommandStart = $null").Append(nl);
+        builder.Append("$script:NtildeAcceptedCommandText = $null").Append(nl);
         // Capture the user's `prompt` exactly once. Re-running the bootstrap in a
         // session it has already initialized (a second -File pass, a user dot-source,
         // `exec pwsh` into the same profile) would otherwise capture OUR wrapper as
@@ -25,17 +25,17 @@ public static class PowerShellBootstrapBuilder
         //   2. never capture a `prompt` whose body carries our wrapper sentinel.
         // Worst case (fresh scope + already-wrapped prompt) the bootstrap degrades to
         // the synthesized default prompt; it never recurses.
-        builder.Append("if (-not (Get-Variable -Name 'NovaOriginalPrompt' -Scope Script -ErrorAction SilentlyContinue)) {").Append(nl);
-        builder.Append("    $script:NovaOriginalPrompt = $null").Append(nl);
+        builder.Append("if (-not (Get-Variable -Name 'NtildeOriginalPrompt' -Scope Script -ErrorAction SilentlyContinue)) {").Append(nl);
+        builder.Append("    $script:NtildeOriginalPrompt = $null").Append(nl);
         builder.Append("}").Append(nl);
-        builder.Append("$novaPromptCommand = Get-Command prompt -ErrorAction SilentlyContinue").Append(nl);
-        builder.Append("if ($null -eq $script:NovaOriginalPrompt -and").Append(nl);
-        builder.Append("    $novaPromptCommand -and $novaPromptCommand.ScriptBlock -and").Append(nl);
-        builder.Append("    $novaPromptCommand.ScriptBlock.ToString() -notlike '*__nova_prompt_wrapper*') {").Append(nl);
-        builder.Append("    $script:NovaOriginalPrompt = $novaPromptCommand.ScriptBlock").Append(nl);
+        builder.Append("$ntildePromptCommand = Get-Command prompt -ErrorAction SilentlyContinue").Append(nl);
+        builder.Append("if ($null -eq $script:NtildeOriginalPrompt -and").Append(nl);
+        builder.Append("    $ntildePromptCommand -and $ntildePromptCommand.ScriptBlock -and").Append(nl);
+        builder.Append("    $ntildePromptCommand.ScriptBlock.ToString() -notlike '*__ntilde_prompt_wrapper*') {").Append(nl);
+        builder.Append("    $script:NtildeOriginalPrompt = $ntildePromptCommand.ScriptBlock").Append(nl);
         builder.Append("}").Append(nl);
         builder.Append(nl);
-        builder.Append("function Write-NovaSequence([string]$sequence) {").Append(nl);
+        builder.Append("function Write-NtildeSequence([string]$sequence) {").Append(nl);
         builder.Append("    [Console]::Out.Write(\"$esc$sequence$bel\")").Append(nl);
         builder.Append("}").Append(nl);
         builder.Append(nl);
@@ -62,26 +62,26 @@ public static class PowerShellBootstrapBuilder
         // `file:///C:/Users/you` on Windows and `file:///home/you` elsewhere.
         //
         // Kept byte-identical to the remote snippet in
-        // assets/shell-integration/nova-shell-integration.ps1 - two implementations of one URI is how
+        // assets/shell-integration/ntilde-shell-integration.ps1 - two implementations of one URI is how
         // they drifted the first time.
-        builder.Append("function Write-NovaPwd() {").Append(nl);
-        builder.Append("    $novaSegments = ((Get-Location).Path -replace '\\\\', '/') -split '/'").Append(nl);
-        builder.Append("    $novaPath = (($novaSegments | ForEach-Object { [Uri]::EscapeDataString($_) -replace '%3A', ':' }) -join '/')").Append(nl);
-        builder.Append("    if (-not $novaPath.StartsWith('/')) { $novaPath = '/' + $novaPath }").Append(nl);
-        builder.Append("    Write-NovaSequence \"]7;file://$novaPath\"").Append(nl);
+        builder.Append("function Write-NtildePwd() {").Append(nl);
+        builder.Append("    $ntildeSegments = ((Get-Location).Path -replace '\\\\', '/') -split '/'").Append(nl);
+        builder.Append("    $ntildePath = (($ntildeSegments | ForEach-Object { [Uri]::EscapeDataString($_) -replace '%3A', ':' }) -join '/')").Append(nl);
+        builder.Append("    if (-not $ntildePath.StartsWith('/')) { $ntildePath = '/' + $ntildePath }").Append(nl);
+        builder.Append("    Write-NtildeSequence \"]7;file://$ntildePath\"").Append(nl);
         builder.Append("}").Append(nl);
         builder.Append(nl);
-        builder.Append("function Write-NovaPromptReady() {").Append(nl);
-        builder.Append("    Write-NovaPwd").Append(nl);
-        builder.Append("    Write-NovaSequence ']133;A'").Append(nl);
+        builder.Append("function Write-NtildePromptReady() {").Append(nl);
+        builder.Append("    Write-NtildePwd").Append(nl);
+        builder.Append("    Write-NtildeSequence ']133;A'").Append(nl);
         builder.Append("}").Append(nl);
         builder.Append(nl);
         // Emits OSC 133;D only when the previous prompt cycle saw a real
         // accepted command, then clears tracked state so the next prompt
         // cycle starts clean even if no command was entered.
-        builder.Append("function Write-NovaCompletion([bool]$lastSuccess, $lastExitCode) {").Append(nl);
-        builder.Append("    if ($script:NovaCommandStart -eq $null) { return }").Append(nl);
-        builder.Append("    $durationMs = [math]::Round((([DateTimeOffset]::UtcNow) - $script:NovaCommandStart).TotalMilliseconds)").Append(nl);
+        builder.Append("function Write-NtildeCompletion([bool]$lastSuccess, $lastExitCode) {").Append(nl);
+        builder.Append("    if ($script:NtildeCommandStart -eq $null) { return }").Append(nl);
+        builder.Append("    $durationMs = [math]::Round((([DateTimeOffset]::UtcNow) - $script:NtildeCommandStart).TotalMilliseconds)").Append(nl);
         // PowerShell cmdlets set $? to $false on failure but do NOT touch
         // $LASTEXITCODE, so a failing cmdlet after a prior successful
         // external command would otherwise be reported with the stale
@@ -89,21 +89,21 @@ public static class PowerShellBootstrapBuilder
         // when it is itself nonzero; treat any other failure as exit 1
         // so Command Assist's error-insight surfaces see a real failure.
         builder.Append("    $exitCode = if ($lastSuccess) { 0 } elseif ($lastExitCode -ne $null -and $lastExitCode -ne 0) { $lastExitCode } else { 1 }").Append(nl);
-        builder.Append("    Write-NovaSequence \"]133;D;$exitCode;$durationMs\"").Append(nl);
-        builder.Append("    $script:NovaCommandStart = $null").Append(nl);
-        builder.Append("    $script:NovaAcceptedCommandText = $null").Append(nl);
+        builder.Append("    Write-NtildeSequence \"]133;D;$exitCode;$durationMs\"").Append(nl);
+        builder.Append("    $script:NtildeCommandStart = $null").Append(nl);
+        builder.Append("    $script:NtildeAcceptedCommandText = $null").Append(nl);
         builder.Append("}").Append(nl);
         builder.Append(nl);
         builder.Append("function Global:prompt {").Append(nl);
         // Sentinel the capture guard above greps for. Must stay inside the function
         // body so it survives into ScriptBlock.ToString().
-        builder.Append("    # __nova_prompt_wrapper").Append(nl);
+        builder.Append("    # __ntilde_prompt_wrapper").Append(nl);
         // Snapshot $? / $LASTEXITCODE on the first line so subsequent statements
-        // don't clobber them before Write-NovaCompletion reads the values.
+        // don't clobber them before Write-NtildeCompletion reads the values.
         builder.Append("    $lastSuccess = $?").Append(nl);
         builder.Append("    $lastExit = $global:LASTEXITCODE").Append(nl);
-        builder.Append("    Write-NovaCompletion $lastSuccess $lastExit").Append(nl);
-        builder.Append("    Write-NovaPromptReady").Append(nl);
+        builder.Append("    Write-NtildeCompletion $lastSuccess $lastExit").Append(nl);
+        builder.Append("    Write-NtildePromptReady").Append(nl);
         // OSC 133;B marks the END of the prompt -- the cell where the user's
         // input begins. Anything this function *writes* lands before the
         // prompt text (the host prints the returned string afterwards), so B
@@ -119,17 +119,17 @@ public static class PowerShellBootstrapBuilder
         // array-of-adjacent-fragments prompts byte-identical; the alternative
         // would insert phantom spaces into every prompt built by emitting
         // fragments. Prompts that genuinely want separators emit them.
-        builder.Append("    $novaPromptText = if ($script:NovaOriginalPrompt -ne $null) {").Append(nl);
-        builder.Append("        (& $script:NovaOriginalPrompt) -join ''").Append(nl);
+        builder.Append("    $ntildePromptText = if ($script:NtildeOriginalPrompt -ne $null) {").Append(nl);
+        builder.Append("        (& $script:NtildeOriginalPrompt) -join ''").Append(nl);
         builder.Append("    } else {").Append(nl);
         builder.Append("        [string]::Concat('PS ', (Get-Location), '> ')").Append(nl);
         builder.Append("    }").Append(nl);
-        builder.Append("    return \"$novaPromptText$([char]27)]133;B$([char]7)\"").Append(nl);
+        builder.Append("    return \"$ntildePromptText$([char]27)]133;B$([char]7)\"").Append(nl);
         builder.Append("}").Append(nl);
         builder.Append(nl);
         // Capture the accepted command text at the shell boundary by wrapping
         // PSReadLine's Enter chord. Emits OSC 133;C;<base64> via direct console
-        // write (not Write-NovaSequence) so it is unambiguously the only path
+        // write (not Write-NtildeSequence) so it is unambiguously the only path
         // that produces the C marker.
         //
         // PSReadLine is not loaded in every PowerShell environment (minimal
@@ -145,14 +145,14 @@ public static class PowerShellBootstrapBuilder
         builder.Append("        if (-not [string]::IsNullOrWhiteSpace($line)) {").Append(nl);
         builder.Append("            $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($line))").Append(nl);
         builder.Append("            [Console]::Out.Write(\"$([char]27)]133;C;$encoded$([char]7)\")").Append(nl);
-        builder.Append("            $script:NovaAcceptedCommandText = $line").Append(nl);
-        builder.Append("            $script:NovaCommandStart = [DateTimeOffset]::UtcNow").Append(nl);
+        builder.Append("            $script:NtildeAcceptedCommandText = $line").Append(nl);
+        builder.Append("            $script:NtildeCommandStart = [DateTimeOffset]::UtcNow").Append(nl);
         builder.Append("        }").Append(nl);
         builder.Append("        [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()").Append(nl);
         builder.Append("    }").Append(nl);
         builder.Append("}").Append(nl);
         builder.Append(nl);
-        builder.Append("Write-NovaPromptReady").Append(nl);
+        builder.Append("Write-NtildePromptReady").Append(nl);
         return builder.ToString();
     }
 

@@ -3,10 +3,10 @@ using System.Linq;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Shell.TitleBar;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Codex round 4, Finding 1 on PR #342 (SettingsWindow.axaml.cs:1337): the Appearance tab's title
@@ -30,7 +30,7 @@ public sealed class SettingsWindowTitleBarShortcutRefreshTests
     [AvaloniaFact]
     public void RebuildTitleBarRows_AfterAShortcutDraftEdit_ShowsTheUpdatedShortcut_AndKeepsAPriorPlacementChange()
     {
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         // A placement change made before the shortcut edit, exactly like a user pinning something
         // on the Appearance tab first and then editing a binding on the Shortcuts tab in the same
@@ -80,23 +80,23 @@ public sealed class SettingsWindowTitleBarShortcutRefreshTests
         throw new Xunit.Sdk.XunitException($"No title bar row found with title '{title}'.");
     }
 
-    private static TitleBarDraftState GetTitleBarDraft(NovaTerminal.SettingsWindow window)
+    private static TitleBarDraftState GetTitleBarDraft(Ntilde.SettingsWindow window)
     {
-        var field = typeof(NovaTerminal.SettingsWindow).GetField("_titleBarDraft", BindingFlags.Instance | BindingFlags.NonPublic);
+        var field = typeof(Ntilde.SettingsWindow).GetField("_titleBarDraft", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         return (TitleBarDraftState)field!.GetValue(window)!;
     }
 
-    private static Dictionary<string, string> GetShortcutDraftBindings(NovaTerminal.SettingsWindow window)
+    private static Dictionary<string, string> GetShortcutDraftBindings(Ntilde.SettingsWindow window)
     {
-        var field = typeof(NovaTerminal.SettingsWindow).GetField("_shortcutDraftBindings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var field = typeof(Ntilde.SettingsWindow).GetField("_shortcutDraftBindings", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         return (Dictionary<string, string>)field!.GetValue(window)!;
     }
 
-    private static void InvokeRebuildTitleBarRows(NovaTerminal.SettingsWindow window)
+    private static void InvokeRebuildTitleBarRows(Ntilde.SettingsWindow window)
     {
-        var method = typeof(NovaTerminal.SettingsWindow).GetMethod("RebuildTitleBarRows", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.SettingsWindow).GetMethod("RebuildTitleBarRows", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(window, null);
     }

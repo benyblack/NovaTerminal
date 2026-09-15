@@ -3,32 +3,32 @@ const layers = [
   {
     name: 'App (UI)',
     detail: 'Avalonia window, themes, settings, orchestration',
-    color: 'from-nova-500 to-nova-700',
+    color: 'from-ntilde-500 to-ntilde-700',
   },
   {
     name: 'Platform',
     detail: 'Input, paths, process, SSH — shared runtime primitives',
-    color: 'from-nova-600 to-nova-800',
+    color: 'from-ntilde-600 to-ntilde-800',
   },
   {
     name: 'VT',
     detail: 'Frame-agnostic parser + cell-based buffer (zero references)',
-    color: 'from-nova-400 to-nova-600',
+    color: 'from-ntilde-400 to-ntilde-600',
   },
   {
     name: 'Rendering',
     detail: 'SkiaSharp text shaping, GPU glyph cache, snapshot boundary',
-    color: 'from-nova-500 to-nova-700',
+    color: 'from-ntilde-500 to-ntilde-700',
   },
   {
     name: 'Pty',
     detail: 'OS integration + PTY sessions (raw bytes only, no VT)',
-    color: 'from-nova-600 to-nova-800',
+    color: 'from-ntilde-600 to-ntilde-800',
   },
   {
     name: 'Replay',
     detail: 'Deterministic session recording and playback',
-    color: 'from-nova-400 to-nova-600',
+    color: 'from-ntilde-400 to-ntilde-600',
   },
 ];
 
@@ -66,10 +66,10 @@ const flows = [
         A small, acyclic core. A wide, replaceable surface.
       </h2>
       <p class="lede mt-4 max-w-2xl">
-        NovaTerminal is organized into focused class libraries with an
+        Ntilde is organized into focused class libraries with an
         acyclic dependency graph. The architecture invariants are
         <span class="text-white">enforced</span> by
-        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">NovaTerminal.Architecture.Tests</code> at IL, csproj, and namespace level — not aspirational.
+        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-ntilde-200">Ntilde.Architecture.Tests</code> at IL, csproj, and namespace level — not aspirational.
       </p>
     </div>
 
@@ -108,13 +108,13 @@ const flows = [
           }
         </ol>
         <p class="mt-4 text-xs leading-relaxed text-ink-500">
-          Enforced invariants: <code class="text-nova-300">VT</code> is a leaf
+          Enforced invariants: <code class="text-ntilde-300">VT</code> is a leaf
           with zero project references;
-          <code class="text-nova-300">Pty</code> must <em>not</em> depend on
-          <code class="text-nova-300">VT</code>;
-          <code class="text-nova-300">Replay</code> and
-          <code class="text-nova-300">Rendering</code> reference exactly
-          <code class="text-nova-300">VT</code>; no production assembly
+          <code class="text-ntilde-300">Pty</code> must <em>not</em> depend on
+          <code class="text-ntilde-300">VT</code>;
+          <code class="text-ntilde-300">Replay</code> and
+          <code class="text-ntilde-300">Rendering</code> reference exactly
+          <code class="text-ntilde-300">VT</code>; no production assembly
           references test libraries.
         </p>
       </div>
@@ -131,7 +131,7 @@ const flows = [
               <li class="card">
                 <p class="flex items-center gap-2 text-sm font-semibold text-white">
                   <span
-                    class="grid h-5 w-5 place-items-center rounded-full bg-nova-500/15 font-mono text-[10px] text-nova-300"
+                    class="grid h-5 w-5 place-items-center rounded-full bg-ntilde-500/15 font-mono text-[10px] text-ntilde-300"
                     aria-hidden="true"
                   >
                     {i + 1}

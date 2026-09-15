@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.Providers;
+namespace Ntilde.CommandAssist.Providers;
 
 /// <summary>
 /// The strings a helper surface shows when there is nothing to show, split by <em>why</em>.

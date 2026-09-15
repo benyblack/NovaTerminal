@@ -1,11 +1,11 @@
-# NovaTerminal SSH Roadmap
+# Ntilde SSH Roadmap
 
 _Last reviewed: 2026-04-27._
 
-NovaTerminal supports two SSH backends:
+Ntilde supports two SSH backends:
 
 - **OpenSSH** (production) — drives `ssh` in a PTY with a
-  NovaTerminal-generated config file.
+  Ntilde-generated config file.
 - **Native SSH** (default for new profiles) — an in-process Rust SSH crate with
   a poll-based ABI, bypassing external `ssh` entirely.
 
@@ -139,7 +139,7 @@ _Preserved for context. All items below are shipped._
 
 **Outcome:** Create a profile and connect via OpenSSH reliably.
 
-- `NovaTerminal.Core.Ssh` project/module
+- `Ntilde.Core.Ssh` project/module
 - Domain models: `SshProfile`, `PortForward`, `SshJumpHop`, `SshMuxOptions`
 - `ISshProfileStore` with JSON persistence + schema version
 - `SshSession` implements `ITerminalSession` (spawns `ssh` in PTY)
@@ -152,8 +152,8 @@ _Preserved for context. All items below are shipped._
 
 - `IOpenSshConfigCompiler` (compiles all profiles into `ssh_config.generated`)
 - Atomic writes + file locking strategy
-- Alias convention: `nova_<profileId>`
-- Launch uses `ssh -F <generated> nova_<id>`
+- Alias convention: `ntilde_<profileId>`
+- Launch uses `ssh -F <generated> ntilde_<id>`
 - Diagnostics: show resolved ssh path + "copy launch command"
 - Unit tests: compiler golden tests
 

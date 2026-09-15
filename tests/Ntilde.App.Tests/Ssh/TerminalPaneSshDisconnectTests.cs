@@ -1,15 +1,15 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Moq;
-using NovaTerminal.Controls;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Pty;
+using Ntilde.Controls;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Tests.Ssh;
+namespace Ntilde.Tests.Ssh;
 
 public sealed class TerminalPaneSshDisconnectTests
 {
@@ -245,7 +245,7 @@ public sealed class TerminalPaneSshDisconnectTests
         {
         }
 
-        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info)
+        public bool TryExportFlightRecording(string filePath, out Ntilde.Replay.FlightExportInfo info)
         {
             info = default;
             return false;

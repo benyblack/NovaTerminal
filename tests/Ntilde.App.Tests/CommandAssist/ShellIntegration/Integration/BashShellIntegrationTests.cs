@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.ShellIntegration.Bash;
+using Ntilde.CommandAssist.ShellIntegration.Bash;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration.Integration;
 
 /// <summary>
 /// End-to-end tests that spawn a real bash with our generated bootstrap
@@ -22,7 +22,7 @@ public sealed class BashShellIntegrationTests : IDisposable
 
     public BashShellIntegrationTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), $"nova_bash_int_{Guid.NewGuid():N}");
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_bash_int_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempRoot);
         _bootstrapPath = BashBootstrapBuilder.WriteScript(_tempRoot);
     }
@@ -82,7 +82,7 @@ public sealed class BashShellIntegrationTests : IDisposable
         // prompt width), if the mark were emitted mid-prompt, or if a stray cell were
         // painted after it -- all of which put the anchor on the wrong cell and would
         // make a Phase 1b grid read return the wrong command text.
-        const string prompt = "nova-test$ ";
+        const string prompt = "ntilde-test$ ";
         HarnessResult result = RunBash("exit 0\n", extraInitLine: $"PS1='{prompt}'");
 
         var marks = result.Events.Where(e => e.Kind == "B").ToList();
@@ -93,10 +93,10 @@ public sealed class BashShellIntegrationTests : IDisposable
     [Fact]
     public void Bootstrap_DoesNotAccumulatePromptMarksAcrossPromptCycles()
     {
-        // __nova_apply_ps1_mark is called once per prompt; without its
+        // __ntilde_apply_ps1_mark is called once per prompt; without its
         // containment guard PS1 would grow one marker per cycle and the
         // parser would see an ever-increasing burst of B marks.
-        HarnessResult result = RunBash("true\ntrue\nexit 0\n", extraInitLine: "PS1='nova-test$ '");
+        HarnessResult result = RunBash("true\ntrue\nexit 0\n", extraInitLine: "PS1='ntilde-test$ '");
 
         int prompts = result.Events.Count(e => e.Kind == "A");
         int marks = result.Events.Count(e => e.Kind == "B");
@@ -127,7 +127,7 @@ public sealed class BashShellIntegrationTests : IDisposable
         // Bash needs the heredoc to deliver multiline input as a single
         // logical command; we use a heredoc terminator instead of trying
         // to send raw \n which would be interpreted as separate commands.
-        string stdin = "cmd=$(cat <<'NOVA_EOF'\n" + multiline + "\nNOVA_EOF\n)\neval \"$cmd\"\nexit 0\n";
+        string stdin = "cmd=$(cat <<'NTILDE_EOF'\n" + multiline + "\nNTILDE_EOF\n)\neval \"$cmd\"\nexit 0\n";
         HarnessResult result = RunBash(stdin);
 
         // The eval line is what's captured by DEBUG, not the inner for-loop.
@@ -234,7 +234,7 @@ public sealed class BashShellIntegrationTests : IDisposable
 
     /// <summary>
     /// The DEBUG-trap filter used to skip anything beginning with <c>trap</c> or
-    /// <c>PROMPT_COMMAND</c>, silently dropping real user commands. Only <c>__nova_*</c> remains;
+    /// <c>PROMPT_COMMAND</c>, silently dropping real user commands. Only <c>__ntilde_*</c> remains;
     /// the busy-flag invariant is what actually keeps our own hooks out.
     /// </summary>
     [Fact]

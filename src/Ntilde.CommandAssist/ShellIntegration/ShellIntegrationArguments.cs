@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
-namespace NovaTerminal.CommandAssist.ShellIntegration;
+namespace Ntilde.CommandAssist.ShellIntegration;
 
 /// <summary>
 /// Removes arguments this app previously injected from a stored command line.
@@ -33,7 +33,7 @@ public static class ShellIntegrationArguments
     private const string BootstrapFileName = "command-assist-bootstrap.ps1";
 
     /// <summary>The sentinel the generated bootstrap uses to recognise its own prompt wrapper.</summary>
-    private const string BootstrapSentinel = "__nova_prompt_wrapper";
+    private const string BootstrapSentinel = "__ntilde_prompt_wrapper";
 
     /// <param name="bootstrapDirectory">
     /// The directory this app writes its generated bootstrap into. A <c>-File</c> is only ours if

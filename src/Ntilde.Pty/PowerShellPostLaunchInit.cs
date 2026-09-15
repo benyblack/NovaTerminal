@@ -1,13 +1,13 @@
 using System.Text;
 
-namespace NovaTerminal.Pty;
+namespace Ntilde.Pty;
 
 /// <summary>
 /// The statements injected into a freshly-launched PowerShell to fix console encoding and print
 /// the banner <c>-NoLogo</c> suppressed.
 /// </summary>
 /// <remarks>
-/// These used to be written to <c>%TEMP%\nova_init_{guid}.ps1</c> and invoked with
+/// These used to be written to <c>%TEMP%\ntilde_init_{guid}.ps1</c> and invoked with
 /// <c>&amp; '&lt;path&gt;'</c>. Loading a .ps1 is gated by PowerShell's execution policy, and the
 /// stock Windows client default is <c>Restricted</c> — so on any machine that had not loosened it,
 /// every PowerShell pane without shell integration opened with a red UnauthorizedAccess error.

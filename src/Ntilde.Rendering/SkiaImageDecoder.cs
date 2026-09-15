@@ -1,9 +1,9 @@
 using System;
 using System.IO;
-using NovaTerminal.VT;
+using Ntilde.VT;
 using SkiaSharp;
 
-namespace NovaTerminal.Rendering
+namespace Ntilde.Rendering
 {
     /// <summary>
     /// Decodes inline image payloads (DCS sixel bodies, Kitty/iTerm2 image bytes) into the

@@ -2,9 +2,9 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using ModelContextProtocol.Server;
-using NovaTerminal.Backup;
+using Ntilde.Backup;
 
-namespace NovaTerminal.McpServer.Tools;
+namespace Ntilde.McpServer.Tools;
 
 /// <summary>
 /// Read-only backup tools. Export and list only — deliberately no import or restore.
@@ -15,13 +15,13 @@ namespace NovaTerminal.McpServer.Tools;
 [McpServerToolType]
 public static class BackupTools
 {
-    [McpServerTool(Name = "novaterminal.backup_export"),
-     Description("Export NovaTerminal's configuration (settings, themes, connections, workspaces, policy, snippets) " +
-                 "to a .novabackup file. Passwords are never included. Use this before changing configuration " +
+    [McpServerTool(Name = "ntilde.backup_export"),
+     Description("Export Ntilde's configuration (settings, themes, connections, workspaces, policy, snippets) " +
+                 "to a .ntildebackup file. Passwords are never included. Use this before changing configuration " +
                  "so the user can roll back.")]
     public static string BackupExport(
-        [Description("Absolute path for the .novabackup file to write.")] string destinationPath,
-        [Description("App data root. Omit to use the current user's NovaTerminal directory.")] string? rootDirectory = null)
+        [Description("Absolute path for the .ntildebackup file to write.")] string destinationPath,
+        [Description("App data root. Omit to use the current user's Ntilde directory.")] string? rootDirectory = null)
     {
         // An MCP client that treats "not provided" and "" as the same thing for an optional
         // string parameter is plausible; without this check that "" would reach BackupService's
@@ -39,11 +39,11 @@ public static class BackupTools
             : outcome.Message;
     }
 
-    [McpServerTool(Name = "novaterminal.backup_list"),
-     Description("List NovaTerminal's automatic configuration snapshots, newest first, with id, reason, " +
+    [McpServerTool(Name = "ntilde.backup_list"),
+     Description("List Ntilde's automatic configuration snapshots, newest first, with id, reason, " +
                  "timestamp, and size. The user restores a snapshot from Settings > Backup & Restore.")]
     public static string BackupList(
-        [Description("App data root. Omit to use the current user's NovaTerminal directory.")] string? rootDirectory = null)
+        [Description("App data root. Omit to use the current user's Ntilde directory.")] string? rootDirectory = null)
     {
         IReadOnlyList<SnapshotInfo> snapshots;
         try
@@ -88,16 +88,16 @@ public static class BackupTools
         string.IsNullOrWhiteSpace(rootDirectory) ? ResolveDefaultRoot() : rootDirectory;
 
     /// <summary>
-    /// Mirrors AppPaths.RootDirectory, including the NOVATERM_APPDATA_ROOT override, without
+    /// Mirrors AppPaths.RootDirectory, including the NTILDE_APPDATA_ROOT override, without
     /// depending on the App assembly's static initializer (which creates directories).
     /// </summary>
     private static string ResolveDefaultRoot()
     {
-        string? overrideRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        string? overrideRoot = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
         if (!string.IsNullOrWhiteSpace(overrideRoot)) return Path.GetFullPath(overrideRoot);
 
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "NovaTerminal");
+            "Ntilde");
     }
 }

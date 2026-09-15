@@ -1,7 +1,7 @@
 using System.Text;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// #404: shrinking a pane that holds content must not blank it.

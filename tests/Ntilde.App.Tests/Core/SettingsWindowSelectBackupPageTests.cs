@@ -1,12 +1,12 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Tests.Backup;
+using Ntilde.Tests.Backup;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
-/// Task 9: <see cref="NovaTerminal.SettingsWindow.SelectBackupPage"/>, the navigation helper the
+/// Task 9: <see cref="Ntilde.SettingsWindow.SelectBackupPage"/>, the navigation helper the
 /// three command-palette "Backup" entries use to land on the Backup &amp; Restore tab.
 ///
 /// The critical property under test is that Backup is located by its <c>Header</c>, not by a
@@ -24,7 +24,7 @@ public sealed class SettingsWindowSelectBackupPageTests
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow(0);
+        var window = new Ntilde.SettingsWindow(0);
 
         var tabs = window.FindControl<TabControl>("MainTabs")!;
 
@@ -47,7 +47,7 @@ public sealed class SettingsWindowSelectBackupPageTests
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow(0);
+        var window = new Ntilde.SettingsWindow(0);
 
         var tabs = window.FindControl<TabControl>("MainTabs")!;
         int originalCount = tabs.Items.Count;
@@ -72,7 +72,7 @@ public sealed class SettingsWindowSelectBackupPageTests
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow(0);
+        var window = new Ntilde.SettingsWindow(0);
 
         var tabs = window.FindControl<TabControl>("MainTabs")!;
         int originalCount = tabs.Items.Count;
@@ -101,7 +101,7 @@ public sealed class SettingsWindowSelectBackupPageTests
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow(0);
+        var window = new Ntilde.SettingsWindow(0);
 
         var connectionNav = window.FindControl<ListBox>("ConnectionNav")!;
         var dataNav = window.FindControl<ListBox>("DataNav")!;
@@ -117,13 +117,13 @@ public sealed class SettingsWindowSelectBackupPageTests
 
     private static IDisposable OverrideAppDataRoot(string root)
     {
-        string? previous = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
-        Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", root);
+        string? previous = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", root);
         return new RestoreEnvVar(previous);
     }
 
     private sealed class RestoreEnvVar(string? previous) : IDisposable
     {
-        public void Dispose() => Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previous);
+        public void Dispose() => Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previous);
     }
 }

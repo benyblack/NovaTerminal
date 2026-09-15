@@ -1,7 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:models="clr-namespace:NovaTerminal.Models"
-             x:Class="NovaTerminal.Controls.RemotePathTextBox">
+             xmlns:models="clr-namespace:Ntilde.Models"
+             x:Class="Ntilde.Controls.RemotePathTextBox">
     <Grid>
         <TextBox Name="PathTextBox"/>
         <Popup Name="SuggestionsPopup"

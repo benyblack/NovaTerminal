@@ -2,9 +2,9 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using NovaTerminal.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Interactions;
 
-namespace NovaTerminal.ViewModels.Ssh;
+namespace Ntilde.ViewModels.Ssh;
 
 public sealed class AuthPromptViewModel
 {

@@ -3,7 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
 
-namespace NovaTerminal.AgentOutput.Fences;
+namespace Ntilde.AgentOutput.Fences;
 
 /// <summary>Colors a unified diff by each line's leading marker.</summary>
 /// <remarks>

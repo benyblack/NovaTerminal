@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-21
 **Status:** Design approved, ready for implementation plan
-**Components:** `src/NovaTerminal.App` (`AgentHost`, `Controls/TerminalPane`, `MainWindow`, `SettingsWindow`, `Shell/TerminalSettings`)
+**Components:** `src/Ntilde.App` (`AgentHost`, `Controls/TerminalPane`, `MainWindow`, `SettingsWindow`, `Shell/TerminalSettings`)
 
 ## Summary
 
@@ -27,7 +27,7 @@ This design adds three signals, each carrying exactly one meaning:
 ## Background — what already exists
 
 - **Per-pane registration.** Every live pane registers an `AgentSessionRegistration`
-  in `AgentSessionRegistry` (`src/NovaTerminal.App/AgentHost/AgentSessionRegistry.cs`),
+  in `AgentSessionRegistry` (`src/Ntilde.App/AgentHost/AgentSessionRegistry.cs`),
   carrying a `TabId` association set by `MainWindow`. Per-pane *and* per-tab
   granularity is therefore already available; no new identity plumbing is needed.
 - **Permissions are split by scope.** `AgentAccessObserveEnabled` is global and
@@ -46,7 +46,7 @@ This design adds three signals, each carrying exactly one meaning:
   `getSessionStatus`, and `waitForEvents` leave no trace anywhere. This is the one
   genuinely new piece of plumbing this design requires.
 - **`waitForEvents` is not pane-scoped.** `WaitForEventsParams` carries only
-  `sinceSeq` and `timeoutMs` (`src/NovaTerminal.AgentHost.Contracts/StatusContracts.cs:83`)
+  `sinceSeq` and `timeoutMs` (`src/Ntilde.AgentHost.Contracts/StatusContracts.cs:83`)
   and reads one app-wide `AgentEventRing`. There is no pane to attribute a
   subscription to, so it cannot drive a per-pane tier.
 
@@ -167,7 +167,7 @@ comfortably sufficient.
 ## Pane rendering, and the cleanup it forces
 
 The pane segment reuses the existing `StatusBar`
-(`src/NovaTerminal.App/Controls/TerminalPane.axaml:151`) rather than adding a new
+(`src/Ntilde.App/Controls/TerminalPane.axaml:151`) rather than adding a new
 overlay: it covers no terminal content and has room for words and a timestamp, which
 a corner badge does not.
 
@@ -258,7 +258,7 @@ Control-level, `[AvaloniaFact]`:
 - Tab rollup under both setting values.
 - The marker survives an `UpdateTabVisuals` label rebuild.
 
-`NovaTerminal.App.Tests` also runs on ubuntu, so tests must avoid `FileShare.None`
+`Ntilde.App.Tests` also runs on ubuntu, so tests must avoid `FileShare.None`
 semantics and font-metric assumptions.
 
 ## Risks

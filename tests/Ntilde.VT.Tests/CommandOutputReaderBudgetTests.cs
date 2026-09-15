@@ -1,8 +1,8 @@
 using System;
 using System.Linq;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// The budgeted and markless reads: <see cref="CommandOutputReader.TryReadOutputTail(TerminalBuffer, ShellIntegrationMark, in OutputTailBudget, out string)"/>

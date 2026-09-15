@@ -1,4 +1,4 @@
-namespace NovaTerminal.Update
+namespace Ntilde.Update
 {
     /// <summary>
     /// Where one interactive update check reports its progress and its answer. Two surfaces share

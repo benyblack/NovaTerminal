@@ -1,10 +1,10 @@
 using Avalonia.Controls;
-using NovaTerminal.Controls;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Controls;
+using Ntilde.Shell;
+using Ntilde.VT;
 using System.Collections.Generic;
 
-namespace NovaTerminal
+namespace Ntilde
 {
     /// <summary>
     /// Real top-level window hosting the Connection Manager surface, opened the way

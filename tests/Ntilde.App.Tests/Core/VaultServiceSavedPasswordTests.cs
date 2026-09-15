@@ -1,12 +1,12 @@
 using System;
-using NovaTerminal.Shell;
-using NovaTerminal.Shell.Secrets;
+using Ntilde.Shell;
+using Ntilde.Shell.Secrets;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
-// Note: both TerminalProfile and ConnectionType live in NovaTerminal.Shell
-// (src/NovaTerminal.App/Shell/TerminalProfile.cs). Do not add a
-// `using NovaTerminal.Platform;` — it is not needed here.
+// Note: both TerminalProfile and ConnectionType live in Ntilde.Shell
+// (src/Ntilde.App/Shell/TerminalProfile.cs). Do not add a
+// `using Ntilde.Platform;` — it is not needed here.
 
 public class VaultServiceSavedPasswordTests
 {

@@ -1,8 +1,8 @@
-using NovaTerminal.Models;
-using NovaTerminal.Services.Ssh;
-using NovaTerminal.ViewModels.Ssh;
+using Ntilde.Models;
+using Ntilde.Services.Ssh;
+using Ntilde.ViewModels.Ssh;
 
-namespace NovaTerminal.Tests.Ssh;
+namespace Ntilde.Tests.Ssh;
 
 public sealed class RemoteFilesSidebarViewModelTests
 {

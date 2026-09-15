@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// UI-toolkit-agnostic 2D point, mirroring <c>Avalonia.Point</c>.

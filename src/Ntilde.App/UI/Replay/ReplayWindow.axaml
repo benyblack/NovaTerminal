@@ -1,11 +1,11 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:controls="clr-namespace:NovaTerminal.Controls"
-        xmlns:core="clr-namespace:NovaTerminal.Shell"
-        xmlns:local="clr-namespace:NovaTerminal.UI.Replay"
-        x:Class="NovaTerminal.UI.Replay.ReplayWindow"
+        xmlns:controls="clr-namespace:Ntilde.Controls"
+        xmlns:core="clr-namespace:Ntilde.Shell"
+        xmlns:local="clr-namespace:Ntilde.UI.Replay"
+        x:Class="Ntilde.UI.Replay.ReplayWindow"
         x:DataType="local:ReplayViewModel"
-        Title="Nova Replay Viewer"
+        Title="Ntilde Replay Viewer"
         Width="1000" Height="700"
         Background="#1E1E1E">
     <Grid RowDefinitions="*, Auto">

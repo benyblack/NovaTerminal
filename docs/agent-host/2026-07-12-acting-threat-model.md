@@ -23,7 +23,7 @@ credentials for.
 ## Trust boundaries
 
 ```
-AI agent ──stdio──▶ NovaTerminal.McpServer ──per-user local IPC──▶ NovaTerminal.App
+AI agent ──stdio──▶ Ntilde.McpServer ──per-user local IPC──▶ Ntilde.App
  (untrusted intent)   (thin proxy, no policy)                      (all policy + gating here)
 ```
 

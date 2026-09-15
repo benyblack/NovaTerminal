@@ -4,7 +4,7 @@
     <!-- Test hooks: RustPtySession exposes the read/process loop threads as `internal`
          so tests can assert they run on dedicated background threads (never threadpool
          threads), guarding the #81 pool-starvation regression. -->
-    <InternalsVisibleTo Include="NovaTerminal.App.Tests" />
+    <InternalsVisibleTo Include="Ntilde.App.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -13,7 +13,7 @@
          project-file level by ProjectFileLayeringTests.Pty_csproj_must_not_reference_Vt.
          Replay stays because RustPtySession still writes raw byte streams to ReplayWriter
          (no VT type is involved in that path). -->
-    <ProjectReference Include="..\NovaTerminal.Replay\NovaTerminal.Replay.csproj" />
+    <ProjectReference Include="..\Ntilde.Replay\Ntilde.Replay.csproj" />
   </ItemGroup>
 
 </Project>

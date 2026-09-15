@@ -1,7 +1,7 @@
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.Shell;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// The App-side "does full help exist here" probe (V2 Phase 4b, Phase 4 task 3, source (b)).

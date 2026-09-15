@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.Update;
+using Ntilde.Update;
 
-namespace NovaTerminal.AppTests.Update;
+namespace Ntilde.AppTests.Update;
 
 public class VelopackUpdateServiceTests
 {

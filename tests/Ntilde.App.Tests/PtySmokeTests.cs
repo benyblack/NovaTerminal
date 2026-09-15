@@ -1,15 +1,15 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using Xunit;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     [Collection(PtyRealShellCollection.Name)]
     public class PtySmokeTests
@@ -72,7 +72,7 @@ namespace NovaTerminal.Tests
             // a human keystroke — the session records it via the same
             // _recorder.RecordInput path SendInput always uses.
             string shell = ShellHelper.GetDefaultShell();
-            string recPath = Path.Combine(Path.GetTempPath(), $"nova_a3_{Guid.NewGuid():N}.rec");
+            string recPath = Path.Combine(Path.GetTempPath(), $"ntilde_a3_{Guid.NewGuid():N}.rec");
             try
             {
                 // skipPowerShellPostLaunchInit: the init injection calls SendInput on a
@@ -83,14 +83,14 @@ namespace NovaTerminal.Tests
                 // twice while PTY timing was being changed elsewhere (#214, #215).
                 using var session = new RustPtySession(
                     shell, 80, 24, args: null, cwd: null, skipPowerShellPostLaunchInit: true);
-                var registration = new NovaTerminal.AgentHost.AgentSessionRegistration(
+                var registration = new Ntilde.AgentHost.AgentSessionRegistration(
                     Guid.NewGuid(), new TerminalBuffer(80, 24), "t", "P", "local", isActive: true);
                 registration.SetLifecycle(session);
 
                 await Task.Delay(300); // let the shell come up
                 session.StartRecording(recPath);
 
-                const string payload = "echo nova-a3-marker\r";
+                const string payload = "echo ntilde-a3-marker\r";
                 Assert.True(registration.TrySendInput(payload));
 
                 await Task.Delay(400);
@@ -136,7 +136,7 @@ namespace NovaTerminal.Tests
                 // failure — keep it generous because a loaded Windows CI runner
                 // (Defender realtime scan + process-pool saturation) can take well
                 // over 10s to emit the shell's first bytes.
-                NovaTerminal.Replay.FlightExportInfo info = default;
+                Ntilde.Replay.FlightExportInfo info = default;
                 bool exported = false;
                 for (int i = 0; i < 120; i++)
                 {

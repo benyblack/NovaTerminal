@@ -5,9 +5,9 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 
-namespace NovaTerminal.Backup;
+namespace Ntilde.Backup;
 
-/// <summary>Writes a <c>.novabackup</c> zip from an app-data root.</summary>
+/// <summary>Writes a <c>.ntildebackup</c> zip from an app-data root.</summary>
 public static class BundleWriter
 {
     public static void Write(

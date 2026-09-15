@@ -1,11 +1,11 @@
-using NovaTerminal.Platform.Ssh.Launch;
-using NovaTerminal.Platform.Ssh.Interactions;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Native;
-using NovaTerminal.Platform.Ssh.Storage;
-using NovaTerminal.Pty;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Storage;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Platform.Ssh.Sessions;
+namespace Ntilde.Platform.Ssh.Sessions;
 
 public sealed class SshSessionFactory : ISshSessionFactory
 {

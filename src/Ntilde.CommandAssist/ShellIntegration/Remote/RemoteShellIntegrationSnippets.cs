@@ -6,7 +6,7 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 
-namespace NovaTerminal.CommandAssist.ShellIntegration.Remote;
+namespace Ntilde.CommandAssist.ShellIntegration.Remote;
 
 /// <summary>
 /// Which remote shell a snippet is written for.
@@ -52,7 +52,7 @@ public enum RemoteShellIntegrationShell
 /// </remarks>
 public static class RemoteShellIntegrationSnippets
 {
-    private const string ResourcePrefix = "NovaTerminal.CommandAssist.ShellIntegration.Remote.";
+    private const string ResourcePrefix = "Ntilde.CommandAssist.ShellIntegration.Remote.";
 
     /// <summary>
     /// Where the user is told to put each snippet. Kept next to the content so the docs page, the
@@ -62,25 +62,25 @@ public static class RemoteShellIntegrationSnippets
         new Dictionary<RemoteShellIntegrationShell, SnippetDescriptor>
         {
             [RemoteShellIntegrationShell.BashOrZsh] = new(
-                FileName: "nova-shell-integration.sh",
-                InstallerFileName: "nova-install.sh",
+                FileName: "ntilde-shell-integration.sh",
+                InstallerFileName: "ntilde-install.sh",
                 DisplayName: "bash / zsh",
-                RemotePath: "~/.nova-shell-integration.sh",
-                LoaderLine: "[ -f ~/.nova-shell-integration.sh ] && . ~/.nova-shell-integration.sh",
+                RemotePath: "~/.ntilde-shell-integration.sh",
+                LoaderLine: "[ -f ~/.ntilde-shell-integration.sh ] && . ~/.ntilde-shell-integration.sh",
                 LoaderTarget: "~/.bashrc (bash) or ~/.zshrc (zsh)"),
             [RemoteShellIntegrationShell.Fish] = new(
-                FileName: "nova-shell-integration.fish",
-                InstallerFileName: "nova-install-fish.sh",
+                FileName: "ntilde-shell-integration.fish",
+                InstallerFileName: "ntilde-install-fish.sh",
                 DisplayName: "fish",
-                RemotePath: "~/.config/fish/conf.d/nova-shell-integration.fish",
+                RemotePath: "~/.config/fish/conf.d/ntilde-shell-integration.fish",
                 LoaderLine: null,
                 LoaderTarget: null),
             [RemoteShellIntegrationShell.PowerShell] = new(
-                FileName: "nova-shell-integration.ps1",
-                InstallerFileName: "nova-install.ps1",
+                FileName: "ntilde-shell-integration.ps1",
+                InstallerFileName: "ntilde-install.ps1",
                 DisplayName: "PowerShell",
-                RemotePath: "~/.nova-shell-integration.ps1",
-                LoaderLine: ". ~/.nova-shell-integration.ps1",
+                RemotePath: "~/.ntilde-shell-integration.ps1",
+                LoaderLine: ". ~/.ntilde-shell-integration.ps1",
                 LoaderTarget: "$PROFILE"),
         };
 
@@ -154,11 +154,11 @@ public static class RemoteShellIntegrationSnippets
     /// </para>
     /// <para>
     /// <b>The temp file comes from <c>mktemp</c> or the install does not happen.</b> There is no
-    /// fallback path. The obvious one - <c>printf /tmp/nova-si.%s "$$"</c> - was tried and removed:
+    /// fallback path. The obvious one - <c>printf /tmp/ntilde-si.%s "$$"</c> - was tried and removed:
     /// <c>mktemp</c> gives 0600 and <c>O_EXCL</c>, that name gives neither. <c>$$</c> is visible in
     /// <c>ps</c>, so the path is predictable, and <c>&gt;</c> follows symlinks and leaves an
     /// existing file's mode and owner alone. On a shared host another local user can pre-create it
-    /// 0666 and rewrite the contents between the redirect and <c>sh "$__nova_t"</c> - code
+    /// 0666 and rewrite the contents between the redirect and <c>sh "$__ntilde_t"</c> - code
     /// execution as the victim - or point it at <c>~/.bashrc</c> and have the redirect truncate
     /// that instead, no race required. A safe fallback would need <c>set -C</c> plus an
     /// unpredictable name, which is more machinery than a rarely-taken path is worth; failing with
@@ -200,7 +200,7 @@ public static class RemoteShellIntegrationSnippets
     /// that host sources a broken file.
     /// </para>
     /// <para>
-    /// The pwsh arm's <c>&amp; $__nova_t</c> sits <em>outside</em> the decode's <c>try</c>, gated on a
+    /// The pwsh arm's <c>&amp; $__ntilde_t</c> sits <em>outside</em> the decode's <c>try</c>, gated on a
     /// success flag. Inside it, a terminating error raised by the installer script itself would be
     /// caught by the decode's handler and reported as "the payload did not unpack" - a diagnosis
     /// about the blob for a failure that had nothing to do with it.
@@ -222,15 +222,15 @@ public static class RemoteShellIntegrationSnippets
         {
             RemoteShellIntegrationShell.BashOrZsh =>
                 """
-                __nova_b='@@BLOB@@'; if [ ${#__nova_b} -ne @@BLOBLEN@@ ]; then echo "nova: install failed - the pasted line was cut short (${#__nova_b} of @@BLOBLEN@@ payload characters). A terminal in canonical mode drops everything past 4096 bytes of one line; use Copy plain snippet on this host."; elif __nova_t=$(mktemp); then __nova_d=d; printf %s Kg== | base64 -d >/dev/null 2>&1 || __nova_d=D; if printf %s "$__nova_b" | base64 "-$__nova_d" | gzip -dc > "$__nova_t"; then sh "$__nova_t" "${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}"; else echo "nova: install failed - this host needs a working base64 and gzip to unpack the payload"; fi; rm -f "$__nova_t"; else echo "nova: install failed - mktemp could not create a temp file"; fi; unset __nova_b __nova_t __nova_d
+                __ntilde_b='@@BLOB@@'; if [ ${#__ntilde_b} -ne @@BLOBLEN@@ ]; then echo "ntilde: install failed - the pasted line was cut short (${#__ntilde_b} of @@BLOBLEN@@ payload characters). A terminal in canonical mode drops everything past 4096 bytes of one line; use Copy plain snippet on this host."; elif __ntilde_t=$(mktemp); then __ntilde_d=d; printf %s Kg== | base64 -d >/dev/null 2>&1 || __ntilde_d=D; if printf %s "$__ntilde_b" | base64 "-$__ntilde_d" | gzip -dc > "$__ntilde_t"; then sh "$__ntilde_t" "${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}"; else echo "ntilde: install failed - this host needs a working base64 and gzip to unpack the payload"; fi; rm -f "$__ntilde_t"; else echo "ntilde: install failed - mktemp could not create a temp file"; fi; unset __ntilde_b __ntilde_t __ntilde_d
                 """,
             RemoteShellIntegrationShell.Fish =>
                 """
-                set -l __nova_b '@@BLOB@@'; set -l __nova_t (mktemp); set -l __nova_d d; if test -z "$__nova_t"; echo "nova: install failed - mktemp could not create a temp file"; else; printf %s Kg== | base64 -d >/dev/null 2>&1; or set __nova_d D; if printf %s $__nova_b | base64 -$__nova_d | gzip -dc > $__nova_t; sh $__nova_t fish; else; echo "nova: install failed - this host needs a working base64 and gzip to unpack the payload"; end; rm -f $__nova_t; end; set -e __nova_b __nova_t __nova_d
+                set -l __ntilde_b '@@BLOB@@'; set -l __ntilde_t (mktemp); set -l __ntilde_d d; if test -z "$__ntilde_t"; echo "ntilde: install failed - mktemp could not create a temp file"; else; printf %s Kg== | base64 -d >/dev/null 2>&1; or set __ntilde_d D; if printf %s $__ntilde_b | base64 -$__ntilde_d | gzip -dc > $__ntilde_t; sh $__ntilde_t fish; else; echo "ntilde: install failed - this host needs a working base64 and gzip to unpack the payload"; end; rm -f $__ntilde_t; end; set -e __ntilde_b __ntilde_t __ntilde_d
                 """,
             RemoteShellIntegrationShell.PowerShell =>
                 """
-                $__nova_b='@@BLOB@@'; if($__nova_b.Length -ne @@BLOBLEN@@){Write-Host "nova: install failed - the pasted line was cut short ($($__nova_b.Length) of @@BLOBLEN@@ payload characters). A console in canonical mode drops everything past 4096 bytes of one line; use Copy plain snippet on this host."}else{$__nova_t=[IO.Path]::GetTempPath()+[Guid]::NewGuid().ToString('N')+'.ps1'; try{$__nova_g=[IO.Compression.GZipStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String($__nova_b)),[IO.Compression.CompressionMode]::Decompress); $__nova_o=[IO.File]::Create($__nova_t); $__nova_g.CopyTo($__nova_o); $__nova_o.Dispose(); $__nova_g.Dispose(); $__nova_ok=$true}catch{Write-Host "nova: install failed - the payload did not unpack: $($_.Exception.Message)"}finally{if($__nova_o){$__nova_o.Dispose()}; if($__nova_g){$__nova_g.Dispose()}}; if($__nova_ok){& $__nova_t}; Remove-Item $__nova_t -ErrorAction SilentlyContinue}; Remove-Variable __nova_b,__nova_t,__nova_g,__nova_o,__nova_ok -ErrorAction SilentlyContinue
+                $__ntilde_b='@@BLOB@@'; if($__ntilde_b.Length -ne @@BLOBLEN@@){Write-Host "ntilde: install failed - the pasted line was cut short ($($__ntilde_b.Length) of @@BLOBLEN@@ payload characters). A console in canonical mode drops everything past 4096 bytes of one line; use Copy plain snippet on this host."}else{$__ntilde_t=[IO.Path]::GetTempPath()+[Guid]::NewGuid().ToString('N')+'.ps1'; try{$__ntilde_g=[IO.Compression.GZipStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String($__ntilde_b)),[IO.Compression.CompressionMode]::Decompress); $__ntilde_o=[IO.File]::Create($__ntilde_t); $__ntilde_g.CopyTo($__ntilde_o); $__ntilde_o.Dispose(); $__ntilde_g.Dispose(); $__ntilde_ok=$true}catch{Write-Host "ntilde: install failed - the payload did not unpack: $($_.Exception.Message)"}finally{if($__ntilde_o){$__ntilde_o.Dispose()}; if($__ntilde_g){$__ntilde_g.Dispose()}}; if($__ntilde_ok){& $__ntilde_t}; Remove-Item $__ntilde_t -ErrorAction SilentlyContinue}; Remove-Variable __ntilde_b,__ntilde_t,__ntilde_g,__ntilde_o,__ntilde_ok -ErrorAction SilentlyContinue
                 """,
             _ => throw new ArgumentOutOfRangeException(nameof(shell), shell, "No installer ships for this shell."),
         };
@@ -271,7 +271,7 @@ public static class RemoteShellIntegrationSnippets
         // snippet into code.
         string delimiter = shell == RemoteShellIntegrationShell.PowerShell
             ? "'@"
-            : "__NOVA_SNIPPET_EOF__";
+            : "__NTILDE_SNIPPET_EOF__";
 
         foreach (string line in snippet.Split('\n'))
         {
@@ -284,7 +284,7 @@ public static class RemoteShellIntegrationSnippets
             }
         }
 
-        return template.Replace("@@NOVA_SNIPPET@@", snippet.TrimEnd('\n'), StringComparison.Ordinal);
+        return template.Replace("@@NTILDE_SNIPPET@@", snippet.TrimEnd('\n'), StringComparison.Ordinal);
     }
 
     private static string ReadResource(string fileName)
@@ -298,7 +298,7 @@ public static class RemoteShellIntegrationSnippets
             throw new InvalidOperationException(
                 $"Embedded shell-integration resource '{resourceName}' is missing from " +
                 $"{typeof(RemoteShellIntegrationSnippets).Assembly.GetName().Name}. It is embedded " +
-                "from assets/shell-integration/ by NovaTerminal.CommandAssist.csproj.");
+                "from assets/shell-integration/ by Ntilde.CommandAssist.csproj.");
         }
 
         using var reader = new StreamReader(stream, Encoding.UTF8);

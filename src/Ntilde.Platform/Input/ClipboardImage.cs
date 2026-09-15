@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace NovaTerminal.Platform.Input
+namespace Ntilde.Platform.Input
 {
     /// <summary>
     /// Helpers for pasting an image that lives on the clipboard (e.g. a screenshot) into a
@@ -18,7 +18,7 @@ namespace NovaTerminal.Platform.Input
         /// </summary>
         public static string GetTempImagePath(string extension)
         {
-            string fileName = "nova-clip-" + Guid.NewGuid().ToString("N") + extension;
+            string fileName = "ntilde-clip-" + Guid.NewGuid().ToString("N") + extension;
             return Path.Combine(Path.GetTempPath(), fileName);
         }
 
@@ -66,7 +66,7 @@ namespace NovaTerminal.Platform.Input
         }
 
         /// <summary>
-        /// Deletes leftover temp clipboard images (nova-clip-*) older than the given threshold.
+        /// Deletes leftover temp clipboard images (ntilde-clip-*) older than the given threshold.
         /// Best-effort; failures are swallowed. Intended to be called once at startup.
         /// </summary>
         public static void CleanUpOldTempImages(TimeSpan threshold)
@@ -76,7 +76,7 @@ namespace NovaTerminal.Platform.Input
                 var directory = new DirectoryInfo(Path.GetTempPath());
                 DateTime cutoff = DateTime.UtcNow - threshold;
 
-                foreach (var file in directory.EnumerateFiles("nova-clip-*"))
+                foreach (var file in directory.EnumerateFiles("ntilde-clip-*"))
                 {
                     try
                     {

@@ -1,14 +1,14 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Xunit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.VT.Storage;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.VT.Storage;
 using System.Text;
 
 using System.Collections.Generic;
 using System;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class ReflowScenariosTests
     {

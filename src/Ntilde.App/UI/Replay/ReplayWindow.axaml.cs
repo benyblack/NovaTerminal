@@ -1,11 +1,11 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Replay;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Replay;
 using System;
 using System.Globalization;
 using System.IO;
@@ -13,7 +13,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.UI.Replay
+namespace Ntilde.UI.Replay
 {
     public partial class ReplayWindow : Window
     {
@@ -64,7 +64,7 @@ namespace NovaTerminal.UI.Replay
             _buffer = new TerminalBuffer(80, 24); // Init with default
             _parser = new AnsiParser(_buffer);
             // Replays of sessions that drew inline images must render the same way live panes do.
-            _parser.ImageDecoder = new NovaTerminal.Rendering.SkiaImageDecoder();
+            _parser.ImageDecoder = new Ntilde.Rendering.SkiaImageDecoder();
             // Native-APC policy is deliberately left at the parser default (off): the recording
             // does not carry the setting the live pane ran with, and forcing it on would
             // fabricate inline images a policy-off session never displayed. Fail towards

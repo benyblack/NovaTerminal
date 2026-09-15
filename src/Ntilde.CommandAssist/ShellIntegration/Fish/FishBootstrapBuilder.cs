@@ -1,7 +1,7 @@
 using System.IO;
 using System.Text;
 
-namespace NovaTerminal.CommandAssist.ShellIntegration.Fish;
+namespace Ntilde.CommandAssist.ShellIntegration.Fish;
 
 public static class FishBootstrapBuilder
 {
@@ -9,18 +9,18 @@ public static class FishBootstrapBuilder
     {
         const string nl = "\n";
         var b = new StringBuilder();
-        b.Append("# Nova Terminal command-assist bootstrap for fish.").Append(nl);
+        b.Append("# Ntilde command-assist bootstrap for fish.").Append(nl);
         b.Append("# Installed as $XDG_CONFIG_HOME/fish/config.fish. We are the").Append(nl);
         b.Append("# user's config.fish for this session, so we explicitly source").Append(nl);
         b.Append("# the real ~/.config/fish/config.fish if it exists, then layer").Append(nl);
         b.Append("# our hooks on top so user prompt/fish_prompt stays user-owned.").Append(nl);
         b.Append(nl);
-        b.Append("set -l __nova_user_config \"$HOME/.config/fish/config.fish\"").Append(nl);
-        b.Append("if test -f \"$__nova_user_config\"").Append(nl);
-        b.Append("    source \"$__nova_user_config\"").Append(nl);
+        b.Append("set -l __ntilde_user_config \"$HOME/.config/fish/config.fish\"").Append(nl);
+        b.Append("if test -f \"$__ntilde_user_config\"").Append(nl);
+        b.Append("    source \"$__ntilde_user_config\"").Append(nl);
         b.Append("end").Append(nl);
         b.Append(nl);
-        b.Append("set -g __nova_command_start_ms \"\"").Append(nl);
+        b.Append("set -g __ntilde_command_start_ms \"\"").Append(nl);
         b.Append(nl);
         // Portable millisecond clock. `date +%s%N` is GNU-only; macOS/BSD
         // `date` leaves a literal "%N", which would break the `math` call.
@@ -31,7 +31,7 @@ public static class FishBootstrapBuilder
         // prints "1780000000123.456787" and the OSC 133;D duration stops being
         // an integer -- AnsiParser parses that field with long.TryParse, so a
         // fractional value is not a rounded duration, it is NO duration.
-        b.Append("function __nova_now_ms").Append(nl);
+        b.Append("function __ntilde_now_ms").Append(nl);
         b.Append("    set -l raw (date +%s%N 2>/dev/null)").Append(nl);
         b.Append("    if string match -qr '^[0-9]+$' -- $raw").Append(nl);
         b.Append("        math -s0 \"$raw / 1000000\"").Append(nl);
@@ -40,7 +40,7 @@ public static class FishBootstrapBuilder
         b.Append("    end").Append(nl);
         b.Append("end").Append(nl);
         b.Append(nl);
-        b.Append("function __nova_emit_prompt_ready").Append(nl);
+        b.Append("function __ntilde_emit_prompt_ready").Append(nl);
         b.Append("    printf '\\033]7;file://%s%s\\a' (hostname) (string escape --style=url -- $PWD)").Append(nl);
         b.Append("    printf '\\033]133;A\\a'").Append(nl);
         b.Append("end").Append(nl);
@@ -48,20 +48,20 @@ public static class FishBootstrapBuilder
         // fish has native fish_preexec / fish_postexec events. We use
         // event handlers (function ... --on-event ...) so our hooks layer
         // cleanly without overwriting fish_prompt.
-        b.Append("function __nova_preexec --on-event fish_preexec").Append(nl);
+        b.Append("function __ntilde_preexec --on-event fish_preexec").Append(nl);
         b.Append("    set -l cmd \"$argv\"").Append(nl);
         b.Append("    set -l b64 (printf '%s' \"$cmd\" | base64 | tr -d '\\n')").Append(nl);
         b.Append("    printf '\\033]133;C;%s\\a' \"$b64\"").Append(nl);
-        b.Append("    set -g __nova_command_start_ms (__nova_now_ms)").Append(nl);
+        b.Append("    set -g __ntilde_command_start_ms (__ntilde_now_ms)").Append(nl);
         b.Append("end").Append(nl);
         b.Append(nl);
-        b.Append("function __nova_postexec --on-event fish_postexec").Append(nl);
+        b.Append("function __ntilde_postexec --on-event fish_postexec").Append(nl);
         b.Append("    set -l exit $status").Append(nl);
-        b.Append("    if test -n \"$__nova_command_start_ms\"").Append(nl);
-        b.Append("        set -l now_ms (__nova_now_ms)").Append(nl);
-        b.Append("        set -l duration_ms (math -s0 $now_ms - $__nova_command_start_ms)").Append(nl);
+        b.Append("    if test -n \"$__ntilde_command_start_ms\"").Append(nl);
+        b.Append("        set -l now_ms (__ntilde_now_ms)").Append(nl);
+        b.Append("        set -l duration_ms (math -s0 $now_ms - $__ntilde_command_start_ms)").Append(nl);
         b.Append("        printf '\\033]133;D;%s;%s\\a' $exit $duration_ms").Append(nl);
-        b.Append("        set -g __nova_command_start_ms \"\"").Append(nl);
+        b.Append("        set -g __ntilde_command_start_ms \"\"").Append(nl);
         b.Append("    end").Append(nl);
         b.Append("end").Append(nl);
         b.Append(nl);
@@ -69,8 +69,8 @@ public static class FishBootstrapBuilder
         // via a function with the same name preserved -- but since fish
         // only allows one function per name, we use a separate event hook
         // that fires after the prompt redraws.
-        b.Append("function __nova_promptmark --on-event fish_prompt").Append(nl);
-        b.Append("    __nova_emit_prompt_ready").Append(nl);
+        b.Append("function __ntilde_promptmark --on-event fish_prompt").Append(nl);
+        b.Append("    __ntilde_emit_prompt_ready").Append(nl);
         b.Append("end").Append(nl);
         b.Append(nl);
         // The fish_prompt EVENT fires before the prompt function runs, so it
@@ -85,24 +85,24 @@ public static class FishBootstrapBuilder
         // config). Degrading to A-only beats replacing the user's prompt
         // with a synthesized one.
         //
-        // The `not functions -q __nova_user_fish_prompt` half is what makes a
+        // The `not functions -q __ntilde_user_fish_prompt` half is what makes a
         // re-source safe. This file IS $__fish_config_dir/config.fish for the
         // session, so anything that re-runs it (fish's own
         // `source $__fish_config_dir/config.fish`, `exec fish`, a user alias)
         // would otherwise copy the CURRENT fish_prompt -- already our wrapper --
-        // over __nova_user_fish_prompt, and the redefinition below would then
+        // over __ntilde_user_fish_prompt, and the redefinition below would then
         // call itself forever. With the guard, the second pass finds
-        // __nova_user_fish_prompt already defined and leaves both functions
+        // __ntilde_user_fish_prompt already defined and leaves both functions
         // alone, so the original user prompt stays wrapped exactly once.
-        b.Append("if functions -q fish_prompt; and not functions -q __nova_user_fish_prompt").Append(nl);
-        b.Append("    functions --copy fish_prompt __nova_user_fish_prompt").Append(nl);
+        b.Append("if functions -q fish_prompt; and not functions -q __ntilde_user_fish_prompt").Append(nl);
+        b.Append("    functions --copy fish_prompt __ntilde_user_fish_prompt").Append(nl);
         b.Append("    function fish_prompt").Append(nl);
-        b.Append("        __nova_user_fish_prompt").Append(nl);
+        b.Append("        __ntilde_user_fish_prompt").Append(nl);
         b.Append("        printf '\\033]133;B\\a'").Append(nl);
         b.Append("    end").Append(nl);
         b.Append("end").Append(nl);
         b.Append(nl);
-        b.Append("__nova_emit_prompt_ready").Append(nl);
+        b.Append("__ntilde_emit_prompt_ready").Append(nl);
         return b.ToString();
     }
 

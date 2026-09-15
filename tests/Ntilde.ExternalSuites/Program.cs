@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using NovaTerminal.ExternalSuites.NativeSsh;
-using NovaTerminal.ExternalSuites.Vttest;
+using Ntilde.ExternalSuites.NativeSsh;
+using Ntilde.ExternalSuites.Vttest;
 
-namespace NovaTerminal.ExternalSuites
+namespace Ntilde.ExternalSuites
 {
     class Program
     {

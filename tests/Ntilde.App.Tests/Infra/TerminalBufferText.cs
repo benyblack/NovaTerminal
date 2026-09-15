@@ -1,6 +1,6 @@
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Infra;
+namespace Ntilde.Tests.Infra;
 
 /// <summary>
 /// What a pane actually shows: the viewport rendered as plain text, for asserting on banners and

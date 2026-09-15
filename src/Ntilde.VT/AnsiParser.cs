@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     public class AnsiParser
     {
@@ -141,7 +141,7 @@ namespace NovaTerminal.VT
 
         /// <summary>
         /// Colors reported in response to OSC 10/11 (foreground/background) queries. The host
-        /// (NovaTerminal.App) sets these from the active theme; when unset, <see cref="HandleOsc"/>
+        /// (Ntilde.App) sets these from the active theme; when unset, <see cref="HandleOsc"/>
         /// falls back to a sane default rather than staying silent (#265: silence made OpenCode and
         /// vim/nvim's startup theme probes stall for their ~1s timeout on every launch).
         /// </summary>
@@ -239,7 +239,7 @@ namespace NovaTerminal.VT
         /// "c" if the sequence omitted it) and <c>data</c> is the base64-decoded payload,
         /// size-capped at <see cref="Osc52MaxDecodedBytes"/>. Decoding, target defaulting,
         /// the size cap, and the query-denial reply are all handled in this parser (see
-        /// <see cref="HandleOscClipboard"/>) - NovaTerminal.VT does not know about settings
+        /// <see cref="HandleOscClipboard"/>) - Ntilde.VT does not know about settings
         /// or the system clipboard by design. The App layer decides whether to honor this
         /// event (its own settings gate) and how to reach the clipboard.
         ///
@@ -257,7 +257,7 @@ namespace NovaTerminal.VT
         /// </summary>
         /// <remarks>
         /// <para>
-        /// Raised for <em>every</em> C mark, payload or not. Nova's own bootstraps always send
+        /// Raised for <em>every</em> C mark, payload or not. Ntilde's own bootstraps always send
         /// <c>133;C;&lt;base64&gt;</c>, but FinalTerm does not require a payload and the
         /// third-party snippets this event now has to consume — iTerm2's, VS Code's, and hand-rolled
         /// ones — routinely emit a bare <c>133;C</c> or a bare <c>133;C;</c>. Dropping those was
@@ -2209,7 +2209,7 @@ namespace NovaTerminal.VT
         /// </para>
         /// <list type="number">
         /// <item><description>
-        /// <c>133;C;&lt;base64&gt;</c> — what all four Nova bootstraps emit, and the only shape that
+        /// <c>133;C;&lt;base64&gt;</c> — what all four Ntilde bootstraps emit, and the only shape that
         /// survives a command containing <c>;</c> or a newline. Tried first, and accepted only if the
         /// bytes decode to plausible text: <c>make</c>, <c>date</c> and <c>true</c> are all valid
         /// base64 by shape, so "it decoded" is not evidence on its own. Byte sequences that are not
@@ -2253,7 +2253,7 @@ namespace NovaTerminal.VT
         /// before the decode. Whoever is on the other end of an SSH connection chooses this payload
         /// and it reaches permanent, cross-session history, so the size of a single entry should not
         /// be theirs to pick; 8 KiB is an order of magnitude past the longest command line anyone
-        /// types and two orders past every one Nova's own snippets emit. Checked on the encoded
+        /// types and two orders past every one Ntilde's own snippets emit. Checked on the encoded
         /// text, before <c>Convert.FromBase64String</c> allocates anything.
         /// </para>
         /// </remarks>
@@ -2607,7 +2607,7 @@ namespace NovaTerminal.VT
         // dropped silently, and a successfully decoded payload over Osc52MaxDecodedBytes is
         // also dropped (logged) rather than raised. Decoding happens here in the parser so
         // the App layer only ever sees raw bytes - the settings gate and clipboard access are
-        // host policy and live entirely outside NovaTerminal.VT.
+        // host policy and live entirely outside Ntilde.VT.
         private void HandleOscClipboard(string data)
         {
             int split = data.IndexOf(';');
@@ -2755,7 +2755,7 @@ namespace NovaTerminal.VT
         /// escape are mutually exclusive - <c>\</c> is Windows' only path separator, so there is no
         /// string shape that is simultaneously a valid <c>\\host\dir</c> UNC path and losslessly
         /// preserves a POSIX filename that legally contains a literal backslash. Something has to give,
-        /// and <c>NovaTerminal.CommandAssist.Domain.FileSystemPathSuggestionProvider</c> - the one
+        /// and <c>Ntilde.CommandAssist.Domain.FileSystemPathSuggestionProvider</c> - the one
         /// consumer of this cwd that performs real filesystem I/O (<c>Directory.Exists</c>,
         /// <c>Directory.EnumerateDirectories</c>) - already skips itself whenever the session is remote
         /// (<c>context.IsRemote</c>, sourced from <c>Profile.Type == ConnectionType.SSH</c>, independent
@@ -2763,7 +2763,7 @@ namespace NovaTerminal.VT
         /// either for a genuine SSH session (already gated off above) or never at all - PowerShell's
         /// bootstrap omits the authority entirely, and WSL2's default hostname matches this machine's, so
         /// it is dropped the same way. A local, non-SSH pane reporting a *third-party* UNC host via a raw,
-        /// non-Nova-emitted OSC 7 sequence is the one remaining case this trades away; nothing shipped
+        /// non-Ntilde-emitted OSC 7 sequence is the one remaining case this trades away; nothing shipped
         /// produces it, and the SFTP sidebar's need for a working POSIX path from the one case that is
         /// shipped and reachable - an SSH session with a backslash in a remote directory name - wins that
         /// trade.
@@ -2785,7 +2785,7 @@ namespace NovaTerminal.VT
         /// the <c>%20</c> spaces of the new one, and a literal backslash inside a POSIX name) the same way.
         /// </para>
         /// <para>
-        /// Kept tolerant of the older emissions on purpose. A pwsh instrumented by a previous Nova build
+        /// Kept tolerant of the older emissions on purpose. A pwsh instrumented by a previous Ntilde build
         /// - or a remote *Windows* SSH host still running the snippet it was given months ago (Codex
         /// review, PR #351, third pass) - sends <c>file://HOST/C:%5CUsers%5Cyou</c>, and that has to keep
         /// working even though <c>HOST</c> is now a foreign authority: the fix at the emitter cannot

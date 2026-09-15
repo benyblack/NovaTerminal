@@ -1,14 +1,14 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using NovaTerminal.Platform.Ssh.Interactions;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Sessions;
-using NovaTerminal.Platform.Tests.Infra;
-using NovaTerminal.VT;
-using static NovaTerminal.Platform.Tests.Ssh.NativeSshDockerTestWaits;
+using Ntilde.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Sessions;
+using Ntilde.Platform.Tests.Infra;
+using Ntilde.VT;
+using static Ntilde.Platform.Tests.Ssh.NativeSshDockerTestWaits;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 /// <summary>
 /// The ssh-agent row of docs/native-ssh/Native_SSH_Test_Matrix.md, against a real sshd and a real
@@ -35,7 +35,7 @@ public sealed class NativeSshDockerAgentAuthE2eTests
 
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-agent-{Guid.NewGuid():N}");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde-native-agent-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         SshAgentHandle? agent = null;
         try

@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Tests.Infra;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Pty;
+using Ntilde.Shell;
+using Ntilde.Tests.Infra;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 [Collection("WorkspacePolicy")]
 public sealed class WorkspaceManagerTests
@@ -138,7 +138,7 @@ public sealed class WorkspaceManagerTests
         using var policyScope = PolicyFileScope.WithDefault();
         string sourceName = $"tabs_ws_{Guid.NewGuid():N}";
         string importName = $"tabs_ws_import_{Guid.NewGuid():N}";
-        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"ntilde_ws_{Guid.NewGuid():N}.ntildews.json");
         long auditOffset = GetAuditLength();
 
         try
@@ -178,7 +178,7 @@ public sealed class WorkspaceManagerTests
         using var policyScope = PolicyFileScope.WithDefault();
         string sourceName = $"tabs_ws_{Guid.NewGuid():N}";
         string importName = $"tabs_ws_import_{Guid.NewGuid():N}";
-        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"ntilde_ws_{Guid.NewGuid():N}.ntildews.json");
 
         try
         {
@@ -215,7 +215,7 @@ public sealed class WorkspaceManagerTests
     public void LoadWorkspaceBundleSession_RoundTripsWithoutPersistingWorkspace()
     {
         using var policyScope = PolicyFileScope.WithDefault();
-        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"ntilde_ws_{Guid.NewGuid():N}.ntildews.json");
         string bundleName = $"handoff_{Guid.NewGuid():N}";
 
         try
@@ -251,7 +251,7 @@ public sealed class WorkspaceManagerTests
         });
 
         string sourceName = $"tabs_ws_{Guid.NewGuid():N}";
-        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"ntilde_ws_{Guid.NewGuid():N}.ntildews.json");
 
         try
         {
@@ -272,7 +272,7 @@ public sealed class WorkspaceManagerTests
     {
         string sourceName = $"tabs_ws_{Guid.NewGuid():N}";
         string importName = $"tabs_ws_import_{Guid.NewGuid():N}";
-        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"ntilde_ws_{Guid.NewGuid():N}.ntildews.json");
 
         using var exportPolicy = PolicyFileScope.WithDefault();
         try
@@ -309,7 +309,7 @@ public sealed class WorkspaceManagerTests
     [Fact]
     public void LoadWorkspaceBundleSession_BlockedByPolicy()
     {
-        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"ntilde_ws_{Guid.NewGuid():N}.ntildews.json");
         string bundleName = $"handoff_{Guid.NewGuid():N}";
 
         using var exportPolicy = PolicyFileScope.WithDefault();
@@ -339,7 +339,7 @@ public sealed class WorkspaceManagerTests
     [Fact]
     public void WorkspaceBundleOps_RequireSsoPolicy_BlocksWhenPlaceholderUnconfigured()
     {
-        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"ntilde_ws_{Guid.NewGuid():N}.ntildews.json");
         string bundleName = $"handoff_{Guid.NewGuid():N}";
 
         using var ssoPolicy = PolicyFileScope.WithPolicy(new WorkspacePolicyHooks
@@ -370,9 +370,9 @@ public sealed class WorkspaceManagerTests
         }
     }
 
-    private static NovaSession BuildSession(int tabCount = 1)
+    private static NtildeSession BuildSession(int tabCount = 1)
     {
-        var session = new NovaSession
+        var session = new NtildeSession
         {
             ActiveTabIndex = 0,
         };

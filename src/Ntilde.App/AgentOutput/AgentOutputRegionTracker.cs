@@ -1,9 +1,9 @@
 using System;
 using System.Threading;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.VT;
 
-namespace NovaTerminal.AgentOutput;
+namespace Ntilde.AgentOutput;
 
 /// <summary>
 /// Tracks one pane's current command <i>output region</i> and posts its text as it grows, so the

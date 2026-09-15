@@ -1,8 +1,8 @@
-# NovaTerminal – Product & Engineering Roadmap
+# Ntilde – Product & Engineering Roadmap
 
 _Last reviewed: 2026-09-03._
 
-This roadmap is **authoritative** for NovaTerminal.
+This roadmap is **authoritative** for Ntilde.
 
 It applies to:
 - maintainers
@@ -14,7 +14,7 @@ Related execution plans:
 - `docs/archive/MULTI_PANE_EXECUTION_PLAN.md`
 - `docs/archive/TABS_EXECUTION_PLAN.md`
 - `docs/agent-host/DIRECTION.md` — **accepted strategic direction (2026-07-07)**:
-  NovaTerminal as an agent host ("enable, don't embed"). Reframes Phases 4–5
+  Ntilde as an agent host ("enable, don't embed"). Reframes Phases 4–5
   and demotes Ghostty gap closure to a regression gate.
 
 ---
@@ -335,7 +335,7 @@ tracked in `docs/SSH_ROADMAP.md` and `docs/native-ssh/Native_SSH_Test_Matrix.md`
 > Must be opt-in and privacy-respecting.
 >
 > **Direction update (2026-07-07):** the accepted strategy is
-> `docs/agent-host/DIRECTION.md` — NovaTerminal enables agents (session-facing
+> `docs/agent-host/DIRECTION.md` — Ntilde enables agents (session-facing
 > MCP surface: observe / status / act / replay) rather than embedding AI.
 > Command Assist remains the only user-facing AI-adjacent surface.
 

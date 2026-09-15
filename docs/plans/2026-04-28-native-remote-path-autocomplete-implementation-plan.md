@@ -13,9 +13,9 @@
 ### Task 1: Add autocomplete path parsing and ranking primitives
 
 **Files:**
-- Create: `src/NovaTerminal.App/Services/Ssh/RemotePathAutocompleteQuery.cs`
-- Create: `src/NovaTerminal.App/Models/RemotePathSuggestion.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/RemotePathAutocompleteQueryTests.cs`
+- Create: `src/Ntilde.App/Services/Ssh/RemotePathAutocompleteQuery.cs`
+- Create: `src/Ntilde.App/Models/RemotePathSuggestion.cs`
+- Test: `tests/Ntilde.Tests/Ssh/RemotePathAutocompleteQueryTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -49,7 +49,7 @@ public void RankSuggestions_PrefersDirectoryPrefixMatchesBeforeFiles()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~RemotePathAutocompleteQueryTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~RemotePathAutocompleteQueryTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the query parser and suggestion model do not exist yet.
@@ -77,16 +77,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Services/Ssh/RemotePathAutocompleteQuery.cs src/NovaTerminal.App/Models/RemotePathSuggestion.cs tests/NovaTerminal.Tests/Ssh/RemotePathAutocompleteQueryTests.cs
+git add src/Ntilde.App/Services/Ssh/RemotePathAutocompleteQuery.cs src/Ntilde.App/Models/RemotePathSuggestion.cs tests/Ntilde.Tests/Ssh/RemotePathAutocompleteQueryTests.cs
 git commit -m "feat: add remote path autocomplete query primitives"
 ```
 
 ### Task 2: Add an active NativeSSH session registry
 
 **Files:**
-- Create: `src/NovaTerminal.App/Services/Ssh/ActiveSshSessionRegistry.cs`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/ActiveSshSessionRegistryTests.cs`
+- Create: `src/Ntilde.App/Services/Ssh/ActiveSshSessionRegistry.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Test: `tests/Ntilde.Tests/Ssh/ActiveSshSessionRegistryTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -113,7 +113,7 @@ public void TryGetNativeSession_WhenRegisteredActiveNativeSessionExists_ReturnsD
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~ActiveSshSessionRegistryTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~ActiveSshSessionRegistryTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the registry does not exist yet.
@@ -138,16 +138,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Services/Ssh/ActiveSshSessionRegistry.cs src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.Tests/Ssh/ActiveSshSessionRegistryTests.cs
+git add src/Ntilde.App/Services/Ssh/ActiveSshSessionRegistry.cs src/Ntilde.App/Controls/TerminalPane.axaml.cs tests/Ntilde.Tests/Ssh/ActiveSshSessionRegistryTests.cs
 git commit -m "feat: track active native ssh sessions for autocomplete"
 ```
 
 ### Task 3: Add native directory-listing interop in C#
 
 **Files:**
-- Modify: `src/NovaTerminal.Core/Ssh/Native/INativeSshInterop.cs`
-- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshRemotePathInteropTests.cs`
+- Modify: `src/Ntilde.Core/Ssh/Native/INativeSshInterop.cs`
+- Modify: `src/Ntilde.Core/Ssh/Native/NativeSshInterop.cs`
+- Test: `tests/Ntilde.Core.Tests/Ssh/NativeSshRemotePathInteropTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -181,7 +181,7 @@ public void DeserializeDirectoryListResponse_ReadsDirectoryFlags()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSshRemotePathInteropTests" --no-restore -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Core.Tests/Ntilde.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSshRemotePathInteropTests" --no-restore -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the request/response types and API do not exist yet.
@@ -208,16 +208,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Core/Ssh/Native/INativeSshInterop.cs src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshRemotePathInteropTests.cs
+git add src/Ntilde.Core/Ssh/Native/INativeSshInterop.cs src/Ntilde.Core/Ssh/Native/NativeSshInterop.cs tests/Ntilde.Core.Tests/Ssh/NativeSshRemotePathInteropTests.cs
 git commit -m "feat: add native remote path listing interop"
 ```
 
 ### Task 4: Implement the Rust native directory-listing request
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Test: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs` (unit tests)
-- Optional: modify `src/NovaTerminal.App/native/rusty_ssh/Cargo.toml` only if a new crate is truly required
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs`
+- Test: `src/Ntilde.App/native/rusty_ssh/src/lib.rs` (unit tests)
+- Optional: modify `src/Ntilde.App/native/rusty_ssh/Cargo.toml` only if a new crate is truly required
 
 **Step 1: Write the failing Rust test**
 
@@ -238,7 +238,7 @@ fn sftp_list_directory_returns_entries_with_directory_flags() {
 Run:
 
 ```bash
-cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml sftp_list_directory
+cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml sftp_list_directory
 ```
 
 Expected: FAIL because the native listing entry point does not exist yet.
@@ -264,16 +264,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs
+git add src/Ntilde.App/native/rusty_ssh/src/lib.rs
 git commit -m "feat: add native remote path listing request"
 ```
 
 ### Task 5: Add the app-layer remote path autocomplete service
 
 **Files:**
-- Create: `src/NovaTerminal.App/Services/Ssh/IRemotePathAutocompleteService.cs`
-- Create: `src/NovaTerminal.App/Services/Ssh/RemotePathAutocompleteService.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/RemotePathAutocompleteServiceTests.cs`
+- Create: `src/Ntilde.App/Services/Ssh/IRemotePathAutocompleteService.cs`
+- Create: `src/Ntilde.App/Services/Ssh/RemotePathAutocompleteService.cs`
+- Test: `tests/Ntilde.Tests/Ssh/RemotePathAutocompleteServiceTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -311,7 +311,7 @@ public async Task GetSuggestionsAsync_FiltersNativeEntriesUsingResolvedParentPat
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~RemotePathAutocompleteServiceTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~RemotePathAutocompleteServiceTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the service does not exist yet.
@@ -337,17 +337,17 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Services/Ssh/IRemotePathAutocompleteService.cs src/NovaTerminal.App/Services/Ssh/RemotePathAutocompleteService.cs tests/NovaTerminal.Tests/Ssh/RemotePathAutocompleteServiceTests.cs
+git add src/Ntilde.App/Services/Ssh/IRemotePathAutocompleteService.cs src/Ntilde.App/Services/Ssh/RemotePathAutocompleteService.cs tests/Ntilde.Tests/Ssh/RemotePathAutocompleteServiceTests.cs
 git commit -m "feat: add remote path autocomplete service"
 ```
 
 ### Task 6: Add a reusable remote-path autocomplete input surface
 
 **Files:**
-- Create: `src/NovaTerminal.App/Controls/RemotePathInput.axaml`
-- Create: `src/NovaTerminal.App/Controls/RemotePathInput.axaml.cs`
-- Create: `src/NovaTerminal.App/Models/RemotePathInputContext.cs`
-- Test: `tests/NovaTerminal.Tests/Core/RemotePathInputTests.cs`
+- Create: `src/Ntilde.App/Controls/RemotePathInput.axaml`
+- Create: `src/Ntilde.App/Controls/RemotePathInput.axaml.cs`
+- Create: `src/Ntilde.App/Models/RemotePathInputContext.cs`
+- Test: `tests/Ntilde.Tests/Core/RemotePathInputTests.cs`
 
 **Step 1: Write the failing UI tests**
 
@@ -374,7 +374,7 @@ public async Task RemotePathInput_WhenSuggestionsExist_ShowsPopupAndAcceptsTab()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~RemotePathInputTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~RemotePathInputTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the reusable input control does not exist yet.
@@ -400,19 +400,19 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/RemotePathInput.axaml src/NovaTerminal.App/Controls/RemotePathInput.axaml.cs src/NovaTerminal.App/Models/RemotePathInputContext.cs tests/NovaTerminal.Tests/Core/RemotePathInputTests.cs
+git add src/Ntilde.App/Controls/RemotePathInput.axaml src/Ntilde.App/Controls/RemotePathInput.axaml.cs src/Ntilde.App/Models/RemotePathInputContext.cs tests/Ntilde.Tests/Core/RemotePathInputTests.cs
 git commit -m "feat: add reusable remote path autocomplete input"
 ```
 
 ### Task 7: Integrate autocomplete into the transfer dialog
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Models/TransferDialogRequest.cs`
-- Modify: `src/NovaTerminal.App/Controls/TransferDialog.axaml`
-- Modify: `src/NovaTerminal.App/Controls/TransferDialog.axaml.cs`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Core/TransferDialogTests.cs`
-- Test: `tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs`
+- Modify: `src/Ntilde.App/Models/TransferDialogRequest.cs`
+- Modify: `src/Ntilde.App/Controls/TransferDialog.axaml`
+- Modify: `src/Ntilde.App/Controls/TransferDialog.axaml.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Test: `tests/Ntilde.Tests/Core/TransferDialogTests.cs`
+- Test: `tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -441,7 +441,7 @@ public void TransferDialog_BindsRemoteAutocompleteContext_FromRequest()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~TransferDialogTests|FullyQualifiedName~MainWindowTransferFlowTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~TransferDialogTests|FullyQualifiedName~MainWindowTransferFlowTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the transfer dialog request does not carry autocomplete context yet.
@@ -463,14 +463,14 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Models/TransferDialogRequest.cs src/NovaTerminal.App/Controls/TransferDialog.axaml src/NovaTerminal.App/Controls/TransferDialog.axaml.cs src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.Tests/Core/TransferDialogTests.cs tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs
+git add src/Ntilde.App/Models/TransferDialogRequest.cs src/Ntilde.App/Controls/TransferDialog.axaml src/Ntilde.App/Controls/TransferDialog.axaml.cs src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.Tests/Core/TransferDialogTests.cs tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs
 git commit -m "feat: enable remote autocomplete in transfer dialog"
 ```
 
 ### Task 8: Verify the end-to-end NativeSSH autocomplete path
 
 **Files:**
-- Modify: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Modify: `tests/Ntilde.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
 - Optional Docs: `docs/USER_MANUAL.md` if user-facing transfer instructions need one line of update
 
 **Step 1: Write the failing E2E test**
@@ -494,8 +494,8 @@ public void NativeSftp_ListDirectory_ReturnsExpectedFixtureEntries()
 Run:
 
 ```bash
-$env:NOVATERM_ENABLE_DOCKER_E2E='1'
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSshDockerE2eTests.NativeSftp_ListDirectory" --no-restore -m:1 --nologo -v:minimal
+$env:NTILDE_ENABLE_DOCKER_E2E='1'
+dotnet test tests/Ntilde.Core.Tests/Ntilde.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSshDockerE2eTests.NativeSftp_ListDirectory" --no-restore -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the E2E coverage does not exist yet.
@@ -513,6 +513,6 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs docs/USER_MANUAL.md
+git add tests/Ntilde.Core.Tests/Ssh/NativeSshDockerE2eTests.cs docs/USER_MANUAL.md
 git commit -m "test: cover native remote path autocomplete end to end"
 ```

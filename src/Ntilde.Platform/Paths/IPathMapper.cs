@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Platform.Paths
+namespace Ntilde.Platform.Paths
 {
     public interface IPathMapper
     {

@@ -1,6 +1,6 @@
 # Issue Triage — 2026-07-27
 
-**Scope:** all 28 open issues on `benyblack/NovaTerminal` at `main@1aee7c3`.
+**Scope:** all 28 open issues on `benyblack/ntilde` at `main@1aee7c3`.
 **Method:** every claim in every issue body was re-verified against the current
 source tree. No code was changed. Verdicts below are backed by `file:line`
 evidence; where an issue's premise no longer holds, that is called out
@@ -16,7 +16,7 @@ arbitrary-file-write that should be the next thing anyone touches.
 > - **#166 closed** (not planned — file deleted in #176) and **#81 closed**
 >   (completed — remaining re-gating item folded into #117).
 > - **#104 + #144 fixed and merged** as PR #210 (squash `29ae428`). Review surfaced
->   three further defects in the fix itself, all addressed: the `.novapart` scratch
+>   three further defects in the fix itself, all addressed: the `.ntildepart` scratch
 >   name was deterministic (concurrent transfers to one destination could interleave
 >   — `SftpService` runs each job on its own `Task.Run` with no per-destination
 >   serialization), creation followed symlinks (now `O_EXCL`), and the rename
@@ -59,7 +59,7 @@ arbitrary-file-write that should be the next thing anyone touches.
 >   events can miss one that already fired. Bit a test in #215.
 > - **Real-shell PTY tests now share one xUnit collection** (#218). Adding a new one outside
 >   that collection reintroduces the starvation that broke the flight-recording test.
-> - **Coverage baseline: `NovaTerminal.VT` 53.2% line / 47.86% branch**, floor 50%.
+> - **Coverage baseline: `Ntilde.VT` 53.2% line / 47.86% branch**, floor 50%.
 >   Understates true coverage because `App.Tests` — which holds the buffer and reflow suites
 >   — is excluded from the coverage loop, mirroring the gating lane's #81 exclusion.
 >
@@ -76,7 +76,7 @@ arbitrary-file-write that should be the next thing anyone touches.
 >
 > Next on the §7 slate: nothing quick remains. The open items are the P2 perf work (`#165`,
 > `#173`, `#172`), `#109` logging (needs a logging-abstraction decision, since
-> `NovaTerminal.Pty` may not reference VT where `TerminalLogger` lives), `#108`
+> `Ntilde.Pty` may not reference VT where `TerminalLogger` lives), `#108`
 > warnings-as-errors (now unblocked by #174's `.editorconfig`, ~350 diagnostics), and the
 > refactor cluster `#110`–`#115` gated on `#112`.
 
@@ -112,7 +112,7 @@ needs re-scope · `OBSOLETE` = close it.
 | 112 | DI composition root; remove static command registry | App | **STALE** | P3 | Medium | M |
 | 111 | Single ThemeService | App | VALID | P3 | Low | M |
 | 114 | Extract CommandAssist to its own assembly | App | **STALE** | P3 | Low | M |
-| 115 | Consolidate SSH into NovaTerminal.Ssh | Arch | **STALE** | P3 | Low | L |
+| 115 | Consolidate SSH into Ntilde.Ssh | Arch | **STALE** | P3 | Low | L |
 | 127 | Rendering benchmarks + thresholds | CI | VALID | P3 | Low | M |
 | 108 | Re-enable TreatWarningsAsErrors incrementally | Build | **6/18 projects ratcheted 07-30** (PR #223) | P3 | Low | M |
 | 96 | SSH key management + provisioning wizard | Feature | VALID | P3 | — | L |
@@ -128,7 +128,7 @@ needs re-scope · `OBSOLETE` = close it.
 
 The only issue here with a remote-attacker-controlled arbitrary file write.
 
-`src/NovaTerminal.App/native/rusty_ssh/src/lib.rs:1990-2000`
+`src/Ntilde.App/native/rusty_ssh/src/lib.rs:1990-2000`
 
 ```rust
 let file_name = entry.file_name();          // untrusted: from the server's read_dir
@@ -279,7 +279,7 @@ All three items valid, and the read-error one is worse than described.
 - **(b)** `:408-435` — discarded `Task.Delay(300).ContinueWith(...)`, no
   cancellation tied to `_cts`, failure path is `Console.WriteLine` (`:433`).
   Zero `File.Delete` in the file, so **every PowerShell session permanently
-  leaks a `nova_init_{guid}.ps1` into `%TEMP%`**. (Aside: the script writes a
+  leaks a `ntilde_init_{guid}.ps1` into `%TEMP%`**. (Aside: the script writes a
   hardcoded fake "Windows PowerShell / Copyright (C) Microsoft" banner plus
   `Clear-Host` at `:416-422` — worth a second look on its own merits.)
 - **(c)** 18 `Console.WriteLine` remain, none routed through `AppLogger`.
@@ -288,7 +288,7 @@ All three items valid, and the read-error one is worse than described.
 before any of the P2 perf work. (c) folds into #109.
 
 > **Update 07-29 (PR #214, merged `5c8e98a`):** (a) and (b) done. #107 stays open for
-> (c) only, which cannot be fixed in place: `NovaTerminal.Pty` is barred from
+> (c) only, which cannot be fixed in place: `Ntilde.Pty` is barred from
 > referencing VT (where `TerminalLogger` lives) by `LayeringTests`
 > `.Pty_must_not_depend_on_Vt`, so routing this file's `Console.WriteLine` calls needs
 > a logging abstraction #109 must design.
@@ -365,7 +365,7 @@ Item 4 grew — add the unchecked-return and success-path-leak findings.
 
 ### #166 — ImageRegistry · **CLOSE AS OBSOLETE**
 
-`src/NovaTerminal.Rendering/ImageRegistry.cs` no longer exists. Zero matches for
+`src/Ntilde.Rendering/ImageRegistry.cs` no longer exists. Zero matches for
 `ImageRegistry`, `RegisterImage`, or `GetImage` anywhere in `src/`.
 `git log` on the path: `6ccd926 refactor(rendering): remove dead ImageRegistry (#176)`.
 
@@ -410,7 +410,7 @@ through `TerminalLogger`/`AppLogger`, and audit the 41 empty catches". Merge the
 
 ### #115 — SSH consolidation · **RE-SCOPE, second claim not supported**
 
-Assembly sprawl confirmed: no `NovaTerminal.Ssh` project exists (the 10 projects
+Assembly sprawl confirmed: no `Ntilde.Ssh` project exists (the 10 projects
 are Cli, Conformance, Rendering, Replay, VT, Platform, Pty, AgentHost.Contracts,
 McpServer, App). SSH lives in `Platform/Ssh/` (37 files across 8 subfolders) plus
 `App/Services/Ssh/` (10), `App/ViewModels/Ssh/` (6), `App/Views/Ssh/` (4), and
@@ -538,9 +538,9 @@ Worth fixing in place so future readers aren't misled:
   (`:1512`) — so every blink frame on an unfocused pane is **provably** wasted
   work. No reduced-motion setting exists anywhere in `src` (only the
   all-or-nothing `settings.CursorBlink`, `:678`).
-- **#127** — worse than "not covered": `NovaTerminal.Benchmarks.csproj:13` has a
-  single project reference (`NovaTerminal.VT`), so the benchmark assembly
-  **cannot see** `NovaTerminal.Rendering` at all. All 6 existing `[Benchmark]`
+- **#127** — worse than "not covered": `Ntilde.Benchmarks.csproj:13` has a
+  single project reference (`Ntilde.VT`), so the benchmark assembly
+  **cannot see** `Ntilde.Rendering` at all. All 6 existing `[Benchmark]`
   methods are parser/reflow/scrollback. And the metrics the issue assumes exist
   partly don't: `RendererStatistics` has raw `RowCacheHits`/`RowCacheMisses`
   (`:59-60`) but **no glyph cache hit/miss counters at all** (only
@@ -666,10 +666,10 @@ Worth fixing in place so future readers aren't misled:
 > timeouts, `input may be lost` — diagnostics that read as logging and behaved like comments.
 >
 > **The issue's count would have broken the build.** "28 `Console.WriteLine` calls in src" sweeps in
-> `NovaTerminal.Cli` and `NovaTerminal.Conformance`, whose *product* is stdout. Converting those would
+> `Ntilde.Cli` and `Ntilde.Conformance`, whose *product* is stdout. Converting those would
 > have silently emptied the conformance report. **A count is not a work list.**
 >
-> **The architecture tests caught me.** My first pass added `using NovaTerminal.VT;` to `RustPtySession`
+> **The architecture tests caught me.** My first pass added `using Ntilde.VT;` to `RustPtySession`
 > and it compiled, because VT is reachable transitively through Replay — `Pty_must_not_depend_on_Vt`
 > failed at IL level. Added a `PtyLogger` sink in the Pty layer instead, bridged from `Program`. It
 > duplicates a little of `TerminalLogger`; the honest fix is relocating the logging facility to a shared
@@ -841,7 +841,7 @@ Worth fixing in place so future readers aren't misled:
 >
 > **Third label that overpromises.** The CI step is named `rusty_ssh FFI tests (… alloc balance)`
 > and there is no allocation harness behind it — same shape as `Render Metrics` running tests that
-> never rendered (#127), and `NovaTerminal.App.Tests` reporting "0 warnings" from a build that
+> never rendered (#127), and `Ntilde.App.Tests` reporting "0 warnings" from a build that
 > failed (#211). **A name is not a guarantee; open the thing.**
 >
 > Also caught myself about to grow this crate's clippy baseline 14 → 18: writing the event header in
@@ -923,8 +923,8 @@ Worth fixing in place so future readers aren't misled:
   `Links/LinkSchemes.cs:12-13`. Gap 6: zero `Hyperlink|Uri|Link` occurrences in
   either `RenderSnapshots.cs` or `ReplayModels.cs`.
 - **#113** — TerminalView 2,103 LOC, TerminalDrawOperation 2,755 LOC, both still
-  in `App/Shell/` under `namespace NovaTerminal.Shell`. Blocker the issue omits:
-  `NovaTerminal.Rendering.csproj` references only `NovaTerminal.VT` + SkiaSharp —
+  in `App/Shell/` under `namespace Ntilde.Shell`. Blocker the issue omits:
+  `Ntilde.Rendering.csproj` references only `Ntilde.VT` + SkiaSharp —
   **no Avalonia** — while both files depend on `Avalonia`, `Avalonia.Media`,
   `Avalonia.Platform`, `Avalonia.Rendering.SceneGraph`, `Avalonia.Skia`
   (`TerminalDrawOperation.cs:1-5`). A straight move is impossible without either

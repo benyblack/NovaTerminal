@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     /// <summary>
     /// Manages text selection state in the terminal.

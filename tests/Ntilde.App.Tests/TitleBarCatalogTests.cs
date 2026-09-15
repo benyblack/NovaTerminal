@@ -1,9 +1,9 @@
 using System.Linq;
-using NovaTerminal.Shell.Shortcuts;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Shell.Shortcuts;
+using Ntilde.Shell.TitleBar;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class TitleBarCatalogTests
     {

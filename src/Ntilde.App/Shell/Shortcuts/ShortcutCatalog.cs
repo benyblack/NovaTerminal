@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Shell.TitleBar;
 
-namespace NovaTerminal.Shell.Shortcuts;
+namespace Ntilde.Shell.Shortcuts;
 
 public static class ShortcutCatalog
 {

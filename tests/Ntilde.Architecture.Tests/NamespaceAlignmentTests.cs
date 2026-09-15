@@ -2,12 +2,12 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using NetArchTest.Rules;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 /// <summary>
 /// Each production assembly puts its types in a namespace that matches its assembly name,
 /// and no two assemblies share a namespace prefix. The App assembly is the composition
-/// root: it owns the bare "NovaTerminal" root plus app-specific buckets (Shell, Controls,
+/// root: it owns the bare "Ntilde" root plus app-specific buckets (Shell, Controls,
 /// Services, Models, ViewModels, Views, UI, CommandAssist) and must not reach into a leaf
 /// assembly's reserved prefix.
 /// </summary>
@@ -15,19 +15,19 @@ public class NamespaceAlignmentTests
 {
     private static Assembly LoadByName(string name) => Assembly.Load(name);
 
-    // Leaf assemblies, each owning exactly "NovaTerminal.<Name>.*".
+    // Leaf assemblies, each owning exactly "Ntilde.<Name>.*".
     private static readonly string[] LeafAssemblies =
-        { "NovaTerminal.VT", "NovaTerminal.Replay", "NovaTerminal.Rendering",
-          "NovaTerminal.Pty", "NovaTerminal.Platform", "NovaTerminal.AgentHost.Contracts" };
+        { "Ntilde.VT", "Ntilde.Replay", "Ntilde.Rendering",
+          "Ntilde.Pty", "Ntilde.Platform", "Ntilde.AgentHost.Contracts" };
 
     [Theory]
-    [InlineData("NovaTerminal.VT")]
-    [InlineData("NovaTerminal.Replay")]
-    [InlineData("NovaTerminal.Rendering")]
-    [InlineData("NovaTerminal.Pty")]
-    [InlineData("NovaTerminal.Platform")]
-    [InlineData("NovaTerminal.AgentHost.Contracts")]
-    [InlineData("NovaTerminal.CommandAssist")]
+    [InlineData("Ntilde.VT")]
+    [InlineData("Ntilde.Replay")]
+    [InlineData("Ntilde.Rendering")]
+    [InlineData("Ntilde.Pty")]
+    [InlineData("Ntilde.Platform")]
+    [InlineData("Ntilde.AgentHost.Contracts")]
+    [InlineData("Ntilde.CommandAssist")]
     public void Leaf_assembly_types_reside_in_its_own_namespace(string asmName)
     {
         var result = Types.InAssembly(LoadByName(asmName))
@@ -46,16 +46,16 @@ public class NamespaceAlignmentTests
     public void No_two_assemblies_share_a_namespace_prefix()
     {
         // Each leaf's reserved prefix must be used by no other assembly (leaf or App).
-        // The App project emits assembly name "NovaTerminal" (not "NovaTerminal.App").
+        // The App project emits assembly name "Ntilde" (not "Ntilde.App").
         var others = new List<(string Label, string AsmName)>(
             LeafAssemblies.Select(n => (n, n)))
         {
-            ("NovaTerminal.App", "NovaTerminal"),
+            ("Ntilde.App", "Ntilde"),
             // CommandAssist is checked as a consumer here but is not a prefix *owner* in this loop:
             // its Views stay in the App by design, so the "one prefix, one assembly" rule is
             // asserted with that carve-out in
             // App_may_only_use_the_CommandAssist_prefix_for_Views below.
-            ("NovaTerminal.CommandAssist", "NovaTerminal.CommandAssist"),
+            ("Ntilde.CommandAssist", "Ntilde.CommandAssist"),
         };
 
         foreach (var owner in LeafAssemblies)
@@ -78,9 +78,9 @@ public class NamespaceAlignmentTests
     }
 
     /// <summary>
-    /// <c>NovaTerminal.CommandAssist</c> is the only prefix deliberately shared between two
+    /// <c>Ntilde.CommandAssist</c> is the only prefix deliberately shared between two
     /// assemblies: the assist assembly owns it, and the App keeps
-    /// <c>NovaTerminal.CommandAssist.Views</c> because those are Avalonia <c>UserControl</c>s and
+    /// <c>Ntilde.CommandAssist.Views</c> because those are Avalonia <c>UserControl</c>s and
     /// the assist assembly must stay UI-toolkit-free. Anything else the App puts under that prefix
     /// is code that failed to move and should have.
     /// </summary>
@@ -95,15 +95,15 @@ public class NamespaceAlignmentTests
     [Fact]
     public void App_may_only_use_the_CommandAssist_prefix_for_Views()
     {
-        var result = Types.InAssembly(LoadByName("NovaTerminal"))
-            .That().DoNotResideInNamespace("NovaTerminal.CommandAssist.Views")
+        var result = Types.InAssembly(LoadByName("Ntilde"))
+            .That().DoNotResideInNamespace("Ntilde.CommandAssist.Views")
             .And().DoNotHaveCustomAttribute(typeof(CompilerGeneratedAttribute))
             .Should()
-            .NotResideInNamespaceStartingWith("NovaTerminal.CommandAssist")
+            .NotResideInNamespaceStartingWith("Ntilde.CommandAssist")
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            "App may only own NovaTerminal.CommandAssist.Views; everything else under that prefix " +
+            "App may only own Ntilde.CommandAssist.Views; everything else under that prefix " +
             $"belongs in the CommandAssist assembly. Offenders: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
 }

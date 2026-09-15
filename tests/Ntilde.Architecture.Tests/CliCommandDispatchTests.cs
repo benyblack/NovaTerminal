@@ -2,12 +2,12 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 /// <summary>
-/// Task 7 fix round 1, finding 1: <c>NovaTerminal.App/Program.cs</c> is a second CLI dispatch
-/// table, separate from the dev-only <c>NovaTerminal.Cli/Program.cs</c> shim — and it is the one
-/// that matters in a shipped self-contained/AOT build, which has no <c>NovaTerminal.Cli</c>
+/// Task 7 fix round 1, finding 1: <c>Ntilde.App/Program.cs</c> is a second CLI dispatch
+/// table, separate from the dev-only <c>Ntilde.Cli/Program.cs</c> shim — and it is the one
+/// that matters in a shipped self-contained/AOT build, which has no <c>Ntilde.Cli</c>
 /// sibling and so must serve every CLI verb itself (see the comment on <c>ReplayCommand</c>'s
 /// dispatch in <c>App/Program.cs</c>). <c>BackupCommand</c> shipped wired only into the Cli shim:
 /// correct-looking, tested, and unreachable in the build shape the feature actually has to work
@@ -32,16 +32,16 @@ namespace NovaTerminal.Architecture.Tests;
 /// </summary>
 public class CliCommandDispatchTests
 {
-    // The App assembly is named "NovaTerminal" (see LayeringTests' CommandAssist comment and
-    // NovaTerminal.App.csproj's <AssemblyName>).
-    private static Assembly App => Assembly.Load("NovaTerminal");
+    // The App assembly is named "Ntilde" (see LayeringTests' CommandAssist comment and
+    // Ntilde.App.csproj's <AssemblyName>).
+    private static Assembly App => Assembly.Load("Ntilde");
 
     private static string RepoRoot()
     {
         DirectoryInfo? dir = new(AppContext.BaseDirectory);
         while (dir != null)
         {
-            if (File.Exists(Path.Combine(dir.FullName, "NovaTerminal.sln")))
+            if (File.Exists(Path.Combine(dir.FullName, "Ntilde.sln")))
             {
                 return dir.FullName;
             }
@@ -114,7 +114,7 @@ public class CliCommandDispatchTests
         Assert.Contains(commandTypes, t => t.Name == "SshAskPassCommand");
         Assert.Contains(commandTypes, t => t.Name == "VtReportCommand");
 
-        string programSource = File.ReadAllText(Path.Combine(RepoRoot(), "src/NovaTerminal.App/Program.cs"));
+        string programSource = File.ReadAllText(Path.Combine(RepoRoot(), "src/Ntilde.App/Program.cs"));
 
         var undispatched = commandTypes
             .Where(t => !programSource.Contains(t.Name + ".IsSupportedCliMode(", StringComparison.Ordinal))
@@ -123,8 +123,8 @@ public class CliCommandDispatchTests
 
         Assert.True(undispatched.Length == 0,
             "These CLI-command-shaped types exist but are not dispatched from " +
-            "src/NovaTerminal.App/Program.cs — the entry point a shipped self-contained/AOT build " +
-            "actually runs (NovaTerminal.Cli/Program.cs is a dev-only shim absent from that " +
+            "src/Ntilde.App/Program.cs — the entry point a shipped self-contained/AOT build " +
+            "actually runs (Ntilde.Cli/Program.cs is a dev-only shim absent from that " +
             "bundle, so wiring a command into it alone leaves the command unreachable there). Add " +
             "an IsSupportedCliMode/Execute branch to App/Program.cs's Main, following the " +
             $"ReplayCommand precedent. Offenders: {string.Join(", ", undispatched)}");

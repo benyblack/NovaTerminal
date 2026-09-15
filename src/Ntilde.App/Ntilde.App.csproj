@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <RootNamespace>NovaTerminal</RootNamespace>
-    <AssemblyName>NovaTerminal</AssemblyName>
+    <RootNamespace>Ntilde</RootNamespace>
+    <AssemblyName>Ntilde</AssemblyName>
     <OutputType>WinExe</OutputType>
-    <ApplicationIcon>Assets\nova_icon.ico</ApplicationIcon>
+    <ApplicationIcon>Assets\ntilde_icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <PublishAot>true</PublishAot>
@@ -71,8 +71,8 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <CliProjectPath>$(MSBuildThisFileDirectory)..\NovaTerminal.Cli\NovaTerminal.Cli.csproj</CliProjectPath>
-    <CliBuildOutputDir>$(MSBuildThisFileDirectory)..\NovaTerminal.Cli\bin\$(Configuration)\$(TargetFramework)\</CliBuildOutputDir>
+    <CliProjectPath>$(MSBuildThisFileDirectory)..\Ntilde.Cli\Ntilde.Cli.csproj</CliProjectPath>
+    <CliBuildOutputDir>$(MSBuildThisFileDirectory)..\Ntilde.Cli\bin\$(Configuration)\$(TargetFramework)\</CliBuildOutputDir>
     <CliPublishOutputDir>$(BaseIntermediateOutputPath)cli-publish\</CliPublishOutputDir>
   </PropertyGroup>
 
@@ -95,7 +95,7 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <EmbeddedResource Include="Resources\vt-conformance-report.json">
-      <LogicalName>NovaTerminal.Resources.vt-conformance-report.json</LogicalName>
+      <LogicalName>Ntilde.Resources.vt-conformance-report.json</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
@@ -140,7 +140,7 @@
        therefore did not rebuild the library, and `PreserveNewest` then faithfully copied the
        unchanged binary onward, so every bin\ directory in the tree kept a stale rusty_pty for
        as long as the file existed. That is how a build predating the `pty_try_get_exit_code`
-       export survived in tests\NovaTerminal.App.Tests\bin and threw EntryPointNotFoundException
+       export survived in tests\Ntilde.App.Tests\bin and threw EntryPointNotFoundException
        at runtime - a failure that looks nothing like a stale-artifact problem from the test
        output, and whose collateral damage landed on unrelated tests.
 
@@ -270,7 +270,7 @@
            Propagating the RID downward does not rescue it: the CLI references this project as an
            executable and then wants its apphost, which a self-contained build never writes to obj.
 
-         * What it would produce. Even built, a framework-dependent NovaTerminal.Cli.dll and
+         * What it would produce. Even built, a framework-dependent Ntilde.Cli.dll and
            deps.json sitting in a self-contained or AOT bundle name a shared runtime that the
            bundle deliberately does not carry. The artifact would be wrong, not merely awkward to
            build - which is why release.yml skips it and lets the AOT binary dispatch the CLI modes
@@ -301,14 +301,14 @@
     <Exec Command="dotnet build &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -nodeReuse:false -p:BuildProjectReferences=false -p:UseSharedCompilation=false" />
 
     <ItemGroup>
-      <ObsoleteCliShimBuildArtifacts Include="$(OutDir)NovaTerminal.Cli*" />
-      <ObsoleteLegacyGuiArtifacts Include="$(OutDir)NovaTerminal.Gui*" />
-      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.exe" Condition="Exists('$(CliBuildOutputDir)NovaTerminal.Cli.exe')" />
-      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli" Condition="Exists('$(CliBuildOutputDir)NovaTerminal.Cli')" />
-      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.dll" />
-      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.deps.json" />
-      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.runtimeconfig.json" />
-      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.pdb" Condition="Exists('$(CliBuildOutputDir)NovaTerminal.Cli.pdb')" />
+      <ObsoleteCliShimBuildArtifacts Include="$(OutDir)Ntilde.Cli*" />
+      <ObsoleteLegacyGuiArtifacts Include="$(OutDir)Ntilde.Gui*" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)Ntilde.Cli.exe" Condition="Exists('$(CliBuildOutputDir)Ntilde.Cli.exe')" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)Ntilde.Cli" Condition="Exists('$(CliBuildOutputDir)Ntilde.Cli')" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)Ntilde.Cli.dll" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)Ntilde.Cli.deps.json" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)Ntilde.Cli.runtimeconfig.json" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)Ntilde.Cli.pdb" Condition="Exists('$(CliBuildOutputDir)Ntilde.Cli.pdb')" />
     </ItemGroup>
 
     <Delete Files="@(ObsoleteCliShimBuildArtifacts)" Condition="'@(ObsoleteCliShimBuildArtifacts)' != ''" />
@@ -330,14 +330,14 @@
     <Exec Command="dotnet publish &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -nodeReuse:false -p:BuildProjectReferences=false -p:UseSharedCompilation=false -o &quot;$(CliPublishOutputDir)&quot;" />
 
     <ItemGroup>
-      <ObsoleteCliShimPublishArtifacts Include="$(PublishDir)NovaTerminal.Cli*" />
-      <ObsoleteLegacyGuiPublishArtifacts Include="$(PublishDir)NovaTerminal.Gui*" />
-      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.exe" Condition="Exists('$(CliPublishOutputDir)NovaTerminal.Cli.exe')" />
-      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli" Condition="Exists('$(CliPublishOutputDir)NovaTerminal.Cli')" />
-      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.dll" />
-      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.deps.json" />
-      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.runtimeconfig.json" />
-      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.pdb" Condition="Exists('$(CliPublishOutputDir)NovaTerminal.Cli.pdb')" />
+      <ObsoleteCliShimPublishArtifacts Include="$(PublishDir)Ntilde.Cli*" />
+      <ObsoleteLegacyGuiPublishArtifacts Include="$(PublishDir)Ntilde.Gui*" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)Ntilde.Cli.exe" Condition="Exists('$(CliPublishOutputDir)Ntilde.Cli.exe')" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)Ntilde.Cli" Condition="Exists('$(CliPublishOutputDir)Ntilde.Cli')" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)Ntilde.Cli.dll" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)Ntilde.Cli.deps.json" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)Ntilde.Cli.runtimeconfig.json" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)Ntilde.Cli.pdb" Condition="Exists('$(CliPublishOutputDir)Ntilde.Cli.pdb')" />
     </ItemGroup>
 
     <Delete Files="@(ObsoleteCliShimPublishArtifacts)" Condition="'@(ObsoleteCliShimPublishArtifacts)' != ''" />
@@ -350,7 +350,7 @@
       Condition="'@(CliShimPublishArtifacts)' != ''" />
   </Target>
 
-  <!-- The Delete tasks that clear stale NovaTerminal.Cli* live inside the two shim targets, so
+  <!-- The Delete tasks that clear stale Ntilde.Cli* live inside the two shim targets, so
        gating those targets gated the cleanup with them. That matters because `dotnet publish` never
        clears its output directory: publishing a self-contained bundle over a directory that already
        held a framework-dependent shim would keep the shim, shipping the exact artifact the gate
@@ -367,8 +367,8 @@
     AfterTargets="Build"
     Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and ('$(SkipCliShim)' == 'true' or '$(RuntimeIdentifier)' != '' or '$(SelfContained)' == 'true')">
     <ItemGroup>
-      <StaleCliShimBuildArtifacts Include="$(OutDir)NovaTerminal.Cli*" />
-      <StaleLegacyGuiBuildArtifacts Include="$(OutDir)NovaTerminal.Gui*" />
+      <StaleCliShimBuildArtifacts Include="$(OutDir)Ntilde.Cli*" />
+      <StaleLegacyGuiBuildArtifacts Include="$(OutDir)Ntilde.Gui*" />
     </ItemGroup>
 
     <Delete Files="@(StaleCliShimBuildArtifacts)" Condition="'@(StaleCliShimBuildArtifacts)' != ''" />
@@ -381,8 +381,8 @@
     AfterTargets="Publish"
     Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and ('$(SkipCliShim)' == 'true' or '$(RuntimeIdentifier)' != '' or '$(SelfContained)' == 'true')">
     <ItemGroup>
-      <StaleCliShimPublishArtifacts Include="$(PublishDir)NovaTerminal.Cli*" />
-      <StaleLegacyGuiPublishArtifacts Include="$(PublishDir)NovaTerminal.Gui*" />
+      <StaleCliShimPublishArtifacts Include="$(PublishDir)Ntilde.Cli*" />
+      <StaleLegacyGuiPublishArtifacts Include="$(PublishDir)Ntilde.Gui*" />
     </ItemGroup>
 
     <Delete Files="@(StaleCliShimPublishArtifacts)" Condition="'@(StaleCliShimPublishArtifacts)' != ''" />
@@ -397,7 +397,7 @@
     AfterTargets="Build"
     Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(SkipCliShim)' != 'true' and ('$(RuntimeIdentifier)' != '' or '$(SelfContained)' == 'true')">
     <Warning
-      Text="NovaTerminal.Cli was not embedded beside this build. The CLI shim needs a RID-less, framework-dependent build to produce it, and this one has RuntimeIdentifier='$(RuntimeIdentifier)' SelfContained='$(SelfContained)'; see the comment on BuildCliShim in NovaTerminal.App.csproj. This is the supported shape for a self-contained or AOT bundle - the published binary dispatches the CLI modes itself - so pass -p:SkipCliShim=true to say so and silence this." />
+      Text="Ntilde.Cli was not embedded beside this build. The CLI shim needs a RID-less, framework-dependent build to produce it, and this one has RuntimeIdentifier='$(RuntimeIdentifier)' SelfContained='$(SelfContained)'; see the comment on BuildCliShim in Ntilde.App.csproj. This is the supported shape for a self-contained or AOT bundle - the published binary dispatches the CLI modes itself - so pass -p:SkipCliShim=true to say so and silence this." />
   </Target>
 
   <!-- Native Rust libraries (rusty_pty / rusty_ssh) are produced during the build by
@@ -466,18 +466,18 @@
     <!-- Gate on the *target*, not the build host: `-r linux-x64` from a Windows machine must not
          drop a Windows console host into the bundle, and `-r win-x64` is still Windows even when
          cross-published. -->
-    <NovaTargetsWindows Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier.StartsWith('win'))</NovaTargetsWindows>
-    <NovaTargetsWindows Condition="'$(RuntimeIdentifier)' == ''">$([MSBuild]::IsOSPlatform('Windows'))</NovaTargetsWindows>
+    <NtildeTargetsWindows Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier.StartsWith('win'))</NtildeTargetsWindows>
+    <NtildeTargetsWindows Condition="'$(RuntimeIdentifier)' == ''">$([MSBuild]::IsOSPlatform('Windows'))</NtildeTargetsWindows>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(NovaTargetsWindows)' == 'true'">
-    <NovaConPtyArch Condition="'$(NovaConPtyArch)' == '' and $(RuntimeIdentifier.EndsWith('arm64'))">arm64</NovaConPtyArch>
-    <NovaConPtyArch Condition="'$(NovaConPtyArch)' == '' and $(RuntimeIdentifier.EndsWith('x86'))">x86</NovaConPtyArch>
-    <NovaConPtyArch Condition="'$(NovaConPtyArch)' == '' and $(RuntimeIdentifier.EndsWith('x64'))">x64</NovaConPtyArch>
+  <PropertyGroup Condition="'$(NtildeTargetsWindows)' == 'true'">
+    <NtildeConPtyArch Condition="'$(NtildeConPtyArch)' == '' and $(RuntimeIdentifier.EndsWith('arm64'))">arm64</NtildeConPtyArch>
+    <NtildeConPtyArch Condition="'$(NtildeConPtyArch)' == '' and $(RuntimeIdentifier.EndsWith('x86'))">x86</NtildeConPtyArch>
+    <NtildeConPtyArch Condition="'$(NtildeConPtyArch)' == '' and $(RuntimeIdentifier.EndsWith('x64'))">x64</NtildeConPtyArch>
     <!-- No RID (plain `build`): ship the host matching the machine doing the building. -->
-    <NovaConPtyArch Condition="'$(NovaConPtyArch)' == ''">$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</NovaConPtyArch>
-    <NovaConPtyDll>$(PkgMicrosoft_Windows_Console_ConPTY)\runtimes\win-$(NovaConPtyArch)\native\conpty.dll</NovaConPtyDll>
-    <NovaConPtyHostDir>$(PkgMicrosoft_Windows_Console_ConPTY)\build\native\runtimes\</NovaConPtyHostDir>
+    <NtildeConPtyArch Condition="'$(NtildeConPtyArch)' == ''">$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</NtildeConPtyArch>
+    <NtildeConPtyDll>$(PkgMicrosoft_Windows_Console_ConPTY)\runtimes\win-$(NtildeConPtyArch)\native\conpty.dll</NtildeConPtyDll>
+    <NtildeConPtyHostDir>$(PkgMicrosoft_Windows_Console_ConPTY)\build\native\runtimes\</NtildeConPtyHostDir>
   </PropertyGroup>
 
   <!-- One host per machine architecture this build can *run on*, not one for the architecture it
@@ -486,28 +486,28 @@
        win-x64 is the only Windows RID release.yml produces, so that is the bundle ARM64 users get.
        This mirrors the package's own ConptyRequires*Host matrix in
        build/Microsoft.Windows.Console.ConPTY.props. -->
-  <ItemGroup Condition="'$(NovaTargetsWindows)' == 'true'">
-    <NovaRequiredConPtyHost Include="$(NovaConPtyHostDir)arm64\OpenConsole.exe">
+  <ItemGroup Condition="'$(NtildeTargetsWindows)' == 'true'">
+    <NtildeRequiredConPtyHost Include="$(NtildeConPtyHostDir)arm64\OpenConsole.exe">
       <Link>arm64\OpenConsole.exe</Link>
-    </NovaRequiredConPtyHost>
-    <NovaRequiredConPtyHost Include="$(NovaConPtyHostDir)x64\OpenConsole.exe"
-      Condition="'$(NovaConPtyArch)' == 'x64' or '$(NovaConPtyArch)' == 'x86'">
+    </NtildeRequiredConPtyHost>
+    <NtildeRequiredConPtyHost Include="$(NtildeConPtyHostDir)x64\OpenConsole.exe"
+      Condition="'$(NtildeConPtyArch)' == 'x64' or '$(NtildeConPtyArch)' == 'x86'">
       <Link>x64\OpenConsole.exe</Link>
-    </NovaRequiredConPtyHost>
-    <NovaRequiredConPtyHost Include="$(NovaConPtyHostDir)x86\OpenConsole.exe"
-      Condition="'$(NovaConPtyArch)' == 'x86'">
+    </NtildeRequiredConPtyHost>
+    <NtildeRequiredConPtyHost Include="$(NtildeConPtyHostDir)x86\OpenConsole.exe"
+      Condition="'$(NtildeConPtyArch)' == 'x86'">
       <Link>x86\OpenConsole.exe</Link>
-    </NovaRequiredConPtyHost>
+    </NtildeRequiredConPtyHost>
   </ItemGroup>
 
-  <ItemGroup Condition="'$(NovaTargetsWindows)' == 'true'">
-    <Content Include="$(NovaConPtyDll)" Condition="Exists('$(NovaConPtyDll)')">
+  <ItemGroup Condition="'$(NtildeTargetsWindows)' == 'true'">
+    <Content Include="$(NtildeConPtyDll)" Condition="Exists('$(NtildeConPtyDll)')">
       <Link>conpty.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <!-- Link comes from the item declarations above. -->
-    <Content Include="@(NovaRequiredConPtyHost)">
+    <Content Include="@(NtildeRequiredConPtyHost)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
@@ -517,11 +517,11 @@
        conhost - the exact regression #310 is about. Fail loudly instead: the paths above are
        package-layout assumptions, and a version bump is where they break. -->
   <Target Name="VerifySideloadedConPtyHost" BeforeTargets="Build"
-    Condition="'$(NovaTargetsWindows)' == 'true'">
-    <Error Condition="!Exists('$(NovaConPtyDll)')"
-      Text="[ConPTY] Sideloaded conpty.dll not found at '$(NovaConPtyDll)'. Panes would fall back to the OS conhost.exe (see #310). Check the Microsoft.Windows.Console.ConPTY package layout/version." />
-    <Error Condition="!Exists('%(NovaRequiredConPtyHost.Identity)')"
-      Text="[ConPTY] Sideloaded OpenConsole.exe not found at '%(NovaRequiredConPtyHost.Identity)'. conpty.dll would fall back to the OS conhost.exe on that machine architecture (see #310). Check the Microsoft.Windows.Console.ConPTY package layout/version." />
+    Condition="'$(NtildeTargetsWindows)' == 'true'">
+    <Error Condition="!Exists('$(NtildeConPtyDll)')"
+      Text="[ConPTY] Sideloaded conpty.dll not found at '$(NtildeConPtyDll)'. Panes would fall back to the OS conhost.exe (see #310). Check the Microsoft.Windows.Console.ConPTY package layout/version." />
+    <Error Condition="!Exists('%(NtildeRequiredConPtyHost.Identity)')"
+      Text="[ConPTY] Sideloaded OpenConsole.exe not found at '%(NtildeRequiredConPtyHost.Identity)'. conpty.dll would fall back to the OS conhost.exe on that machine architecture (see #310). Check the Microsoft.Windows.Console.ConPTY package layout/version." />
   </Target>
 
   <ItemGroup>
@@ -531,19 +531,19 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NovaTerminal.CommandAssist\NovaTerminal.CommandAssist.csproj" />
-    <ProjectReference Include="..\NovaTerminal.Platform\NovaTerminal.Platform.csproj" />
-    <ProjectReference Include="..\NovaTerminal.Backup\NovaTerminal.Backup.csproj" />
-    <ProjectReference Include="..\NovaTerminal.VT\NovaTerminal.VT.csproj" />
-    <ProjectReference Include="..\NovaTerminal.Rendering\NovaTerminal.Rendering.csproj" />
-    <ProjectReference Include="..\NovaTerminal.Pty\NovaTerminal.Pty.csproj" />
-    <ProjectReference Include="..\NovaTerminal.Replay\NovaTerminal.Replay.csproj" />
-    <ProjectReference Include="..\NovaTerminal.AgentHost.Contracts\NovaTerminal.AgentHost.Contracts.csproj" />
+    <ProjectReference Include="..\Ntilde.CommandAssist\Ntilde.CommandAssist.csproj" />
+    <ProjectReference Include="..\Ntilde.Platform\Ntilde.Platform.csproj" />
+    <ProjectReference Include="..\Ntilde.Backup\Ntilde.Backup.csproj" />
+    <ProjectReference Include="..\Ntilde.VT\Ntilde.VT.csproj" />
+    <ProjectReference Include="..\Ntilde.Rendering\Ntilde.Rendering.csproj" />
+    <ProjectReference Include="..\Ntilde.Pty\Ntilde.Pty.csproj" />
+    <ProjectReference Include="..\Ntilde.Replay\Ntilde.Replay.csproj" />
+    <ProjectReference Include="..\Ntilde.AgentHost.Contracts\Ntilde.AgentHost.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="NovaTerminal.App.Tests" />
-    <InternalsVisibleTo Include="NovaTerminal.Cli" />
+    <InternalsVisibleTo Include="Ntilde.App.Tests" />
+    <InternalsVisibleTo Include="Ntilde.Cli" />
   </ItemGroup>
 
   <!-- Stamp the git short-SHA (with a +dirty marker for uncommitted changes) into an

@@ -1,8 +1,8 @@
 using System;
 using System.Threading.Tasks;
-using NovaTerminal.AgentHost;
+using Ntilde.AgentHost;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// Shared <see cref="IAgentActionExecutor"/> stub for the protocol tests that go

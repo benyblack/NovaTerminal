@@ -5,13 +5,13 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
-using NovaTerminal.Backup;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.Storage;
-using NovaTerminal.Tests.Backup;
+using Ntilde.Backup;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.Storage;
+using Ntilde.Tests.Backup;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Task 8: the Settings window's "Backup &amp; Restore" page (<c>DataNav</c> / the "Backup" tab).
@@ -32,7 +32,7 @@ public sealed class SettingsWindowBackupSectionTests
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         Assert.NotNull(window.FindControl<ListBox>("DataNav"));
         Assert.NotNull(window.FindControl<Button>("BtnBackupExport"));
@@ -47,7 +47,7 @@ public sealed class SettingsWindowBackupSectionTests
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var tabs = window.FindControl<TabControl>("MainTabs")!;
         var dataNav = window.FindControl<ListBox>("DataNav")!;
@@ -75,7 +75,7 @@ public sealed class SettingsWindowBackupSectionTests
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var tabs = window.FindControl<TabControl>("MainTabs")!;
         var interfaceNav = window.FindControl<ListBox>("InterfaceNav")!;
@@ -142,7 +142,7 @@ public sealed class SettingsWindowBackupSectionTests
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var tabs = window.FindControl<TabControl>("MainTabs")!;
         var interfaceNav = window.FindControl<ListBox>("InterfaceNav")!;
@@ -174,7 +174,7 @@ public sealed class SettingsWindowBackupSectionTests
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var tabs = window.FindControl<TabControl>("MainTabs")!;
         var dataNav = window.FindControl<ListBox>("DataNav")!;
@@ -198,7 +198,7 @@ public sealed class SettingsWindowBackupSectionTests
         Assert.NotNull(written);
 
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var snapshotList = window.FindControl<ListBox>("SnapshotList")!;
         var rows = snapshotList.ItemsSource!.Cast<object>().ToArray();
@@ -213,7 +213,7 @@ public sealed class SettingsWindowBackupSectionTests
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var btnRestore = window.FindControl<Button>("BtnRestoreSnapshot")!;
         var status = window.FindControl<TextBlock>("BackupStatusText")!;
@@ -251,12 +251,12 @@ public sealed class SettingsWindowBackupSectionTests
         Assert.NotNull(written);
 
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var snapshotList = window.FindControl<ListBox>("SnapshotList")!;
         object row = snapshotList.ItemsSource!.Cast<object>().Single();
 
-        var method = typeof(NovaTerminal.SettingsWindow).GetMethod(
+        var method = typeof(Ntilde.SettingsWindow).GetMethod(
             "BuildRestoreConfirmationText", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(method);
 
@@ -296,7 +296,7 @@ public sealed class SettingsWindowBackupSectionTests
         tree.WriteFile("settings.json", """{"FontSize":99,"ThemeName":"Changed"}""");
 
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow { RestoreConfirmationOverride = _ => Task.FromResult(true) };
+        var window = new Ntilde.SettingsWindow { RestoreConfirmationOverride = _ => Task.FromResult(true) };
 
         var snapshotList = window.FindControl<ListBox>("SnapshotList")!;
         var btnRestore = window.FindControl<Button>("BtnRestoreSnapshot")!;
@@ -311,7 +311,7 @@ public sealed class SettingsWindowBackupSectionTests
         // of the restored categories) rather than a generic, hand-composed string.
         Assert.Equal(
             "Restored 6 categories (Replace). Connection passwords are not included in a bundle " +
-            "— re-enter them on first connect. Restart NovaTerminal to pick up all changes.",
+            "— re-enter them on first connect. Restart Ntilde to pick up all changes.",
             status.Text);
 
         // The tracked file rolled back to the snapshot's content on disk.
@@ -339,7 +339,7 @@ public sealed class SettingsWindowBackupSectionTests
         tree.WriteFile("settings.json", """{"FontSize":99,"ThemeName":"Changed"}""");
 
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow { RestoreConfirmationOverride = _ => Task.FromResult(false) };
+        var window = new Ntilde.SettingsWindow { RestoreConfirmationOverride = _ => Task.FromResult(false) };
 
         var snapshotList = window.FindControl<ListBox>("SnapshotList")!;
         var btnRestore = window.FindControl<Button>("BtnRestoreSnapshot")!;
@@ -369,7 +369,7 @@ public sealed class SettingsWindowBackupSectionTests
     /// before this fix nothing told the already-open window - clicking Save afterward called
     /// <c>_settings.Save()</c> with the pre-restore snapshot still in memory, silently reverting
     /// the restore that had just completed and telling the user the opposite ("Restart
-    /// NovaTerminal to pick up all changes"). Fully click-driven (real BtnRestoreSnapshot and
+    /// Ntilde to pick up all changes"). Fully click-driven (real BtnRestoreSnapshot and
     /// BtnSave clicks, via the same <see cref="SettingsWindow.RestoreConfirmationOverride"/> seam
     /// the other Restore tests use) rather than reflecting into a private method, since Restore's
     /// only modal (the confirmation dialog) already has a test seam - unlike Import, which needs
@@ -391,7 +391,7 @@ public sealed class SettingsWindowBackupSectionTests
         tree.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Changed"}""");
 
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow { RestoreConfirmationOverride = _ => Task.FromResult(true) };
+        var window = new Ntilde.SettingsWindow { RestoreConfirmationOverride = _ => Task.FromResult(true) };
 
         var snapshotList = window.FindControl<ListBox>("SnapshotList")!;
         var btnRestore = window.FindControl<Button>("BtnRestoreSnapshot")!;
@@ -430,14 +430,14 @@ public sealed class SettingsWindowBackupSectionTests
     {
         using var source = BackupTestTree.CreatePopulated();
         source.WriteFile("settings.json", """{"FontSize":77,"ThemeName":"FromImport"}""");
-        string bundle = Path.Combine(source.Root, "import.novabackup");
+        string bundle = Path.Combine(source.Root, "import.ntildebackup");
         Assert.True(new BackupService(source.Root).Export(bundle).Success);
 
         using var target = BackupTestTree.CreatePopulated();
         target.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Changed"}""");
 
         using var _ = OverrideAppDataRoot(target.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var targetService = new BackupService(target.Root);
         var outcome = targetService.Import(bundle, ImportMode.Replace);
@@ -475,7 +475,7 @@ public sealed class SettingsWindowBackupSectionTests
         using var source = BackupTestTree.CreateEmpty();
         source.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Imported"}""");
         source.WriteFile(Path.Combine("themes", "imported.json"), """{"name":"Imported"}""");
-        string bundle = Path.Combine(source.Root, "import.novabackup");
+        string bundle = Path.Combine(source.Root, "import.ntildebackup");
         Assert.True(new BackupService(source.Root).Export(bundle).Success);
 
         // The populated target tree's settings.json already names ThemeName "Default" — present
@@ -483,7 +483,7 @@ public sealed class SettingsWindowBackupSectionTests
         using var target = BackupTestTree.CreatePopulated();
 
         using var _ = OverrideAppDataRoot(target.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var targetService = new BackupService(target.Root);
         var outcome = targetService.Import(bundle, ImportMode.Replace);
@@ -524,7 +524,7 @@ public sealed class SettingsWindowBackupSectionTests
 
         using var source = BackupTestTree.CreateEmpty();
         source.WriteFile("settings.json", $$"""{"FontSize":14,"ThemeName":"Default","FontFamily":"{{importedFont}}"}""");
-        string bundle = Path.Combine(source.Root, "import.novabackup");
+        string bundle = Path.Combine(source.Root, "import.ntildebackup");
         Assert.True(new BackupService(source.Root).Export(bundle).Success);
 
         // The populated target tree's settings.json does not set FontFamily, so
@@ -533,7 +533,7 @@ public sealed class SettingsWindowBackupSectionTests
         using var target = BackupTestTree.CreatePopulated();
 
         using var _ = OverrideAppDataRoot(target.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var targetService = new BackupService(target.Root);
         var outcome = targetService.Import(bundle, ImportMode.Replace);
@@ -577,7 +577,7 @@ public sealed class SettingsWindowBackupSectionTests
         source.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Default"}""");
         await new JsonSnippetStore(SnippetsPathIn(source))
             .UpsertAsync(NewSnippet("imported-1", "Imported snippet", "echo imported"));
-        string bundle = Path.Combine(source.Root, "import.novabackup");
+        string bundle = Path.Combine(source.Root, "import.ntildebackup");
         Assert.True(new BackupService(source.Root).Export(bundle).Success);
 
         using var target = BackupTestTree.CreatePopulated();
@@ -587,7 +587,7 @@ public sealed class SettingsWindowBackupSectionTests
         await targetStore.UpsertAsync(NewSnippet("local-1", "Local snippet", "echo local"));
 
         using var _ = OverrideAppDataRoot(target.Root);
-        var window = new NovaTerminal.SettingsWindow { CommandAssistSnippetStore = targetStore };
+        var window = new Ntilde.SettingsWindow { CommandAssistSnippetStore = targetStore };
 
         // Stands in for the one-shot Opened handler: the window is open and its snippet list has
         // already been populated from the pre-import file.
@@ -628,7 +628,7 @@ public sealed class SettingsWindowBackupSectionTests
         using var source = BackupTestTree.CreateEmpty();
         source.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Default"}""");
         source.WriteFile(Path.Combine("command-assist", "snippets.json"), "[]");
-        string bundle = Path.Combine(source.Root, "import.novabackup");
+        string bundle = Path.Combine(source.Root, "import.ntildebackup");
         Assert.True(new BackupService(source.Root).Export(bundle).Success);
 
         using var target = BackupTestTree.CreatePopulated();
@@ -636,7 +636,7 @@ public sealed class SettingsWindowBackupSectionTests
         await targetStore.UpsertAsync(NewSnippet("local-1", "Local snippet", "echo local"));
 
         using var _ = OverrideAppDataRoot(target.Root);
-        var window = new NovaTerminal.SettingsWindow { CommandAssistSnippetStore = targetStore };
+        var window = new Ntilde.SettingsWindow { CommandAssistSnippetStore = targetStore };
 
         int notifications = 0;
         window.OnCommandAssistSnippetsChanged += () => notifications++;
@@ -674,7 +674,7 @@ public sealed class SettingsWindowBackupSectionTests
     /// snippet's name. Reading the built controls rather than the editor's list is the point: the bug
     /// is precisely that the two can disagree. The empty-list placeholder is not a row and is skipped.
     /// </summary>
-    private static string[] SnippetRowNames(NovaTerminal.SettingsWindow window)
+    private static string[] SnippetRowNames(Ntilde.SettingsWindow window)
     {
         var panel = window.FindControl<StackPanel>("CommandAssistSnippetsPanel")!;
 
@@ -688,9 +688,9 @@ public sealed class SettingsWindowBackupSectionTests
             .ToArray();
     }
 
-    private static async Task InvokeReloadCommandAssistSnippetsAsync(NovaTerminal.SettingsWindow window)
+    private static async Task InvokeReloadCommandAssistSnippetsAsync(Ntilde.SettingsWindow window)
     {
-        var method = typeof(NovaTerminal.SettingsWindow).GetMethod(
+        var method = typeof(Ntilde.SettingsWindow).GetMethod(
             "ReloadCommandAssistSnippetsAsync", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         await (Task)method!.Invoke(window, null)!;
@@ -702,9 +702,9 @@ public sealed class SettingsWindowBackupSectionTests
     /// the Command Assist snippet reload (genuinely async - it re-reads the store's file) joined the
     /// synchronous repopulation, so invoking without awaiting would race the assertions that follow.
     /// </summary>
-    private static async Task InvokeReloadAfterExternalChangeAsync(NovaTerminal.SettingsWindow window)
+    private static async Task InvokeReloadAfterExternalChangeAsync(Ntilde.SettingsWindow window)
     {
-        var method = typeof(NovaTerminal.SettingsWindow).GetMethod(
+        var method = typeof(Ntilde.SettingsWindow).GetMethod(
             "ReloadSettingsAfterExternalChangeAsync", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         await (Task)method!.Invoke(window, null)!;
@@ -727,7 +727,7 @@ public sealed class SettingsWindowBackupSectionTests
     [Fact]
     public void ImportModeBodyText_MentionsSnippetsReplacedWholesale_OnlyWhenBundleContainsSnippets()
     {
-        var method = typeof(NovaTerminal.SettingsWindow).GetMethod(
+        var method = typeof(Ntilde.SettingsWindow).GetMethod(
             "BuildImportModeBodyText", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(method);
 
@@ -796,7 +796,7 @@ public sealed class SettingsWindowBackupSectionTests
             """);
 
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var profilesListBox = window.FindControl<ListBox>("ProfilesListBox")!;
         Assert.Single(profilesListBox.Items);
@@ -845,7 +845,7 @@ public sealed class SettingsWindowBackupSectionTests
     {
         using var tree = BackupTestTree.CreateEmpty();
         using var _ = OverrideAppDataRoot(tree.Root);
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         // The logical tree (not the visual tree) is used here deliberately: the Backup tab's
         // content is a fully-built control graph the moment the AXAML loader constructs
@@ -883,7 +883,7 @@ public sealed class SettingsWindowBackupSectionTests
         string backupsDirectory = Path.Combine(tree.Root, "backups");
         Directory.CreateDirectory(backupsDirectory);
         File.WriteAllText(
-            Path.Combine(backupsDirectory, "auto-20260101T000000Z-abc0000000000000.novabackup"),
+            Path.Combine(backupsDirectory, "auto-20260101T000000Z-abc0000000000000.ntildebackup"),
             "not a real bundle - enumeration must fail before this is ever opened");
 
         bool blocked = TryBlockDirectoryListing(backupsDirectory, out Action restore);
@@ -896,8 +896,8 @@ public sealed class SettingsWindowBackupSectionTests
 
             using var _ = OverrideAppDataRoot(tree.Root);
 
-            NovaTerminal.SettingsWindow? window = null;
-            var exception = Record.Exception(() => window = new NovaTerminal.SettingsWindow());
+            Ntilde.SettingsWindow? window = null;
+            var exception = Record.Exception(() => window = new Ntilde.SettingsWindow());
 
             Assert.Null(exception);
             Assert.NotNull(window);
@@ -984,7 +984,7 @@ public sealed class SettingsWindowBackupSectionTests
 
         try
         {
-            Directory.GetFiles(directory, "*.novabackup");
+            Directory.GetFiles(directory, "*.ntildebackup");
             return false; // enumeration still succeeded - the restriction did not take (root, etc.)
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -996,18 +996,18 @@ public sealed class SettingsWindowBackupSectionTests
     /// <summary>
     /// Points <c>AppPaths.RootDirectory</c> (and therefore <c>WireBackupSection</c>'s own
     /// <see cref="BackupService"/>) at a temp tree for the lifetime of the returned scope, so
-    /// constructing a <see cref="NovaTerminal.SettingsWindow"/> in a test never reads or writes the
+    /// constructing a <see cref="Ntilde.SettingsWindow"/> in a test never reads or writes the
     /// real user profile's backups directory.
     /// </summary>
     private static IDisposable OverrideAppDataRoot(string root)
     {
-        string? previous = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
-        Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", root);
+        string? previous = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", root);
         return new RestoreEnvVar(previous);
     }
 
     private sealed class RestoreEnvVar(string? previous) : IDisposable
     {
-        public void Dispose() => Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previous);
+        public void Dispose() => Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previous);
     }
 }

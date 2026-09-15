@@ -1,13 +1,13 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using Xunit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     /// <summary>
     /// Tests for PowerShell prompt wrapping behavior during horizontal shrink.

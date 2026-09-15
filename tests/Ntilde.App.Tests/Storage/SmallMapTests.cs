@@ -1,8 +1,8 @@
 using System;
 using Xunit;
-using NovaTerminal.VT.Storage;
+using Ntilde.VT.Storage;
 
-namespace NovaTerminal.Tests.Storage
+namespace Ntilde.Tests.Storage
 {
     public class SmallMapTests
     {

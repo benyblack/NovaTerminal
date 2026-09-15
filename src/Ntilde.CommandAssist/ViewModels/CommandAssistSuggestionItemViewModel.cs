@@ -1,9 +1,9 @@
 using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.ViewModels;
+namespace Ntilde.CommandAssist.ViewModels;
 
 /// <summary>
 /// One row in the popup list.

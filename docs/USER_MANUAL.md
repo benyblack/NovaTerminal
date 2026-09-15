@@ -1,10 +1,10 @@
-# NovaTerminal User Manual
+# Ntilde User Manual
 
-Welcome to NovaTerminal, a modern, cross-platform terminal emulator focused on correctness, performance, and predictability. This manual covers every feature currently available to help you maximize your productivity.
+Welcome to Ntilde, a modern, cross-platform terminal emulator focused on correctness, performance, and predictability. This manual covers every feature currently available to help you maximize your productivity.
 
 ## 1. Getting Started
 ### 1.1 Command Palette
-The **Command Palette** is the central hub for accessing all features and commands in NovaTerminal.
+The **Command Palette** is the central hub for accessing all features and commands in Ntilde.
 - **Shortcut:** `Ctrl+Shift+P`
 - **Usage:** Type any feature name to filter and execute commands instantly.
 
@@ -23,7 +23,7 @@ The **Command Palette** is the central hub for accessing all features and comman
 ---
 
 ## 2. Window and Tab Management
-NovaTerminal offers advanced windowing capabilities, including tabs, workspaces, and workspace bundles.
+Ntilde offers advanced windowing capabilities, including tabs, workspaces, and workspace bundles.
 
 ### 2.1 Tab Basics
 - **New Tab:** `Ctrl+Shift+T` (Opens the default profile)
@@ -77,7 +77,7 @@ Workspaces save your exact window state, including tabs, pane splits, and zoomin
 - **Profile Rules:** Automatically apply a template whenever a specific profile launches (`Tab Rule: Set Template for Current Profile...`).
 
 ### 2.5 Workspace Bundles (Portable Sessions)
-Bundles allow exporting and importing tabs and pane layouts as portable `.novaws.json` files.
+Bundles allow exporting and importing tabs and pane layouts as portable `.ntildews.json` files.
 - **Exporting:** `Workspace: Export Bundle...` or `Workspace: Export Current Session Bundle...`
 - **Import/Open:** `Workspace: Import Bundle...` or `Workspace: Open Bundle...`
 *(Note: Enterprise policies may restrict bundle sharing in managed environments).*
@@ -168,7 +168,7 @@ The panel is per-pane, and it stays down while a fullscreen program owns the gri
 ---
 
 ## 6. Remote Connections (SSH & SFTP)
-NovaTerminal supports high-performance SSH sessions integrated directly into the terminal, with built-in remote file management.
+Ntilde supports high-performance SSH sessions integrated directly into the terminal, with built-in remote file management.
 
 ### 6.1 SSH Profiles and Connection Manager
 - Open the **Connection Manager** with `Ctrl+Shift+K` (or the toolbar button). It is a
@@ -179,7 +179,7 @@ NovaTerminal supports high-performance SSH sessions integrated directly into the
 
 #### SSH backends
 
-NovaTerminal ships two SSH backends:
+Ntilde ships two SSH backends:
 
 - **Native SSH** — an in-process SSH client with its own host-key trust store. It is
   the **default for new profiles**, and supports password, identity-file and
@@ -190,7 +190,7 @@ NovaTerminal ships two SSH backends:
 
 Settings → SSH holds the global native toggle. With it off, new profiles default to
 OpenSSH instead, so the default can never point at a backend that will refuse to
-run. NovaTerminal warns you if a native profile carries mux options or extra SSH
+run. Ntilde warns you if a native profile carries mux options or extra SSH
 arguments that only the OpenSSH backend understands. See `docs/SSH_ROADMAP.md` for
 the full capability matrix.
 
@@ -205,7 +205,7 @@ Access the following commands via the palette to transfer files and folders betw
 Transfer behavior depends on the SSH backend:
 
 - **OpenSSH profiles** use the system `scp` executable.
-- **Native SSH profiles** use NovaTerminal's built-in native SFTP path for file and folder upload/download.
+- **Native SSH profiles** use Ntilde's built-in native SFTP path for file and folder upload/download.
 
 Native SSH panes also expose a pane-local `Remote Files` sidebar from the pane context menu. The sidebar is lightly navigable, opens from the pane's current remote directory when available, and keeps upload/download actions grounded in the directory or entry you are looking at. The compact rail shows the active host identity, current remote path, and per-entry modified dates so you can quickly spot recently changed files. `Upload File` and `Upload Folder` target the directory currently shown in the sidebar, while `Download Selected` uses the selected remote file or folder.
 
@@ -237,7 +237,7 @@ Current Native SSH transfer notes:
 - **Tab Indicators:** Tabs show status icons such as `•` (background activity), `🔔` (bell/attention), `✓` / `✖` (exit status), `📌` (pinned), and `🔒` (protected). The vertical sidebar shows a richer set, including agent activity — see 2.3.
 
 ### 7.3 Advanced Graphics Support
-NovaTerminal supports rendering rich images inline natively:
+Ntilde supports rendering rich images inline natively:
 - **Sixel Graphics** (via `libsixel`, `lsix`)
 - **iTerm2 Inline Images** (via `imgcat`)
 - **Kitty Graphics Protocol**
@@ -246,7 +246,7 @@ NovaTerminal supports rendering rich images inline natively:
 
 ## 8. Configuration Backup & Restore
 
-Export your NovaTerminal configuration to a single portable `.novabackup` file and
+Export your Ntilde configuration to a single portable `.ntildebackup` file and
 import it on another machine. Open **Settings → Backup**, or use `Export
 configuration…`, `Import configuration…` or `Restore from snapshot…` in the palette
 — all three route to that page, because export and import need a file picker and a
@@ -265,7 +265,7 @@ you can inspect one before importing it.
 ### 8.2 Import modes and snapshots
 Import either **merges** into your current configuration or **replaces** it.
 
-NovaTerminal also takes automatic snapshots in the background: it watches the
+Ntilde also takes automatic snapshots in the background: it watches the
 backed-up paths and writes a snapshot once changes go quiet, deduplicated by
 content hash and capped by a retention limit. A snapshot is taken immediately
 before every import and every restore, so both are reversible from
@@ -273,10 +273,10 @@ before every import and every restore, so both are reversible from
 
 ### 8.3 From the command line
 ```
-NovaTerminal.Cli backup export <path>
-NovaTerminal.Cli backup import <path> --merge | --replace
-NovaTerminal.Cli backup list
-NovaTerminal.Cli backup restore <id>
+Ntilde.Cli backup export <path>
+Ntilde.Cli backup import <path> --merge | --replace
+Ntilde.Cli backup list
+Ntilde.Cli backup restore <id>
 ```
 
 Agents get read-only `export` and `list` through MCP, never import or restore.
@@ -285,7 +285,7 @@ Agents get read-only `export` and `list` through MCP, never import or restore.
 
 ## 9. Agent Access (MCP)
 
-NovaTerminal can expose your live terminal sessions to AI coding agents over a
+Ntilde can expose your live terminal sessions to AI coding agents over a
 local [Model Context Protocol](https://modelcontextprotocol.io) server. **Every
 part of this is off by default** — with the toggles off there is no live endpoint
 at all, and the server still answers the offline repo/documentation tools.
@@ -311,7 +311,7 @@ every acting call — allowed or denied — plus every screenshot is recorded in
 or put the Agent Activity button on the title bar from Settings → Appearance.
 
 For an agent's own view of a session, `export_replay` plus
-`NovaTerminal.Cli --replay <file>` re-renders it deterministically, frame by frame.
+`Ntilde.Cli --replay <file>` re-renders it deterministically, frame by frame.
 
 ---
 
@@ -338,13 +338,13 @@ Capture the active pane's session to a replayable recording.
 
 ### 10.5 VT Conformance Report CLI
 
-NovaTerminal ships a machine-readable VT conformance report derived from its
+Ntilde ships a machine-readable VT conformance report derived from its
 coverage matrix. Run the terminal executable with:
 
-- `NovaTerminal.Cli --vt-report` — concise summary (matrix path, support-status counts, validation counts).
-- `NovaTerminal.Cli --vt-report --json` — full machine-readable JSON report.
+- `Ntilde.Cli --vt-report` — concise summary (matrix path, support-status counts, validation counts).
+- `Ntilde.Cli --vt-report --json` — full machine-readable JSON report.
 
-On Windows, prefer the console-side executable for interactive shell use. The GUI app `NovaTerminal.exe` is intended for normal windowed startup, while `NovaTerminal.Cli.exe` is the reliable VT-report entrypoint from PowerShell or `cmd`.
+On Windows, prefer the console-side executable for interactive shell use. The GUI app `Ntilde.exe` is intended for normal windowed startup, while `Ntilde.Cli.exe` is the reliable VT-report entrypoint from PowerShell or `cmd`.
 
 This is useful when filing compatibility bug reports or comparing against
 another terminal emulator's claims.
@@ -353,7 +353,7 @@ another terminal emulator's claims.
 
 ## 11. Updates
 
-How NovaTerminal updates depends on how you installed it:
+How Ntilde updates depends on how you installed it:
 
 - **Windows installer** and the **macOS `.pkg`** check in the background. A new
   version downloads quietly and is applied when you accept the prompt and restart —

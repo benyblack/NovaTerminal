@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace NovaTerminal.Platform
+namespace Ntilde.Platform
 {
     public interface IShellQuoter
     {

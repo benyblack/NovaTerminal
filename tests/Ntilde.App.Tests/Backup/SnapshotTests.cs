@@ -1,6 +1,6 @@
-using NovaTerminal.Backup;
+using Ntilde.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class SnapshotTests
 {
@@ -202,7 +202,7 @@ public sealed class SnapshotTests
 
         using var zip = System.IO.Compression.ZipFile.OpenRead(second!.FilePath);
         Assert.DoesNotContain(zip.Entries, e => e.FullName.Contains("backups", StringComparison.Ordinal));
-        Assert.DoesNotContain(zip.Entries, e => e.FullName.EndsWith(".novabackup", StringComparison.Ordinal));
+        Assert.DoesNotContain(zip.Entries, e => e.FullName.EndsWith(".ntildebackup", StringComparison.Ordinal));
     }
 
     /// <summary>

@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 public sealed record StartupPhaseStatistics(
     int Count,

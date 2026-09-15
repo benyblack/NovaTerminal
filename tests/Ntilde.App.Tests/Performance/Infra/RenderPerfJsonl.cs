@@ -1,15 +1,15 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using Xunit.Sdk;
-using NovaTerminal.Rendering;
+using Ntilde.Rendering;
 
-namespace NovaTerminal.Tests.Performance.Infra
+namespace Ntilde.Tests.Performance.Infra
 {
     internal static class RenderPerfJsonl
     {

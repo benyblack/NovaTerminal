@@ -41,7 +41,7 @@ Write-Host "=== REPLAY TESTS ==="
 & $build test -c Release --filter Category=Replay
 
 Write-Host "=== AOT PUBLISH ==="
-& $build publish src/NovaTerminal.App/NovaTerminal.App.csproj `
+& $build publish src/Ntilde.App/Ntilde.App.csproj `
     -c Release `
     -r win-x64 `
     -p:PublishAot=true `

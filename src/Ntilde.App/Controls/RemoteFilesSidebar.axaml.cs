@@ -6,9 +6,9 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using NovaTerminal.ViewModels.Ssh;
+using Ntilde.ViewModels.Ssh;
 
-namespace NovaTerminal.Controls;
+namespace Ntilde.Controls;
 
 public partial class RemoteFilesSidebar : UserControl
 {

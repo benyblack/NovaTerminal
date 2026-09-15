@@ -1,4 +1,4 @@
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // Regression tests for #150: regex patterns that produce zero-length matches (e.g. "a*",
 // "()", "\b") crashed FindMatches with ArgumentOutOfRangeException — thrown while holding

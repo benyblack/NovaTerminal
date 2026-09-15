@@ -1,4 +1,4 @@
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration.Integration;
 
 /// <summary>
 /// All shell-integration test classes share this collection so xunit

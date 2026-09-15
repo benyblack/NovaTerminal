@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Text;
 using ModelContextProtocol.Server;
-using NovaTerminal.VtContract;
+using Ntilde.VtContract;
 
-namespace NovaTerminal.McpServer.Tools;
+namespace Ntilde.McpServer.Tools;
 
 [McpServerToolType]
 public static class VtTools
@@ -18,8 +18,8 @@ public static class VtTools
         "TechnicalGapChecklist.md",
     };
 
-    [McpServerTool(Name = "novaterminal.get_vt_conformance_summary"),
-     Description("Returns NovaTerminal's VT/ANSI conformance status and known terminal gaps, gathered from the repo's coverage/gap matrices (e.g. docs/vt_coverage_matrix.md). Use before changing parser/rendering behavior to understand what is and isn't supported.")]
+    [McpServerTool(Name = "ntilde.get_vt_conformance_summary"),
+     Description("Returns Ntilde's VT/ANSI conformance status and known terminal gaps, gathered from the repo's coverage/gap matrices (e.g. docs/vt_coverage_matrix.md). Use before changing parser/rendering behavior to understand what is and isn't supported.")]
     public static string GetVtConformanceSummary(RepoContext repo)
     {
         var sb = new StringBuilder();
@@ -36,7 +36,7 @@ public static class VtTools
         {
             return "VT conformance documents could not be located. " +
                    "Expected one of: docs/" + string.Join(", docs/", ConformanceDocs) +
-                   " (set NOVATERMINAL_REPO_ROOT if running outside the repo).";
+                   " (set NTILDE_REPO_ROOT if running outside the repo).";
         }
 
         return sb.ToString().TrimEnd();
@@ -66,7 +66,7 @@ public static class VtTools
         ["CSI:T"] = "SD — Scroll Down Ps lines.",
         ["CSI:X"] = "ECH — Erase Ps characters.",
         ["CSI:@"] = "ICH — Insert Ps blank characters.",
-        ["CSI:b"] = "REP — Repeat the preceding character Ps times. NOT currently handled by NovaTerminal's parser (it has no REP handler; CSI params are clamped generically but the sequence is a no-op).",
+        ["CSI:b"] = "REP — Repeat the preceding character Ps times. NOT currently handled by Ntilde's parser (it has no REP handler; CSI params are clamped generically but the sequence is a no-op).",
         ["CSI:d"] = "VPA — Line Position Absolute (row Ps).",
         ["CSI:m"] = "SGR — Select Graphic Rendition (colors/bold/underline/etc.).",
         ["CSI:r"] = "DECSTBM — Set Top/Bottom margins (scroll region).",
@@ -79,7 +79,7 @@ public static class VtTools
         ["OSC:2"] = "Set window title.",
         ["OSC:7"] = "Report current working directory (file:// URI).",
         ["OSC:8"] = "Hyperlink (OSC 8 ; params ; URI ST … ST).",
-        ["OSC:52"] = "Clipboard get/set (base64). NOT currently supported by NovaTerminal — HandleOsc ignores OSC 52 (see docs/vt_coverage_matrix.md).",
+        ["OSC:52"] = "Clipboard get/set (base64). NOT currently supported by Ntilde — HandleOsc ignores OSC 52 (see docs/vt_coverage_matrix.md).",
         ["OSC:133"] = "Shell integration markers (A=prompt, B=cmd start, C=cmd accepted, D=cmd finished).",
         ["OSC:1337"] = "iTerm2 proprietary (incl. inline images: 1337;File=…).",
         ["OSC:1339"] = "Tunneled Sixel/Kitty image payload.",
@@ -87,8 +87,8 @@ public static class VtTools
         ["ESC:7"] = "DECSC — Save cursor.",
         ["ESC:8"] = "DECRC — Restore cursor.",
         ["ESC:M"] = "RI — Reverse Index (scroll down if at top).",
-        ["DCS"] = "Device Control String — used by NovaTerminal for Sixel images (… q … ST).",
-        ["APC"] = "Application Program Command — used by NovaTerminal for Kitty graphics (ESC _ G … ST).",
+        ["DCS"] = "Device Control String — used by Ntilde for Sixel images (… q … ST).",
+        ["APC"] = "Application Program Command — used by Ntilde for Kitty graphics (ESC _ G … ST).",
     };
 
     /// <summary>
@@ -128,8 +128,8 @@ public static class VtTools
         ['p'] = "$?",   // DECRQM
     };
 
-    [McpServerTool(Name = "novaterminal.explain_escape_sequence"),
-     Description("Explains a VT/ANSI escape sequence (standard meaning). Accepts forms like 'ESC[2J', '\\x1b[2J', 'CSI 2 J', 'CSI ?25h', 'OSC 7', or 'ESC c'. Entries note where NovaTerminal does NOT handle a sequence; for the authoritative support matrix use novaterminal.get_vt_conformance_summary.")]
+    [McpServerTool(Name = "ntilde.explain_escape_sequence"),
+     Description("Explains a VT/ANSI escape sequence (standard meaning). Accepts forms like 'ESC[2J', '\\x1b[2J', 'CSI 2 J', 'CSI ?25h', 'OSC 7', or 'ESC c'. Entries note where Ntilde does NOT handle a sequence; for the authoritative support matrix use ntilde.get_vt_conformance_summary.")]
     public static string ExplainEscapeSequence(
         [Description("The escape sequence to explain, e.g. 'ESC[2J', 'CSI ?1049h', 'OSC 8', 'ESC c'.")] string sequence)
     {
@@ -172,7 +172,7 @@ public static class VtTools
             // description of the bare final byte may be used for a qualified spelling unless that
             // spelling is itself defined. CSI ? 1;1;0 S is XTSMGRAPHICS and CSI > 2 T is XTRMTITLE;
             // the parser ignores both (#274), so calling them SU and SD tells the reader the
-            // opposite of what NovaTerminal does.
+            // opposite of what Ntilde does.
             //
             // CHA used to be special-cased here as a "qualified form ... currently processed as
             // CHA", mirroring the parser's missing leader guard. That guard now exists, and the
@@ -211,7 +211,7 @@ public static class VtTools
                      + (privateByteOutOfPlace
                          ? "A private-parameter byte ('<', '=', '>', '?') is only meaningful as the leader, in the first position. "
                          : "No parameter byte may follow an intermediate byte. ")
-                     + "NovaTerminal's parser discards the whole sequence.";
+                     + "Ntilde's parser discards the whole sequence.";
             }
 
             // Parameter count can select a different function too, and the leader/intermediate
@@ -246,12 +246,12 @@ public static class VtTools
                     // another.
                     return !hasSubParameters && discriminated.ExactForms.TryGetValue(topLevelCount, out string? exactForm)
                         ? $"CSI sequence with final byte '{finalByte}': {exactForm} ({topLevelCount} parameters), "
-                          + "not the single-parameter form. Not implemented; NovaTerminal's parser ignores it."
+                          + "not the single-parameter form. Not implemented; Ntilde's parser ignores it."
                         : $"CSI sequence with final byte '{finalByte}': this parameter list matches no "
                           + $"defined form for this final byte (the bare sequence takes at most "
                           + $"{discriminated.MaxBareParameters} parameter(s)"
                           + (hasSubParameters ? ", and ':' subparameters are not part of any form here" : string.Empty)
-                          + "). NovaTerminal's parser ignores it.";
+                          + "). Ntilde's parser ignores it.";
                 }
             }
 
@@ -259,7 +259,7 @@ public static class VtTools
             {
                 return $"CSI sequence with final byte '{finalByte}'{note}: the leader/intermediate "
                      + $"'{qualifiers}' selects a different function than the bare final byte, and that "
-                     + "form is not in the curated table. NovaTerminal's parser ignores it.";
+                     + "form is not in the curated table. Ntilde's parser ignores it.";
             }
 
             return ((ContractSequenceTable.TryGetValue(key, out var desc))
@@ -319,15 +319,15 @@ public static class VtTools
         string supportNote = capability.Support switch
         {
             VtSupport.Supported => string.Empty,
-            VtSupport.Partial => " PARTIALLY supported by NovaTerminal.",
-            VtSupport.Unsupported => " NOT currently handled by NovaTerminal's parser.",
+            VtSupport.Partial => " PARTIALLY supported by Ntilde.",
+            VtSupport.Unsupported => " NOT currently handled by Ntilde's parser.",
             _ => throw new InvalidOperationException($"Unknown VT support state '{capability.Support}'."),
         };
 
         return $"{capability.Mnemonic} — {capability.Description}{supportNote}";
     }
 
-    [McpServerTool(Name = "novaterminal.generate_vt_test_plan"),
+    [McpServerTool(Name = "ntilde.generate_vt_test_plan"),
      Description("Generates a structured VT/ANSI test plan for a parser/rendering feature or sequence: cases to cover (parsing, state, reflow, edge cases), where tests live, and how to verify against conformance.")]
     public static string GenerateVtTestPlan(
         [Description("The VT feature or sequence under test, e.g. 'OSC 8 hyperlinks' or 'DECSTBM scroll region'.")] string feature)
@@ -347,13 +347,13 @@ public static class VtTools
         - Alt screen vs main screen, and scrollback, where relevant.
 
         ## Where tests live
-        - Pure parser/buffer behavior → tests/NovaTerminal.VT.Tests/.
-        - Replay/regression (real byte streams) → tests/NovaTerminal.App.Tests/ReplayTests/.
-        - Reflow scenarios → tests/NovaTerminal.App.Tests/ReflowScenariosTests.cs and BufferTests/.
+        - Pure parser/buffer behavior → tests/Ntilde.VT.Tests/.
+        - Replay/regression (real byte streams) → tests/Ntilde.App.Tests/ReplayTests/.
+        - Reflow scenarios → tests/Ntilde.App.Tests/ReflowScenariosTests.cs and BufferTests/.
 
         ## Verification
         - Drive input via AnsiParser.Process and assert on TerminalBuffer state under the read lock.
-        - Cross-check against novaterminal.get_vt_conformance_summary for known gaps/expectations.
+        - Cross-check against ntilde.get_vt_conformance_summary for known gaps/expectations.
         - For hostile-input robustness, consider a case in the SharpFuzz harness (#124).
         """;
     }

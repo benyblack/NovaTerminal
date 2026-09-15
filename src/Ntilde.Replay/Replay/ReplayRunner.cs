@@ -5,9 +5,9 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Replay
+namespace Ntilde.Replay
 {
     public enum ReplayPlaybackMode
     {
@@ -99,7 +99,7 @@ namespace NovaTerminal.Replay
             {
                 // Try to parse the VERY FIRST LINE as a v2 header
                 var header = JsonSerializer.Deserialize(line, ReplayJsonContext.Default.ReplayHeader);
-                if (header != null && header.Type == "novarec" && header.Version == 2)
+                if (header != null && header.Type == "ntilderec" && header.Version == 2)
                 {
                     isV2 = true;
                     if (onResizeCallback != null)

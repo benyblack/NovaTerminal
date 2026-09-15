@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
 using System.Threading.Tasks;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core
+namespace Ntilde.Tests.Core
 {
     public class SynchronizedRenderingTests
     {

@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // Regression tests for #169: DCS routing (DECRQSS/XTGETTCAP vs Sixel) and
 // C0-control handling inside CSI sequences.

@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.CommandAssist.Providers;
+namespace Ntilde.CommandAssist.Providers;
 
 /// <summary>
 /// Everything a content provider is allowed to see about the user's session. Constructed in exactly

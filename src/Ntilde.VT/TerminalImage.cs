@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     public class TerminalImage
     {

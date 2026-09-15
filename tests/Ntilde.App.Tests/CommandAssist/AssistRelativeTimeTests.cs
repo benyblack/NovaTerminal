@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.Domain;
+using Ntilde.CommandAssist.Domain;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// The relative-time captions that replaced <c>Used 2026-08-04 15:23</c> on history rows.

@@ -1,15 +1,15 @@
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.VT;
+using Ntilde.Controls;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.Controls;
+namespace Ntilde.Tests.Controls;
 
 /// <summary>
 /// The Phase 1b seam: <c>TerminalPane.TryGetGridCommandLine</c> combines the newest
 /// <c>OSC 133;B</c> mark with the pane's buffer and hands both to
 /// <see cref="GridQueryReader"/>. Extraction semantics are covered exhaustively in
-/// <c>NovaTerminal.VT.Tests.GridQueryReaderTests</c>; what is pinned here is the wiring —
+/// <c>Ntilde.VT.Tests.GridQueryReaderTests</c>; what is pinned here is the wiring —
 /// that the pane keeps the mark at all, and keeps the <i>newest</i> one.
 /// </summary>
 public class PaneGridCommandLineTests
@@ -54,7 +54,7 @@ public class PaneGridCommandLineTests
 
         pane.Parser!.Process("\x1b]133;A\x07$ " + PromptEnd + "stale");
         pane.Parser!.Process("\r\x1b[K");
-        pane.Parser!.Process("\x1b]133;A\x07nova> " + PromptEnd + "ls -la");
+        pane.Parser!.Process("\x1b]133;A\x07ntilde> " + PromptEnd + "ls -la");
 
         Assert.True(pane.TryGetGridCommandLine(out GridCommandLine line));
         Assert.Equal("ls -la", line.Text);
@@ -99,7 +99,7 @@ public class PaneGridCommandLineTests
         // user does with a new one, it looked like the first prompt specifically.
         //
         // The mark now lives on the buffer and the reflow re-anchors it; nothing about the
-        // generation check was relaxed. See NovaTerminal.VT.Tests.ShellMarkReflowTests.
+        // generation check was relaxed. See Ntilde.VT.Tests.ShellMarkReflowTests.
         using var pane = new TerminalPane();
         pane.CreateAndWireParser();
 

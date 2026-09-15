@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Text;
 using System.Linq;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests;
+namespace Ntilde.Tests;
 
 public sealed class OscShellIntegrationTests
 {
@@ -21,7 +21,7 @@ public sealed class OscShellIntegrationTests
 
         Assert.NotNull(mark);
         // The mark carries where the user's input starts; see
-        // NovaTerminal.VT.Tests/Osc133CommandStartMarkTests for the full contract.
+        // Ntilde.VT.Tests/Osc133CommandStartMarkTests for the full contract.
         Assert.Equal(2, mark!.Value.Column);
     }
 

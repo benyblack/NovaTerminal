@@ -1,14 +1,14 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.Collections.Generic;
 using Moq;
 using Xunit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Platform.Input;
-using NovaTerminal.Pty;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Platform.Input;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Tests.Input
+namespace Ntilde.Tests.Input
 {
     public class TerminalInputSenderTests
     {

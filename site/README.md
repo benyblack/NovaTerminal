@@ -1,6 +1,6 @@
-# NovaTerminal site
+# Ntilde site
 
-Marketing and documentation landing page for [NovaTerminal](../README.md),
+Marketing and documentation landing page for [Ntilde](../README.md),
 hosted on GitHub Pages.
 
 - **Source:** [`site/`](./) (Astro + Tailwind, single-page with anchor sections)
@@ -48,10 +48,10 @@ runs on every push to `main`:
 2. (Optional) **Settings → Pages → Custom domain:** point at your domain, then
    add a `CNAME` file under `site/public/` containing only the domain.
 3. (Optional) **Settings → Secrets and variables → Variables:**
-   - `ASTRO_SITE` — canonical origin (e.g. `https://novaterminal.dev`).
+   - `ASTRO_SITE` — canonical origin (e.g. `https://ntilde.dev`).
      Default: `https://benyblack.github.io`.
    - `ASTRO_BASE` — path prefix Astro adds to every URL. Default:
-     `/NovaTerminal`. Set to empty for a custom-domain deployment.
+     `/Ntilde`. Set to empty for a custom-domain deployment.
    The workflow forwards both to the Astro build.
 
 ## Stack
@@ -72,7 +72,7 @@ runs on every push to `main`:
   [`src/layouts/Base.astro`](./src/layouts/Base.astro).
 - Brand colors and font stacks are defined in
   [`tailwind.config.mjs`](./tailwind.config.mjs) under
-  `theme.extend.colors.{ink,nova}` and `theme.extend.fontFamily`.
+  `theme.extend.colors.{ink,ntilde}` and `theme.extend.fontFamily`.
 
 ## File map
 

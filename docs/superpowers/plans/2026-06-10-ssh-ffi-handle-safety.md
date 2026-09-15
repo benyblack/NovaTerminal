@@ -12,10 +12,10 @@
 **Issue:** #121 items 2/4/3 (item 1 = separate sub-project B).
 
 **Build/test commands (from repo root):**
-- Rust SSH: `cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml`
-- Rust SSH build (release, for C# to load): `cargo build --release --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml`
-- C# build: `scripts/build.ps1 build src/NovaTerminal.Platform`
-- C# tests (targeted): `scripts/build.ps1 test tests/NovaTerminal.Platform.Tests --filter "FullyQualifiedName~NativeSshSafeHandle"`
+- Rust SSH: `cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml`
+- Rust SSH build (release, for C# to load): `cargo build --release --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml`
+- C# build: `scripts/build.ps1 build src/Ntilde.Platform`
+- C# tests (targeted): `scripts/build.ps1 test tests/Ntilde.Platform.Tests --filter "FullyQualifiedName~NativeSshSafeHandle"`
 - ALWAYS use `scripts/build.ps1` / `scripts/build.sh`, never raw `dotnet build` (hangs on piped stdout — see CLAUDE.md).
 
 ---
@@ -30,7 +30,7 @@
 | `Ssh/Native/NativeSshInterop.cs` + `INativeSshInterop.cs` | P/Invoke + interface migrated to `NovaSshSafeHandle` | 5, 6 |
 | `Ssh/Sessions/NativeSshSession.cs` | `_sessionHandle` → `NovaSshSafeHandle`; Dispose | 6 |
 | `Ssh/Native/NativePortForwardSession.cs` | hold the shared `NovaSshSafeHandle` | 6 |
-| `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshSafeHandleTests.cs` (new) | disposed-handle safety | 7 |
+| `tests/Ntilde.Platform.Tests/Ssh/NativeSshSafeHandleTests.cs` (new) | disposed-handle safety | 7 |
 | `.github/workflows/ci.yml` | ensure `rusty_ssh` `cargo test` runs | 8 |
 
 ---
@@ -40,8 +40,8 @@
 ### Task 1: Registry + interior mutability + migrate all session exports
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs` (struct 117-121; constructions ~594, ~2817, ~2978; exports 602-844; close 846-867; connect ~555-600)
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/tests/ffi_contract.rs` (null-handle test signatures)
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs` (struct 117-121; constructions ~594, ~2817, ~2978; exports 602-844; close 846-867; connect ~555-600)
+- Modify: `src/Ntilde.App/native/rusty_ssh/tests/ffi_contract.rs` (null-handle test signatures)
 
 This is a cohesive refactor; the existing tests (`ffi_contract.rs`, the `ffi_guard` unit tests) are the regression guard. End state: `cargo test` green.
 
@@ -409,13 +409,13 @@ In `invalid_handles_are_rejected_cleanly`, the calls now pass a handle `0usize` 
 
 - [ ] **Step 7: Build + run the Rust suite**
 
-Run: `cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml`
+Run: `cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml`
 Expected: builds; all existing tests pass (`ffi_struct_layout_stays_stable`, `invalid_handles_are_rejected_cleanly`, `ffi_guard_*`). Fix any compile errors from missed `command_tx`/`worker` access sites (search the file for `.command_tx` and `.worker` to confirm every read goes through `.lock()`).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs src/NovaTerminal.App/native/rusty_ssh/tests/ffi_contract.rs
+git add src/Ntilde.App/native/rusty_ssh/src/lib.rs src/Ntilde.App/native/rusty_ssh/tests/ffi_contract.rs
 git commit -m "refactor(ssh-ffi): registry-backed handle ids, fail-closed on stale (#121 #118)"
 ```
 End the commit body with a blank line then:
@@ -426,7 +426,7 @@ End the commit body with a blank line then:
 ### Task 2: Handle-lifecycle abuse unit tests (item 4)
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs` (add a `#[cfg(test)] mod handle_abuse_tests` at end)
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs` (add a `#[cfg(test)] mod handle_abuse_tests` at end)
 
 These run inside the crate so they can build a stub session (no live server) and use `registry_insert`.
 
@@ -497,13 +497,13 @@ mod handle_abuse_tests {
 
 - [ ] **Step 3: Run**
 
-Run: `cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml handle_abuse`
+Run: `cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml handle_abuse`
 Expected: PASS (all three). The concurrent test repeats 200× to shake out the race.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs
+git add src/Ntilde.App/native/rusty_ssh/src/lib.rs
 git commit -m "test(ssh-ffi): handle-lifecycle abuse tests (call-after-close, double-close, race) (#121)"
 ```
 (+ Co-Authored-By trailer.)
@@ -513,7 +513,7 @@ git commit -m "test(ssh-ffi): handle-lifecycle abuse tests (call-after-close, do
 ### Task 3: JSON-malformed abuse tests (item 4)
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/tests/ffi_contract.rs`
+- Modify: `src/Ntilde.App/native/rusty_ssh/tests/ffi_contract.rs`
 
 - [ ] **Step 1: Add malformed/oversized JSON tests**
 
@@ -552,13 +552,13 @@ fn oversized_json_is_rejected_without_panic() {
 
 - [ ] **Step 2: Run**
 
-Run: `cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml`
+Run: `cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml`
 Expected: all pass, including the two new JSON tests and the (now id-`0`) null tests.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/rusty_ssh/tests/ffi_contract.rs
+git add src/Ntilde.App/native/rusty_ssh/tests/ffi_contract.rs
 git commit -m "test(ssh-ffi): malformed/oversized JSON abuse tests (#121)"
 ```
 (+ Co-Authored-By trailer.)
@@ -570,7 +570,7 @@ git commit -m "test(ssh-ffi): malformed/oversized JSON abuse tests (#121)"
 ### Task 4: Debug allocation counter + balance test
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs`
 
 - [ ] **Step 1: Add the debug counter and hook it into the string alloc/free boundary**
 
@@ -641,13 +641,13 @@ mod alloc_balance_tests {
 
 - [ ] **Step 3: Run**
 
-Run: `cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml alloc_balance`
+Run: `cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml alloc_balance`
 Expected: PASS.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs
+git add src/Ntilde.App/native/rusty_ssh/src/lib.rs
 git commit -m "feat(ssh-ffi): debug FFI-string alloc counter + balance test (#121)"
 ```
 (+ Co-Authored-By trailer.)
@@ -659,8 +659,8 @@ git commit -m "feat(ssh-ffi): debug FFI-string alloc counter + balance test (#12
 ### Task 5: `NovaSshSafeHandle` + NativeMethods signature changes
 
 **Files:**
-- Create: `src/NovaTerminal.Platform/Ssh/Native/NativeSshSafeHandle.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs` (the nested `NativeMethods` class, 915-959)
+- Create: `src/Ntilde.Platform/Ssh/Native/NativeSshSafeHandle.cs`
+- Modify: `src/Ntilde.Platform/Ssh/Native/NativeSshInterop.cs` (the nested `NativeMethods` class, 915-959)
 
 - [ ] **Step 1: Create `NovaSshSafeHandle`**
 
@@ -668,7 +668,7 @@ git commit -m "feat(ssh-ffi): debug FFI-string alloc counter + balance test (#12
 using System;
 using Microsoft.Win32.SafeHandles;
 
-namespace NovaTerminal.Platform.Ssh.Native;
+namespace Ntilde.Platform.Ssh.Native;
 
 // Owns a native SSH session registry id (returned by nova_ssh_connect). Passing
 // this to every session P/Invoke makes the marshaller AddRef before / Release
@@ -727,7 +727,7 @@ In `NativeSshInterop.NativeMethods`, change the persistent-session imports to ta
 
 - [ ] **Step 3: Build (expect interface/impl errors — fixed in Task 6)**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.Platform`
+Run: `scripts/build.ps1 build src/Ntilde.Platform`
 Expected: FAIL — `INativeSshInterop`/`NativeSshInterop`/`NativeSshSession` still use `IntPtr`. Resolved in Task 6. (Proceed to Task 6 to reach green.)
 
 ---
@@ -735,10 +735,10 @@ Expected: FAIL — `INativeSshInterop`/`NativeSshInterop`/`NativeSshSession` sti
 ### Task 6: Migrate interface, interop bodies, session, and port-forward
 
 **Files:**
-- Modify: `src/NovaTerminal.Platform/Ssh/Native/INativeSshInterop.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs` (`Connect` + session methods)
-- Modify: `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Native/NativePortForwardSession.cs`
+- Modify: `src/Ntilde.Platform/Ssh/Native/INativeSshInterop.cs`
+- Modify: `src/Ntilde.Platform/Ssh/Native/NativeSshInterop.cs` (`Connect` + session methods)
+- Modify: `src/Ntilde.Platform/Ssh/Sessions/NativeSshSession.cs`
+- Modify: `src/Ntilde.Platform/Ssh/Native/NativePortForwardSession.cs`
 
 - [ ] **Step 1: Migrate the interface**
 
@@ -823,14 +823,14 @@ Change its stored handle field and constructor parameter from `IntPtr` to `NovaS
 
 - [ ] **Step 5: Build the native lib + the platform assembly**
 
-Run: `cargo build --release --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml`
-Then: `scripts/build.ps1 build src/NovaTerminal.Platform`
+Run: `cargo build --release --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml`
+Then: `scripts/build.ps1 build src/Ntilde.Platform`
 Expected: Build succeeded. Fix any remaining `IntPtr`-typed call sites the compiler flags.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Native/NativeSshSafeHandle.cs src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs src/NovaTerminal.Platform/Ssh/Native/INativeSshInterop.cs src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs src/NovaTerminal.Platform/Ssh/Native/NativePortForwardSession.cs
+git add src/Ntilde.Platform/Ssh/Native/NativeSshSafeHandle.cs src/Ntilde.Platform/Ssh/Native/NativeSshInterop.cs src/Ntilde.Platform/Ssh/Native/INativeSshInterop.cs src/Ntilde.Platform/Ssh/Sessions/NativeSshSession.cs src/Ntilde.Platform/Ssh/Native/NativePortForwardSession.cs
 git commit -m "feat(ssh): NovaSshSafeHandle ref-counts native SSH session FFI (#121 #118)"
 ```
 (+ Co-Authored-By trailer.)
@@ -840,15 +840,15 @@ git commit -m "feat(ssh): NovaSshSafeHandle ref-counts native SSH session FFI (#
 ### Task 7: C# disposed-handle safety test
 
 **Files:**
-- Create: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshSafeHandleTests.cs`
+- Create: `tests/Ntilde.Platform.Tests/Ssh/NativeSshSafeHandleTests.cs`
 
 - [ ] **Step 1: Write the test**
 
 ```csharp
-using NovaTerminal.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Native;
 using Xunit;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public class NativeSshSafeHandleTests
 {
@@ -894,13 +894,13 @@ public class NativeSshSafeHandleTests
 
 - [ ] **Step 2: Run**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.Platform.Tests --filter "FullyQualifiedName~NativeSshSafeHandle"`
+Run: `scripts/build.ps1 test tests/Ntilde.Platform.Tests --filter "FullyQualifiedName~NativeSshSafeHandle"`
 Expected: PASS (2 tests).
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add tests/NovaTerminal.Platform.Tests/Ssh/NativeSshSafeHandleTests.cs
+git add tests/Ntilde.Platform.Tests/Ssh/NativeSshSafeHandleTests.cs
 git commit -m "test(ssh): NovaSshSafeHandle dispose idempotency + disposed-handle safety (#121)"
 ```
 (+ Co-Authored-By trailer.)
@@ -920,7 +920,7 @@ Search `ci.yml` for `rusty_ssh` and `cargo test`. The repo already has an `Analy
 
 ```yaml
       - name: Rust SSH FFI tests
-        run: cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml
+        run: cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml
 ```
 
 If a `cargo test` already covers the workspace/crate, leave it; just confirm `ffi_contract` and the new unit tests are included.
@@ -936,10 +936,10 @@ git commit -m "ci: run rusty_ssh cargo tests (FFI contract + abuse suite) (#121)
 - [ ] **Step 3: Final consolidated verification**
 
 Run, expecting all green:
-- `cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml` → all pass (layout, null, handle-abuse, JSON-abuse, alloc-balance).
-- `cargo build --release --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml`
-- `scripts/build.ps1 build src/NovaTerminal.App` (full app builds with the migrated platform assembly).
-- `scripts/build.ps1 test tests/NovaTerminal.Platform.Tests --filter "FullyQualifiedName~NativeSshSafeHandle"` → pass.
+- `cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml` → all pass (layout, null, handle-abuse, JSON-abuse, alloc-balance).
+- `cargo build --release --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml`
+- `scripts/build.ps1 build src/Ntilde.App` (full app builds with the migrated platform assembly).
+- `scripts/build.ps1 test tests/Ntilde.Platform.Tests --filter "FullyQualifiedName~NativeSshSafeHandle"` → pass.
 
 - [ ] **Step 4: Confirm the issue scope**
 
@@ -947,7 +947,7 @@ This PR closes #121 items 2, 4, 3. Note in the PR that item 1 (credential zeroiz
 
 ## Notes for the implementer
 
-- Do NOT run the whole `NovaTerminal.Platform.Tests` project broadly if it pulls in slow/Docker-gated SSH E2E tests; use the `--filter` shown. The native SSH E2E tests are `[SKIP]` without Docker.
+- Do NOT run the whole `Ntilde.Platform.Tests` project broadly if it pulls in slow/Docker-gated SSH E2E tests; use the `--filter` shown. The native SSH E2E tests are `[SKIP]` without Docker.
 - The native `rusty_ssh` artifact must be rebuilt (`cargo build --release …`) before the C# side resolves the changed exports at runtime.
 - Build only via `scripts/build.ps1` / `scripts/build.sh`.
 - Keep all exports `ffi_guard`-wrapped; never let a `.lock().unwrap()` panic escape (use `unwrap_or_else(|p| p.into_inner())` as shown).

@@ -1,4 +1,4 @@
-using NovaTerminal.Platform;
+using Ntilde.Platform;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -17,11 +17,11 @@ using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
 using SkiaSharp;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
-using NovaTerminal.Pty;
+using Ntilde.VT;
+using Ntilde.Rendering;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public struct CellMetrics
     {
@@ -297,7 +297,7 @@ namespace NovaTerminal.Shell
         }
 
         /// <summary>
-        /// Applies the two NovaTerminal-local carve-outs that must win over the kitty keyboard
+        /// Applies the two Ntilde-local carve-outs that must win over the kitty keyboard
         /// protocol, then defers to <see cref="TerminalInputModeEncoder.EncodeKittyKey"/>.
         ///
         /// 1. Enter on a dead session still has to bubble up to TerminalPane's
@@ -629,7 +629,7 @@ namespace NovaTerminal.Shell
                         ShellOverride = this.ShellOverride
                     };
 
-                    var mapper = new NovaTerminal.Platform.Paths.WslPathMapper(new NovaTerminal.Platform.Execution.DefaultProcessRunner(), distroName);
+                    var mapper = new Ntilde.Platform.Paths.WslPathMapper(new Ntilde.Platform.Execution.DefaultProcessRunner(), distroName);
                     var result = await DropRouter.HandleDropAsync(ctx, paths, isAlt, mapper);
                     if (result.Handled)
                     {
@@ -646,7 +646,7 @@ namespace NovaTerminal.Shell
                         }
 
                         // Fire smart action event if only 1 text file was dropped
-                        if (paths.Count == 1 && NovaTerminal.Platform.Input.TextFileDetector.IsTextFile(paths[0]))
+                        if (paths.Count == 1 && Ntilde.Platform.Input.TextFileDetector.IsTextFile(paths[0]))
                         {
                             var args = new TextFileDroppedEventArgs
                             {
@@ -758,7 +758,7 @@ namespace NovaTerminal.Shell
         private GlyphTypeface? _glyphTypeface;
         private SharedSKTypeface? _skTypeface;
         private SharedSKFont? _skFont;
-        private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
+        private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NTILDE_DIAG_GLYPH");
         private static readonly int[] BoxDrawingProbeCodePoints = { 0x2502, 0x2500, 0x250C, 0x2510, 0x2514, 0x2518, 0x253C };
         private static readonly string[] PreferredMonospaceFonts = { "JetBrainsMonoNL NFM", "JetBrainsMonoNL Nerd Font Mono", BundledFontCatalog.DefaultTerminalFontFamily, BundledFontCatalog.CascadiaFontFamily, "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
 
@@ -1175,13 +1175,13 @@ namespace NovaTerminal.Shell
 
         // Selection state
         private readonly SelectionState _selection = new SelectionState();
-        private readonly NovaTerminal.VT.Links.UrlDetector _urlDetector = new NovaTerminal.VT.Links.UrlDetector();
+        private readonly Ntilde.VT.Links.UrlDetector _urlDetector = new Ntilde.VT.Links.UrlDetector();
         // Hovered link overlay state (transient UI state, never written to the buffer).
         private (int AbsRow, int StartCol, int EndCol, string Uri)? _hoveredLink;
         // One-row memo so we only re-run detection when the pointer moves to a new row.
         private int _hoverScanRow = -1;
-        private System.Collections.Generic.IReadOnlyList<NovaTerminal.VT.Links.LinkSpan> _hoverScanSpans =
-            System.Array.Empty<NovaTerminal.VT.Links.LinkSpan>();
+        private System.Collections.Generic.IReadOnlyList<Ntilde.VT.Links.LinkSpan> _hoverScanSpans =
+            System.Array.Empty<Ntilde.VT.Links.LinkSpan>();
         private int[] _hoverScanMap = System.Array.Empty<int>();
         private bool _isSelecting = false;
         private static readonly IBrush SelectionBrush = new ImmutableSolidColorBrush(Color.FromArgb(100, 51, 153, 255));
@@ -2533,7 +2533,7 @@ namespace NovaTerminal.Shell
             {
                 // Only show as clickable if it would actually open (mirror the click allowlist),
                 // so non-openable schemes (e.g. ftp://) don't underline or show the hand cursor.
-                if (NovaTerminal.VT.Links.LinkSchemes.IsAllowed(osc8))
+                if (Ntilde.VT.Links.LinkSchemes.IsAllowed(osc8))
                     SetHoveredLink((absRow, col, col, osc8));
                 else
                     ClearHoveredLink();
@@ -2545,7 +2545,7 @@ namespace NovaTerminal.Shell
             {
                 if (absRow != _hoverScanRow)
                 {
-                    var (text, map) = NovaTerminal.VT.Links.RowTextExtractor.Extract(_buffer, absRow);
+                    var (text, map) = Ntilde.VT.Links.RowTextExtractor.Extract(_buffer, absRow);
                     _hoverScanSpans = _urlDetector.Detect(text);
                     _hoverScanMap = map;
                     _hoverScanRow = absRow;
@@ -2553,11 +2553,11 @@ namespace NovaTerminal.Shell
 
                 foreach (var span in _hoverScanSpans)
                 {
-                    var (startCol, endCol) = NovaTerminal.VT.Links.RowTextExtractor.SpanToColumns(span, _hoverScanMap);
+                    var (startCol, endCol) = Ntilde.VT.Links.RowTextExtractor.SpanToColumns(span, _hoverScanMap);
                     if (col >= startCol && col <= endCol)
                     {
                         // Mirror the click allowlist: don't underline schemes that can't open.
-                        if (NovaTerminal.VT.Links.LinkSchemes.IsAllowed(span.Uri))
+                        if (Ntilde.VT.Links.LinkSchemes.IsAllowed(span.Uri))
                             SetHoveredLink((absRow, startCol, endCol, span.Uri));
                         else
                             ClearHoveredLink();
@@ -2595,7 +2595,7 @@ namespace NovaTerminal.Shell
 
         private bool TryOpenLink(string? uri)
         {
-            if (!NovaTerminal.VT.Links.LinkSchemes.IsAllowed(uri)) return false;
+            if (!Ntilde.VT.Links.LinkSchemes.IsAllowed(uri)) return false;
             if (!Uri.TryCreate(uri, UriKind.Absolute, out var linkUri)) return false;
             try
             {
@@ -2623,10 +2623,10 @@ namespace NovaTerminal.Shell
 
             if (!_enableLinkDetection) return null;
 
-            var (text, map) = NovaTerminal.VT.Links.RowTextExtractor.Extract(_buffer, absRow);
+            var (text, map) = Ntilde.VT.Links.RowTextExtractor.Extract(_buffer, absRow);
             foreach (var span in _urlDetector.Detect(text))
             {
-                var (startCol, endCol) = NovaTerminal.VT.Links.RowTextExtractor.SpanToColumns(span, map);
+                var (startCol, endCol) = Ntilde.VT.Links.RowTextExtractor.SpanToColumns(span, map);
                 if (col >= startCol && col <= endCol) return span.Uri;
             }
             return null;

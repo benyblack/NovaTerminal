@@ -1,12 +1,12 @@
 using System;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Pty;
-using NovaTerminal.Shell;
+using Ntilde.Controls;
+using Ntilde.Pty;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Shell;
+namespace Ntilde.Tests.Shell;
 
 /// <summary>
 /// The session file must never carry — or act on — a blank shell command.
@@ -82,7 +82,7 @@ public class SessionEmptyCommandTests
         using var pane = new TerminalPane();
         Assert.Equal(string.Empty, pane.ShellCommand);
 
-        NovaSession captured = CaptureSingle(pane);
+        NtildeSession captured = CaptureSingle(pane);
 
         Assert.Null(captured.Tabs[0].Root!.Command);
     }
@@ -94,7 +94,7 @@ public class SessionEmptyCommandTests
         // restored pane must have something it can actually run. Before the fix this round-trip
         // produced ""  -> "" -> a spawn of the first %PATH% directory.
         using var pane = new TerminalPane();
-        NovaSession captured = CaptureSingle(pane);
+        NtildeSession captured = CaptureSingle(pane);
 
         TabItem restored = SessionManager.CreateRestoredTabItem(captured.Tabs[0], new TerminalSettings())!;
 
@@ -104,7 +104,7 @@ public class SessionEmptyCommandTests
             "a restored pane must carry a command it can spawn");
     }
 
-    private static NovaSession CaptureSingle(TerminalPane pane)
+    private static NtildeSession CaptureSingle(TerminalPane pane)
     {
         var tabs = new TabControl();
         tabs.Items.Add(new TabItem { Header = "Terminal", Content = pane });

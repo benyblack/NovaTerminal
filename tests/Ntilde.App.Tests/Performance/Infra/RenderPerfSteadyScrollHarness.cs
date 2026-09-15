@@ -1,17 +1,17 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using Avalonia;
 using Avalonia.Media;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using SkiaSharp;
 using Xunit.Sdk;
-using NovaTerminal.Rendering;
+using Ntilde.Rendering;
 
-namespace NovaTerminal.Tests.Performance.Infra
+namespace Ntilde.Tests.Performance.Infra
 {
     internal sealed class RenderPerfRunResult : IDisposable
     {
@@ -76,17 +76,17 @@ namespace NovaTerminal.Tests.Performance.Infra
             const int rows = 6;
             int totalFrames = warmupFrames + measuredFrames;
 
-            string tempDir = Path.Combine(Path.GetTempPath(), "novaterm-perf", Guid.NewGuid().ToString("N"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "ntilde-perf", Guid.NewGuid().ToString("N"));
             string outPath = Path.Combine(tempDir, "render_metrics.jsonl");
             Directory.CreateDirectory(tempDir);
 
-            string? previousEnabled = Environment.GetEnvironmentVariable("NOVATERM_RENDER_METRICS");
-            string? previousOut = Environment.GetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT");
+            string? previousEnabled = Environment.GetEnvironmentVariable("NTILDE_RENDER_METRICS");
+            string? previousOut = Environment.GetEnvironmentVariable("NTILDE_RENDER_METRICS_OUT");
 
             try
             {
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS", "1");
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT", outPath);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS", "1");
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS_OUT", outPath);
                 TerminalDrawOperation.ResetRenderPerfWriterForTests();
 
                 int width = (int)Math.Ceiling((cols * Metrics.CellWidth) + 8);
@@ -172,8 +172,8 @@ namespace NovaTerminal.Tests.Performance.Infra
             }
             finally
             {
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS", previousEnabled);
-                Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT", previousOut);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS", previousEnabled);
+                Environment.SetEnvironmentVariable("NTILDE_RENDER_METRICS_OUT", previousOut);
                 TerminalDrawOperation.ResetRenderPerfWriterForTests();
             }
         }

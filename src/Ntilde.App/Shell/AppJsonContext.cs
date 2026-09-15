@@ -1,11 +1,11 @@
 using System.Collections.Generic;
 using System;
 using System.Text.Json.Serialization;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Shell.Shortcuts;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Shell.Shortcuts;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     [JsonSerializable(typeof(TerminalSettings))]
     [JsonSerializable(typeof(TerminalProfile))]
@@ -15,7 +15,7 @@ namespace NovaTerminal.Shell
     [JsonSerializable(typeof(List<TerminalProfile>))]
     [JsonSerializable(typeof(List<TabTemplateRule>))]
     [JsonSerializable(typeof(List<ForwardingRule>))]
-    // Command Assist storage types moved to NovaTerminal.CommandAssist's own
+    // Command Assist storage types moved to Ntilde.CommandAssist's own
     // CommandAssistJsonContext when that assembly was extracted; nothing in App serializes them.
     [JsonSerializable(typeof(Dictionary<string, string>))]
     [JsonSerializable(typeof(List<string>))]

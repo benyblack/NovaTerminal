@@ -1,12 +1,12 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using Xunit;
 using SkiaSharp;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Rendering;
 
-namespace NovaTerminal.Tests.Rendering
+namespace Ntilde.Tests.Rendering
 {
     public class GlyphCacheTests : IDisposable
     {

@@ -1,11 +1,11 @@
 using System.Text;
-using NovaTerminal.Replay;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Native;
-using NovaTerminal.Platform.Ssh.Sessions;
-using NovaTerminal.VT;
+using Ntilde.Replay;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Sessions;
+using Ntilde.VT;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public sealed class NativeSshTerminalParityTests
 {

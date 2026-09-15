@@ -10,7 +10,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\NovaTerminal.VT\NovaTerminal.VT.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.VT\Ntilde.VT.csproj" />
   </ItemGroup>
 
 </Project>

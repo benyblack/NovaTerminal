@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+namespace Ntilde.CommandAssist.ShellIntegration.Contracts;
 
 public enum ShellIntegrationEventType
 {

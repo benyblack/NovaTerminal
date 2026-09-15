@@ -1,13 +1,13 @@
 using System.Text;
-using NovaTerminal.Replay;
-using NovaTerminal.Platform.Ssh.Interactions;
-using NovaTerminal.Platform.Ssh.Launch;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Native;
-using NovaTerminal.VT;
-using NovaTerminal.Pty;
+using Ntilde.Replay;
+using Ntilde.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Native;
+using Ntilde.VT;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Platform.Ssh.Sessions;
+namespace Ntilde.Platform.Ssh.Sessions;
 
 public sealed class NativeSshSession : ITerminalSession
 {
@@ -370,24 +370,24 @@ public sealed class NativeSshSession : ITerminalSession
                 : null,
             BashCwdBootstrap = string.Join(
                 "\n",
-                "__nova_emit_cwd() {",
+                "__ntilde_emit_cwd() {",
                 "  printf '\\033]7;%s\\007' \"$PWD\"",
                 "}",
-                "PROMPT_COMMAND=\"__nova_emit_cwd${PROMPT_COMMAND:+;$PROMPT_COMMAND}\""),
+                "PROMPT_COMMAND=\"__ntilde_emit_cwd${PROMPT_COMMAND:+;$PROMPT_COMMAND}\""),
             ZshCwdBootstrap = string.Join(
                 "\n",
                 "autoload -Uz add-zsh-hook",
-                "__nova_emit_cwd() {",
+                "__ntilde_emit_cwd() {",
                 "  printf '\\033]7;%s\\007' \"$PWD\"",
                 "}",
-                "add-zsh-hook precmd __nova_emit_cwd"),
+                "add-zsh-hook precmd __ntilde_emit_cwd"),
             FishCwdBootstrap = string.Join(
                 "\n",
-                "functions -q fish_prompt; and functions -c fish_prompt __nova_original_fish_prompt",
+                "functions -q fish_prompt; and functions -c fish_prompt __ntilde_original_fish_prompt",
                 "function fish_prompt",
                 "    printf '\\033]7;%s\\007' \"$PWD\"",
-                "    if functions -q __nova_original_fish_prompt",
-                "        __nova_original_fish_prompt",
+                "    if functions -q __ntilde_original_fish_prompt",
+                "        __ntilde_original_fish_prompt",
                 "    end",
                 "end")
         };

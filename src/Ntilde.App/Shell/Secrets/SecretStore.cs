@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace NovaTerminal.Shell.Secrets
+namespace Ntilde.Shell.Secrets
 {
     /// <summary>Selects the platform secret store and performs one-time legacy cleanup.</summary>
     public static class SecretStore

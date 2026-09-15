@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.Services.Ssh;
+namespace Ntilde.Services.Ssh;
 
 public static class RemoteSidebarStartPathResolver
 {

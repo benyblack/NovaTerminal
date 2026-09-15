@@ -1,13 +1,13 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Xunit;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using Avalonia;
 using Avalonia.Media;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class HeadlessUITests
     {

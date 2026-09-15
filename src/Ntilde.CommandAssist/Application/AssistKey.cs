@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// UI-toolkit-agnostic identity for the keys Command Assist reasons about.

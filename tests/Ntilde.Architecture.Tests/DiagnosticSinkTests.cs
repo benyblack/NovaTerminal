@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
-using NovaTerminal.Pty;
-using NovaTerminal.VT;
+using Ntilde.Pty;
+using Ntilde.VT;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 /// <summary>
 /// #109: diagnostics in the GUI and library layers used to go to <c>Console.WriteLine</c>. A Windows GUI
@@ -25,8 +25,8 @@ public class DiagnosticSinkTests
     /// </summary>
     private static readonly string[] ConsoleToolProjects =
     [
-        "NovaTerminal.Cli",
-        "NovaTerminal.Conformance",
+        "Ntilde.Cli",
+        "Ntilde.Conformance",
     ];
 
     /// <summary>
@@ -49,7 +49,7 @@ public class DiagnosticSinkTests
         DirectoryInfo? dir = new(AppContext.BaseDirectory);
         while (dir != null)
         {
-            if (File.Exists(Path.Combine(dir.FullName, "NovaTerminal.sln")))
+            if (File.Exists(Path.Combine(dir.FullName, "Ntilde.sln")))
             {
                 return dir.FullName;
             }
@@ -104,7 +104,7 @@ public class DiagnosticSinkTests
         Assert.True(
             offenders.Count == 0,
             "Diagnostics written to the console are lost in a GUI process (#109). Use TerminalLogger, "
-            + "or PtyLogger in NovaTerminal.Pty which may not reference VT. Offenders:\n  "
+            + "or PtyLogger in Ntilde.Pty which may not reference VT. Offenders:\n  "
             + string.Join("\n  ", offenders.Distinct()));
     }
 
@@ -113,8 +113,8 @@ public class DiagnosticSinkTests
     {
         // Guards the guard: if the exclusion above stopped matching - a project rename, a path-separator
         // slip - the test would silently police nothing in those projects while appearing to pass.
-        // NovaTerminal.Conformance prints its report to stdout, so it must contain console writes.
-        string conformance = Path.Combine(RepoRoot(), "src", "NovaTerminal.Conformance");
+        // Ntilde.Conformance prints its report to stdout, so it must contain console writes.
+        string conformance = Path.Combine(RepoRoot(), "src", "Ntilde.Conformance");
         int writes = Directory.EnumerateFiles(conformance, "*.cs", SearchOption.AllDirectories)
             .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
             .Sum(f => Regex.Count(File.ReadAllText(f), @"Console\s*\.", RegexOptions.None, TimeSpan.FromSeconds(5)));

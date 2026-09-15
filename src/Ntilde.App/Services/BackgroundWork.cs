@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Services;
+namespace Ntilde.Services;
 
 internal static class BackgroundWork
 {

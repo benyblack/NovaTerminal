@@ -1,4 +1,4 @@
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // Regression tests for "text printed after a theme switch keeps the old theme's colors".
 //

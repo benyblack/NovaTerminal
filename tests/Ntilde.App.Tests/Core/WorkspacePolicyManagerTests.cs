@@ -1,9 +1,9 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Tests.Infra;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Tests.Infra;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 [Collection("WorkspacePolicy")]
 public sealed class WorkspacePolicyManagerTests
@@ -29,7 +29,7 @@ public sealed class WorkspacePolicyManagerTests
             MaxTabsPerWorkspace = 3,
             RequireSsoForWorkspaceBundles = true,
             SsoAuthorityUrl = "https://sso.example.local",
-            SsoClientId = "nova-client"
+            SsoClientId = "ntilde-client"
         });
 
         var policy = WorkspacePolicyManager.Current;
@@ -38,7 +38,7 @@ public sealed class WorkspacePolicyManagerTests
         Assert.Equal(3, policy.MaxTabsPerWorkspace);
         Assert.True(policy.RequireSsoForWorkspaceBundles);
         Assert.Equal("https://sso.example.local", policy.SsoAuthorityUrl);
-        Assert.Equal("nova-client", policy.SsoClientId);
+        Assert.Equal("ntilde-client", policy.SsoClientId);
     }
 
     private sealed class PolicyFileScope : IDisposable

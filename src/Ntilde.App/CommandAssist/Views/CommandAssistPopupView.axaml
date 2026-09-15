@@ -1,14 +1,14 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:viewModels="clr-namespace:NovaTerminal.CommandAssist.ViewModels;assembly=NovaTerminal.CommandAssist"
-             xmlns:controls="clr-namespace:NovaTerminal.Controls;assembly=NovaTerminal"
+             xmlns:viewModels="clr-namespace:Ntilde.CommandAssist.ViewModels;assembly=Ntilde.CommandAssist"
+             xmlns:controls="clr-namespace:Ntilde.Controls;assembly=Ntilde"
              x:CompileBindings="True"
              x:DataType="viewModels:CommandAssistPopupViewModel"
-             x:Class="NovaTerminal.CommandAssist.Views.CommandAssistPopupView"
+             x:Class="Ntilde.CommandAssist.Views.CommandAssistPopupView"
              IsVisible="{Binding IsVisible}">
     <!--
-        The controls: xmlns says assembly=NovaTerminal, not NovaTerminal.App. The project is
-        NovaTerminal.App but its AssemblyName is NovaTerminal, and clr-namespace resolves against the
+        The controls: xmlns says assembly=Ntilde, not Ntilde.App. The project is
+        Ntilde.App but its AssemblyName is Ntilde, and clr-namespace resolves against the
         assembly name. Spelled out rather than left to default to "the current assembly", because this
         file lives under CommandAssist/ with an x:Class in the CommandAssist namespace, so which
         assembly is "current" is the least obvious thing on the page.

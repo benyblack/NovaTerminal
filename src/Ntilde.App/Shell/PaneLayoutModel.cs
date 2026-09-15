@@ -4,9 +4,9 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
-using NovaTerminal.Controls;
+using Ntilde.Controls;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public abstract class PaneLayoutNode
     {

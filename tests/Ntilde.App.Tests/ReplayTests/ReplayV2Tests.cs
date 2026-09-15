@@ -1,7 +1,7 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Replay;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Replay;
 using System.Text;
 using System.IO;
 using System.Linq;
@@ -10,7 +10,7 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Xunit;
 
-namespace NovaTerminal.Tests.ReplayTests
+namespace Ntilde.Tests.ReplayTests
 {
     public class ReplayV2Tests
     {
@@ -502,7 +502,7 @@ namespace NovaTerminal.Tests.ReplayTests
 
         private static void WriteMinimalReplayWithSnapshot(string filePath, string snapshotJsonProperties)
         {
-            string header = "{\"type\":\"novarec\",\"v\":2,\"cols\":1,\"rows\":1,\"date\":\"2026-01-01T00:00:00.0000000Z\",\"shell\":\"\"}";
+            string header = "{\"type\":\"ntilderec\",\"v\":2,\"cols\":1,\"rows\":1,\"date\":\"2026-01-01T00:00:00.0000000Z\",\"shell\":\"\"}";
             string snapshotEvent = $"{{\"t\":0,\"type\":\"snapshot\",\"s\":{{{snapshotJsonProperties}}}}}";
             File.WriteAllText(filePath, $"{header}\n{snapshotEvent}\n");
         }

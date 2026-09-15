@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.Pty
+namespace Ntilde.Pty
 {
     /// <summary>Severity of a <see cref="PtyLogger"/> message. Mirrors the app's log levels.</summary>
     public enum PtyLogLevel
@@ -20,7 +20,7 @@ namespace NovaTerminal.Pty
     /// failures, join timeouts, lost input on a short write — was written to nothing. They looked like
     /// logging and were closer to comments.
     ///
-    /// This is deliberately not <c>NovaTerminal.VT.TerminalLogger</c>, even though it duplicates a
+    /// This is deliberately not <c>Ntilde.VT.TerminalLogger</c>, even though it duplicates a
     /// little of its shape. <c>Pty_must_not_depend_on_Vt</c> in the architecture tests forbids it at IL
     /// level (VT is reachable transitively through Replay, so it would have compiled), and the PTY layer
     /// genuinely should not need the terminal emulator to report that a pipe read failed. The App wires

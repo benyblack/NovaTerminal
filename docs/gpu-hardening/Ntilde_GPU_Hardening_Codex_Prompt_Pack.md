@@ -1,4 +1,4 @@
-# NovaTerminal GPU Hardening --- Codex Task-by-Task Execution Prompt Pack
+# Ntilde GPU Hardening --- Codex Task-by-Task Execution Prompt Pack
 
 Generated: 2026-02-26T13:32:53.889279 UTC
 
@@ -41,14 +41,14 @@ failures + links to issues). - You have baseline outputs stored.
 JSONL writer behind env flags.
 
 **Files to create/edit:** - Create:
-`src/NovaTerminal.Rendering/RenderPerfMetrics.cs` (or nearest
+`src/Ntilde.Rendering/RenderPerfMetrics.cs` (or nearest
 appropriate project if Rendering project differs) - Create:
-`src/NovaTerminal.Rendering/RenderPerfWriter.cs` (internal JSONL
-writer) - Edit: `src/NovaTerminal.App/Core/TerminalDrawOperation.cs` to
+`src/Ntilde.Rendering/RenderPerfWriter.cs` (internal JSONL
+writer) - Edit: `src/Ntilde.App/Core/TerminalDrawOperation.cs` to
 populate metrics
 
-**Env flags:** - `NOVATERM_RENDER_METRICS=1` -
-`NOVATERM_RENDER_METRICS_OUT=<path>` (optional)
+**Env flags:** - `NTILDE_RENDER_METRICS=1` -
+`NTILDE_RENDER_METRICS_OUT=<path>` (optional)
 
 **Steps:** 1. Create `RenderPerfMetrics` struct with fields: -
 FrameIndex, FrameTimeMs - DirtyRows, DirtySpansTotal - DrawCallsText,
@@ -79,7 +79,7 @@ enabled; keep JSON compact. - Do not break AOT readiness.
 **Goal:** Eliminate per-frame allocations from `BuildCellEdgeGrid` usage
 in `TerminalDrawOperation`.
 
-**Files:** - `src/NovaTerminal.App/Core/TerminalDrawOperation.cs`
+**Files:** - `src/Ntilde.App/Core/TerminalDrawOperation.cs`
 
 **Steps:** 1. Locate calls that create new `float[]` each frame
 (e.g. `BuildCellEdgeGrid(cols)` / `BuildCellEdgeGrid(rows)`). 2. Replace
@@ -98,9 +98,9 @@ for steady scroll. - No correctness changes (seam tests still pass).
 **Goal:** Remove per-row `new StringBuilder(...)` allocations in hot
 path.
 
-**Files:** - `src/NovaTerminal.App/Core/TerminalDrawOperation.cs` -
+**Files:** - `src/Ntilde.App/Core/TerminalDrawOperation.cs` -
 (Optional) create helper:
-`src/NovaTerminal.Rendering/StringBuilderCache.cs`
+`src/Ntilde.Rendering/StringBuilderCache.cs`
 
 **Steps:** 1. Find `new StringBuilder(...)` inside row draw loop. 2.
 Replace with reusable builder: - Option A: ThreadStatic builder cache -
@@ -117,7 +117,7 @@ steady state. - Same rendered text.
 
 **Goal:** Avoid creating/disposing `SKPaint` inside inner loops.
 
-**Files:** - `src/NovaTerminal.App/Core/TerminalDrawOperation.cs`
+**Files:** - `src/Ntilde.App/Core/TerminalDrawOperation.cs`
 
 **Steps:** 1. Identify all `new SKPaint` / `using var ... = new SKPaint`
 inside per-run loops: - background fill - underline/strikethrough -
@@ -137,7 +137,7 @@ thickness or anti-aliasing artifacts.
 **Goal:** Stop allocations from `List<T>.ToArray()` used for `DrawAtlas`
 batching.
 
-**Files:** - `src/NovaTerminal.App/Core/TerminalDrawOperation.cs`
+**Files:** - `src/Ntilde.App/Core/TerminalDrawOperation.cs`
 
 **Steps:** 1. Find `FlushBatches()` that calls `.ToArray()` for atlas
 buffers. 2. Replace with: - Backing arrays stored as fields or rented
@@ -155,7 +155,7 @@ AllocBytes/frame drop significantly on heavy output workloads.
 
 **Goal:** Avoid `new SKFont(...)` per rune for fallback fonts.
 
-**Files:** - `src/NovaTerminal.App/Core/TerminalDrawOperation.cs`
+**Files:** - `src/Ntilde.App/Core/TerminalDrawOperation.cs`
 
 **Steps:** 1. Identify code path allocating fallback fonts. 2. Add
 per-frame cache: - `Dictionary<SKTypeface, SKFont> _fallbackFontCache` -
@@ -173,7 +173,7 @@ test).
 **Goal:** Reduce allocations and overhead from `new SKShaper(...)` in
 complex shaping.
 
-**Files:** - `src/NovaTerminal.App/Core/TerminalDrawOperation.cs`
+**Files:** - `src/Ntilde.App/Core/TerminalDrawOperation.cs`
 
 **Steps:** 1. Identify complex shaping path using `new SKShaper(tf)`. 2.
 Introduce per-frame cache: -
@@ -191,8 +191,8 @@ allocations. - No hangs/crashes from improper disposal.
 pixel grid.
 
 **Files to create/edit:** - Create:
-`src/NovaTerminal.Rendering/PixelGrid.cs` - Edit:
-`src/NovaTerminal.App/Core/TerminalDrawOperation.cs` to use PixelGrid
+`src/Ntilde.Rendering/PixelGrid.cs` - Edit:
+`src/Ntilde.App/Core/TerminalDrawOperation.cs` to use PixelGrid
 
 **Steps:** 1. Implement `PixelGrid`: - stores cell width/height in
 pixels, origin px, baseline px, underline px - methods
@@ -211,9 +211,9 @@ scaling seam test (125%, 150%) and keep it passing.
 **Goal:** Ensure renderer never reads mutable buffer state during draw;
 use immutable snapshots only.
 
-**Files:** - `src/NovaTerminal.VT/RenderSnapshots.cs` -
-`src/NovaTerminal.VT/TerminalBuffer.ThreadingAndInvalidation.cs` -
-`src/NovaTerminal.App/Core/TerminalDrawOperation.cs`
+**Files:** - `src/Ntilde.VT/RenderSnapshots.cs` -
+`src/Ntilde.VT/TerminalBuffer.ThreadingAndInvalidation.cs` -
+`src/Ntilde.App/Core/TerminalDrawOperation.cs`
 
 **Steps:** 1. Formalize `TerminalRenderSnapshot` (or equivalent) to
 contain everything draw needs. 2. Build snapshot under short lock scope,
@@ -231,9 +231,9 @@ deadlocks. - Reduced lock time reported.
 **Goal:** Reduce work/draw calls by tracking dirty spans rather than
 invalidating entire rows.
 
-**Files:** - `src/NovaTerminal.VT/RenderSnapshots.cs` -
-`src/NovaTerminal.VT/TerminalBuffer.ThreadingAndInvalidation.cs` -
-`src/NovaTerminal.App/Core/TerminalDrawOperation.cs`
+**Files:** - `src/Ntilde.VT/RenderSnapshots.cs` -
+`src/Ntilde.VT/TerminalBuffer.ThreadingAndInvalidation.cs` -
+`src/Ntilde.App/Core/TerminalDrawOperation.cs`
 
 **Steps:** 1. Extend snapshot to include dirty spans per row: list of
 (startCol, endCol). 2. Merge adjacent/overlapping spans. 3. Renderer
@@ -251,13 +251,13 @@ updates).
 **Goal:** Prevent future regressions; make "not dumb on GPU" provable.
 
 **Files to add:** -
-`tests/NovaTerminal.Tests/Performance/RenderPerf_Allocations_SteadyScroll.cs` -
-`tests/NovaTerminal.Tests/Performance/RenderPerf_DrawCalls_SteadyScroll.cs`
+`tests/Ntilde.Tests/Performance/RenderPerf_Allocations_SteadyScroll.cs` -
+`tests/Ntilde.Tests/Performance/RenderPerf_DrawCalls_SteadyScroll.cs`
 
 **Steps:** 1. Create a deterministic workload: - Prefer replay fixture
 if available; otherwise generate a VT stream that fills screen and
 scrolls. 2. Enable env flags inside test: - set
-`NOVATERM_RENDER_METRICS=1` - set out path to test temp directory 3. Run
+`NTILDE_RENDER_METRICS=1` - set out path to test temp directory 3. Run
 for N frames (warm up first). 4. Parse JSONL and assert conservative
 ceilings: - `AvgAllocBytesPerFrame <= X` -
 `p95AllocBytesPerFrame <= Y` - `AvgDrawCallsText <= A` (after batching)

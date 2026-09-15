@@ -2,7 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Text;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     public enum LogLevel
     {
@@ -24,7 +24,7 @@ namespace NovaTerminal.VT
         // Messages below this level are dropped before any hook is invoked.
         //
         // Debug by default so a library consumer (and the test suite) sees everything unless it
-        // says otherwise; the app narrows this at startup from NOVATERM_LOG_LEVEL. The default
+        // says otherwise; the app narrows this at startup from NTILDE_LOG_LEVEL. The default
         // is the permissive one because a missing diagnostic is the failure people report, and
         // the hosts that cannot afford one are the hosts that know it.
         public static LogLevel MinimumLevel { get; set; } = LogLevel.Debug;

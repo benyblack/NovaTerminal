@@ -6,7 +6,7 @@
          Directory.Build.props, which stays false until the noisy projects are cleaned.
          Verified on a clean full rebuild after clearing the McpServer file lock (#211) -
          the lock had been masking this project entirely, since it cannot build until
-         NovaTerminal.McpServer does. -->
+         Ntilde.McpServer does. -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
@@ -24,16 +24,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\NovaTerminal.McpServer\NovaTerminal.McpServer.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.VtContract\NovaTerminal.VtContract.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.McpServer\Ntilde.McpServer.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.VtContract\Ntilde.VtContract.csproj" />
     <!-- Test-only: the drift guard reflects over the real profile types. The MCP server
-         itself must never reference NovaTerminal.Platform. -->
-    <ProjectReference Include="..\..\src\NovaTerminal.Platform\NovaTerminal.Platform.csproj" />
+         itself must never reference Ntilde.Platform. -->
+    <ProjectReference Include="..\..\src\Ntilde.Platform\Ntilde.Platform.csproj" />
     <!-- Test-only, same argument: SettingsToolsDriftGuardTests reflects over the real
          TerminalSettings so the hand-mirrored field lists in SettingsTools cannot go stale
-         (PR #293 review). The MCP server itself must never reference NovaTerminal.App -
+         (PR #293 review). The MCP server itself must never reference Ntilde.App -
          settings validation is a schema check, not a call into the app. -->
-    <ProjectReference Include="..\..\src\NovaTerminal.App\NovaTerminal.App.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.App\Ntilde.App.csproj" />
   </ItemGroup>
 
 </Project>

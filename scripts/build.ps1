@@ -129,7 +129,7 @@ if ($verbs -contains $dotnetArgs[0]) {
     $rest = @($dotnetArgs | Select-Object -Skip 1)
     $dotnetArgs = @($dotnetArgs[0], '-nodeReuse:false') + $rest
 
-    # Kill stale NovaTerminal.McpServer processes before compiling. MCP clients
+    # Kill stale Ntilde.McpServer processes before compiling. MCP clients
     # (Claude Desktop, Cowork, etc.) launch the server from this repo's bin output
     # and often leave it running, which locks the DLLs and fails the build with
     # "file is in use". Killing is always safe: clients respawn the server on the
@@ -147,14 +147,14 @@ if ($verbs -contains $dotnetArgs[0]) {
             # Scoped to this tree, so a run in one worktree never touches another's.
             # Caveat worth knowing: a genuinely concurrent `test` run from THIS tree would
             # be killed too. That is the accepted trade - the silent-lock failure mode cost
-            # hours of debugging, and NOVA_KEEP_STALE_HOSTS=1 opts out.
-            $keepStale = $env:NOVA_KEEP_STALE_HOSTS -eq '1'
+            # hours of debugging, and NTILDE_KEEP_STALE_HOSTS=1 opts out.
+            $keepStale = $env:NTILDE_KEEP_STALE_HOSTS -eq '1'
             $stale = @(Get-CimInstance Win32_Process -ErrorAction Stop |
                 Where-Object {
                     $_.CommandLine -and
                     $_.CommandLine -like "*$repoRoot*" -and
                     (
-                        ($_.Name -eq 'dotnet.exe' -and $_.CommandLine -like '*NovaTerminal.McpServer.dll*') -or
+                        ($_.Name -eq 'dotnet.exe' -and $_.CommandLine -like '*Ntilde.McpServer.dll*') -or
                         (-not $keepStale -and ($_.Name -eq 'testhost.exe' -or $_.Name -like '*.Tests.exe'))
                     )
                 })

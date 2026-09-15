@@ -1,12 +1,12 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Rendering;
 using System.Threading.Tasks;
 using Xunit;
-using NovaTerminal.Tests.Infra;
+using Ntilde.Tests.Infra;
 
-namespace NovaTerminal.Tests.RenderTests
+namespace Ntilde.Tests.RenderTests
 {
     [Collection("RendererStatistics")]
     public class RendererMetricsTests

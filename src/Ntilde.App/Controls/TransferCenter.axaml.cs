@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Controls
+namespace Ntilde.Controls
 {
     public partial class TransferCenter : UserControl
     {

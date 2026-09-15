@@ -3,11 +3,11 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
-using NovaTerminal.AgentHost;
-using NovaTerminal.AgentHost.Contracts;
-using NovaTerminal.VT;
+using Ntilde.AgentHost;
+using Ntilde.AgentHost.Contracts;
+using Ntilde.VT;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// In-process protocol tests for the A2 additions: getSessionStatus,

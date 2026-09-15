@@ -1,10 +1,10 @@
 ---
 // Release asset names follow the workflows in `.github/workflows/release.yml`:
-// installers are `NovaTerminal-Setup-{rid}-{tag}.{exe,pkg}`, portable bundles are
-// `NovaTerminal-{rid}-{tag}.zip`, and Linux ships `NovaTerminal-linux-{arch}-{tag}.AppImage`,
-// `NovaTerminal-linux-{arch}-{tag}.tar.gz`, and `novaterminal_{version}-1_{debarch}.deb`
+// installers are `ntilde-Setup-{rid}-{tag}.{exe,pkg}`, portable bundles are
+// `ntilde-{rid}-{tag}.zip`, and Linux ships `ntilde-linux-{arch}-{tag}.AppImage`,
+// `ntilde-linux-{arch}-{tag}.tar.gz`, and `ntilde_{version}-1_{debarch}.deb`
 // from the publish_linux / release_linux lanes. The winget package id lives in
-// `packaging/winget/0.3.0/benyblack.NovaTerminal.yaml`.
+// `packaging/winget/0.3.0/benyblack.ntilde.yaml`.
 //
 // Ordered Windows, macOS, Linux: the two platforms with an installer come first,
 // because that is the path most people should take.
@@ -12,38 +12,38 @@ const releases = [
   {
     platform: 'Windows',
     arch: 'x64',
-    installer: 'NovaTerminal-Setup-win-x64-<tag>.exe',
+    installer: 'ntilde-Setup-win-x64-<tag>.exe',
     installerNote:
       'Per-user install — no admin prompt. Adds Start Menu and Desktop shortcuts, and updates itself in the background.',
-    asset: 'NovaTerminal-win-x64-<tag>.zip',
-    cmd: 'winget install benyblack.NovaTerminal',
+    asset: 'ntilde-win-x64-<tag>.zip',
+    cmd: 'winget install benyblack.ntilde',
   },
   {
     platform: 'macOS',
     arch: 'arm64',
-    installer: 'NovaTerminal-Setup-osx-arm64-<tag>.pkg',
+    installer: 'ntilde-Setup-osx-arm64-<tag>.pkg',
     installerNote:
-      'Installs a proper NovaTerminal.app bundle, and updates itself in the background. Signed and notarized since v0.7.0, so Gatekeeper opens it with no warnings.',
-    asset: 'NovaTerminal-osx-arm64-<tag>.zip',
+      'Installs a proper Ntilde.app bundle, and updates itself in the background. Signed and notarized since v0.7.0, so Gatekeeper opens it with no warnings.',
+    asset: 'ntilde-osx-arm64-<tag>.zip',
     cmd:
-      'unzip NovaTerminal-osx-arm64-<tag>.zip\n' +
-      'open NovaTerminal.app',
+      'unzip ntilde-osx-arm64-<tag>.zip\n' +
+      'open Ntilde.app',
   },
   {
     platform: 'Linux',
     arch: 'x64 · arm64',
-    installer: 'NovaTerminal-linux-<x64|arm64>-<tag>.AppImage',
+    installer: 'ntilde-linux-<x64|arm64>-<tag>.AppImage',
     installerLabel: 'AppImage — recommended',
     installerNote:
       'Self-updating, like the Windows and macOS installers. Needs glibc 2.35+ (Ubuntu 22.04+, Debian 12+, Fedora 36+). Ubuntu 22.04+/Debian 12 ship no FUSE 2 — install it (sudo apt install fuse) or launch with --appimage-extract-and-run.',
-    asset: 'novaterminal_<version>-1_<amd64|arm64>.deb',
+    asset: 'ntilde_<version>-1_<amd64|arm64>.deb',
     assetLabel: 'Or the .deb — system integration',
     cmd: 'sudo apt install ./<exact .deb filename from the release page>',
     installerCmd:
-      'chmod +x NovaTerminal-linux-<x64|arm64>-<tag>.AppImage\n' +
-      './NovaTerminal-linux-<x64|arm64>-<tag>.AppImage',
+      'chmod +x ntilde-linux-<x64|arm64>-<tag>.AppImage\n' +
+      './ntilde-linux-<x64|arm64>-<tag>.AppImage',
     extraNote:
-      'The .deb adds a desktop entry, icons, the nova command on your PATH, and a man page. It does not update itself: there is no APT repository yet, so apt upgrade will not see new releases — download and reinstall each one. Its filename carries both the version and the architecture and changes every release — copy the exact one for your machine (amd64 or arm64) from the release page. A portable .tar.gz is there too.',
+      'The .deb adds a desktop entry, icons, the ntilde command on your PATH, and a man page. It does not update itself: there is no APT repository yet, so apt upgrade will not see new releases — download and reinstall each one. Its filename carries both the version and the architecture and changes every release — copy the exact one for your machine (amd64 or arm64) from the release page. A portable .tar.gz is there too.',
   },
 ];
 
@@ -94,9 +94,9 @@ const buildSteps = [
         Windows and macOS have one-click installers that keep themselves up to
         date — a new version downloads in the background and applies on your next
         restart. Linux ships a self-updating AppImage, a system
-        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">.deb</code>, and a portable tarball, for
-        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">x64</code> and
-        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">arm64</code> alike. Every release runs the gating unit-test lane on all three OSes before any bundle is published. Replace <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">&lt;tag&gt;</code> with the version you downloaded.
+        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-ntilde-200">.deb</code>, and a portable tarball, for
+        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-ntilde-200">x64</code> and
+        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-ntilde-200">arm64</code> alike. Every release runs the gating unit-test lane on all three OSes before any bundle is published. Replace <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-ntilde-200">&lt;tag&gt;</code> with the version you downloaded.
       </p>
       <p class="mt-4 max-w-2xl text-sm text-ink-400">
         macOS builds are signed and notarized (since v0.7.0), so Gatekeeper
@@ -105,9 +105,9 @@ const buildSteps = [
         <em>More info → Run anyway</em>; see
         {' '}
         <a
-          href="https://github.com/benyblack/NovaTerminal/issues/91"
+          href="https://github.com/benyblack/ntilde/issues/91"
           rel="noopener"
-          class="text-nova-300"
+          class="text-ntilde-300"
         >
           issue #91
         </a>
@@ -129,9 +129,9 @@ const buildSteps = [
               Native AOT, self-contained. Download from
               {' '}
               <a
-                href="https://github.com/benyblack/NovaTerminal/releases/latest"
+                href="https://github.com/benyblack/ntilde/releases/latest"
                 rel="noopener"
-                class="text-nova-300"
+                class="text-ntilde-300"
               >
                 the latest release
               </a>
@@ -140,7 +140,7 @@ const buildSteps = [
 
             {rel.installer && (
               <div class="mt-4">
-                <p class="text-xs font-semibold uppercase tracking-wider text-nova-300">
+                <p class="text-xs font-semibold uppercase tracking-wider text-ntilde-300">
                   {rel.installerLabel ?? 'Installer — recommended'}
                 </p>
                 <p class="mt-1 font-mono text-[11px] text-ink-400">
@@ -183,7 +183,7 @@ const buildSteps = [
             <div>
               <p class="flex items-center gap-2 text-sm font-semibold text-white">
                 <span
-                  class="grid h-5 w-5 place-items-center rounded-full bg-nova-500/15 font-mono text-[10px] text-nova-300"
+                  class="grid h-5 w-5 place-items-center rounded-full bg-ntilde-500/15 font-mono text-[10px] text-ntilde-300"
                   aria-hidden="true"
                 >
                   {i + 1}

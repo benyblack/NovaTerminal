@@ -1,6 +1,6 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class TerminalSettingsDefaultsTests
 {

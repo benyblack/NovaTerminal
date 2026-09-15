@@ -1,16 +1,16 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using Xunit;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 
 
-namespace NovaTerminal.Tests.Performance
+namespace Ntilde.Tests.Performance
 {
     public class TabPerformanceTests
     {
@@ -34,7 +34,7 @@ namespace NovaTerminal.Tests.Performance
             {
                 bool reverse = (i & 1) == 1;
                 var sw = Stopwatch.StartNew();
-                currentIndex = NovaTerminal.MainWindow.GetNextMruIndex(currentIndex, tabCount, reverse);
+                currentIndex = Ntilde.MainWindow.GetNextMruIndex(currentIndex, tabCount, reverse);
                 sw.Stop();
                 samplesMs[i] = sw.Elapsed.TotalMilliseconds;
             }
@@ -64,7 +64,7 @@ namespace NovaTerminal.Tests.Performance
                 widths[i % tabCount] = 90 + (i % 7) * 18;
 
                 var sw = Stopwatch.StartNew();
-                hiddenTotal += NovaTerminal.MainWindow.CountHiddenTabs(viewportWidth, widths);
+                hiddenTotal += Ntilde.MainWindow.CountHiddenTabs(viewportWidth, widths);
                 sw.Stop();
                 samplesMs[i] = sw.Elapsed.TotalMilliseconds;
             }
@@ -88,8 +88,8 @@ namespace NovaTerminal.Tests.Performance
             for (int i = 0; i < samplesCount; i++)
             {
                 var sw = Stopwatch.StartNew();
-                string json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NovaSession);
-                var restored = JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NovaSession);
+                string json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NtildeSession);
+                var restored = JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NtildeSession);
                 sw.Stop();
 
                 Assert.NotNull(restored);
@@ -104,9 +104,9 @@ namespace NovaTerminal.Tests.Performance
             Assert.True(p95 < 120, $"Session round-trip p95 exceeded budget: {p95:F4} ms >= 120 ms");
         }
 
-        private static NovaSession BuildSession(int tabCount)
+        private static NtildeSession BuildSession(int tabCount)
         {
-            var session = new NovaSession { ActiveTabIndex = 0 };
+            var session = new NtildeSession { ActiveTabIndex = 0 };
 
             for (int i = 0; i < tabCount; i++)
             {

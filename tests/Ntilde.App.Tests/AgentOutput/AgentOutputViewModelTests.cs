@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.AgentOutput;
+using Ntilde.AgentOutput;
 using Xunit;
 
-namespace NovaTerminal.Tests.AgentOutput;
+namespace Ntilde.Tests.AgentOutput;
 
 /// <summary>
 /// Panel visibility is the user's toggle minus alt-screen suppression; content flows through one

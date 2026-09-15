@@ -14,10 +14,10 @@ using Markdig.Extensions.TaskLists;
 using Markdig.Helpers;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
-using NovaTerminal.AgentOutput.Fences;
+using Ntilde.AgentOutput.Fences;
 using MInline = Markdig.Syntax.Inlines.Inline;
 
-namespace NovaTerminal.AgentOutput;
+namespace Ntilde.AgentOutput;
 
 /// <summary>One render's output: the tree, and whether it contains a switch-governed block.</summary>
 public sealed record MarkdownRenderResult(Control Root, bool HasTransformBlock);

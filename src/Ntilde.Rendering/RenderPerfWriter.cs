@@ -2,13 +2,13 @@ using System.Buffers;
 using System.Text.Json;
 using System.Threading;
 
-namespace NovaTerminal.Rendering
+namespace Ntilde.Rendering
 {
     public sealed class RenderPerfWriter : IDisposable
     {
         private const int FlushEveryFrames = 60;
-        private const string EnabledEnvVar = "NOVATERM_RENDER_METRICS";
-        private const string OutputEnvVar = "NOVATERM_RENDER_METRICS_OUT";
+        private const string EnabledEnvVar = "NTILDE_RENDER_METRICS";
+        private const string OutputEnvVar = "NTILDE_RENDER_METRICS_OUT";
         private readonly object _gate = new();
         private readonly FileStream _stream;
         private readonly ArrayBufferWriter<byte> _buffer = new(512);

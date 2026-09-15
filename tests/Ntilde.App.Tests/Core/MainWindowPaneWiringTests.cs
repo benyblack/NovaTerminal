@@ -2,11 +2,11 @@ using System;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Pty;
-using NovaTerminal.Shell;
+using Ntilde.Controls;
+using Ntilde.Pty;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Guards the invariant that every pane a window owns is wired by <c>MainWindow.WirePane</c>, and
@@ -74,14 +74,14 @@ public sealed class MainWindowPaneWiringTests : IDisposable, IClassFixture<TestA
 
     private sealed class RestoredPaneFixture : IDisposable
     {
-        private RestoredPaneFixture(NovaTerminal.MainWindow window, TerminalSettings settings, TerminalPane pane)
+        private RestoredPaneFixture(Ntilde.MainWindow window, TerminalSettings settings, TerminalPane pane)
         {
             Window = window;
             Settings = settings;
             Pane = pane;
         }
 
-        public NovaTerminal.MainWindow Window { get; }
+        public Ntilde.MainWindow Window { get; }
 
         public TerminalSettings Settings { get; }
 
@@ -97,7 +97,7 @@ public sealed class MainWindowPaneWiringTests : IDisposable, IClassFixture<TestA
 
             var window = TestMainWindowFactory.Create(bundle);
             TabControl tabs = window.FindControl<TabControl>("Tabs")!;
-            var settings = (TerminalSettings)typeof(NovaTerminal.MainWindow)
+            var settings = (TerminalSettings)typeof(Ntilde.MainWindow)
                 .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .GetValue(window)!;
 
@@ -119,7 +119,7 @@ public sealed class MainWindowPaneWiringTests : IDisposable, IClassFixture<TestA
 
             // The production entry point for restored content: MainWindow calls this from
             // ApplySessionSnapshot, TryRestoreStartupSession and HydrateDeferredStartupTab.
-            typeof(NovaTerminal.MainWindow)
+            typeof(Ntilde.MainWindow)
                 .GetMethod("InitializeRestoredTabs", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(window, [tabs]);
 

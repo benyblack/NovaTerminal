@@ -45,11 +45,11 @@ Both would add more UI/state complexity than M4 needs.
 
 ## Architecture
 
-M4 stays inside `NovaTerminal.App.CommandAssist`.
+M4 stays inside `Ntilde.App.CommandAssist`.
 
 ### Domain / provider seams
 
-Add under `src/NovaTerminal.App/CommandAssist/Domain`:
+Add under `src/Ntilde.App/CommandAssist/Domain`:
 
 - `ICommandDocsProvider`
 - `IRecipeProvider`
@@ -59,7 +59,7 @@ These remain deterministic, local, and non-AI for M4.
 
 ### Application layer
 
-Add under `src/NovaTerminal.App/CommandAssist/Application`:
+Add under `src/Ntilde.App/CommandAssist/Application`:
 
 - `CommandAssistModeRouter`
 - `CommandAssistResultBuilder`
@@ -73,7 +73,7 @@ Responsibilities:
 
 ### Models
 
-Add under `src/NovaTerminal.App/CommandAssist/Models`:
+Add under `src/Ntilde.App/CommandAssist/Models`:
 
 - `CommandAssistMode`
 - `CommandHelpQuery`

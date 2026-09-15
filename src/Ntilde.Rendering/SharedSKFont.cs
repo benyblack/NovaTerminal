@@ -1,7 +1,7 @@
 using SkiaSharp;
 using System.Threading;
 
-namespace NovaTerminal.Rendering
+namespace Ntilde.Rendering
 {
     public class SharedSKFont
     {

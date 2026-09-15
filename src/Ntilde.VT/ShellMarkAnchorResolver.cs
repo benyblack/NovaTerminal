@@ -1,4 +1,4 @@
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     /// <summary>
     /// Resolves an <c>OSC 133;B</c> mark to the row it currently occupies <i>on screen</i>: the
@@ -17,7 +17,7 @@ namespace NovaTerminal.VT
     /// <para>
     /// <b>Placement.</b> Next to <see cref="GridQueryReader"/> and for the same reason: this is
     /// buffer arithmetic over VT types, and the layering tests forbid
-    /// <c>NovaTerminal.CommandAssist</c> from referencing <c>NovaTerminal.VT</c>. The App layer
+    /// <c>Ntilde.CommandAssist</c> from referencing <c>Ntilde.VT</c>. The App layer
     /// converts at the boundary.
     /// </para>
     /// <para>

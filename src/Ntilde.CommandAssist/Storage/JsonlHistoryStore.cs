@@ -6,10 +6,10 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.Storage;
+namespace Ntilde.CommandAssist.Storage;
 
 /// <summary>
 /// Append-only JSON-Lines command history with an in-memory index and periodic compaction.

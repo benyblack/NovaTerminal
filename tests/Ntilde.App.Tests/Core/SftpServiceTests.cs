@@ -1,13 +1,13 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Platform.Ssh.Native;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Storage;
-using NovaTerminal.Services.Ssh;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Storage;
+using Ntilde.Services.Ssh;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class SftpServiceTests
 {
@@ -615,7 +615,7 @@ public sealed class SftpServiceTests
         {
             SshPath = "ssh.exe",
             ConfigPath = @"C:\Users\me\.ssh\ssh_config.generated",
-            Alias = "nova_abc123",
+            Alias = "ntilde_abc123",
             CommandLine = "ssh ...",
         };
 
@@ -633,7 +633,7 @@ public sealed class SftpServiceTests
 
         Assert.Contains(" -F ", args, StringComparison.Ordinal);
         Assert.Contains("ssh_config.generated", args, StringComparison.Ordinal);
-        Assert.Contains("nova_abc123:", args, StringComparison.Ordinal);
+        Assert.Contains("ntilde_abc123:", args, StringComparison.Ordinal);
         Assert.Contains(" -O ", args, StringComparison.Ordinal);
         Assert.DoesNotContain(" -J ", args, StringComparison.Ordinal);
     }

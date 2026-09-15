@@ -5,7 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 /// <summary>
 /// Builds the title bar's buttons from a resolved layout. Separate from MainWindow on purpose:

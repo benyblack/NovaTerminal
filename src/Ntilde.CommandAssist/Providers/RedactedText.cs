@@ -1,7 +1,7 @@
 using System;
-using NovaTerminal.CommandAssist.Domain;
+using Ntilde.CommandAssist.Domain;
 
-namespace NovaTerminal.CommandAssist.Providers;
+namespace Ntilde.CommandAssist.Providers;
 
 /// <summary>
 /// Text that has been through an <see cref="ISecretsFilter"/>. The only type

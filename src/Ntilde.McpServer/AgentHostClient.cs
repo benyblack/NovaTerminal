@@ -2,17 +2,17 @@ using System.IO.Pipes;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
-using NovaTerminal.AgentHost.Contracts;
+using Ntilde.AgentHost.Contracts;
 
-namespace NovaTerminal.McpServer;
+namespace Ntilde.McpServer;
 
 /// <summary>
 /// Client side of the agent-host observe channel
 /// (docs/agent-host/DIRECTION.md, milestone A1). Discovers the running app's
 /// endpoint via the descriptor file next to settings.json and speaks the
-/// newline-delimited JSON frame protocol from NovaTerminal.AgentHost.Contracts.
+/// newline-delimited JSON frame protocol from Ntilde.AgentHost.Contracts.
 ///
-/// Unavailability is a normal state, not an exception: when NovaTerminal isn't
+/// Unavailability is a normal state, not an exception: when Ntilde isn't
 /// running or the user has not enabled "Agent access (observe)", callers get a
 /// human-readable reason to surface verbatim to the agent.
 /// </summary>
@@ -20,13 +20,13 @@ public sealed class AgentHostClient
 {
     /// <summary>Surfaced when the endpoint answered with something the client cannot parse.</summary>
     public const string ProtocolErrorMessage =
-        "NovaTerminal answered, but the response could not be parsed. This usually means the app and " +
+        "Ntilde answered, but the response could not be parsed. This usually means the app and " +
         "the MCP server are from different versions — update them together and retry.";
 
     /// <summary>Fixed guidance surfaced when no live endpoint is reachable.</summary>
     public const string UnavailableMessage =
-        "Live session access is unavailable: NovaTerminal is not running with Agent Access enabled. " +
-        "Start NovaTerminal and enable Settings → Agent access (observe), then retry. " +
+        "Live session access is unavailable: Ntilde is not running with Agent Access enabled. " +
+        "Start Ntilde and enable Settings → Agent access (observe), then retry. " +
         "This surface is observe-only: agents can read sessions but cannot type or open them.";
 
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(3);
@@ -87,7 +87,7 @@ public sealed class AgentHostClient
                 // Connected, then EOF before a response: that's a live app
                 // dropping us (e.g. Agent Access toggled off mid-call), not
                 // "app isn't running".
-                return new CallOutcome(null, "NovaTerminal closed the connection before responding. Agent Access may have just been disabled; check Settings → Agent access (observe) and retry.");
+                return new CallOutcome(null, "Ntilde closed the connection before responding. Agent Access may have just been disabled; check Settings → Agent access (observe) and retry.");
             }
 
             try
@@ -112,7 +112,7 @@ public sealed class AgentHostClient
         }
         catch (OperationCanceledException)
         {
-            return new CallOutcome(null, "Live session access timed out talking to NovaTerminal. The app may be busy; retry.");
+            return new CallOutcome(null, "Live session access timed out talking to Ntilde. The app may be busy; retry.");
         }
         catch (Exception)
         {

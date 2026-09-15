@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <InternalsVisibleTo Include="NovaTerminal.Platform.Tests" />
+    <InternalsVisibleTo Include="Ntilde.Platform.Tests" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NovaTerminal.Pty\NovaTerminal.Pty.csproj" />
+    <ProjectReference Include="..\Ntilde.Pty\Ntilde.Pty.csproj" />
   </ItemGroup>
 </Project>

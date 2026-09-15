@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    One-time bootstrap submission of NovaTerminal to the winget community repo.
+    One-time bootstrap submission of Ntilde to the winget community repo.
 
 .DESCRIPTION
     The first winget-pkgs submission must be done by hand (the release.yml
@@ -67,11 +67,11 @@ winget validate --manifest $manifestDir
 
 # 4. Submit. wingetcreate re-validates, downloads the installer URL, verifies the
 #    SHA256, forks microsoft/winget-pkgs, commits under
-#    manifests/b/benyblack/NovaTerminal/<version>/, and opens the PR.
+#    manifests/b/benyblack/ntilde/<version>/, and opens the PR.
 Write-Host "Submitting to microsoft/winget-pkgs (this forks the repo and opens a PR)..."
 wingetcreate submit --token $Token $manifestDir
 
 Write-Host ""
 Write-Host "Done. Track the PR at https://github.com/microsoft/winget-pkgs/pulls (author: your GitHub account)."
-Write-Host "After it merges, 'winget install benyblack.NovaTerminal' works, and future releases"
+Write-Host "After it merges, 'winget install benyblack.ntilde' works, and future releases"
 Write-Host "auto-submit via the release.yml 'submit_winget' job (set the WINGET_PAT repo secret)."

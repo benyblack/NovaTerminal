@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json.Serialization;
-using NovaTerminal.McpServer.Tools;
-using NovaTerminal.Shell;                    // TerminalSettings
+using Ntilde.McpServer.Tools;
+using Ntilde.Shell;                    // TerminalSettings
 
-namespace NovaTerminal.McpServer.Tests;
+namespace Ntilde.McpServer.Tests;
 
 /// <summary>
 /// Guards against drift between the hand-mirrored field knowledge in <see cref="SettingsTools"/> and the
@@ -16,7 +16,7 @@ namespace NovaTerminal.McpServer.Tests;
 /// <para>
 /// <strong>PR #293 review, non-blocking 6.</strong> <c>SettingsTools</c> validates a settings document
 /// against four string lists it maintains by hand, because the MCP server must not reference
-/// <c>NovaTerminal.App</c>. Nothing checked those lists against the type they describe, and the
+/// <c>Ntilde.App</c>. Nothing checked those lists against the type they describe, and the
 /// consequence was already in the tree: <c>CommandAssistAutoHideInAltScreen</c> stayed in
 /// <c>KnownFields</c> after being deleted from <c>TerminalSettings</c>, so the validator went on
 /// accepting a setting that no longer existed while reporting nothing. The reverse - a new setting the

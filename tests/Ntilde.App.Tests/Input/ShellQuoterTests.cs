@@ -1,9 +1,9 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Xunit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Input
+namespace Ntilde.Tests.Input
 {
     public class ShellQuoterTests
     {

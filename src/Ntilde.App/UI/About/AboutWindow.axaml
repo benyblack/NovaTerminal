@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="NovaTerminal.UI.About.AboutWindow"
-        Title="About NovaTerminal"
+        x:Class="Ntilde.UI.About.AboutWindow"
+        Title="About Ntilde"
         Width="480"
         SizeToContent="Height"
         CanResize="False"
@@ -24,9 +24,9 @@
     <Border Padding="20">
         <StackPanel Spacing="16">
             <StackPanel Orientation="Horizontal" Spacing="12">
-                <Image Width="48" Height="48" Source="avares://NovaTerminal/Assets/nova_icon.png" />
+                <Image Width="48" Height="48" Source="avares://Ntilde/Assets/ntilde_icon.png" />
                 <StackPanel VerticalAlignment="Center" Spacing="2">
-                    <TextBlock Text="NovaTerminal" FontSize="22" FontWeight="SemiBold" />
+                    <TextBlock Text="Ntilde" FontSize="22" FontWeight="SemiBold" />
                     <TextBlock Name="VersionText" Opacity="0.75" />
                 </StackPanel>
             </StackPanel>

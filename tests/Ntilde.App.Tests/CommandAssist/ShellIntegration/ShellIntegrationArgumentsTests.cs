@@ -1,10 +1,10 @@
 using System;
 using System.IO;
 using System.Text;
-using NovaTerminal.CommandAssist.ShellIntegration;
+using Ntilde.CommandAssist.ShellIntegration;
 using Xunit;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 /// <summary>
 /// A pane persisted the arguments it was *launched* with, which included the shell-integration
@@ -17,7 +17,7 @@ namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
 /// </summary>
 public sealed class ShellIntegrationArgumentsTests
 {
-    private const string BootstrapDir = @"C:\Users\x\AppData\Local\NovaTerminal\command-assist";
+    private const string BootstrapDir = @"C:\Users\x\AppData\Local\Ntilde\command-assist";
 
     private static string OurBootstrap => Path.Combine(BootstrapDir, "command-assist-bootstrap.ps1");
 
@@ -40,7 +40,7 @@ public sealed class ShellIntegrationArgumentsTests
     public void StripInjected_RemovesOurEncodedBootstrap()
     {
         string encoded = Encode(
-            NovaTerminal.CommandAssist.ShellIntegration.PowerShell.PowerShellBootstrapBuilder.BuildScript());
+            Ntilde.CommandAssist.ShellIntegration.PowerShell.PowerShellBootstrapBuilder.BuildScript());
 
         string cleaned = ShellIntegrationArguments.StripInjected(
             $"-NoLogo -NoExit -EncodedCommand {encoded}", BootstrapDir);
@@ -101,7 +101,7 @@ public sealed class ShellIntegrationArgumentsTests
         }
 
         // A directory whose long name contains a space is what triggers the short-path form.
-        string dir = Path.Combine(Path.GetTempPath(), "nova bootstrap short " + Guid.NewGuid().ToString("N"));
+        string dir = Path.Combine(Path.GetTempPath(), "ntilde bootstrap short " + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         try
         {

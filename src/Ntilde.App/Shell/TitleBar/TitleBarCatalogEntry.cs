@@ -1,4 +1,4 @@
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 /// <summary>
 /// One customizable title bar action. <paramref name="ShortcutKey"/> is a

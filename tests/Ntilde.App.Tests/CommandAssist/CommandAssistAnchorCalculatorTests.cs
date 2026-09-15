@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.Application;
+using Ntilde.CommandAssist.Application;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 public sealed class CommandAssistAnchorCalculatorTests
 {

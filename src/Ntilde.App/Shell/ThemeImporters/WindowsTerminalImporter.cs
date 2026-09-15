@@ -4,9 +4,9 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Avalonia.Media;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Shell.ThemeImporters
+namespace Ntilde.Shell.ThemeImporters
 {
     public class WindowsTerminalImporter : IThemeImporter
     {

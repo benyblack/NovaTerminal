@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// Turns "something happened at the prompt" into a ranked list: reads the query out of the terminal

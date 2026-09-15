@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Input;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.Input
+namespace Ntilde.Tests.Input
 {
     public class TerminalInputModeEncoderTests
     {

@@ -1,6 +1,6 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// #311: which shell exits close the pane. Pure policy — no window, no pane, no Avalonia,
@@ -25,7 +25,7 @@ public sealed class ShellExitPolicyTests
     [InlineData("Always", 1, true, false)]
     public void PolicyDecidesWhetherTheDyingPaneCloses(string policy, int exitCode, bool isSsh, bool expected)
     {
-        Assert.Equal(expected, NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh, exitCode));
+        Assert.Equal(expected, Ntilde.MainWindow.ShouldClosePaneOnExit(policy, isSsh, exitCode));
     }
 
     [Theory]
@@ -36,7 +36,7 @@ public sealed class ShellExitPolicyTests
     {
         // "ALWAYS" closes on a non-zero code; the two Graceful spellings do not.
         bool expected = policy.Trim().Equals("ALWAYS", StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(expected, NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 1));
+        Assert.Equal(expected, Ntilde.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 1));
     }
 
     [Theory]
@@ -48,8 +48,8 @@ public sealed class ShellExitPolicyTests
         // A typo in a hand-edited settings file must not be more destructive than the default,
         // so the fall-through stays at Never even though the default is now Graceful: an
         // unreadable policy keeps the pane rather than closing it.
-        Assert.False(NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 0));
-        Assert.False(NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 1));
+        Assert.False(Ntilde.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 0));
+        Assert.False(Ntilde.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 1));
     }
 
     [Fact]

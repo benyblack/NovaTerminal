@@ -1,4 +1,4 @@
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     /// <summary>
     /// Encapsulates terminal mode flags (mouse reporting, auto-wrap, cursor keys, etc.)

@@ -5,9 +5,9 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public static class WorkspaceManager
     {
@@ -32,7 +32,7 @@ namespace NovaTerminal.Shell
             }
         }
 
-        public static bool SaveWorkspace(string name, NovaSession session)
+        public static bool SaveWorkspace(string name, NtildeSession session)
         {
             try
             {
@@ -41,7 +41,7 @@ namespace NovaTerminal.Shell
 
                 Directory.CreateDirectory(WorkspacesDir);
                 string path = Path.Combine(WorkspacesDir, safeName + ".json");
-                string json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NovaSession);
+                string json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NtildeSession);
                 File.WriteAllText(path, json);
                 return true;
             }
@@ -51,7 +51,7 @@ namespace NovaTerminal.Shell
             }
         }
 
-        public static bool SaveWorkspaceTemplate(string name, NovaSession session)
+        public static bool SaveWorkspaceTemplate(string name, NtildeSession session)
         {
             try
             {
@@ -60,7 +60,7 @@ namespace NovaTerminal.Shell
 
                 Directory.CreateDirectory(WorkspaceTemplatesDir);
                 string path = Path.Combine(WorkspaceTemplatesDir, safeName + ".json");
-                string json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NovaSession);
+                string json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NtildeSession);
                 File.WriteAllText(path, json);
                 AppendWorkspaceAudit("workspace-template-save", safeName, success: true, $"path={path}");
                 return true;
@@ -121,7 +121,7 @@ namespace NovaTerminal.Shell
             return ExportWorkspaceBundle(safeName, session, outputPath, exportedBy);
         }
 
-        public static bool ExportWorkspaceBundle(string workspaceName, NovaSession session, string outputPath, string? exportedBy = null)
+        public static bool ExportWorkspaceBundle(string workspaceName, NtildeSession session, string outputPath, string? exportedBy = null)
         {
             var policy = WorkspacePolicyManager.Current;
             if (!policy.AllowWorkspaceBundleExport)
@@ -144,7 +144,7 @@ namespace NovaTerminal.Shell
 
             try
             {
-                string payloadJson = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NovaSession);
+                string payloadJson = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NtildeSession);
                 string payloadHash = ComputeSha256Hex(payloadJson);
 
                 var package = new WorkspaceBundlePackage
@@ -187,7 +187,7 @@ namespace NovaTerminal.Shell
             return true;
         }
 
-        public static bool LoadWorkspaceBundleSession(string bundlePath, out string? workspaceName, out NovaSession? session, out string? error)
+        public static bool LoadWorkspaceBundleSession(string bundlePath, out string? workspaceName, out NtildeSession? session, out string? error)
         {
             workspaceName = null;
             session = null;
@@ -216,7 +216,7 @@ namespace NovaTerminal.Shell
 
             try
             {
-                session = JsonSerializer.Deserialize(bundle.PayloadJson, SessionSerializationContext.Default.NovaSession);
+                session = JsonSerializer.Deserialize(bundle.PayloadJson, SessionSerializationContext.Default.NtildeSession);
             }
             catch (Exception ex)
             {
@@ -267,10 +267,10 @@ namespace NovaTerminal.Shell
                 return false;
             }
 
-            NovaSession? session;
+            NtildeSession? session;
             try
             {
-                session = JsonSerializer.Deserialize(bundle!.PayloadJson, SessionSerializationContext.Default.NovaSession);
+                session = JsonSerializer.Deserialize(bundle!.PayloadJson, SessionSerializationContext.Default.NtildeSession);
             }
             catch (Exception ex)
             {
@@ -313,7 +313,7 @@ namespace NovaTerminal.Shell
             return true;
         }
 
-        public static NovaSession? LoadWorkspace(string name)
+        public static NtildeSession? LoadWorkspace(string name)
         {
             try
             {
@@ -324,7 +324,7 @@ namespace NovaTerminal.Shell
                 if (!File.Exists(path)) return null;
 
                 string json = File.ReadAllText(path);
-                return JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NovaSession);
+                return JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NtildeSession);
             }
             catch
             {
@@ -332,7 +332,7 @@ namespace NovaTerminal.Shell
             }
         }
 
-        public static NovaSession? LoadWorkspaceTemplate(string name)
+        public static NtildeSession? LoadWorkspaceTemplate(string name)
         {
             try
             {
@@ -343,7 +343,7 @@ namespace NovaTerminal.Shell
                 if (!File.Exists(path)) return null;
 
                 string json = File.ReadAllText(path);
-                return JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NovaSession);
+                return JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NtildeSession);
             }
             catch
             {

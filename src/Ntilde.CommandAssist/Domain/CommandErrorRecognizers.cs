@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.Domain;
+namespace Ntilde.CommandAssist.Domain;
 
 /// <summary>
 /// One failure class, one function. A recogniser reads a <see cref="CommandErrorSignal"/> and
@@ -277,7 +277,7 @@ public static partial class CommandErrorRecognizers
     /// </summary>
     /// <remarks>
     /// Live-verified on Git Bash: running an executable script in the current directory by bare
-    /// name gives <c>/usr/bin/bash: line 1: novarun.sh: command not found</c> - a
+    /// name gives <c>/usr/bin/bash: line 1: ntilderun.sh: command not found</c> - a
     /// <em>command-not-found</em>, not a "no such file". POSIX shells do not have <c>.</c> on PATH,
     /// so the file being right there is exactly why the message is confusing. The old
     /// implementation hung this off "No such file or directory", which is the message you get for

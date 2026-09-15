@@ -1,7 +1,7 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Input;
+namespace Ntilde.Tests.Input;
 
 // Regression tests for #170: SftpService.QuoteArg must produce a msvcrt/argv-correct
 // quoted argument. The previous version escaped only '"' and ignored trailing

@@ -6,9 +6,9 @@ using System.Linq;
 using Avalonia.Media;
 using Avalonia.Platform;
 using SkiaSharp;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     /// <summary>
     /// The fonts that ship inside the binary, so a fresh install renders correctly
@@ -45,11 +45,11 @@ namespace NovaTerminal.Shell
         internal const string SymbolsFontFamily = "Symbols Nerd Font Mono";
 
         internal const string DefaultTerminalFontAssetUri =
-            "avares://NovaTerminal/Assets/Fonts/JetBrainsMonoNL-Regular.ttf#JetBrains Mono NL";
+            "avares://Ntilde/Assets/Fonts/JetBrainsMonoNL-Regular.ttf#JetBrains Mono NL";
 
         private sealed record BundledFont(string Family, string FileName, bool Selectable)
         {
-            internal string AssetPath => $"avares://NovaTerminal/Assets/Fonts/{FileName}";
+            internal string AssetPath => $"avares://Ntilde/Assets/Fonts/{FileName}";
 
             /// <summary>Avalonia font-family URI: asset path plus the family name it contains.</summary>
             internal string AssetUri => $"{AssetPath}#{Family}";

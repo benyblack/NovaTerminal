@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// Temp directories and endpoint addresses for AgentHostService in tests, with the one
@@ -20,7 +20,7 @@ namespace NovaTerminal.AppTests.AgentHost;
 ///     Linux   /tmp/                                     5 chars
 ///     macOS   /var/folders/xx/&lt;~26 chars&gt;/T/            ~44 chars
 ///
-/// A per-class temp directory named "nova-agentattention-tests-" plus a 32-char GUID,
+/// A per-class temp directory named "ntilde-agentattention-tests-" plus a 32-char GUID,
 /// with an 8-char socket name inside it, lands at ~113 bytes on macOS and ~74 on Linux.
 /// 36 tests across four classes therefore failed in setup on macOS and passed everywhere
 /// else, for twelve days, unnoticed because macOS unit tests were dispatch-only (#460).
@@ -50,7 +50,7 @@ internal static class AgentHostTestEndpoint
     /// <summary>
     /// Creates a per-test temp directory whose name is short enough to hold a socket.
     /// <paramref name="tag"/> identifies the owning test class in stray-directory listings
-    /// and is deliberately abbreviated - the descriptive "nova-agentattention-tests-" form
+    /// and is deliberately abbreviated - the descriptive "ntilde-agentattention-tests-" form
     /// cost 26 bytes of a 104-byte budget for no diagnostic value a 6-byte tag lacks.
     /// </summary>
     internal static string CreateTempDir(string tag)
@@ -84,7 +84,7 @@ internal static class AgentHostTestEndpoint
     {
         if (OperatingSystem.IsWindows())
         {
-            return "novaterminal-agent-test-" + Guid.NewGuid().ToString("N");
+            return "ntilde-agent-test-" + Guid.NewGuid().ToString("N");
         }
 
         string path = Path.Combine(tempDir, Guid.NewGuid().ToString("N")[..8] + ".sock");

@@ -1,17 +1,17 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Threading;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Platform.Ssh.Interactions;
-using NovaTerminal.Platform.Ssh.Native;
-using NovaTerminal.ViewModels.Ssh;
-using NovaTerminal.Views.Ssh;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Native;
+using Ntilde.ViewModels.Ssh;
+using Ntilde.Views.Ssh;
 
-namespace NovaTerminal.Services.Ssh;
+namespace Ntilde.Services.Ssh;
 
 public sealed class SshInteractionService : ISshInteractionService
 {

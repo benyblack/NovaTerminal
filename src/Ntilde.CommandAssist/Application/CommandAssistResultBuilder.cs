@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 public sealed class CommandAssistResultBuilder
 {

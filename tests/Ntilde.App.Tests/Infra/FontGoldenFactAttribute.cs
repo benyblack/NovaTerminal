@@ -2,7 +2,7 @@ using SkiaSharp;
 using System;
 using Xunit;
 
-namespace NovaTerminal.Tests.Infra
+namespace Ntilde.Tests.Infra
 {
     [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
     public sealed class FontGoldenFactAttribute : FactAttribute

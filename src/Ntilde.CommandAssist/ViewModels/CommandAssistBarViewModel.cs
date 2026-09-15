@@ -3,9 +3,9 @@ using System.ComponentModel;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.ViewModels;
+namespace Ntilde.CommandAssist.ViewModels;
 
 public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 {

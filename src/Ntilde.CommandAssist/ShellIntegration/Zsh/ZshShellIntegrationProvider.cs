@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
 
-namespace NovaTerminal.CommandAssist.ShellIntegration.Zsh;
+namespace Ntilde.CommandAssist.ShellIntegration.Zsh;
 
 public sealed class ZshShellIntegrationProvider : IShellIntegrationProvider
 {

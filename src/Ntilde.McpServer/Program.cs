@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using NovaTerminal.McpServer;
+using Ntilde.McpServer;
 
 var builder = Host.CreateApplicationBuilder(args);
 

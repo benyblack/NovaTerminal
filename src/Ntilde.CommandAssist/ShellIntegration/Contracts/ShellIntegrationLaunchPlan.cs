@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+namespace Ntilde.CommandAssist.ShellIntegration.Contracts;
 
 public sealed record ShellIntegrationLaunchPlan(
     bool IsIntegrated,

@@ -2,9 +2,9 @@ using System.IO.Compression;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
-using NovaTerminal.Backup;
+using Ntilde.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class BackupExportTests
 {
@@ -13,7 +13,7 @@ public sealed class BackupExportTests
     // not itself atomic. xunit.v3 does not guarantee serial execution of test methods within one
     // class, so another test interleaving its own CWD-relative work between this one's set and
     // its own restore would read the wrong directory - the same hazard BackupToolsTests.EnvVarGate
-    // documents for NOVATERM_APPDATA_ROOT. Nothing else in this assembly does CWD-relative file
+    // documents for NTILDE_APPDATA_ROOT. Nothing else in this assembly does CWD-relative file
     // I/O today (BackupTestTree builds only absolute paths by design), so this isn't a live flake
     // - it is a latent trap for the next relative-path test, closed the same way: a private lock
     // around just the one body that touches this global, rather than a whole extra
@@ -25,7 +25,7 @@ public sealed class BackupExportTests
     {
         using var tree = BackupTestTree.CreatePopulated();
         var service = new BackupService(tree.Root, FixedClock());
-        string bundle = Path.Combine(tree.Root, "export.novabackup");
+        string bundle = Path.Combine(tree.Root, "export.ntildebackup");
 
         var outcome = service.Export(bundle);
 
@@ -44,7 +44,7 @@ public sealed class BackupExportTests
     {
         using var tree = BackupTestTree.CreatePopulated();
         var service = new BackupService(tree.Root, FixedClock());
-        string bundle = Path.Combine(tree.Root, "export.novabackup");
+        string bundle = Path.Combine(tree.Root, "export.ntildebackup");
 
         service.Export(bundle);
         var inspection = service.Inspect(bundle);
@@ -61,7 +61,7 @@ public sealed class BackupExportTests
     {
         using var tree = BackupTestTree.CreatePopulated();
         var service = new BackupService(tree.Root, FixedClock());
-        string bundle = Path.Combine(tree.Root, "subset.novabackup");
+        string bundle = Path.Combine(tree.Root, "subset.ntildebackup");
 
         service.Export(bundle, new[] { BackupCategory.Themes, BackupCategory.Snippets });
         var inspection = service.Inspect(bundle);
@@ -86,7 +86,7 @@ public sealed class BackupExportTests
         tree.WriteFile(Path.Combine("logs", "debug.log"), sentinel);
 
         var service = new BackupService(tree.Root, FixedClock());
-        string bundle = Path.Combine(tree.Root, "export.novabackup");
+        string bundle = Path.Combine(tree.Root, "export.ntildebackup");
         service.Export(bundle);
 
         byte[] bytes = File.ReadAllBytes(bundle);
@@ -107,7 +107,7 @@ public sealed class BackupExportTests
         using var tree = BackupTestTree.CreateEmpty();
         tree.WriteFile("settings.json", """{"FontSize":16}""");
         var service = new BackupService(tree.Root, FixedClock());
-        string bundle = Path.Combine(tree.Root, "sparse.novabackup");
+        string bundle = Path.Combine(tree.Root, "sparse.ntildebackup");
 
         var outcome = service.Export(bundle);
 
@@ -124,7 +124,7 @@ public sealed class BackupExportTests
         var service = new BackupService(tree.Root, FixedClock());
 
         // A directory parked on the destination path blocks the file write on every OS.
-        string blocked = Path.Combine(tree.Root, "blocked.novabackup");
+        string blocked = Path.Combine(tree.Root, "blocked.ntildebackup");
         Directory.CreateDirectory(blocked);
 
         var outcome = service.Export(blocked);
@@ -168,7 +168,7 @@ public sealed class BackupExportTests
     {
         using var tree = BackupTestTree.CreatePopulated();
         var service = new BackupService(tree.Root, FixedClock());
-        string malformed = Path.Combine(tree.Root, "bad\0name.novabackup");
+        string malformed = Path.Combine(tree.Root, "bad\0name.ntildebackup");
 
         var outcome = service.Export(malformed);
 
@@ -219,12 +219,12 @@ public sealed class BackupExportTests
         var service = new BackupService(tree.Root, FixedClock());
 
         var outcome = service.Export(
-            Path.Combine(tree.Root, "themes", "sneaky.novabackup"),
+            Path.Combine(tree.Root, "themes", "sneaky.ntildebackup"),
             new[] { BackupCategory.Settings });
 
         Assert.False(outcome.Success);
         Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
-        Assert.False(File.Exists(Path.Combine(tree.Root, "themes", "sneaky.novabackup")));
+        Assert.False(File.Exists(Path.Combine(tree.Root, "themes", "sneaky.ntildebackup")));
     }
 
     /// <summary>
@@ -259,7 +259,7 @@ public sealed class BackupExportTests
         var service = new BackupService(tree.Root, FixedClock());
         Directory.CreateDirectory(service.BackupsDirectory);
 
-        var outcome = service.Export(Path.Combine(service.BackupsDirectory, "sneaky.novabackup"));
+        var outcome = service.Export(Path.Combine(service.BackupsDirectory, "sneaky.ntildebackup"));
 
         Assert.False(outcome.Success);
         Assert.Equal(BackupFailureKind.WriteFailed, outcome.Failure);
@@ -358,7 +358,7 @@ public sealed class BackupExportTests
             }
 
             var service = new BackupService(tree.Root, FixedClock());
-            string bundle = Path.Combine(tree.Root, "export.novabackup");
+            string bundle = Path.Combine(tree.Root, "export.ntildebackup");
 
             BackupOutcome? outcome = null;
             var thrown = Record.Exception(() => outcome = service.Export(bundle));
@@ -393,7 +393,7 @@ public sealed class BackupExportTests
         {
             SimulateExportFailureForTest = () => new InvalidOperationException("simulated exotic export failure"),
         };
-        string bundle = Path.Combine(tree.Root, "export.novabackup");
+        string bundle = Path.Combine(tree.Root, "export.ntildebackup");
 
         BackupOutcome? outcome = null;
         var thrown = Record.Exception(() => outcome = service.Export(bundle));

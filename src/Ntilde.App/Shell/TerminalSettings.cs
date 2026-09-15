@@ -2,10 +2,10 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using NovaTerminal.VT;
-using NovaTerminal.Pty;
+using Ntilde.VT;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public class TerminalSettings
     {
@@ -146,13 +146,13 @@ namespace NovaTerminal.Shell
         // no acting capability behind this flag.
         public bool AgentAccessObserveEnabled { get; set; } = false;
         // A4 sub-gate on top of the observe toggle: allows agents to export a
-        // session's recent output as a replay file (novaterminal.export_replay).
+        // session's recent output as a replay file (ntilde.export_replay).
         // Exports contain output and resize events only — never typed input
         // (privacy decision in docs/plans/2026-07-07-agent-host-a4-replay-design.md).
         // Off by default; both toggles must be on for an export to succeed.
         public bool AgentReplayExportEnabled { get; set; } = false;
         // A3 act surface: separate default-off opt-in letting agents type into,
-        // spawn, and close sessions (novaterminal.send_input / spawn_session /
+        // spawn, and close sessions (ntilde.send_input / spawn_session /
         // close_session). On top of observe; SSH sessions additionally require
         // per-profile allowlisting. Every acting call is shown in the agent
         // activity journal. Off by default.

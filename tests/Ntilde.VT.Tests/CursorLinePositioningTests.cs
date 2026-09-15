@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 public class CursorLinePositioningTests
 {

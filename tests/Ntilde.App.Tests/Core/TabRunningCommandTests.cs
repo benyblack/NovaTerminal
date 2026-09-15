@@ -5,11 +5,11 @@ using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
-using NovaTerminal.AgentHost;
-using NovaTerminal.Shell;
+using Ntilde.AgentHost;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// The precise "command in flight" half of the vertical tab dot: MainWindow.
@@ -24,7 +24,7 @@ namespace NovaTerminal.Tests.Core;
 /// pane whose registration lands in AgentSessionRegistry.Instance — the same
 /// process-wide singleton every other window-creating test shares — so these
 /// tests follow AgentIndicatorTabRollupTests.RunIsolated: point
-/// NOVATERM_APPDATA_ROOT at a scratch directory (so nothing reaches the
+/// NTILDE_APPDATA_ROOT at a scratch directory (so nothing reaches the
 /// developer's real app data), snapshot the registry before creating the
 /// window, and diff afterwards to isolate the registration this window added.
 ///
@@ -74,14 +74,14 @@ public sealed class TabRunningCommandTests : IDisposable
 
     private static void RunIsolated(Action<MainWindow, AgentSessionRegistration> body)
     {
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"novaterm_tab_running_test_{Guid.NewGuid():N}");
-        string? previousRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_tab_running_test_{Guid.NewGuid():N}");
+        string? previousRoot = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
         Directory.CreateDirectory(tempRoot);
 
         AgentSessionRegistration? registration = null;
         try
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", tempRoot);
 
             var before = AgentSessionRegistry.Instance.GetRegistrations();
             var window = TestMainWindowFactory.Create();
@@ -104,7 +104,7 @@ public sealed class TabRunningCommandTests : IDisposable
                 AgentSessionRegistry.Instance.Unregister(registration.PaneId);
             }
 
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previousRoot);
             try { Directory.Delete(tempRoot, recursive: true); } catch { /* best effort */ }
         }
     }

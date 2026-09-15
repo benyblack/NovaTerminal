@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.AgentHost
+namespace Ntilde.AgentHost
 {
     /// <summary>Outcome of an agent-requested spawn (A3).</summary>
     public readonly struct AgentSpawnResult

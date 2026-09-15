@@ -1,9 +1,9 @@
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// Phase 1c: the query is read out of the terminal grid, and the shadow keystroke buffer is gone.
@@ -330,13 +330,13 @@ public sealed class CommandAssistGridTruthTests
         var harness = Harness.Create();
         await harness.PromptReadyAsync();
 
-        harness.Grid.SetLine("cd src/NovaTerm");
+        harness.Grid.SetLine("cd src/Ntilde");
         harness.Controller.NotifyInputActivity();
-        await harness.WaitForQueryAsync("cd src/NovaTerm");
+        await harness.WaitForQueryAsync("cd src/Ntilde");
 
-        harness.Grid.SetLine("cd src/NovaTerminal.CommandAssist/");
+        harness.Grid.SetLine("cd src/Ntilde.CommandAssist/");
         harness.Controller.NotifyInputActivity();
-        await harness.WaitForQueryAsync("cd src/NovaTerminal.CommandAssist/");
+        await harness.WaitForQueryAsync("cd src/Ntilde.CommandAssist/");
     }
 
     /// <summary>

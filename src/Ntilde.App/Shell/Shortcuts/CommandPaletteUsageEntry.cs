@@ -1,5 +1,5 @@
 using System;
 
-namespace NovaTerminal.Shell.Shortcuts;
+namespace Ntilde.Shell.Shortcuts;
 
 public sealed record CommandPaletteUsageEntry(string CommandId, int UseCount, DateTimeOffset LastUsedAt);

@@ -1,13 +1,13 @@
-using NovaTerminal.Shell;
-using NovaTerminal.CommandAssist.ShellIntegration.Bash;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.CommandAssist.ShellIntegration.Fish;
-using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
-using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
-using NovaTerminal.CommandAssist.ShellIntegration.Zsh;
-using NovaTerminal.Controls;
+using Ntilde.Shell;
+using Ntilde.CommandAssist.ShellIntegration.Bash;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.ShellIntegration.Fish;
+using Ntilde.CommandAssist.ShellIntegration.PowerShell;
+using Ntilde.CommandAssist.ShellIntegration.Runtime;
+using Ntilde.CommandAssist.ShellIntegration.Zsh;
+using Ntilde.Controls;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 public sealed class ShellIntegrationRegistryTests
 {

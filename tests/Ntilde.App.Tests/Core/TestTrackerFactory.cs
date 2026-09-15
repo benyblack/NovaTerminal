@@ -1,9 +1,9 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Test-only helper for constructing a <see cref="StartupPerformanceTracker"/>

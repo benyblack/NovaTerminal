@@ -1,8 +1,8 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:controls="clr-namespace:NovaTerminal.Controls"
-             xmlns:vm="clr-namespace:NovaTerminal.ViewModels.Ssh"
-             x:Class="NovaTerminal.Controls.RemoteFilesSidebar"
+             xmlns:controls="clr-namespace:Ntilde.Controls"
+             xmlns:vm="clr-namespace:Ntilde.ViewModels.Ssh"
+             x:Class="Ntilde.Controls.RemoteFilesSidebar"
              x:DataType="vm:RemoteFilesSidebarViewModel">
     <Border Name="SidebarChrome"
             Width="288"

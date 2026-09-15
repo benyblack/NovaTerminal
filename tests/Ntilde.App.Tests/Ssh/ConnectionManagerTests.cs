@@ -1,4 +1,4 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -7,15 +7,15 @@ using Avalonia.Threading;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.VisualTree;
-using NovaTerminal.Controls;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Platform.Ssh.Launch;
-using NovaTerminal.ViewModels.Ssh;
+using Ntilde.Controls;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.ViewModels.Ssh;
 using System.Collections.Specialized;
 using System.Linq;
 
-namespace NovaTerminal.Tests.Ssh;
+namespace Ntilde.Tests.Ssh;
 
 public sealed class ConnectionManagerTests
 {
@@ -574,7 +574,7 @@ public sealed class ConnectionManagerTests
         handler!.Invoke(control, new object?[] { toggle, new RoutedEventArgs(ToggleButton.ClickEvent) });
     }
 
-    private sealed class FakeSavedPasswordAccess : NovaTerminal.Shell.ISavedPasswordAccess
+    private sealed class FakeSavedPasswordAccess : Ntilde.Shell.ISavedPasswordAccess
     {
         public bool IsVaultAvailable { get; set; } = true;
         public bool Saved { get; set; }

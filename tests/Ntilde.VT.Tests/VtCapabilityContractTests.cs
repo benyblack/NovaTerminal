@@ -1,6 +1,6 @@
-using NovaTerminal.VtContract;
+using Ntilde.VtContract;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// One executable contract per capability the catalog advertises as

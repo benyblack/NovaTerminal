@@ -1,7 +1,7 @@
-using NovaTerminal.McpServer.Tools;
-using NovaTerminal.VtContract;
+using Ntilde.McpServer.Tools;
+using Ntilde.VtContract;
 
-namespace NovaTerminal.McpServer.Tests;
+namespace Ntilde.McpServer.Tests;
 
 public class ExplainEscapeSequenceTests
 {
@@ -29,7 +29,7 @@ public class ExplainEscapeSequenceTests
     [Fact]
     public void Osc52_IsMarkedUnsupported()
     {
-        // NovaTerminal's AnsiParser does not handle OSC 52; the explainer must not imply it does.
+        // Ntilde's AnsiParser does not handle OSC 52; the explainer must not imply it does.
         var result = VtTools.ExplainEscapeSequence("OSC 52");
         Assert.Contains("NOT currently supported", result, System.StringComparison.Ordinal);
     }
@@ -82,7 +82,7 @@ public class ExplainEscapeSequenceTests
     /// <summary>
     /// #274: the curated fallback table is keyed by final byte alone, so it used to describe
     /// XTSMGRAPHICS as SU and XTRMTITLE as SD. The parser ignores both, so those answers told the
-    /// reader the opposite of what NovaTerminal does.
+    /// reader the opposite of what Ntilde does.
     /// </summary>
     [Theory]
     [InlineData("CSI ?1;1;0S", "SU")] // XTSMGRAPHICS, not Scroll Up
@@ -189,7 +189,7 @@ public class ExplainEscapeSequenceTests
 
     /// <summary>
     /// #274: a leader or an intermediate selects a different function, so the explainer must not
-    /// describe these as CHA. It used to, reporting them as a "qualified form" that NovaTerminal
+    /// describe these as CHA. It used to, reporting them as a "qualified form" that Ntilde
     /// processed as CHA - which mirrored the parser's missing leader guard. The parser ignores
     /// them now, so claiming CHA would send a reader looking for a cursor move that never happens.
     /// </summary>
@@ -284,7 +284,7 @@ public class SuggestRelevantFilesTests
     [InlineData("glyph atlas overflow", "GlyphAtlas.cs")]
     [InlineData("ssh key auth", "TerminalProfile.cs")]
     [InlineData("OSC parser sequence", "AnsiParser.cs")]
-    [InlineData("theme validation", "src/NovaTerminal.App/Shell/ThemeManager.cs")] // correct path
+    [InlineData("theme validation", "src/Ntilde.App/Shell/ThemeManager.cs")] // correct path
     public void MapsTopicToFiles(string topic, string expectedFile)
     {
         Assert.Contains(expectedFile, WorkflowTools.SuggestRelevantFiles(topic), System.StringComparison.Ordinal);

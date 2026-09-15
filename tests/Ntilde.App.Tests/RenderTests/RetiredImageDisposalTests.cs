@@ -1,10 +1,10 @@
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.VT;
 using SkiaSharp;
 using System;
 
-namespace NovaTerminal.Tests.RenderTests;
+namespace Ntilde.Tests.RenderTests;
 
 /// <summary>
 /// #166 end to end: a pruned image's SKBitmap is disposed by the owning view's

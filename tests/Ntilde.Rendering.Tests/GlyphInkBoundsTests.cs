@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using NovaTerminal.Rendering;
+using Ntilde.Rendering;
 using SkiaSharp;
 
-namespace NovaTerminal.Rendering.Tests;
+namespace Ntilde.Rendering.Tests;
 
 /// <summary>
 /// #172 item 2: the atlas packed each glyph into its <em>advance</em> box — <c>ceil(MeasureText)</c>

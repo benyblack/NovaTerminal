@@ -4,8 +4,8 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.VT;
 using SkiaSharp;
 using System;
 using System.IO;
@@ -13,7 +13,7 @@ using System.Linq;
 using System.Text.Json;
 using Xunit;
 
-namespace NovaTerminal.Tests.BufferTests
+namespace Ntilde.Tests.BufferTests
 {
     /// <summary>
     /// End-to-end pixel regression for the live theme switch: drives the REAL TerminalView →
@@ -160,7 +160,7 @@ namespace NovaTerminal.Tests.BufferTests
             var solarized = LoadTheme("SolarizedDark");
             var cobalt = LoadTheme("Cobalt2");
 
-            using var pane = new NovaTerminal.Controls.TerminalPane();
+            using var pane = new Ntilde.Controls.TerminalPane();
             pane.CreateAndWireParser();
             pane.Parser!.Process("Clink v1.9.25.dc17e7\r\nActive code page: 65001\r\n");
             for (int i = 0; i < 3; i++)

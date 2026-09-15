@@ -16,7 +16,7 @@ PowerShell shell integration is enabled when all of the following are true:
 - the active shell profile resolves to a supported PowerShell command
 - the PowerShell launch arguments do not already force a user-supplied `-File` script
 
-When those conditions are met, NovaTerminal injects a Command Assist bootstrap
+When those conditions are met, Ntilde injects a Command Assist bootstrap
 script through the existing App-layer launch-plan path (`-File <bootstrap>`).
 
 ## Marker Flow
@@ -50,12 +50,12 @@ The bootstrap wraps the existing PowerShell `prompt` function instead of
 replacing it.
 
 That means:
-- NovaTerminal emits cwd, completion-D, and prompt-ready markers before the
+- Ntilde emits cwd, completion-D, and prompt-ready markers before the
   user's prompt rendering
 - the original prompt implementation is still invoked
 - custom prompt content remains the shell's responsibility
 
-If NovaTerminal cannot capture the existing prompt implementation, it falls
+If Ntilde cannot capture the existing prompt implementation, it falls
 back to a simple prompt string so the shell session remains usable.
 
 ## Command Capture

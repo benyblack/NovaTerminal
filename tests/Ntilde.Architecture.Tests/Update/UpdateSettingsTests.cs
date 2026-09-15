@@ -1,7 +1,7 @@
 using System.Text.Json;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 /// <summary>
 /// In the Architecture project rather than beside the rest of the app tests for the same reason

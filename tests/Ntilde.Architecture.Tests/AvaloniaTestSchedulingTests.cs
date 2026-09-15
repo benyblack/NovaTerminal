@@ -5,7 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 /// <summary>
 /// Source-scan guards over how the test suite is allowed to touch Avalonia's process-global,
@@ -371,7 +371,7 @@ public class AvaloniaTestSchedulingTests
         DirectoryInfo? dir = new(AppContext.BaseDirectory);
         while (dir != null)
         {
-            if (File.Exists(Path.Combine(dir.FullName, "NovaTerminal.sln")))
+            if (File.Exists(Path.Combine(dir.FullName, "Ntilde.sln")))
             {
                 return dir.FullName;
             }

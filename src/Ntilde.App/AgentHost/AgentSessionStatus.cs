@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.AgentHost
+namespace Ntilde.AgentHost
 {
     /// <summary>What a session is doing right now (agent-host A2 status model).</summary>
     public enum AgentSessionStatusKind

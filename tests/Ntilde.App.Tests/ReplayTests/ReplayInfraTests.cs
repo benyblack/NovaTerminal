@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Replay;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Replay;
 using System.Text;
 
-namespace NovaTerminal.Tests.ReplayTests
+namespace Ntilde.Tests.ReplayTests
 {
     public class ReplayInfraTests
     {

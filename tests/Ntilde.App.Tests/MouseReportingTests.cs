@@ -1,11 +1,11 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Xunit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using System.Text;
 using System.Collections.Generic;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class MouseReportingTests
     {

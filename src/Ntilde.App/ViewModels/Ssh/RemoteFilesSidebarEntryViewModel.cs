@@ -1,8 +1,8 @@
 using System;
 using System.Globalization;
-using NovaTerminal.Models;
+using Ntilde.Models;
 
-namespace NovaTerminal.ViewModels.Ssh;
+namespace Ntilde.ViewModels.Ssh;
 
 public sealed class RemoteFilesSidebarEntryViewModel
 {

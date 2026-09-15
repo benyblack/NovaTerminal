@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace NovaTerminal.CommandAssist.Providers;
+namespace Ntilde.CommandAssist.Providers;
 
 /// <summary>
 /// Which opt-in providers the user has enabled, per capability. The registry consults it before

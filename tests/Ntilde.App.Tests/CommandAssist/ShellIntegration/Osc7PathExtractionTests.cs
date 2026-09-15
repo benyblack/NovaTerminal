@@ -1,9 +1,9 @@
 using System;
 using System.Linq;
-using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
-using NovaTerminal.VT;
+using Ntilde.CommandAssist.ShellIntegration.PowerShell;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 /// <summary>
 /// What <c>AnsiParser</c> hands Command Assist as a working directory for a given OSC 7 payload.
@@ -167,7 +167,7 @@ public sealed class Osc7PathExtractionTests
     /// transformation the script performs, and assert the parser recovers the path exactly.
     /// </summary>
     /// <remarks>
-    /// The C# here mirrors the PowerShell in <c>PowerShellBootstrapBuilder.Write-NovaPwd</c>. Mirrored
+    /// The C# here mirrors the PowerShell in <c>PowerShellBootstrapBuilder.Write-NtildePwd</c>. Mirrored
     /// rather than executed because spawning pwsh from a unit test is a integration-suite cost; the script
     /// text itself is pinned by <c>PowerShellBootstrapBuilderTests</c>, and this asserts that what that
     /// text computes is what the parser wants.
@@ -180,7 +180,7 @@ public sealed class Osc7PathExtractionTests
     [InlineData("/home/you/src")]
     public void PowerShellBootstrap_Osc7Emission_RoundTripsThroughTheParser(string cwd)
     {
-        string payload = MirrorWriteNovaPwd(cwd);
+        string payload = MirrorWriteNtildePwd(cwd);
 
         Assert.Equal(cwd, Extract(payload));
     }
@@ -189,7 +189,7 @@ public sealed class Osc7PathExtractionTests
     /// The bootstrap's OSC 7 payload for <paramref name="cwd"/>: flip separators, escape per segment,
     /// restore ':', ensure one leading slash, no authority.
     /// </summary>
-    private static string MirrorWriteNovaPwd(string cwd)
+    private static string MirrorWriteNtildePwd(string cwd)
     {
         string path = string.Join(
             '/',
@@ -218,6 +218,6 @@ public sealed class Osc7PathExtractionTests
         Assert.Contains("-split '/'", script);
         Assert.Contains("[Uri]::EscapeDataString($_) -replace '%3A', ':'", script);
         Assert.Contains("-join '/'", script);
-        Assert.Contains("Write-NovaSequence \"]7;file://$novaPath\"", script);
+        Assert.Contains("Write-NtildeSequence \"]7;file://$ntildePath\"", script);
     }
 }

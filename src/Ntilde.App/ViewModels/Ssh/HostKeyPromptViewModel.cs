@@ -1,4 +1,4 @@
-namespace NovaTerminal.ViewModels.Ssh;
+namespace Ntilde.ViewModels.Ssh;
 
 public sealed class HostKeyPromptViewModel
 {

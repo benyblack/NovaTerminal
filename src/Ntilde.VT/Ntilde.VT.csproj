@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <InternalsVisibleTo Include="NovaTerminal.VT.Tests" />
+    <InternalsVisibleTo Include="Ntilde.VT.Tests" />
   </ItemGroup>
 
 </Project>

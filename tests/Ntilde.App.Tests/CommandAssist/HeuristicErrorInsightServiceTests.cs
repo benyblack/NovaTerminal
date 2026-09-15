@@ -1,7 +1,7 @@
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// The service that drives the recogniser table: dispatch, ordering, and the ladder of how much it

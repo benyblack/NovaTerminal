@@ -4,28 +4,28 @@
 
 **Goal:** Add pane-local Command Assist helper surfaces for Help, Recipes/Examples, Fix, and Explain Selection without touching VT/render core or rendering anything into the terminal grid.
 
-**Architecture:** Extend the existing `NovaTerminal.App.CommandAssist` subsystem rather than creating a second helper framework. Keep `TerminalPane` as the pane-local integration seam, keep `CommandAssistController` as the orchestration point, add deterministic local provider interfaces for docs/recipes/fix insights, and reuse the existing assist overlay with mode-aware content.
+**Architecture:** Extend the existing `Ntilde.App.CommandAssist` subsystem rather than creating a second helper framework. Keep `TerminalPane` as the pane-local integration seam, keep `CommandAssistController` as the orchestration point, add deterministic local provider interfaces for docs/recipes/fix insights, and reuse the existing assist overlay with mode-aware content.
 
-**Tech Stack:** C#, .NET 10, Avalonia, xUnit, existing `NovaTerminal.App.CommandAssist` subsystem, deterministic local provider services.
+**Tech Stack:** C#, .NET 10, Avalonia, xUnit, existing `Ntilde.App.CommandAssist` subsystem, deterministic local provider services.
 
 ---
 
 ### Task 1: Add the M4 model and contract tests
 
 **Files:**
-- Create: `tests/NovaTerminal.Tests/CommandAssist/LocalCommandDocsProviderTests.cs`
-- Create: `tests/NovaTerminal.Tests/CommandAssist/SeedRecipeProviderTests.cs`
-- Create: `tests/NovaTerminal.Tests/CommandAssist/HeuristicErrorInsightServiceTests.cs`
-- Create: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistModeRouterTests.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Models/CommandAssistMode.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Models/CommandHelpQuery.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Models/CommandFailureContext.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Models/CommandHelpItem.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Models/CommandFixSuggestion.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Models/CommandAssistContextSnapshot.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Domain/ICommandDocsProvider.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Domain/IRecipeProvider.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Domain/IErrorInsightService.cs`
+- Create: `tests/Ntilde.Tests/CommandAssist/LocalCommandDocsProviderTests.cs`
+- Create: `tests/Ntilde.Tests/CommandAssist/SeedRecipeProviderTests.cs`
+- Create: `tests/Ntilde.Tests/CommandAssist/HeuristicErrorInsightServiceTests.cs`
+- Create: `tests/Ntilde.Tests/CommandAssist/CommandAssistModeRouterTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/Models/CommandAssistMode.cs`
+- Create: `src/Ntilde.App/CommandAssist/Models/CommandHelpQuery.cs`
+- Create: `src/Ntilde.App/CommandAssist/Models/CommandFailureContext.cs`
+- Create: `src/Ntilde.App/CommandAssist/Models/CommandHelpItem.cs`
+- Create: `src/Ntilde.App/CommandAssist/Models/CommandFixSuggestion.cs`
+- Create: `src/Ntilde.App/CommandAssist/Models/CommandAssistContextSnapshot.cs`
+- Create: `src/Ntilde.App/CommandAssist/Domain/ICommandDocsProvider.cs`
+- Create: `src/Ntilde.App/CommandAssist/Domain/IRecipeProvider.cs`
+- Create: `src/Ntilde.App/CommandAssist/Domain/IErrorInsightService.cs`
 
 **Step 1: Write the failing tests**
 
@@ -60,7 +60,7 @@ public async Task AnalyzeAsync_WhenCommandNotFound_ReturnsHighConfidenceFix()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "LocalCommandDocsProviderTests|SeedRecipeProviderTests|HeuristicErrorInsightServiceTests|CommandAssistModeRouterTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "LocalCommandDocsProviderTests|SeedRecipeProviderTests|HeuristicErrorInsightServiceTests|CommandAssistModeRouterTests"
 ```
 
 Expected: FAIL with missing types and interfaces.
@@ -83,7 +83,7 @@ Add the new model records and service interfaces with no speculative fields beyo
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "LocalCommandDocsProviderTests|SeedRecipeProviderTests|HeuristicErrorInsightServiceTests|CommandAssistModeRouterTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "LocalCommandDocsProviderTests|SeedRecipeProviderTests|HeuristicErrorInsightServiceTests|CommandAssistModeRouterTests"
 ```
 
 Expected: still FAIL, but now on missing provider implementations rather than missing types.
@@ -91,17 +91,17 @@ Expected: still FAIL, but now on missing provider implementations rather than mi
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/CommandAssist/LocalCommandDocsProviderTests.cs tests/NovaTerminal.Tests/CommandAssist/SeedRecipeProviderTests.cs tests/NovaTerminal.Tests/CommandAssist/HeuristicErrorInsightServiceTests.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistModeRouterTests.cs src/NovaTerminal.App/CommandAssist/Models/CommandAssistMode.cs src/NovaTerminal.App/CommandAssist/Models/CommandHelpQuery.cs src/NovaTerminal.App/CommandAssist/Models/CommandFailureContext.cs src/NovaTerminal.App/CommandAssist/Models/CommandHelpItem.cs src/NovaTerminal.App/CommandAssist/Models/CommandFixSuggestion.cs src/NovaTerminal.App/CommandAssist/Models/CommandAssistContextSnapshot.cs src/NovaTerminal.App/CommandAssist/Domain/ICommandDocsProvider.cs src/NovaTerminal.App/CommandAssist/Domain/IRecipeProvider.cs src/NovaTerminal.App/CommandAssist/Domain/IErrorInsightService.cs
+git add tests/Ntilde.Tests/CommandAssist/LocalCommandDocsProviderTests.cs tests/Ntilde.Tests/CommandAssist/SeedRecipeProviderTests.cs tests/Ntilde.Tests/CommandAssist/HeuristicErrorInsightServiceTests.cs tests/Ntilde.Tests/CommandAssist/CommandAssistModeRouterTests.cs src/Ntilde.App/CommandAssist/Models/CommandAssistMode.cs src/Ntilde.App/CommandAssist/Models/CommandHelpQuery.cs src/Ntilde.App/CommandAssist/Models/CommandFailureContext.cs src/Ntilde.App/CommandAssist/Models/CommandHelpItem.cs src/Ntilde.App/CommandAssist/Models/CommandFixSuggestion.cs src/Ntilde.App/CommandAssist/Models/CommandAssistContextSnapshot.cs src/Ntilde.App/CommandAssist/Domain/ICommandDocsProvider.cs src/Ntilde.App/CommandAssist/Domain/IRecipeProvider.cs src/Ntilde.App/CommandAssist/Domain/IErrorInsightService.cs
 git commit -m "Add Command Assist M4 helper contracts"
 ```
 
 ### Task 2: Implement deterministic local docs and recipe providers
 
 **Files:**
-- Create: `src/NovaTerminal.App/CommandAssist/Domain/LocalCommandDocsProvider.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Domain/SeedRecipeProvider.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/LocalCommandDocsProviderTests.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/SeedRecipeProviderTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/Domain/LocalCommandDocsProvider.cs`
+- Create: `src/Ntilde.App/CommandAssist/Domain/SeedRecipeProvider.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/LocalCommandDocsProviderTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/SeedRecipeProviderTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -129,7 +129,7 @@ public async Task GetRecipesAsync_WhenShellMatches_PrefersShellSpecificRecipes()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "LocalCommandDocsProviderTests|SeedRecipeProviderTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "LocalCommandDocsProviderTests|SeedRecipeProviderTests"
 ```
 
 Expected: FAIL because providers are not implemented.
@@ -147,7 +147,7 @@ Implement:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "LocalCommandDocsProviderTests|SeedRecipeProviderTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "LocalCommandDocsProviderTests|SeedRecipeProviderTests"
 ```
 
 Expected: PASS
@@ -155,15 +155,15 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/Domain/LocalCommandDocsProvider.cs src/NovaTerminal.App/CommandAssist/Domain/SeedRecipeProvider.cs tests/NovaTerminal.Tests/CommandAssist/LocalCommandDocsProviderTests.cs tests/NovaTerminal.Tests/CommandAssist/SeedRecipeProviderTests.cs
+git add src/Ntilde.App/CommandAssist/Domain/LocalCommandDocsProvider.cs src/Ntilde.App/CommandAssist/Domain/SeedRecipeProvider.cs tests/Ntilde.Tests/CommandAssist/LocalCommandDocsProviderTests.cs tests/Ntilde.Tests/CommandAssist/SeedRecipeProviderTests.cs
 git commit -m "Add local Command Assist docs and recipe providers"
 ```
 
 ### Task 3: Implement heuristic fix insight service
 
 **Files:**
-- Create: `src/NovaTerminal.App/CommandAssist/Domain/HeuristicErrorInsightService.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/HeuristicErrorInsightServiceTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/Domain/HeuristicErrorInsightService.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/HeuristicErrorInsightServiceTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -192,7 +192,7 @@ public async Task AnalyzeAsync_WhenPowerShellCommandNotRecognized_SuggestsLikely
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "HeuristicErrorInsightServiceTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "HeuristicErrorInsightServiceTests"
 ```
 
 Expected: FAIL because the service is not implemented.
@@ -213,7 +213,7 @@ Do not infer arbitrary stderr.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "HeuristicErrorInsightServiceTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "HeuristicErrorInsightServiceTests"
 ```
 
 Expected: PASS
@@ -221,16 +221,16 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/Domain/HeuristicErrorInsightService.cs tests/NovaTerminal.Tests/CommandAssist/HeuristicErrorInsightServiceTests.cs
+git add src/Ntilde.App/CommandAssist/Domain/HeuristicErrorInsightService.cs tests/Ntilde.Tests/CommandAssist/HeuristicErrorInsightServiceTests.cs
 git commit -m "Add heuristic Command Assist fix insights"
 ```
 
 ### Task 4: Extend assist row models for helper content
 
 **Files:**
-- Modify: `src/NovaTerminal.App/CommandAssist/Models/AssistSuggestion.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Models/AssistSuggestionType.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistSuggestionEngineTests.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Models/AssistSuggestion.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Models/AssistSuggestionType.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistSuggestionEngineTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -244,7 +244,7 @@ Add tests that assert helper rows can carry:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistSuggestionEngineTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistSuggestionEngineTests"
 ```
 
 Expected: FAIL because the current row contract is too narrow.
@@ -262,7 +262,7 @@ Update any existing constructors/usages to compile with the new field.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistSuggestionEngineTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistSuggestionEngineTests"
 ```
 
 Expected: PASS
@@ -270,16 +270,16 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/Models/AssistSuggestion.cs src/NovaTerminal.App/CommandAssist/Models/AssistSuggestionType.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistSuggestionEngineTests.cs
+git add src/Ntilde.App/CommandAssist/Models/AssistSuggestion.cs src/Ntilde.App/CommandAssist/Models/AssistSuggestionType.cs tests/Ntilde.Tests/CommandAssist/CommandAssistSuggestionEngineTests.cs
 git commit -m "Extend Command Assist row model for helper modes"
 ```
 
 ### Task 5: Implement mode routing and recognized-command parsing
 
 **Files:**
-- Create: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistModeRouter.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Application/RecognizedCommandParser.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistModeRouterTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/Application/CommandAssistModeRouter.cs`
+- Create: `src/Ntilde.App/CommandAssist/Application/RecognizedCommandParser.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistModeRouterTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -306,7 +306,7 @@ public void ChooseMode_WhenFailureHasLowConfidence_RemainsSuggest()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistModeRouterTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistModeRouterTests"
 ```
 
 Expected: FAIL because router/parser are not implemented.
@@ -322,7 +322,7 @@ Implement:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistModeRouterTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistModeRouterTests"
 ```
 
 Expected: PASS
@@ -330,15 +330,15 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/Application/CommandAssistModeRouter.cs src/NovaTerminal.App/CommandAssist/Application/RecognizedCommandParser.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistModeRouterTests.cs
+git add src/Ntilde.App/CommandAssist/Application/CommandAssistModeRouter.cs src/Ntilde.App/CommandAssist/Application/RecognizedCommandParser.cs tests/Ntilde.Tests/CommandAssist/CommandAssistModeRouterTests.cs
 git commit -m "Add Command Assist M4 mode routing"
 ```
 
 ### Task 6: Implement helper result shaping
 
 **Files:**
-- Create: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistResultBuilder.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/Application/CommandAssistResultBuilder.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -353,7 +353,7 @@ Add tests that assert:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistControllerTests"
 ```
 
 Expected: FAIL because helper rows are not being built.
@@ -372,7 +372,7 @@ into one common `AssistSuggestion` row shape.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistControllerTests"
 ```
 
 Expected: PASS for the new result-shaping tests.
@@ -380,16 +380,16 @@ Expected: PASS for the new result-shaping tests.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/Application/CommandAssistResultBuilder.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs
+git add src/Ntilde.App/CommandAssist/Application/CommandAssistResultBuilder.cs tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs
 git commit -m "Add Command Assist helper result shaping"
 ```
 
 ### Task 7: Extend controller with Help and Fix entry points
 
 **Files:**
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs`
+- Modify: `src/Ntilde.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -418,7 +418,7 @@ public async Task HandleCommandFailureAsync_WhenInsightIsHighConfidence_OpensFix
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistControllerTests"
 ```
 
 Expected: FAIL because controller entry points and mode state do not exist yet.
@@ -439,7 +439,7 @@ Keep all helper behavior best-effort and pane-local.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistControllerTests"
 ```
 
 Expected: PASS
@@ -447,15 +447,15 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs
+git add src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs src/Ntilde.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs
 git commit -m "Add Command Assist help and fix modes"
 ```
 
 ### Task 8: Register the M4 providers in infrastructure
 
 **Files:**
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
 
 **Step 1: Write the failing test**
 
@@ -466,7 +466,7 @@ Add or extend a controller integration test that constructs the real infrastruct
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistControllerTests"
 ```
 
 Expected: FAIL because infrastructure does not register the new providers.
@@ -485,7 +485,7 @@ Wire them into `TerminalPane.InitializeCommandAssist()`.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistControllerTests"
 ```
 
 Expected: PASS
@@ -493,15 +493,15 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs src/NovaTerminal.App/Controls/TerminalPane.axaml.cs
+git add src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs src/Ntilde.App/Controls/TerminalPane.axaml.cs
 git commit -m "Wire Command Assist M4 providers into pane infrastructure"
 ```
 
 ### Task 9: Trigger fix mode from pane command failures
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -515,7 +515,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistControllerTests"
 ```
 
 Expected: FAIL because pane failure context is not forwarded.
@@ -535,7 +535,7 @@ Keep this additive and do not alter parser semantics.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistControllerTests"
 ```
 
 Expected: PASS
@@ -543,16 +543,16 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml.cs tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs
 git commit -m "Trigger Command Assist fix mode from command failures"
 ```
 
 ### Task 10: Add Explain Selection pane action
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -566,7 +566,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "TerminalPaneCommandAssistShortcutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "TerminalPaneCommandAssistShortcutTests"
 ```
 
 Expected: FAIL because the action does not exist.
@@ -586,7 +586,7 @@ In code-behind:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "TerminalPaneCommandAssistShortcutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "TerminalPaneCommandAssistShortcutTests"
 ```
 
 Expected: PASS
@@ -594,16 +594,16 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml src/Ntilde.App/Controls/TerminalPane.axaml.cs tests/Ntilde.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs
 git commit -m "Add Command Assist explain selection action"
 ```
 
 ### Task 11: Extend the assist viewmodel and Avalonia view for helper modes
 
 **Files:**
-- Modify: `src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Views/CommandAssistBarView.axaml`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs`
+- Modify: `src/Ntilde.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Views/CommandAssistBarView.axaml`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -618,7 +618,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
 ```
 
 Expected: FAIL because the viewmodel/view do not expose helper-specific fields.
@@ -640,7 +640,7 @@ Update the Avalonia view to:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
 ```
 
 Expected: PASS
@@ -648,15 +648,15 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs src/NovaTerminal.App/CommandAssist/Views/CommandAssistBarView.axaml tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs
+git add src/Ntilde.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs src/Ntilde.App/CommandAssist/Views/CommandAssistBarView.axaml tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs
 git commit -m "Render Command Assist helper mode content"
 ```
 
 ### Task 12: Add explicit Help shortcut routing
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -670,7 +670,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "TerminalPaneCommandAssistShortcutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "TerminalPaneCommandAssistShortcutTests"
 ```
 
 Expected: FAIL because no help shortcut exists yet.
@@ -687,7 +687,7 @@ In `MainWindow.axaml.cs`:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "TerminalPaneCommandAssistShortcutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "TerminalPaneCommandAssistShortcutTests"
 ```
 
 Expected: PASS
@@ -695,7 +695,7 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs
+git add src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs
 git commit -m "Add Command Assist help shortcut"
 ```
 
@@ -709,7 +709,7 @@ git commit -m "Add Command Assist help shortcut"
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssist|ShellIntegration|AlternateScreen|HeadlessUI" --logger "console;verbosity=minimal"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssist|ShellIntegration|AlternateScreen|HeadlessUI" --logger "console;verbosity=minimal"
 ```
 
 Expected: PASS
@@ -719,7 +719,7 @@ Expected: PASS
 Run:
 
 ```bash
-dotnet msbuild src/NovaTerminal.App/NovaTerminal.App.csproj /t:Compile /p:Configuration=Release /v:minimal
+dotnet msbuild src/Ntilde.App/Ntilde.App.csproj /t:Compile /p:Configuration=Release /v:minimal
 ```
 
 Expected: Build succeeded

@@ -1,6 +1,6 @@
-using NovaTerminal.Shell.Shortcuts;
+using Ntilde.Shell.Shortcuts;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class CommandPaletteUsageStoreTests
 {
@@ -64,7 +64,7 @@ public sealed class CommandPaletteUsageStoreTests
 
     private static string CreateTempDirectory()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"nova_usage_test_{Guid.NewGuid():N}");
+        string path = Path.Combine(Path.GetTempPath(), $"ntilde_usage_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
     }

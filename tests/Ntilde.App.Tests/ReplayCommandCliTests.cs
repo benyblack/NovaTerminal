@@ -2,13 +2,13 @@ using System;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
-using NovaTerminal.Replay;
-using NovaTerminal.VT;
+using Ntilde.Replay;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests;
+namespace Ntilde.Tests;
 
 /// <summary>
-/// Tests for <c>NovaTerminal.Cli --replay</c> (A4 slice 3,
+/// Tests for <c>Ntilde.Cli --replay</c> (A4 slice 3,
 /// docs/plans/2026-07-07-agent-host-a4-replay-design.md): headless Virtual-mode
 /// replay of a .rec file printing the deterministic <see cref="BufferSnapshot"/>
 /// formatted screen. Exit codes: 0 success, 1 unreadable/truncated (partial
@@ -20,7 +20,7 @@ public sealed class ReplayCommandCliTests : IDisposable
 
     public ReplayCommandCliTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "nova-replaycli-tests-" + Guid.NewGuid().ToString("N"));
+        _tempDir = Path.Combine(Path.GetTempPath(), "ntilde-replaycli-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
     }
 
@@ -70,7 +70,7 @@ public sealed class ReplayCommandCliTests : IDisposable
             int exitCode = ReplayCommand.Execute(args, stdout, stderr);
 
             Assert.Equal(2, exitCode);
-            Assert.Contains("Usage: NovaTerminal.Cli --replay", stderr.ToString());
+            Assert.Contains("Usage: Ntilde.Cli --replay", stderr.ToString());
         }
     }
 

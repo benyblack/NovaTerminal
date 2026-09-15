@@ -1,6 +1,6 @@
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // #164 item 2a: the reflow engine flattened rows into a (Cell, ExtendedText) tuple, with no field
 // for the hyperlink. It read hyperlinks *out* of the old rows and handed GetHyperlinkMap() to the
@@ -15,8 +15,8 @@ public class ReflowMetadataTests
     private const string OtherUri = "https://example.com/other";
     // #95 gap 2: hyperlinks are an identity now, not a bare URI. Build them through the registry, the
     // same way the parser does, rather than reaching for an internal constructor.
-    private static readonly NovaTerminal.VT.Links.HyperlinkRegistry Registry = new();
-    private static NovaTerminal.VT.Links.Hyperlink Link(string uri) => Registry.Resolve(null, uri)!;
+    private static readonly Ntilde.VT.Links.HyperlinkRegistry Registry = new();
+    private static Ntilde.VT.Links.Hyperlink Link(string uri) => Registry.Resolve(null, uri)!;
     private const string ThumbsUp = "\U0001F44D";
 
     private static string?[] LinksOnRow(TerminalBuffer buffer, int viewRow, int cols)

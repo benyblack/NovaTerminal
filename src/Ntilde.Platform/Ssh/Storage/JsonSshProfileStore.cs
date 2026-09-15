@@ -1,8 +1,8 @@
 using System.Text.Json;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.VT;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.VT;
 
-namespace NovaTerminal.Platform.Ssh.Storage;
+namespace Ntilde.Platform.Ssh.Storage;
 
 public sealed class JsonSshProfileStore : ISshProfileStore
 {
@@ -26,7 +26,7 @@ public sealed class JsonSshProfileStore : ISshProfileStore
     public string StoreFilePath => _storeFilePath;
 
     /// <remarks>
-    /// Resolved through <see cref="PlatformAppPaths"/> so that redirecting NOVATERM_APPDATA_ROOT
+    /// Resolved through <see cref="PlatformAppPaths"/> so that redirecting NTILDE_APPDATA_ROOT
     /// moves SSH profiles with everything else. Reading LocalApplicationData directly here is what
     /// let a redirected process write the machine's real profile file (#406).
     /// </remarks>

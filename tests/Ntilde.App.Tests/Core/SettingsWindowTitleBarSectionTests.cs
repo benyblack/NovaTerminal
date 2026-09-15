@@ -4,7 +4,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Codex round 6 on PR #342 (finding at <c>MainWindow.axaml.cs:2252</c>): the title bar's
@@ -14,8 +14,8 @@ namespace NovaTerminal.Tests.Core;
 /// independently discoverable (this menu item exists solely to reach it), landing anywhere else
 /// defeats the entry point entirely.
 ///
-/// The fix gives <see cref="NovaTerminal.SettingsWindow"/> a third constructor parameter,
-/// <see cref="NovaTerminal.SettingsSection"/>, that both (a) forces tab selection to Appearance -
+/// The fix gives <see cref="Ntilde.SettingsWindow"/> a third constructor parameter,
+/// <see cref="Ntilde.SettingsSection"/>, that both (a) forces tab selection to Appearance -
 /// the only tab any section currently lives on, regardless of what tab index the caller passed -
 /// and (b) schedules a scroll-into-view of the TITLE BAR section header once the window has
 /// opened and laid out.
@@ -29,7 +29,7 @@ namespace NovaTerminal.Tests.Core;
 /// <c>ScrollViewer.Viewport</c> all resolve to real, non-zero pixel sizes immediately after
 /// <c>Show()</c>, even before any <c>RunJobs()</c> call (consistent with round 7's
 /// <c>TitleBar.Bounds.Width</c> resolving in the same host). The offset stayed at zero for an
-/// unrelated reason: at <see cref="NovaTerminal.SettingsWindow"/>'s default 880x620 size, the
+/// unrelated reason: at <see cref="Ntilde.SettingsWindow"/>'s default 880x620 size, the
 /// TITLE BAR header already sits inside the initial (zero-offset) viewport, so
 /// <c>BringIntoView</c> was a legitimate no-op, not a broken one. See that test for how forcing the
 /// header off-screen first makes the assertion meaningful.
@@ -41,36 +41,36 @@ public sealed class SettingsWindowTitleBarSectionTests
     {
         // initialTab: 2 is Shortcuts - deliberately the "wrong" tab, to prove the section target
         // overrides it rather than merely happening to agree with a caller who already passed 0.
-        var window = new NovaTerminal.SettingsWindow(initialTab: 2, section: NovaTerminal.SettingsSection.TitleBar);
+        var window = new Ntilde.SettingsWindow(initialTab: 2, section: Ntilde.SettingsSection.TitleBar);
 
         var tabs = window.FindControl<TabControl>("MainTabs");
         Assert.NotNull(tabs);
         Assert.Equal(0, tabs!.SelectedIndex);
 
-        Assert.Equal(NovaTerminal.SettingsSection.TitleBar, GetTargetSection(window));
+        Assert.Equal(Ntilde.SettingsSection.TitleBar, GetTargetSection(window));
     }
 
     [AvaloniaFact]
     public void Constructing_WithoutASection_LeavesExistingTabSelectionBehaviourUnchanged()
     {
         // The two pre-existing callers this must not break: OpenSettings(0) and OpenSettings(1).
-        var appearanceWindow = new NovaTerminal.SettingsWindow(0);
-        var profilesWindow = new NovaTerminal.SettingsWindow(1);
+        var appearanceWindow = new Ntilde.SettingsWindow(0);
+        var profilesWindow = new Ntilde.SettingsWindow(1);
 
         Assert.Equal(0, appearanceWindow.FindControl<TabControl>("MainTabs")!.SelectedIndex);
         Assert.Equal(1, profilesWindow.FindControl<TabControl>("MainTabs")!.SelectedIndex);
 
-        Assert.Equal(NovaTerminal.SettingsSection.None, GetTargetSection(appearanceWindow));
-        Assert.Equal(NovaTerminal.SettingsSection.None, GetTargetSection(profilesWindow));
+        Assert.Equal(Ntilde.SettingsSection.None, GetTargetSection(appearanceWindow));
+        Assert.Equal(Ntilde.SettingsSection.None, GetTargetSection(profilesWindow));
     }
 
     [AvaloniaFact]
     public void ParameterlessConstructor_StillDefaultsToNoSection()
     {
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         Assert.Equal(0, window.FindControl<TabControl>("MainTabs")!.SelectedIndex);
-        Assert.Equal(NovaTerminal.SettingsSection.None, GetTargetSection(window));
+        Assert.Equal(Ntilde.SettingsSection.None, GetTargetSection(window));
     }
 
     /// <summary>
@@ -82,7 +82,7 @@ public sealed class SettingsWindowTitleBarSectionTests
     [AvaloniaFact]
     public void TitleBarSectionHeader_IsReachableByName()
     {
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         var header = window.FindControl<TextBlock>("TitleBarSectionHeader");
 
@@ -102,7 +102,7 @@ public sealed class SettingsWindowTitleBarSectionTests
     [AvaloniaFact]
     public void Constructing_WithTitleBarSection_DoesNotThrowWhenShownAndLaidOut()
     {
-        var window = new NovaTerminal.SettingsWindow(section: NovaTerminal.SettingsSection.TitleBar);
+        var window = new Ntilde.SettingsWindow(section: Ntilde.SettingsSection.TitleBar);
 
         var exception = Record.Exception(() =>
         {
@@ -125,7 +125,7 @@ public sealed class SettingsWindowTitleBarSectionTests
     /// host shows <c>Window.Bounds</c>, <c>ScrollViewer.Extent</c> (672x2253) and
     /// <c>ScrollViewer.Viewport</c> (672x567) are all real and non-zero immediately after
     /// <c>Show()</c>, before any <c>RunJobs()</c>. The true reason the offset stayed at zero: at
-    /// <see cref="NovaTerminal.SettingsWindow"/>'s default 880x620 size, the TITLE BAR header (at
+    /// <see cref="Ntilde.SettingsWindow"/>'s default 880x620 size, the TITLE BAR header (at
     /// content-relative Y=348) already sits inside the zero-offset viewport (0..567) - so
     /// <c>BringIntoView</c> had nothing to do. A test that opens the window at its default size and
     /// merely checks the offset moved, or checks the header is visible, would pass identically
@@ -158,7 +158,7 @@ public sealed class SettingsWindowTitleBarSectionTests
     [AvaloniaFact]
     public void Constructing_WithTitleBarSection_ScrollsHeaderIntoView_WhenScrolledAwayBeforehand()
     {
-        var window = new NovaTerminal.SettingsWindow(section: NovaTerminal.SettingsSection.TitleBar);
+        var window = new Ntilde.SettingsWindow(section: Ntilde.SettingsSection.TitleBar);
         window.Show();
         Avalonia.Threading.Dispatcher.UIThread.RunJobs(); // real layout; drains the natural (here, no-op) auto-scroll too
 
@@ -180,7 +180,7 @@ public sealed class SettingsWindowTitleBarSectionTests
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
         Assert.True(sv.Offset.Y > headerBottom + 100, $"Test setup failed to actually scroll the header out of view (offset={sv.Offset}, header=[{headerTop},{headerBottom}]).");
 
-        var method = typeof(NovaTerminal.SettingsWindow).GetMethod("ScrollToTitleBarSection", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.SettingsWindow).GetMethod("ScrollToTitleBarSection", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(window, null);
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
@@ -200,10 +200,10 @@ public sealed class SettingsWindowTitleBarSectionTests
         return null;
     }
 
-    private static NovaTerminal.SettingsSection GetTargetSection(NovaTerminal.SettingsWindow window)
+    private static Ntilde.SettingsSection GetTargetSection(Ntilde.SettingsWindow window)
     {
-        var field = typeof(NovaTerminal.SettingsWindow).GetField("_targetSection", BindingFlags.Instance | BindingFlags.NonPublic);
+        var field = typeof(Ntilde.SettingsWindow).GetField("_targetSection", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
-        return (NovaTerminal.SettingsSection)field!.GetValue(window)!;
+        return (Ntilde.SettingsSection)field!.GetValue(window)!;
     }
 }

@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.ViewModels;
+namespace Ntilde.CommandAssist.ViewModels;
 
 /// <summary>
 /// The key names the assist hint strip renders, so the strip can advertise rebound shortcuts.

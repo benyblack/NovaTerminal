@@ -1,9 +1,9 @@
-using NovaTerminal.Platform;
+using Ntilde.Platform;
 using System;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Pty;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public enum ConnectionType
     {

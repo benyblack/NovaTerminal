@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using NovaTerminal.VT;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// Kitty in-band resize (DEC private mode 2048) and the CSI 14 t pixel-size report — the two

@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace NovaTerminal.AgentHost.Contracts;
+namespace Ntilde.AgentHost.Contracts;
 
 /// <summary>Params for <c>getSessionStatus</c>.</summary>
 public sealed record GetSessionStatusParams

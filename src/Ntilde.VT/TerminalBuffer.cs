@@ -1,13 +1,13 @@
 
 using System;
 using System.Collections.Generic;
-using NovaTerminal.VT.Storage;
+using Ntilde.VT.Storage;
 using System.Runtime.CompilerServices;
 
-[assembly: InternalsVisibleTo("NovaTerminal.App.Tests")]
-[assembly: InternalsVisibleTo("NovaTerminal.Replay")]
+[assembly: InternalsVisibleTo("Ntilde.App.Tests")]
+[assembly: InternalsVisibleTo("Ntilde.Replay")]
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     public partial class TerminalBuffer
     {

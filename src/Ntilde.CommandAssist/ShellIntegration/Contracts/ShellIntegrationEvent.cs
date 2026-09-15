@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+namespace Ntilde.CommandAssist.ShellIntegration.Contracts;
 
 /// <param name="MarkPosition">
 /// Where the originating OSC 133 mark landed in the terminal buffer. Only

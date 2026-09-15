@@ -6,21 +6,21 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.Themes.Fluent;
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal;
+namespace Ntilde;
 
 internal static class SshAskPassCommand
 {
     internal const string ModeFlag = "--ssh-askpass";
-    internal const string ModeEnvironmentVariable = "NOVA_SSH_ASKPASS";
-    internal const string ProfileIdEnvironmentVariable = "NOVA_SSH_ASKPASS_PROFILE_ID";
-    internal const string ProfileNameEnvironmentVariable = "NOVA_SSH_ASKPASS_PROFILE_NAME";
-    internal const string ProfileUserEnvironmentVariable = "NOVA_SSH_ASKPASS_PROFILE_USER";
-    internal const string ProfileHostEnvironmentVariable = "NOVA_SSH_ASKPASS_PROFILE_HOST";
-    internal const string ProfilePortEnvironmentVariable = "NOVA_SSH_ASKPASS_PROFILE_PORT";
+    internal const string ModeEnvironmentVariable = "NTILDE_SSH_ASKPASS";
+    internal const string ProfileIdEnvironmentVariable = "NTILDE_SSH_ASKPASS_PROFILE_ID";
+    internal const string ProfileNameEnvironmentVariable = "NTILDE_SSH_ASKPASS_PROFILE_NAME";
+    internal const string ProfileUserEnvironmentVariable = "NTILDE_SSH_ASKPASS_PROFILE_USER";
+    internal const string ProfileHostEnvironmentVariable = "NTILDE_SSH_ASKPASS_PROFILE_HOST";
+    internal const string ProfilePortEnvironmentVariable = "NTILDE_SSH_ASKPASS_PROFILE_PORT";
 
     public static bool IsSupportedCliMode(string[] args)
     {
@@ -65,7 +65,7 @@ internal static class SshAskPassCommand
         }
         catch (Exception ex)
         {
-            stderr.WriteLine($"NovaTerminal SSH askpass failed: {ex.Message}");
+            stderr.WriteLine($"Ntilde SSH askpass failed: {ex.Message}");
             return 2;
         }
     }
@@ -177,7 +177,7 @@ internal static class SshAskPassCommand
             _state = state;
             _shutdown = shutdown;
 
-            Title = "NovaTerminal SSH Authentication";
+            Title = "Ntilde SSH Authentication";
             Width = 520;
             Height = 240;
             CanResize = false;

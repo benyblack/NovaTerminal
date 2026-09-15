@@ -1,15 +1,15 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Replay;
-using NovaTerminal.Tests.Tools;
-using NovaTerminal.Tests.Infra;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Replay;
+using Ntilde.Tests.Tools;
+using Ntilde.Tests.Infra;
 using System.IO;
 using System.Threading.Tasks;
 using Xunit;
 
 
-namespace NovaTerminal.Tests.Regressions
+namespace Ntilde.Tests.Regressions
 {
     public class MidnightCommanderTests
     {

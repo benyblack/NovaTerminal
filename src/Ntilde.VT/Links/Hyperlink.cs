@@ -1,4 +1,4 @@
-namespace NovaTerminal.VT.Links
+namespace Ntilde.VT.Links
 {
     /// <summary>
     /// One OSC 8 hyperlink identity. Cells that belong to the same logical link hold a reference to the

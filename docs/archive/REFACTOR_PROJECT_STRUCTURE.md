@@ -1,20 +1,20 @@
-# NovaTerminal Modularization (Split into Libraries + App) — IDE Execution Prompt
+# Ntilde Modularization (Split into Libraries + App) — IDE Execution Prompt
 
-You are working inside the NovaTerminal repository in an IDE. Your task is to refactor the solution into several smaller class library projects plus one Avalonia app project, with minimal behavior change and a clean dependency DAG to enable headless VT correctness testing and future TUI harness work.
+You are working inside the Ntilde repository in an IDE. Your task is to refactor the solution into several smaller class library projects plus one Avalonia app project, with minimal behavior change and a clean dependency DAG to enable headless VT correctness testing and future TUI harness work.
 
 ## High-Level Goal
 Split the current single-project structure into:
 
-- src/NovaTerminal.App            (WinExe Avalonia app — UI + product glue)
-- src/NovaTerminal.VT             (Pure VT engine: parser + state + buffers — NO Avalonia/Skia/OS calls)
-- src/NovaTerminal.Rendering      (Renderer planning + diff + caches — NO Avalonia, Skia allowed if currently used)
-- src/NovaTerminal.Pty            (PTY abstraction + ConPTY/Rust PTY impl — NO Avalonia)
-- src/NovaTerminal.Replay         (Replay format + reader/writer + golden runner — NO Avalonia)
-- (optional) src/NovaTerminal.Testing (Harness utilities; can be postponed if too much)
+- src/Ntilde.App            (WinExe Avalonia app — UI + product glue)
+- src/Ntilde.VT             (Pure VT engine: parser + state + buffers — NO Avalonia/Skia/OS calls)
+- src/Ntilde.Rendering      (Renderer planning + diff + caches — NO Avalonia, Skia allowed if currently used)
+- src/Ntilde.Pty            (PTY abstraction + ConPTY/Rust PTY impl — NO Avalonia)
+- src/Ntilde.Replay         (Replay format + reader/writer + golden runner — NO Avalonia)
+- (optional) src/Ntilde.Testing (Harness utilities; can be postponed if too much)
 
 ## Critical Constraints
 1) Preserve existing behavior (no feature removals).
-2) Keep namespaces stable at first if that reduces churn (it’s fine if file namespaces remain NovaTerminal.Core initially).
+2) Keep namespaces stable at first if that reduces churn (it’s fine if file namespaces remain Ntilde.Core initially).
 3) Enforce dependency DAG:
    - VT has no dependency on App/Rendering/Pty/Replay.
    - Rendering depends on VT only.
@@ -42,11 +42,11 @@ Do NOT start moving files until you’ve produced this list.
 
 ## Step 1 — Create New Projects Under /src
 Create these projects (net10.0 unless repo uses different):
-- src/NovaTerminal.App (WinExe; Avalonia; this will become the main app)
-- src/NovaTerminal.VT (class library)
-- src/NovaTerminal.Rendering (class library)
-- src/NovaTerminal.Pty (class library)
-- src/NovaTerminal.Replay (class library)
+- src/Ntilde.App (WinExe; Avalonia; this will become the main app)
+- src/Ntilde.VT (class library)
+- src/Ntilde.Rendering (class library)
+- src/Ntilde.Pty (class library)
+- src/Ntilde.Replay (class library)
 
 Actions:
 1) Create new csproj files with consistent settings (nullable enable, implicit usings enable).
@@ -59,16 +59,16 @@ Actions:
 
 ---
 
-## Step 2 — Move UI Files Into NovaTerminal.App
+## Step 2 — Move UI Files Into Ntilde.App
 Find all files that include `using Avalonia` or are clearly UI:
 - TerminalView (currently in Core/TerminalView.cs)
 - Controls/*
 - UI/*
 - Any App.axaml / MainWindow.* / viewmodels / dialogs
 
-Move them into src/NovaTerminal.App, preserving folder structure as much as possible:
-- e.g. NovaTerminal.App/Controls/...
-- NovaTerminal.App/UI/...
+Move them into src/Ntilde.App, preserving folder structure as much as possible:
+- e.g. Ntilde.App/Controls/...
+- Ntilde.App/UI/...
 
 Fix compile errors by updating namespaces OR keeping namespaces unchanged temporarily.
 
@@ -76,7 +76,7 @@ Ensure App builds.
 
 ---
 
-## Step 3 — Extract Pure VT Core Into NovaTerminal.VT
+## Step 3 — Extract Pure VT Core Into Ntilde.VT
 Move all VT engine/state files that MUST be UI/OS independent:
 Typical candidates (confirm by scan):
 - Ansi/VT parser (AnsiParser, CSI/OSC handling)
@@ -86,7 +86,7 @@ Typical candidates (confirm by scan):
 - Unicode width / grapheme logic (if exists)
 
 Hard rule:
-- NovaTerminal.VT must not reference Avalonia, SkiaSharp, or any OS APIs.
+- Ntilde.VT must not reference Avalonia, SkiaSharp, or any OS APIs.
 - If a file depends on Avalonia Color, split it: keep a pure color model in VT, and conversion helpers in App.
 
 After moving:
@@ -101,7 +101,7 @@ Ensure App builds after switching to VT reference.
 
 ---
 
-## Step 4 — Extract PTY Into NovaTerminal.Pty
+## Step 4 — Extract PTY Into Ntilde.Pty
 Move PTY/session logic:
 - ConPTY native wrappers
 - Rust PTY session integration
@@ -114,19 +114,19 @@ Rules:
 - Provide a small stable interface in Pty, e.g.:
   interface IPtySession { ReadAsync; WriteAsync; Resize; ExitCode; Dispose; }
 
-Update App to use NovaTerminal.Pty.
+Update App to use Ntilde.Pty.
 
 Build.
 
 ---
 
-## Step 5 — Extract Replay Into NovaTerminal.Replay
+## Step 5 — Extract Replay Into Ntilde.Replay
 Move everything under Core/Replay/* into Replay project:
 - Replay models (event types)
 - Reader/writer
 - Runner
 - Golden master utilities
-- Recorder (if it uses PTY, depend on NovaTerminal.Pty; otherwise keep recorder in App)
+- Recorder (if it uses PTY, depend on Ntilde.Pty; otherwise keep recorder in App)
 
 Rules:
 - No Avalonia references.
@@ -138,7 +138,7 @@ Build.
 
 ---
 
-## Step 6 — Extract Rendering Into NovaTerminal.Rendering
+## Step 6 — Extract Rendering Into Ntilde.Rendering
 Move render/diff/caching logic:
 - RowCache
 - RenderSnapshots
@@ -160,7 +160,7 @@ Build.
 
 ## Step 7 — Fix Namespaces + Internals (Churn Control)
 After everything compiles:
-- Decide whether to keep legacy namespaces (NovaTerminal.Core.*) or rename to NovaTerminal.VT / Rendering / Pty / Replay gradually.
+- Decide whether to keep legacy namespaces (Ntilde.Core.*) or rename to Ntilde.VT / Rendering / Pty / Replay gradually.
 - Avoid huge rename diffs in this refactor; only do minimal changes needed.
 
 Where needed, add `InternalsVisibleTo` to allow tests access to VT internals without exposing too much public API.
@@ -169,7 +169,7 @@ Where needed, add `InternalsVisibleTo` to allow tests access to VT internals wit
 
 ## Step 8 — Update Tests and CI References
 Update test projects to reference libraries instead of App:
-- NovaTerminal.Tests should reference VT + Replay (+ Rendering only for renderer tests).
+- Ntilde.Tests should reference VT + Replay (+ Rendering only for renderer tests).
 - UI automation tests (if any) can reference App.
 
 Ensure `dotnet test` works.

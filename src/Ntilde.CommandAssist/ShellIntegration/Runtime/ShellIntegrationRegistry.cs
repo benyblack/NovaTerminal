@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
 
-namespace NovaTerminal.CommandAssist.ShellIntegration.Runtime;
+namespace Ntilde.CommandAssist.ShellIntegration.Runtime;
 
 public sealed class ShellIntegrationRegistry
 {

@@ -1,11 +1,11 @@
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class TabTitleResolutionTests
 {
     [Fact]
     public void ResolveTabPrimaryTitle_PrefersUserTitle()
     {
-        string result = NovaTerminal.MainWindow.ResolveTabPrimaryTitle(
+        string result = Ntilde.MainWindow.ResolveTabPrimaryTitle(
             userTitle: "My Session",
             paneBaseTitle: "bash · repo",
             fallbackHeader: "decorated 🔔 •");
@@ -16,7 +16,7 @@ public sealed class TabTitleResolutionTests
     [Fact]
     public void ResolveTabPrimaryTitle_UsesPaneBaseTitleWhenUserTitleMissing()
     {
-        string result = NovaTerminal.MainWindow.ResolveTabPrimaryTitle(
+        string result = Ntilde.MainWindow.ResolveTabPrimaryTitle(
             userTitle: null,
             paneBaseTitle: "bash · repo",
             fallbackHeader: "decorated 🔔 •");
@@ -27,13 +27,13 @@ public sealed class TabTitleResolutionTests
     [Fact]
     public void ResolveTabPrimaryTitle_FallsBackToHeaderThenTerminal()
     {
-        string fromHeader = NovaTerminal.MainWindow.ResolveTabPrimaryTitle(
+        string fromHeader = Ntilde.MainWindow.ResolveTabPrimaryTitle(
             userTitle: "",
             paneBaseTitle: "   ",
             fallbackHeader: "Header Title");
         Assert.Equal("Header Title", fromHeader);
 
-        string defaultTitle = NovaTerminal.MainWindow.ResolveTabPrimaryTitle(
+        string defaultTitle = Ntilde.MainWindow.ResolveTabPrimaryTitle(
             userTitle: null,
             paneBaseTitle: null,
             fallbackHeader: null);
@@ -52,7 +52,7 @@ public sealed class TabTitleResolutionTests
 
     private static Dictionary<LabelTab, string> ResolveLabels(
         IReadOnlyList<LabelTab> tabs, int maxLength, bool includeMarkers)
-        => NovaTerminal.MainWindow.ResolveTabDisplayLabels<LabelTab>(
+        => Ntilde.MainWindow.ResolveTabDisplayLabels<LabelTab>(
             tabs, t => t.Base, t => t.Marker, t => t.Hint, maxLength, includeMarkers);
 
     [Fact]

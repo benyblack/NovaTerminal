@@ -7,7 +7,7 @@ Companion to: `2026-08-24-windows-installer-velopack-design.md` (the Windows lan
 ## Summary
 
 Give macOS a real installer and update channel by extending the existing Velopack lane
-to `osx-arm64`: `vpk pack` builds a `NovaTerminal.app` bundle from the raw NativeAOT
+to `osx-arm64`: `vpk pack` builds a `Ntilde.app` bundle from the raw NativeAOT
 publish directory, a `.pkg` installer, full/delta nupkgs for an `osx` channel, and a
 Portable zip of the `.app`. No Apple Developer certificate exists, so v1 ships **unsigned**
 (the binaries themselves run: see "Signing" below), with the Gatekeeper path documented for
@@ -16,7 +16,7 @@ users and the exact signing diff documented for later.
 ## What exists today (before this change)
 
 - `release.yml`'s `publish_aot` zips the raw osx-arm64 publish directory as
-  `NovaTerminal-osx-arm64-<tag>.zip` — loose files, no `.app`, no installer.
+  `ntilde-osx-arm64-<tag>.zip` — loose files, no `.app`, no installer.
 - The app is macOS-ready at runtime: `VelopackApp.Build().Run()` runs in `Program.Main`
   on all OSes, `VelopackUpdateService` + `GithubSource` are cross-platform, chrome is
   traffic-light-aware, secrets use the Keychain, and `librusty_pty.dylib` /
@@ -32,9 +32,9 @@ are load-bearing for a two-channel release page:
 
 1. **Asset naming** (`VelopackDefaults`/`DefaultName.GetUniqueAssetSuffix`): nupkgs,
    installers and portable zips get a `-{channel}` suffix **except** when the channel is
-   the default `win` channel. So the win lane produces `NovaTerminalApp-<ver>-full.nupkg`
-   while the osx lane produces `NovaTerminalApp-<ver>-osx-full.nupkg`,
-   `NovaTerminalApp-<ver>-osx-Setup.pkg`, `NovaTerminalApp-<ver>-osx-Portable.zip` —
+   the default `win` channel. So the win lane produces `NtildeApp-<ver>-full.nupkg`
+   while the osx lane produces `NtildeApp-<ver>-osx-full.nupkg`,
+   `NtildeApp-<ver>-osx-Setup.pkg`, `NtildeApp-<ver>-osx-Portable.zip` —
    no collisions inside one GitHub release.
 2. **Channel resolution** (`RepositoryOptions.Channel` → `DefaultName.GetDefaultChannel`):
    `vpk download github` on a macOS runner targets the `osx` channel, on a Windows runner
@@ -54,7 +54,7 @@ are load-bearing for a two-channel release page:
    `--packVersion`, `NSHighResolutionCapable`, and `CFBundleIconFile` from `--icon`
    (copied verbatim into `Contents/Resources` — it must be an `.icns`). It does **not**
    set `LSMinimumSystemVersion`.
-6. **Updates on macOS**: packages cache to `~/Library/Caches/velopack/NovaTerminalApp`,
+6. **Updates on macOS**: packages cache to `~/Library/Caches/velopack/NtildeApp`,
    the `.app` bundle is replaced in place; if the app is in `/Applications`, the updater
    elevates via an AppleScript admin prompt. App Sandbox is unsupported (not used here).
 
@@ -63,15 +63,15 @@ are load-bearing for a two-channel release page:
 - **Velopack rather than hand-rolled `.app` + DMG**: the app already embeds the Velopack
   hooks and updater; vpk produces the bundle, installer and feed in one step the repo
   already trusts on Windows. A DMG would be bespoke scripting with no update benefit.
-- **`--packId NovaTerminalApp`** (same as Windows): on mac it only names the update
-  cache; the app installs as `/Applications/NovaTerminal.app`, so the Windows
+- **`--packId NtildeApp`** (same as Windows): on mac it only names the update
+  cache; the app installs as `/Applications/Ntilde.app`, so the Windows
   uninstall-deletes-config hazard cannot occur.
-- **`--bundleId com.benyblack.NovaTerminal`**: vpk's default would be
-  `com.benyblack.NovaTerminalApp` (derived from packAuthors+packId);
-  `benyblack.NovaTerminal` matches the public identity (winget package id). The Keychain
-  `kSecAttrService = "NovaTerminal"` is unrelated and unchanged.
+- **`--bundleId com.benyblack.Ntilde`**: vpk's default would be
+  `com.benyblack.NtildeApp` (derived from packAuthors+packId);
+  `benyblack.ntilde` matches the public identity (winget package id). The Keychain
+  `kSecAttrService = "Ntilde"` is unrelated and unchanged.
 - **Release assets** (user decision): the `.pkg`, plus the Portable `.app` zip renamed to
-  the exact existing `NovaTerminal-osx-arm64-<tag>.zip` name — one obvious download, old
+  the exact existing `ntilde-osx-arm64-<tag>.zip` name — one obvious download, old
   links keep working, content upgrades from loose files to the bundle. The generic
   "Archive bundle"/"Upload release asset" steps skip `osx-arm64`.
 - **Apple Silicon only** (user decision): no `osx-x64` lane. A second architecture would
@@ -84,7 +84,7 @@ are load-bearing for a two-channel release page:
 ## Changes
 
 - `packaging/macos/make-icns.sh` — `sips` + `iconutil` iconset generation from
-  `nova_icon.png` (1024×1024 source; every size is a downscale). PNG stays the single
+  `ntilde_icon.png` (1024×1024 source; every size is a downscale). PNG stays the single
   source of truth; no `.icns` committed. The script forces `-s format png` because the
   source asset turned out to be JPEG data mislabeled with a `.png` extension (JFIF magic
   bytes) — without the explicit format, sips writes JPEG bytes into `.png`-named iconset
@@ -92,9 +92,9 @@ are load-bearing for a two-channel release page:
 - `release.yml` (`publish_aot`): osx-arm64-gated `vpk` install / icns / download /
   pack / upload steps, bash on the mac runner, mirroring the Windows lane's
   injection-safety conventions and its delta-expectation discipline (the gh-api count
-  filters `-osx-full.nupkg`; re-run idempotency deletes `NovaTerminalApp-<ver>-osx-*.nupkg`).
-  `vpk pack` runs after `rm -rf artifacts/publish/osx-arm64/NovaTerminal.dSYM` and passes
-  `--exclude 'NovaTerminal\.dSYM'`: `StripSymbols=true` leaves a ~94 MB dSYM beside the
+  filters `-osx-full.nupkg`; re-run idempotency deletes `NtildeApp-<ver>-osx-*.nupkg`).
+  `vpk pack` runs after `rm -rf artifacts/publish/osx-arm64/Ntilde.dSYM` and passes
+  `--exclude 'Ntilde\.dSYM'`: `StripSymbols=true` leaves a ~94 MB dSYM beside the
   binary (3× the binary's size), vpk's built-in `--exclude` default covers only Windows
   `.pdb` files, and exclusion alone still leaves empty dSYM directory skeletons in the
   ditto zip (verified: the nupkg dropped 46→32.5 MB once the content was excluded).

@@ -1,8 +1,8 @@
 using System.Text.Json;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.Storage;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.Storage;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 public sealed class JsonlHistoryStoreTests : IDisposable
 {
@@ -12,7 +12,7 @@ public sealed class JsonlHistoryStoreTests : IDisposable
 
     public JsonlHistoryStoreTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), $"nova_command_assist_history_{Guid.NewGuid():N}");
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_command_assist_history_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempRoot);
         _historyPath = Path.Combine(_tempRoot, "history.jsonl");
         _legacyPath = Path.Combine(_tempRoot, "history.json");

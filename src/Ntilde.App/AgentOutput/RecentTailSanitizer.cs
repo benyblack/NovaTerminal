@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.AgentOutput;
+namespace Ntilde.AgentOutput;
 
 /// <summary>
 /// Trims prompt-like lines from both ends of a recent-output snapshot, leaving what reads as the

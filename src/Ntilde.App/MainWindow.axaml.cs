@@ -7,10 +7,10 @@ using Avalonia.Controls.Primitives;
 using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
 using Avalonia.Controls.Presenters;
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Rendering;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -26,20 +26,20 @@ using Avalonia.Platform.Storage;
 using Avalonia.Automation;
 using Avalonia.Input.Platform;
 using SkiaSharp;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 
-using NovaTerminal.Controls;
-using NovaTerminal.Services.Ssh;
-using NovaTerminal.Backup;
-using NovaTerminal.Platform.Ssh.Launch;
-using NovaTerminal.Shell.Shortcuts;
-using NovaTerminal.Models;
-using NovaTerminal.ViewModels.Ssh;
-using NovaTerminal.Views.Ssh;
-using NovaTerminal.Pty;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Controls;
+using Ntilde.Services.Ssh;
+using Ntilde.Backup;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Shell.Shortcuts;
+using Ntilde.Models;
+using Ntilde.ViewModels.Ssh;
+using Ntilde.Views.Ssh;
+using Ntilde.Pty;
+using Ntilde.Shell.TitleBar;
 
-namespace NovaTerminal
+namespace Ntilde
 {
     public partial class MainWindow : Window, AgentHost.IAgentActionExecutor
     {
@@ -139,7 +139,7 @@ namespace NovaTerminal
         internal const double CaptionReserveGutter = 8;
 
         /// <summary>
-        /// x:Name of the caption-button strip in NovaWindowDecorationsTheme (App.axaml). Ours, not
+        /// x:Name of the caption-button strip in NtildeWindowDecorationsTheme (App.axaml). Ours, not
         /// Avalonia's - though the default theme uses the same name, which is where ours was copied
         /// from.
         /// </summary>
@@ -237,7 +237,7 @@ namespace NovaTerminal
         private readonly DispatcherTimer _recordingToastTimer = new() { Interval = TimeSpan.FromSeconds(6) };
         private string? _recordingToastFolderPath;
         private string? _recordingToastFilePath;
-        private NovaTerminal.Update.UpdateCoordinator? _updateCoordinator;
+        private Ntilde.Update.UpdateCoordinator? _updateCoordinator;
         private readonly DispatcherTimer _updateCheckTimer = new() { Interval = TimeSpan.FromSeconds(10) };
         // Guards the OnOpened wiring below against re-entry: quake mode's Hide()/Show() round
         // trip re-raises OnOpened (Avalonia clears _shown on Hide and ShowCore raises it again
@@ -322,7 +322,7 @@ namespace NovaTerminal
 
             // Reap leftover clipboard-paste temp images from previous runs (best-effort).
             System.Threading.Tasks.Task.Run(() =>
-                NovaTerminal.Platform.Input.ClipboardImage.CleanUpOldTempImages(TimeSpan.FromHours(24)));
+                Ntilde.Platform.Input.ClipboardImage.CleanUpOldTempImages(TimeSpan.FromHours(24)));
 
             // OnOpened is re-raised on every quake-mode hide/show, so everything below must run
             // exactly once per process - see _updateChecksStarted's doc comment for why.
@@ -2820,7 +2820,7 @@ namespace NovaTerminal
             }
         }
 
-        private void ApplySessionSnapshot(NovaSession session)
+        private void ApplySessionSnapshot(NtildeSession session)
         {
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs == null) return;
@@ -2837,7 +2837,7 @@ namespace NovaTerminal
 
         private bool TryRestoreStartupSession(TabControl tabs)
         {
-            if (!SessionManager.TryLoadSavedSession(out NovaSession? session) ||
+            if (!SessionManager.TryLoadSavedSession(out NtildeSession? session) ||
                 session == null ||
                 session.Tabs.Count == 0)
             {
@@ -2920,7 +2920,7 @@ namespace NovaTerminal
             // so the close always gets there first.
             //
             // Placeholders carry their TabSession in Tag (CreateStartupPlaceholderTab) and the
-            // deferred entry carries the same instance out of NovaSession.Tabs, so reference
+            // deferred entry carries the same instance out of NtildeSession.Tabs, so reference
             // equality names the right tab no matter where it has drifted to. OriginalIndex stays on
             // the record: it is what the deferred plan is built and logged against.
             TabItem? tabItem = null;
@@ -3021,14 +3021,14 @@ namespace NovaTerminal
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel?.StorageProvider == null) return;
 
-            string suggestedFileName = $"{name.Trim()}.novaws.json";
+            string suggestedFileName = $"{name.Trim()}.ntildews.json";
             var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
                 Title = "Export Workspace Bundle",
                 SuggestedFileName = suggestedFileName,
                 FileTypeChoices = new[]
                 {
-                    new FilePickerFileType("Nova Workspace Bundle") { Patterns = new[] { "*.novaws.json", "*.json" } }
+                    new FilePickerFileType("Ntilde Workspace Bundle") { Patterns = new[] { "*.ntildews.json", "*.json" } }
                 }
             });
 
@@ -3059,14 +3059,14 @@ namespace NovaTerminal
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel?.StorageProvider == null) return;
 
-            string suggestedFileName = $"{label.Trim()}.novaws.json";
+            string suggestedFileName = $"{label.Trim()}.ntildews.json";
             var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
                 Title = "Export Session Bundle",
                 SuggestedFileName = suggestedFileName,
                 FileTypeChoices = new[]
                 {
-                    new FilePickerFileType("Nova Workspace Bundle") { Patterns = new[] { "*.novaws.json", "*.json" } }
+                    new FilePickerFileType("Ntilde Workspace Bundle") { Patterns = new[] { "*.ntildews.json", "*.json" } }
                 }
             });
 
@@ -3097,7 +3097,7 @@ namespace NovaTerminal
                 AllowMultiple = false,
                 FileTypeFilter = new[]
                 {
-                    new FilePickerFileType("Nova Workspace Bundle") { Patterns = new[] { "*.novaws.json", "*.json" } }
+                    new FilePickerFileType("Ntilde Workspace Bundle") { Patterns = new[] { "*.ntildews.json", "*.json" } }
                 }
             });
 
@@ -3105,7 +3105,7 @@ namespace NovaTerminal
 
             string bundlePath = files[0].Path.LocalPath;
             string suggestedName = Path.GetFileNameWithoutExtension(bundlePath);
-            if (suggestedName.EndsWith(".novaws", StringComparison.OrdinalIgnoreCase))
+            if (suggestedName.EndsWith(".ntildews", StringComparison.OrdinalIgnoreCase))
             {
                 suggestedName = Path.GetFileNameWithoutExtension(suggestedName);
             }
@@ -3143,7 +3143,7 @@ namespace NovaTerminal
                 AllowMultiple = false,
                 FileTypeFilter = new[]
                 {
-                    new FilePickerFileType("Nova Workspace Bundle") { Patterns = new[] { "*.novaws.json", "*.json" } }
+                    new FilePickerFileType("Ntilde Workspace Bundle") { Patterns = new[] { "*.ntildews.json", "*.json" } }
                 }
             });
 
@@ -3154,7 +3154,7 @@ namespace NovaTerminal
             if (ok && snapshot != null)
             {
                 // This spawns the bundle's stored commands immediately — confirm first
-                // for a foreign .novaws.json opened from disk (#171).
+                // for a foreign .ntildews.json opened from disk (#171).
                 if (!await ConfirmBundleCommandsAsync(snapshot, _workspaceName ?? "workspace"))
                 {
                     return;
@@ -3664,11 +3664,11 @@ namespace NovaTerminal
         {
             if (TryGetSelectedTab(out var tabItem) && _broadcastEnabledTabs.Contains(tabItem))
             {
-                Title = "NovaTerminal [Broadcast: Tab]";
+                Title = "Ntilde [Broadcast: Tab]";
             }
             else
             {
-                Title = "NovaTerminal";
+                Title = "Ntilde";
             }
         }
 
@@ -4349,7 +4349,7 @@ namespace NovaTerminal
         {
             try
             {
-                var importedProfiles = NovaTerminal.Shell.ProfileImporter.ImportSshConfig();
+                var importedProfiles = Ntilde.Shell.ProfileImporter.ImportSshConfig();
                 int changed = _sshConnectionService.MergeImportedProfiles(importedProfiles);
                 if (changed > 0)
                 {
@@ -5712,7 +5712,7 @@ namespace NovaTerminal
         /// Focus is what retires the sticky "agent typed" mark, and it is
         /// supposed to mean "the user has plausibly seen it". IsActivePane
         /// alone does not: it means "selected inside the app" and stays true
-        /// while NovaTerminal is minimized or behind another application. An
+        /// while Ntilde is minimized or behind another application. An
         /// agent typing into that pane would then have its mark retired by the
         /// periodic tick <see cref="AgentHost.AgentAttentionMachine.WriteFloorSeconds"/>
         /// later, with nobody looking — the one signal built to survive until
@@ -5916,7 +5916,7 @@ namespace NovaTerminal
         // ONLY when its profile doesn't resolve, so panes whose profile resolves are
         // skipped — that both matches what runs and avoids prompting for locally-saved
         // workspaces that store a ShellCommand alongside a resolvable ProfileId (#171).
-        internal static List<string> CollectBundleCommands(NovaSession? session, TerminalSettings settings)
+        internal static List<string> CollectBundleCommands(NtildeSession? session, TerminalSettings settings)
         {
             var commands = new List<string>();
             if (session?.Tabs == null) return commands;
@@ -5960,7 +5960,7 @@ namespace NovaTerminal
 
         // Confirms the commands a foreign bundle will run before it spawns anything.
         // Returns true when there is nothing to run or the user approves.
-        private async Task<bool> ConfirmBundleCommandsAsync(NovaSession? session, string bundleName)
+        private async Task<bool> ConfirmBundleCommandsAsync(NtildeSession? session, string bundleName)
         {
             var commands = CollectBundleCommands(session, _settings);
             if (commands.Count == 0) return true; // profile-only bundles run known targets
@@ -6333,7 +6333,7 @@ namespace NovaTerminal
                 return;
             }
 
-            using var iconStream = AssetLoader.Open(new Uri("avares://NovaTerminal/Assets/nova_icon.ico"));
+            using var iconStream = AssetLoader.Open(new Uri("avares://Ntilde/Assets/ntilde_icon.ico"));
             Icon = new WindowIcon(iconStream);
             _windowIconLoaded = true;
         }
@@ -6480,7 +6480,7 @@ namespace NovaTerminal
 
             // GetVisibleRowTexts takes the buffer read lock itself (NoRecursion —
             // do NOT wrap this call in another Lock.EnterReadLock).
-            string[] rows = NovaTerminal.VT.Export.TerminalExporter.GetVisibleRowTexts(buffer);
+            string[] rows = Ntilde.VT.Export.TerminalExporter.GetVisibleRowTexts(buffer);
 
             // Unwritten mid-row cells can surface as raw NUL graphemes; a NUL reaching the
             // preview TextBlock renders as invisible garbage, so swap it for a space and re-trim
@@ -6630,7 +6630,7 @@ namespace NovaTerminal
                 {
                     // Normalize line endings to avoid double newlines on paste
                     _currentPane.NotifyCommandAssistPaste(text);
-                    text = NovaTerminal.Platform.Input.TerminalInputSender.PreparePaste(
+                    text = Ntilde.Platform.Input.TerminalInputSender.PreparePaste(
                         text,
                         _currentPane.Buffer?.Modes.IsBracketedPasteMode == true);
 
@@ -6641,24 +6641,24 @@ namespace NovaTerminal
 
                 // No text on the clipboard. If it holds an image (e.g. a screenshot), save it
                 // to a temp PNG and send the path so a running CLI such as Claude Code can read
-                // the image. This mirrors NovaTerminal's existing file-drop behavior.
+                // the image. This mirrors Ntilde's existing file-drop behavior.
                 var bitmap = await clipboard.TryGetBitmapAsync();
                 if (bitmap != null)
                 {
                     try
                     {
-                        string path = NovaTerminal.Platform.Input.ClipboardImage.GetTempImagePath(".png");
+                        string path = Ntilde.Platform.Input.ClipboardImage.GetTempImagePath(".png");
                         bitmap.Save(path);
 
                         // In a WSL session the Linux CLI can't resolve a C:\ path, so map it to
                         // its /mnt/<drive> form — mirroring the file-drop path handling.
                         bool isWsl = _currentPane.Session.ShellCommand?.Contains("wsl", StringComparison.OrdinalIgnoreCase) ?? false;
                         string sendPath = isWsl
-                            ? NovaTerminal.Platform.Input.ClipboardImage.ToWslMountPath(path)
+                            ? Ntilde.Platform.Input.ClipboardImage.ToWslMountPath(path)
                             : path;
                         _currentPane.NotifyExternalInputSent();
                         _currentPane.ScrollToInputLine();
-                        _currentPane.Session.SendInput(NovaTerminal.Platform.Input.ClipboardImage.QuotePathForInput(sendPath));
+                        _currentPane.Session.SendInput(Ntilde.Platform.Input.ClipboardImage.QuotePathForInput(sendPath));
                     }
                     finally
                     {
@@ -7026,7 +7026,7 @@ namespace NovaTerminal
             }
 
             var screen = new System.Text.StringBuilder();
-            screen.AppendLine("[Nova] Box Drawing Repro");
+            screen.AppendLine("[Ntilde] Box Drawing Repro");
             screen.AppendLine(ruler.ToString());
             screen.AppendLine("┌" + horizontal + "┐");
             screen.AppendLine(middle);
@@ -7735,8 +7735,8 @@ namespace NovaTerminal
             // never re-defaulted. Model-level defaults stay OpenSsh on purpose (old stores whose
             // JSON predates the field must not silently migrate); this is the creation surface.
             vm.BackendKind ??= _settings.ExperimentalNativeSshEnabled
-                ? NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native
-                : NovaTerminal.Platform.Ssh.Models.SshBackendKind.OpenSsh;
+                ? Ntilde.Platform.Ssh.Models.SshBackendKind.Native
+                : Ntilde.Platform.Ssh.Models.SshBackendKind.OpenSsh;
             vm.ExperimentalNativeSshEnabled = _settings.ExperimentalNativeSshEnabled;
             var dialog = new NewSshConnectionView(vm);
             ApplyThemeToDialogWindow(dialog);
@@ -7756,7 +7756,7 @@ namespace NovaTerminal
 
                 if (vm.ConnectAfterSave)
                 {
-                    if (profile.SshBackendKind == NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native &&
+                    if (profile.SshBackendKind == Ntilde.Platform.Ssh.Models.SshBackendKind.Native &&
                         !_settings.ExperimentalNativeSshEnabled)
                     {
                         await ShowSimpleMessageDialogAsync(
@@ -8073,7 +8073,7 @@ namespace NovaTerminal
             {
                 Title = "Open Replay File",
                 AllowMultiple = false,
-                FileTypeFilter = new[] { new FilePickerFileType("Nova Recordings") { Patterns = new[] { "*.rec", "*.cast" } } }
+                FileTypeFilter = new[] { new FilePickerFileType("Ntilde Recordings") { Patterns = new[] { "*.rec", "*.cast" } } }
             });
 
             if (files.Count < 1)
@@ -8082,7 +8082,7 @@ namespace NovaTerminal
             }
 
             var path = files[0].Path.LocalPath;
-            var replayWin = new NovaTerminal.UI.Replay.ReplayWindow(path);
+            var replayWin = new Ntilde.UI.Replay.ReplayWindow(path);
             replayWin.Show();
         }
 
@@ -8647,7 +8647,7 @@ namespace NovaTerminal
                 return;
             }
 
-            messageBlock.Text = $"NovaTerminal {version} is downloaded and will be applied when you restart.";
+            messageBlock.Text = $"Ntilde {version} is downloaded and will be applied when you restart.";
             toast.IsVisible = true;
         }
 
@@ -8664,7 +8664,7 @@ namespace NovaTerminal
         /// Builds the update coordinator on first use, at most once per process. Deliberately not
         /// called from <see cref="OnOpened"/> directly: <see cref="StartupPerformanceTracker"/>
         /// exists because that interval is measured, and constructing
-        /// <see cref="NovaTerminal.Update.VelopackUpdateService"/> means an assembly load plus a
+        /// <see cref="Ntilde.Update.VelopackUpdateService"/> means an assembly load plus a
         /// filesystem probe (its own doc comment explains why that constructor can throw on a
         /// non-Velopack host) - work with no business inside a measured interval, and, unlike the
         /// <c>_globalHotkey</c> block above in <see cref="OnOpened"/>, not previously guarded
@@ -8681,9 +8681,9 @@ namespace NovaTerminal
 
             try
             {
-                _updateCoordinator = new NovaTerminal.Update.UpdateCoordinator(
-                    new NovaTerminal.Update.VelopackUpdateService(
-                        NovaTerminal.Update.VelopackUpdateService.DefaultRepoUrl,
+                _updateCoordinator = new Ntilde.Update.UpdateCoordinator(
+                    new Ntilde.Update.VelopackUpdateService(
+                        Ntilde.Update.VelopackUpdateService.DefaultRepoUrl,
                         message => TerminalLogger.Log(message)),
                     () => _settings.AutomaticUpdateChecks,
                     version => Dispatcher.UIThread.Post(() =>
@@ -8702,7 +8702,7 @@ namespace NovaTerminal
         /// <summary>
         /// The background check's fire-and-forget entry point. Wrapping it here - rather than
         /// discarding <c>_updateCoordinator.RunAutomaticCheckAsync()</c> directly - matters
-        /// because <see cref="NovaTerminal.Update.UpdateCoordinator.RunCheckAsync"/> only wraps
+        /// because <see cref="Ntilde.Update.UpdateCoordinator.RunCheckAsync"/> only wraps
         /// the network call in its own try/catch; the <c>IsSupported</c> read and the
         /// <c>onUpdateReady</c> callback both sit outside it, so a throw from either would
         /// otherwise fault this task unobserved - invisible even in the log, which is the one
@@ -8803,7 +8803,7 @@ namespace NovaTerminal
                 TerminalLogger.Log("Applying the staged update failed: " + ex);
                 ShowRecordingToast(
                     "Update could not be applied",
-                    "The update was downloaded but could not be applied. Close NovaTerminal and start it again to finish updating.",
+                    "The update was downloaded but could not be applied. Close Ntilde and start it again to finish updating.",
                     null,
                     null,
                     autoHide: false);
@@ -8816,11 +8816,11 @@ namespace NovaTerminal
         /// Constructs the coordinator on demand (see <see cref="EnsureUpdateCoordinator"/>) so
         /// this works even in the first 10 seconds of the process's life, before the deferred
         /// startup timer would otherwise have built it. Reporting goes through
-        /// <see cref="NovaTerminal.Update.IUpdateCheckFeedback"/> so the About window can run
+        /// <see cref="Ntilde.Update.IUpdateCheckFeedback"/> so the About window can run
         /// this same pipeline and render the answer inline; without one, the answers surface
         /// as toasts (see <see cref="ToastUpdateCheckFeedback"/>).
         /// </summary>
-        private async System.Threading.Tasks.Task CheckForUpdatesInteractiveAsync(NovaTerminal.Update.IUpdateCheckFeedback? feedback = null)
+        private async System.Threading.Tasks.Task CheckForUpdatesInteractiveAsync(Ntilde.Update.IUpdateCheckFeedback? feedback = null)
         {
             feedback ??= new ToastUpdateCheckFeedback(this);
 
@@ -8854,7 +8854,7 @@ namespace NovaTerminal
             }
 
             _updateCheckInFlight = true;
-            NovaTerminal.Update.UpdateCheckOutcome outcome;
+            Ntilde.Update.UpdateCheckOutcome outcome;
             try
             {
                 // Task.Run for the same reason as RunAutomaticCheckSafeAsync above: Velopack's
@@ -8874,10 +8874,10 @@ namespace NovaTerminal
 
         /// <summary>
         /// The palette's surface: the same answers every check gives, delivered as toasts. The
-        /// strings come from <see cref="NovaTerminal.Update.UpdateCheckMessages"/> so this and
+        /// strings come from <see cref="Ntilde.Update.UpdateCheckMessages"/> so this and
         /// the About window's inline rendering cannot drift apart.
         /// </summary>
-        private sealed class ToastUpdateCheckFeedback : NovaTerminal.Update.IUpdateCheckFeedback
+        private sealed class ToastUpdateCheckFeedback : Ntilde.Update.IUpdateCheckFeedback
         {
             private readonly MainWindow _owner;
 
@@ -8894,8 +8894,8 @@ namespace NovaTerminal
             public void AlreadyRunning()
             {
                 _owner.ShowRecordingToast(
-                    NovaTerminal.Update.UpdateCheckMessages.AlreadyRunningTitle,
-                    NovaTerminal.Update.UpdateCheckMessages.AlreadyRunningMessage,
+                    Ntilde.Update.UpdateCheckMessages.AlreadyRunningTitle,
+                    Ntilde.Update.UpdateCheckMessages.AlreadyRunningMessage,
                     null,
                     null,
                     autoHide: true);
@@ -8904,18 +8904,18 @@ namespace NovaTerminal
             public void CoordinatorUnavailable()
             {
                 _owner.ShowRecordingToast(
-                    NovaTerminal.Update.UpdateCheckMessages.CoordinatorUnavailableTitle,
-                    NovaTerminal.Update.UpdateCheckMessages.CoordinatorUnavailableMessage,
+                    Ntilde.Update.UpdateCheckMessages.CoordinatorUnavailableTitle,
+                    Ntilde.Update.UpdateCheckMessages.CoordinatorUnavailableMessage,
                     null,
                     null,
                     autoHide: true);
             }
 
-            public void Outcome(NovaTerminal.Update.UpdateCheckOutcome outcome, string? stagedVersion)
+            public void Outcome(Ntilde.Update.UpdateCheckOutcome outcome, string? stagedVersion)
             {
                 switch (outcome)
                 {
-                    case NovaTerminal.Update.UpdateCheckOutcome.UpdateReady:
+                    case Ntilde.Update.UpdateCheckOutcome.UpdateReady:
                         // Show it here rather than relying on the coordinator's onUpdateReady
                         // callback. That callback fires only when the staged version CHANGES (its
                         // announce-once guard, which exists so a second check does not re-nag about
@@ -8927,17 +8927,17 @@ namespace NovaTerminal
                         // (Codex P2 on #340.)
                         _owner.ShowUpdateToast(stagedVersion ?? string.Empty);
                         break;
-                    case NovaTerminal.Update.UpdateCheckOutcome.UpToDate:
-                    case NovaTerminal.Update.UpdateCheckOutcome.Unsupported:
-                    case NovaTerminal.Update.UpdateCheckOutcome.Failed:
+                    case Ntilde.Update.UpdateCheckOutcome.UpToDate:
+                    case Ntilde.Update.UpdateCheckOutcome.Unsupported:
+                    case Ntilde.Update.UpdateCheckOutcome.Failed:
                         _owner.ShowRecordingToast(
-                            NovaTerminal.Update.UpdateCheckMessages.OutcomeTitle(outcome),
-                            NovaTerminal.Update.UpdateCheckMessages.OutcomeMessage(outcome, stagedVersion),
+                            Ntilde.Update.UpdateCheckMessages.OutcomeTitle(outcome),
+                            Ntilde.Update.UpdateCheckMessages.OutcomeMessage(outcome, stagedVersion),
                             null,
                             null,
                             autoHide: true);
                         break;
-                    case NovaTerminal.Update.UpdateCheckOutcome.Disabled:
+                    case Ntilde.Update.UpdateCheckOutcome.Disabled:
                         // Unreachable: a manual check ignores the automatic-checks setting.
                         break;
                 }
@@ -8945,7 +8945,7 @@ namespace NovaTerminal
         }
 
         /// <summary>
-        /// The "+" flyout's "About NovaTerminal...". The window only renders and reports; the
+        /// The "+" flyout's "About Ntilde...". The window only renders and reports; the
         /// update machinery stays here so a check started from About shares the coordinator, the
         /// in-flight guard and the announce-once state with the palette's manual check and the
         /// deferred startup check. Wiring is by property, the same way SettingsWindow is.

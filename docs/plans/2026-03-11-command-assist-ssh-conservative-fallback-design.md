@@ -61,10 +61,10 @@ This preserves the “do not trust SSH prompt metadata” policy while still mak
 
 ## Files
 
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistAnchorCalculator.cs`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistAnchorCalculator.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs`
 
 ## Verification
 
@@ -73,4 +73,4 @@ This preserves the “do not trust SSH prompt metadata” policy while still mak
   - settled cursor near bottom => bubble near input
   - high cursor near top => lower safe-zone fallback
 - Run focused `CommandAssist` tests.
-- Run full `NovaTerminal.Tests` suite.
+- Run full `Ntilde.Tests` suite.

@@ -1,7 +1,7 @@
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 public sealed class CommandAssistModeRouterTests
 {

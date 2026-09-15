@@ -2,11 +2,11 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.AgentHost;
-using NovaTerminal.AgentHost.Contracts;
-using NovaTerminal.VT;
+using Ntilde.AgentHost;
+using Ntilde.AgentHost.Contracts;
+using Ntilde.VT;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// The endpoint pushes attention signals from the real handlers: reads mark

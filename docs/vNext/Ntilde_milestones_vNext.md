@@ -1,8 +1,8 @@
 
-# NovaTerminal — GitHub Milestones Plan (12 Months)
+# Ntilde — GitHub Milestones Plan (12 Months)
 
-This document defines **recommended GitHub milestones** for the NovaTerminal roadmap.  
-Each milestone corresponds to a **major capability step** toward making NovaTerminal a
+This document defines **recommended GitHub milestones** for the Ntilde roadmap.  
+Each milestone corresponds to a **major capability step** toward making Ntilde a
 deterministic, observable, and developer‑grade terminal.
 
 Milestones assume a **12‑month roadmap** with incremental releases.
@@ -105,7 +105,7 @@ UI features:
 **Timeline:** Month 7–8
 
 ## Goals
-Position NovaTerminal as a **correctness and debugging platform for terminal apps**.
+Position Ntilde as a **correctness and debugging platform for terminal apps**.
 
 ## Issues
 - VT torture test runner
@@ -116,7 +116,7 @@ Position NovaTerminal as a **correctness and debugging platform for terminal app
 ## Deliverables
 Command:
 
-novaterm vttest run
+ntilde vttest run
 
 Outputs:
 
@@ -153,8 +153,8 @@ Enable performance regression detection using replay workloads.
 
 Commands:
 
-novaterm perf record  
-novaterm perf compare
+ntilde perf record  
+ntilde perf compare
 
 Metrics tracked:
 
@@ -229,7 +229,7 @@ APIs:
 
 # Long‑Term Vision
 
-After these milestones NovaTerminal becomes known for:
+After these milestones Ntilde becomes known for:
 
 - deterministic terminal replay
 - structured command awareness

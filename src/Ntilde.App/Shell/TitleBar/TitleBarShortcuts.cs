@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.Shell.Shortcuts;
+using Ntilde.Shell.Shortcuts;
 
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 /// <summary>
 /// Shortcut labels for title bar tooltips and settings rows. Defaults come from

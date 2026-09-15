@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+namespace Ntilde.CommandAssist.ShellIntegration.Contracts;
 
 /// <summary>
 /// Buffer position of an OSC 133 shell-integration mark, in terms this assembly can hold
@@ -6,7 +6,7 @@ namespace NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This mirrors <c>NovaTerminal.VT.ShellIntegrationMark</c>; the App layer converts at the
+/// This mirrors <c>Ntilde.VT.ShellIntegrationMark</c>; the App layer converts at the
 /// boundary, the same way <c>AssistPoint</c>/<c>AssistRect</c> keep Avalonia geometry out of
 /// this assembly.
 /// </para>

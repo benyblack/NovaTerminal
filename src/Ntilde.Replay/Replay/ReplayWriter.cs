@@ -1,4 +1,4 @@
-namespace NovaTerminal.Replay
+namespace Ntilde.Replay
 {
     /// <summary>
     /// Preferred writer API for replay v2 files.

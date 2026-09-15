@@ -5,13 +5,13 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
-using NovaTerminal.AgentHost;
-using NovaTerminal.Controls;
-using NovaTerminal.Platform.Ssh.Launch;
-using NovaTerminal.Shell;
+using Ntilde.AgentHost;
+using Ntilde.Controls;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Controls;
+namespace Ntilde.Tests.Controls;
 
 /// <summary>
 /// The agent segment shares the pane status bar with SSH port forwards.
@@ -468,7 +468,7 @@ public class PaneAgentStatusBarTests
     }
 
     // Neighbouring pane tests reach controls with FindControl<T> (see
-    // tests/NovaTerminal.App.Tests/Controls/PaneAssistInsertionTests.cs:850),
+    // tests/Ntilde.App.Tests/Controls/PaneAssistInsertionTests.cs:850),
     // which is nullable — assert the type rather than dereferencing blind.
     private static Border GetStatusBar(TerminalPane pane)
         => Assert.IsType<Border>(pane.FindControl<Border>("StatusBar"));
@@ -497,7 +497,7 @@ public class PaneAgentStatusBarTests
 
     // An SSH pane with one local forward, so the SSH half of the visibility OR
     // is exercised. NOTE the type: TerminalPane's profile ctor takes
-    // NovaTerminal.Shell.TerminalProfile — NOT the Platform-layer SshProfile.
+    // Ntilde.Shell.TerminalProfile — NOT the Platform-layer SshProfile.
     // TerminalProfile.Forwards is List<ForwardingRule>; SshProfile.Forwards is
     // List<PortForward> and is a different thing entirely. No real session is
     // started: the status bar only reads Profile.Forwards.

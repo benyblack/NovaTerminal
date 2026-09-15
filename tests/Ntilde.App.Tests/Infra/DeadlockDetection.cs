@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 
-namespace NovaTerminal.Tests.Infra
+namespace Ntilde.Tests.Infra
 {
     public static class DeadlockDetection
     {

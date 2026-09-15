@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// Turns "where is the prompt" into bubble/popup rectangles.

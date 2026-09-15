@@ -1,8 +1,8 @@
 using System.Text;
 using System.Linq;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Replay
+namespace Ntilde.Replay
 {
     public class BufferSnapshot
     {

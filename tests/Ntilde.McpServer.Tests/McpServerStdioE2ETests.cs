@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
-namespace NovaTerminal.McpServer.Tests;
+namespace Ntilde.McpServer.Tests;
 
 // End-to-end tests: launch the built server over stdio and drive a real MCP handshake.
 // These exercise what unit tests cannot — tool discovery/registration, the stdio JSON-RPC
@@ -21,33 +21,33 @@ public class McpServerStdioE2ETests
     // Every tool the server is expected to register (v0.4).
     private static readonly string[] ExpectedToolNames =
     {
-        "novaterminal.get_project_summary",
-        "novaterminal.get_architecture_map",
-        "novaterminal.list_docs",
-        "novaterminal.read_doc",
-        "novaterminal.get_vt_conformance_summary",
-        "novaterminal.explain_escape_sequence",
-        "novaterminal.generate_vt_test_plan",
-        "novaterminal.get_theme_schema",
-        "novaterminal.validate_theme_json",
-        "novaterminal.get_connection_profile_schema",
-        "novaterminal.validate_connection_profile_json",
-        "novaterminal.get_settings_schema",
-        "novaterminal.validate_settings_json",
-        "novaterminal.generate_codex_prompt_for_issue",
-        "novaterminal.suggest_relevant_files",
-        "novaterminal.list_sessions",
-        "novaterminal.read_screen",
-        "novaterminal.read_scrollback",
-        "novaterminal.get_session_status",
-        "novaterminal.wait_for_events",
-        "novaterminal.export_replay",
-        "novaterminal.capture_screen",
-        "novaterminal.send_input",
-        "novaterminal.spawn_session",
-        "novaterminal.close_session",
-        "novaterminal.backup_export",
-        "novaterminal.backup_list",
+        "ntilde.get_project_summary",
+        "ntilde.get_architecture_map",
+        "ntilde.list_docs",
+        "ntilde.read_doc",
+        "ntilde.get_vt_conformance_summary",
+        "ntilde.explain_escape_sequence",
+        "ntilde.generate_vt_test_plan",
+        "ntilde.get_theme_schema",
+        "ntilde.validate_theme_json",
+        "ntilde.get_connection_profile_schema",
+        "ntilde.validate_connection_profile_json",
+        "ntilde.get_settings_schema",
+        "ntilde.validate_settings_json",
+        "ntilde.generate_codex_prompt_for_issue",
+        "ntilde.suggest_relevant_files",
+        "ntilde.list_sessions",
+        "ntilde.read_screen",
+        "ntilde.read_scrollback",
+        "ntilde.get_session_status",
+        "ntilde.wait_for_events",
+        "ntilde.export_replay",
+        "ntilde.capture_screen",
+        "ntilde.send_input",
+        "ntilde.spawn_session",
+        "ntilde.close_session",
+        "ntilde.backup_export",
+        "ntilde.backup_list",
     };
 
     [Fact]
@@ -87,7 +87,7 @@ public class McpServerStdioE2ETests
         await using var client = await StartClientAsync(cts.Token);
 
         var result = await client.CallToolAsync(
-            "novaterminal.validate_theme_json",
+            "ntilde.validate_theme_json",
             new Dictionary<string, object?> { ["themeJson"] = ValidTheme },
             cancellationToken: cts.Token);
 
@@ -103,7 +103,7 @@ public class McpServerStdioE2ETests
         await using var client = await StartClientAsync(cts.Token);
 
         var result = await client.CallToolAsync(
-            "novaterminal.list_docs",
+            "ntilde.list_docs",
             cancellationToken: cts.Token);
 
         string text = result.Content.OfType<TextContentBlock>().First().Text;
@@ -114,12 +114,12 @@ public class McpServerStdioE2ETests
     {
         var transport = new StdioClientTransport(new StdioClientTransportOptions
         {
-            Name = "novaterminal-dev-e2e",
+            Name = "ntilde-dev-e2e",
             Command = "dotnet",
             Arguments = [ServerDllPath()],
             EnvironmentVariables = new Dictionary<string, string?>
             {
-                ["NOVATERMINAL_REPO_ROOT"] = RepoRoot(),
+                ["NTILDE_REPO_ROOT"] = RepoRoot(),
             },
         });
 
@@ -131,12 +131,12 @@ public class McpServerStdioE2ETests
     }
 
     // Launch the server from THIS test assembly's output directory. The ProjectReference to
-    // the server copies NovaTerminal.McpServer.dll + .runtimeconfig.json + .deps.json here.
+    // the server copies Ntilde.McpServer.dll + .runtimeconfig.json + .deps.json here.
     // This is the only location guaranteed to exist in the CI unit-test job: that job artifacts
-    // tests/*/bin but NOT src/NovaTerminal.McpServer/bin, and runs `dotnet test --no-build`.
+    // tests/*/bin but NOT src/Ntilde.McpServer/bin, and runs `dotnet test --no-build`.
     private static string ServerDllPath()
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "NovaTerminal.McpServer.dll");
+        string path = Path.Combine(AppContext.BaseDirectory, "Ntilde.McpServer.dll");
 
         if (!File.Exists(path))
         {
@@ -150,13 +150,13 @@ public class McpServerStdioE2ETests
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "NovaTerminal.sln")))
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Ntilde.sln")))
         {
             dir = dir.Parent;
         }
 
         return dir?.FullName
             ?? throw new InvalidOperationException(
-                "Could not locate 'NovaTerminal.sln' above the test output directory.");
+                "Could not locate 'Ntilde.sln' above the test output directory.");
     }
 }

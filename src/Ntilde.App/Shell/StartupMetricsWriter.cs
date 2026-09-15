@@ -5,12 +5,12 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 public sealed class StartupMetricsWriter : IDisposable
 {
-    private const string EnabledEnvVar = "NOVATERM_STARTUP_METRICS";
-    private const string OutputEnvVar = "NOVATERM_STARTUP_METRICS_OUT";
+    private const string EnabledEnvVar = "NTILDE_STARTUP_METRICS";
+    private const string OutputEnvVar = "NTILDE_STARTUP_METRICS_OUT";
     private readonly object _gate = new();
     private readonly FileStream _stream;
     private readonly ArrayBufferWriter<byte> _buffer = new(512);

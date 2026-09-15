@@ -2,13 +2,13 @@ using Avalonia;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Moq;
-using NovaTerminal.Platform;
-using NovaTerminal.Pty;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.Pty;
+using Ntilde.Shell;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.Input
+namespace Ntilde.Tests.Input
 {
     /// <summary>
     /// Issue #269: `?1003` any-event mouse tracking must report pointer motion even when no

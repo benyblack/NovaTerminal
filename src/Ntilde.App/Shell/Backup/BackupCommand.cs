@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using NovaTerminal.Backup;
+using Ntilde.Backup;
 
-namespace NovaTerminal.Shell.Backup;
+namespace Ntilde.Shell.Backup;
 
 /// <summary>
 /// The <c>backup</c> CLI verb. Follows the same shape as <see cref="SshAskPassCommand"/>:
@@ -76,7 +76,7 @@ public static class BackupCommand
         string bundlePath = args[2];
 
         // The bundle path is strictly positional (args[2]) - mode flags are only ever read from
-        // what follows it. Without this guard, `backup import --merge somebundle.novabackup`
+        // what follows it. Without this guard, `backup import --merge somebundle.ntildebackup`
         // would silently take "--merge" itself as the bundle path (then fail with a confusing
         // file-not-found once service.Import tries to open it), and a real bundle path that
         // happened to equal "--merge"/"--replace" would self-select that mode even though it was

@@ -1,9 +1,9 @@
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
-using NovaTerminal.Backup;
+using Ntilde.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class BackupImportTests
 {
@@ -417,7 +417,7 @@ public sealed class BackupImportTests
         using var target = BackupTestTree.CreatePopulated();
         target.WriteFile(Path.Combine("policy", "workspace_policy.json"), """{"local":true}""");
 
-        string bundle = Path.Combine(source.Root, "themes-only.novabackup");
+        string bundle = Path.Combine(source.Root, "themes-only.ntildebackup");
         new BackupService(source.Root, Clock()).Export(bundle, new[] { BackupCategory.Themes });
 
         new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
@@ -448,7 +448,7 @@ public sealed class BackupImportTests
     {
         using var source = BackupTestTree.CreatePopulated();
         using var target = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(source.Root, "themes-only.novabackup");
+        string bundle = Path.Combine(source.Root, "themes-only.ntildebackup");
         new BackupService(source.Root, Clock()).Export(bundle, new[] { BackupCategory.Themes });
 
         var outcome = new BackupService(target.Root, Clock()).Import(bundle, ImportMode.Replace);
@@ -528,7 +528,7 @@ public sealed class BackupImportTests
     {
         using var target = BackupTestTree.CreatePopulated();
         string original = target.ReadFile("settings.json");
-        string bogus = Path.Combine(target.Root, "bogus.novabackup");
+        string bogus = Path.Combine(target.Root, "bogus.ntildebackup");
         File.WriteAllText(bogus, "not a zip");
 
         var service = new BackupService(target.Root, Clock());
@@ -546,7 +546,7 @@ public sealed class BackupImportTests
     {
         using var target = BackupTestTree.CreatePopulated();
         string original = target.ReadFile("settings.json");
-        string future = Path.Combine(target.Root, "future.novabackup");
+        string future = Path.Combine(target.Root, "future.ntildebackup");
         WriteFutureSchemaBundle(future);
 
         var service = new BackupService(target.Root, Clock());
@@ -574,7 +574,7 @@ public sealed class BackupImportTests
     {
         using var target = BackupTestTree.CreatePopulated();
         string original = target.ReadFile("settings.json");
-        string bundle = Path.Combine(target.Root, "zip-slip.novabackup");
+        string bundle = Path.Combine(target.Root, "zip-slip.ntildebackup");
         WriteZipSlipBundle(bundle);
 
         var service = new BackupService(target.Root, Clock());
@@ -974,7 +974,7 @@ public sealed class BackupImportTests
 
     private static string ExportFrom(BackupTestTree tree)
     {
-        string bundle = Path.Combine(tree.Root, "export.novabackup");
+        string bundle = Path.Combine(tree.Root, "export.ntildebackup");
         var outcome = new BackupService(tree.Root, Clock()).Export(bundle);
         Assert.True(outcome.Success, outcome.Message);
         return bundle;

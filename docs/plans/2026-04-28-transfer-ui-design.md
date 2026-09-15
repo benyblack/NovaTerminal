@@ -2,7 +2,7 @@
 
 ## Goal
 
-Improve NovaTerminal's transfer UX without turning the app into a file browser. Keep the terminal-first model, keep the backend transfer work intact, and replace the current prompt-heavy transfer flow with a focused dialog and a more usable transfer manager surface.
+Improve Ntilde's transfer UX without turning the app into a file browser. Keep the terminal-first model, keep the backend transfer work intact, and replace the current prompt-heavy transfer flow with a focused dialog and a more usable transfer manager surface.
 
 ## Scope
 
@@ -46,9 +46,9 @@ The current flow has three major problems:
 
 Use a dedicated Transfer Dialog as the primary transfer-entry surface, and keep the Transfer Center as a lightweight movable floating manager for active and recent jobs.
 
-This is more aligned with NovaTerminal than a remote file browser because:
+This is more aligned with Ntilde than a remote file browser because:
 
-- NovaTerminal is terminal-first, not file-manager-first
+- Ntilde is terminal-first, not file-manager-first
 - there is no existing remote browsing pattern to extend
 - the immediate UX problem is workflow and focus, not missing directory navigation
 - a file browser would expand scope into remote listing, navigation, loading, and permissions states
@@ -79,7 +79,7 @@ Pros:
 
 Cons:
 - much larger scope
-- pushes NovaTerminal toward a mini SFTP client
+- pushes Ntilde toward a mini SFTP client
 - requires directory listing, navigation, refresh, and permissions UX
 
 ### 3. Command Palette Only / Quick Actions

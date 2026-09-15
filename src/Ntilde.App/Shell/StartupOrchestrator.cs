@@ -1,8 +1,8 @@
 using System;
-using NovaTerminal.VT;
-using NovaTerminal.Pty;
+using Ntilde.VT;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 public sealed class StartupOrchestrator
 {
@@ -25,7 +25,7 @@ public sealed class StartupOrchestrator
     public void Checkpoint(string name) => _tracker.TryMarkCheckpoint(name);
 
     public void BeginSessionRestore(
-        NovaSession session,
+        NtildeSession session,
         Action<StartupRestoreTab> materializeImmediate)
     {
         ArgumentNullException.ThrowIfNull(session);

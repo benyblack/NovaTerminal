@@ -1,8 +1,8 @@
-using NovaTerminal.Rendering;
+using Ntilde.Rendering;
 using SkiaSharp;
 using Xunit;
 
-namespace NovaTerminal.Rendering.Tests;
+namespace Ntilde.Rendering.Tests;
 
 // Regression tests for #169: sixel payloads are remote-controlled input, so
 // malformed color parameters must be skipped, not thrown into the parser loop.

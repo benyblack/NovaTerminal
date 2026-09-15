@@ -284,7 +284,7 @@ mod win32 {
             let mut env_map: std::collections::HashMap<String, String> = std::env::vars().collect();
             env_map.insert("TERM".to_string(), "xterm-256color".to_string());
             env_map.insert("COLORTERM".to_string(), "truecolor".to_string());
-            env_map.insert("TERM_PROGRAM".to_string(), "NovaTerminal".to_string());
+            env_map.insert("TERM_PROGRAM".to_string(), "Ntilde".to_string());
             // Caller-supplied overrides take precedence so shell-integration
             // providers (e.g. zsh's ZDOTDIR) can steer shell startup.
             for (k, v) in extra_envs {
@@ -428,7 +428,7 @@ mod win32 {
         #[test]
         fn failed_spawn_does_not_leak_handles() {
             let _guard = crate::handle_test_lock();
-            let bogus = "novaterminal-no-such-executable-4f2c9a.exe";
+            let bogus = "ntilde-no-such-executable-4f2c9a.exe";
 
             // Warm up: the first few attempts touch lazily-initialized OS and CRT state, which
             // moves the handle count for reasons unrelated to the leak.
@@ -645,7 +645,7 @@ fn reject_unspawnable_command(cmd: &str) -> Option<&'static str> {
 /// VT prompt) when the host process has no real console -- which is always the case
 /// for the GUI (WinExe) app, leaving pwsh tabs blank. Skip it then so we take the
 /// portable-pty path whose pipe captures all child output. `env_opt_out` is the
-/// explicit `NOVA_PTY_NO_PASSTHROUGH` override and always wins.
+/// explicit `NTILDE_PTY_NO_PASSTHROUGH` override and always wins.
 fn should_skip_passthrough(env_opt_out: bool, has_real_console: bool) -> bool {
     env_opt_out || !has_real_console
 }
@@ -682,7 +682,7 @@ pub extern "C" fn pty_spawn_with_envs(
 /// that is the path whose teardown #120 item 2 is about; the ConPTY passthrough path instead ends
 /// its child as a side effect of ClosePseudoConsole. Whether a test run takes the passthrough path
 /// depends on whether the runner has a real console, which is not something a test should depend
-/// on - and steering it through NOVA_PTY_NO_PASSTHROUGH would mutate process-wide env while other
+/// on - and steering it through NTILDE_PTY_NO_PASSTHROUGH would mutate process-wide env while other
 /// spawn tests run in parallel.
 fn pty_spawn_impl(
     cmd: *const c_char,
@@ -729,9 +729,9 @@ fn pty_spawn_impl(
         // PSEUDOCONSOLE_PASSTHROUGH silently swallows the child's stdout when the
         // host has no real console -- which is always true for the GUI (WinExe) app
         // and the xunit test runner, leaving e.g. pwsh 7 tabs blank. Take the
-        // portable-pty path in that case. NOVA_PTY_NO_PASSTHROUGH stays as an
+        // portable-pty path in that case. NTILDE_PTY_NO_PASSTHROUGH stays as an
         // explicit override.
-        let env_opt_out = std::env::var("NOVA_PTY_NO_PASSTHROUGH")
+        let env_opt_out = std::env::var("NTILDE_PTY_NO_PASSTHROUGH")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
         let skip_passthrough = force_portable
@@ -806,7 +806,7 @@ fn pty_spawn_impl(
     }
     cmd_builder.env("TERM", "xterm-256color");
     cmd_builder.env("COLORTERM", "truecolor");
-    cmd_builder.env("TERM_PROGRAM", "NovaTerminal");
+    cmd_builder.env("TERM_PROGRAM", "Ntilde");
     // Inherit the user's locale. Forcing LC_ALL/LANG=C put every child shell in the
     // ASCII locale (mangled non-ASCII filenames, broken multibyte readline input, no
     // Unicode line drawing), contradicting the UTF-8 pipeline on the managed side.
@@ -1445,7 +1445,7 @@ mod last_error_tests {
     #[test]
     fn failed_spawn_names_the_command() {
             let _guard = crate::handle_test_lock();
-        let bogus = "novaterminal-no-such-shell-91b7fe";
+        let bogus = "ntilde-no-such-shell-91b7fe";
         let c_cmd = CString::new(bogus).unwrap();
         let state = pty_spawn(
             c_cmd.as_ptr(),

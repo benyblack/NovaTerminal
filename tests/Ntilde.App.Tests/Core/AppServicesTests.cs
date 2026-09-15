@@ -1,11 +1,11 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Collections.Generic;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using Xunit;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class AppServicesTests
 {
@@ -25,7 +25,7 @@ public sealed class AppServicesTests
     public void BuildForDesigner_ReturnsBundleWithSynchronousScheduler()
     {
         var bundle = AppServices.BuildForDesigner();
-        var session = new NovaSession { ActiveTabIndex = 0 };
+        var session = new NtildeSession { ActiveTabIndex = 0 };
         session.Tabs.Add(new TabSession { Title = "a" });
         session.Tabs.Add(new TabSession { Title = "b" });
         bundle.Startup.BeginSessionRestore(session, _ => { });

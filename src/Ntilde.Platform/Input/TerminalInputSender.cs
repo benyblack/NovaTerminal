@@ -1,7 +1,7 @@
 using System;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Platform.Input
+namespace Ntilde.Platform.Input
 {
     public static class TerminalInputSender
     {

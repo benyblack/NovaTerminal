@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
+using Ntilde.CommandAssist.ShellIntegration.Runtime;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 public sealed class OrderedAsyncEventDispatcherTests
 {

@@ -1,5 +1,5 @@
-using NovaTerminal;
-using NovaTerminal.Shell.Backup;
+using Ntilde;
+using Ntilde.Shell.Backup;
 
 internal static class Program
 {

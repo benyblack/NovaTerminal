@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.ShellIntegration.Zsh;
+using Ntilde.CommandAssist.ShellIntegration.Zsh;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration.Integration;
 
 /// <summary>
 /// End-to-end tests for the Zsh bootstrap. Skipped at runtime when zsh
@@ -17,7 +17,7 @@ public sealed class ZshShellIntegrationTests : IDisposable
 
     public ZshShellIntegrationTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), $"nova_zsh_int_{Guid.NewGuid():N}");
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_zsh_int_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempRoot);
         _bootstrapPath = ZshBootstrapBuilder.WriteScript(_tempRoot);
     }
@@ -86,7 +86,7 @@ public sealed class ZshShellIntegrationTests : IDisposable
         // of the user's input -- exactly the prompt's display width. Asserting the exact
         // column (not merely "> 0") is what pins the %{...%} zero-width wrapper: without
         // it zsh counts the escape as printable cells and the anchor drifts.
-        const string prompt = "nova-test$ ";
+        const string prompt = "ntilde-test$ ";
         HarnessResult result = RunZsh("exit 0\n", extraInitLine: $"PROMPT='{prompt}'");
 
         var marks = result.Events.Where(e => e.Kind == "B").ToList();
@@ -97,10 +97,10 @@ public sealed class ZshShellIntegrationTests : IDisposable
     [Fact]
     public void Bootstrap_DoesNotAccumulatePromptMarksAcrossPromptCycles()
     {
-        // __nova_apply_prompt_mark runs once per precmd. It strips any trailing copy of
+        // __ntilde_apply_prompt_mark runs once per precmd. It strips any trailing copy of
         // the mark before re-appending, so PROMPT must not grow a marker per cycle --
         // the failure mode is quadratic B traffic, which a generous bound still catches.
-        HarnessResult result = RunZsh("true\ntrue\nexit 0\n", extraInitLine: "PROMPT='nova-test$ '");
+        HarnessResult result = RunZsh("true\ntrue\nexit 0\n", extraInitLine: "PROMPT='ntilde-test$ '");
 
         int prompts = result.Events.Count(e => e.Kind == "A");
         int marks = result.Events.Count(e => e.Kind == "B");

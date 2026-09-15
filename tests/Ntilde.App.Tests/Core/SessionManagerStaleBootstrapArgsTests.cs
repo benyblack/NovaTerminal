@@ -1,12 +1,12 @@
 using System;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Pty;
-using NovaTerminal.Shell;
+using Ntilde.Controls;
+using Ntilde.Pty;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Sessions saved before this fix carry the shell-integration bootstrap in their persisted

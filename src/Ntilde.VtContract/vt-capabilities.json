@@ -7,7 +7,7 @@
       "support": "supported",
       "description": "Cursor Next Line Ps times and reset to column 1.",
       "matrixFeature": "CNL (E)",
-      "evidencePath": "tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs",
+      "evidencePath": "tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs",
       "contractCase": "cursor-next-line"
     },
     {
@@ -16,7 +16,7 @@
       "support": "supported",
       "description": "Cursor Previous Line Ps times and reset to column 1.",
       "matrixFeature": "CPL (F)",
-      "evidencePath": "tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs",
+      "evidencePath": "tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs",
       "contractCase": "cursor-previous-line"
     },
     {
@@ -25,7 +25,7 @@
       "support": "supported",
       "description": "Cursor Horizontal Absolute to column Ps.",
       "matrixFeature": "CHA (G)",
-      "evidencePath": "tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs",
+      "evidencePath": "tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs",
       "contractCase": "cursor-horizontal-absolute"
     }
   ]

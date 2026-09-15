@@ -6,12 +6,12 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using ModelContextProtocol.Server;
 
-namespace NovaTerminal.McpServer.Tools;
+namespace Ntilde.McpServer.Tools;
 
 [McpServerToolType]
 public static partial class ThemeTools
 {
-    // The 16 ANSI colors plus the 3 UI colors. All are required in a NovaTerminal theme JSON.
+    // The 16 ANSI colors plus the 3 UI colors. All are required in a Ntilde theme JSON.
     private static readonly string[] ColorFields =
     {
         "Foreground", "Background", "CursorColor",
@@ -24,11 +24,11 @@ public static partial class ThemeTools
     [GeneratedRegex(@"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")]
     private static partial Regex HexColorRegex();
 
-    [McpServerTool(Name = "novaterminal.get_theme_schema"),
-     Description("Returns the schema for a NovaTerminal theme JSON file: required fields (Name + 16 ANSI colors + Foreground/Background/CursorColor), the accepted color string format, and an example. Use before authoring or editing a theme.")]
+    [McpServerTool(Name = "ntilde.get_theme_schema"),
+     Description("Returns the schema for a Ntilde theme JSON file: required fields (Name + 16 ANSI colors + Foreground/Background/CursorColor), the accepted color string format, and an example. Use before authoring or editing a theme.")]
     public static string GetThemeSchema() =>
         """
-        # NovaTerminal theme JSON schema
+        # Ntilde theme JSON schema
 
         A theme is a JSON object. All fields below are required.
 
@@ -57,8 +57,8 @@ public static partial class ThemeTools
         ```
         """;
 
-    [McpServerTool(Name = "novaterminal.validate_theme_json"),
-     Description("Validates a NovaTerminal theme JSON string against the theme schema. Reports missing required fields, invalid color values, and unknown fields. Returns a structured pass/fail report.")]
+    [McpServerTool(Name = "ntilde.validate_theme_json"),
+     Description("Validates a Ntilde theme JSON string against the theme schema. Reports missing required fields, invalid color values, and unknown fields. Returns a structured pass/fail report.")]
     public static string ValidateThemeJson(
         [Description("The full theme JSON document to validate.")] string themeJson)
     {

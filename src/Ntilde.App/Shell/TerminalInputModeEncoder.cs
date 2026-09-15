@@ -1,8 +1,8 @@
 using System;
 using Avalonia.Input;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     internal enum TerminalMouseButton
     {
@@ -95,7 +95,7 @@ namespace NovaTerminal.Shell
         ///   whenever ctrl, alt or super is held, which is what disambiguates Ctrl+I from Tab and
         ///   Ctrl+M from Enter. Plain and shift-only presses still produce text.
         /// - Keypad and functional keys (arrows, F-keys, Home/End/PgUp/PgDn, Insert/Delete) are out
-        ///   of scope for this tier in NovaTerminal and keep their legacy encodings.
+        ///   of scope for this tier in Ntilde and keep their legacy encodings.
         ///
         /// The modifiers field is omitted entirely when no modifiers are active, per spec.
         /// </summary>

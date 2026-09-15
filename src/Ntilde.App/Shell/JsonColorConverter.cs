@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Avalonia.Media;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public class JsonColorConverter : JsonConverter<Color>
     {

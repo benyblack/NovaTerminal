@@ -1,6 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="NovaTerminal.Views.Ssh.AuthPromptDialog"
+        x:Class="Ntilde.Views.Ssh.AuthPromptDialog"
         Width="560"
         Height="320"
         CanResize="False"

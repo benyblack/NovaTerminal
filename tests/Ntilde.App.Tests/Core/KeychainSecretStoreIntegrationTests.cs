@@ -1,8 +1,8 @@
 using System;
 using System.Runtime.InteropServices;
-using NovaTerminal.Shell.Secrets;
+using Ntilde.Shell.Secrets;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public class KeychainSecretStoreIntegrationTests
 {

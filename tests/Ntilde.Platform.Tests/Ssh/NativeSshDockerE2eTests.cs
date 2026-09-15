@@ -1,13 +1,13 @@
-using NovaTerminal.Replay;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Native;
-using NovaTerminal.Platform.Ssh.Sessions;
-using NovaTerminal.Platform.Tests.Infra;
+using Ntilde.Replay;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Sessions;
+using Ntilde.Platform.Tests.Infra;
 using System.Text;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public sealed class NativeSshDockerE2eTests
 {
@@ -18,7 +18,7 @@ public sealed class NativeSshDockerE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-download-{Guid.NewGuid():N}");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde-native-sftp-download-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         try
         {
@@ -67,7 +67,7 @@ public sealed class NativeSshDockerE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-progress-{Guid.NewGuid():N}");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde-native-sftp-progress-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         try
         {
@@ -140,7 +140,7 @@ public sealed class NativeSshDockerE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-upload-{Guid.NewGuid():N}");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde-native-sftp-upload-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         try
         {
@@ -188,7 +188,7 @@ public sealed class NativeSshDockerE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-upload-dir-target-{Guid.NewGuid():N}");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde-native-sftp-upload-dir-target-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         try
         {
@@ -235,7 +235,7 @@ public sealed class NativeSshDockerE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-upload-home-{Guid.NewGuid():N}");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde-native-sftp-upload-home-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         try
         {
@@ -282,7 +282,7 @@ public sealed class NativeSshDockerE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-download-dir-{Guid.NewGuid():N}");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde-native-sftp-download-dir-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         try
         {
@@ -332,7 +332,7 @@ public sealed class NativeSshDockerE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-download-dir-progress-{Guid.NewGuid():N}");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde-native-sftp-download-dir-progress-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         try
         {
@@ -440,7 +440,7 @@ public sealed class NativeSshDockerE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-upload-dir-{Guid.NewGuid():N}");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde-native-sftp-upload-dir-{Guid.NewGuid():N}");
         string localRoot = Path.Combine(tempRoot, "native-sftp-upload-dir");
         Directory.CreateDirectory(Path.Combine(localRoot, "nested"));
         try
@@ -488,7 +488,7 @@ public sealed class NativeSshDockerE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-missing-remote-{Guid.NewGuid():N}");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde-native-sftp-missing-remote-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         try
         {
@@ -532,7 +532,7 @@ public sealed class NativeSshDockerE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-missing-local-{Guid.NewGuid():N}");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde-native-sftp-missing-local-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         try
         {
@@ -576,7 +576,7 @@ public sealed class NativeSshDockerE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-auth-{Guid.NewGuid():N}");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde-native-sftp-auth-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         try
         {
@@ -650,9 +650,9 @@ public sealed class NativeSshDockerE2eTests
         Assert.Contains(snapshot.Lines, line => line == "hello");
         Assert.Contains(snapshot.Lines, line => line == "nova$");
         Assert.Contains(handler.Requests, request =>
-            request.Kind == NovaTerminal.Platform.Ssh.Interactions.SshInteractionKind.UnknownHostKey
-            || request.Kind == NovaTerminal.Platform.Ssh.Interactions.SshInteractionKind.ChangedHostKey);
-        Assert.Contains(handler.Requests, request => request.Kind == NovaTerminal.Platform.Ssh.Interactions.SshInteractionKind.Password);
+            request.Kind == Ntilde.Platform.Ssh.Interactions.SshInteractionKind.UnknownHostKey
+            || request.Kind == Ntilde.Platform.Ssh.Interactions.SshInteractionKind.ChangedHostKey);
+        Assert.Contains(handler.Requests, request => request.Kind == Ntilde.Platform.Ssh.Interactions.SshInteractionKind.Password);
     }
 
     [DockerFact]

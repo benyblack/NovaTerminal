@@ -1,9 +1,9 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Text.Json;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class TerminalSettingsFontTests
 {
@@ -43,7 +43,7 @@ public sealed class TerminalSettingsFontTests
 
     private static string CreateTempDirectory()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"nova_terminal_settings_font_{Guid.NewGuid():N}");
+        string path = Path.Combine(Path.GetTempPath(), $"ntilde_terminal_settings_font_{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
     }

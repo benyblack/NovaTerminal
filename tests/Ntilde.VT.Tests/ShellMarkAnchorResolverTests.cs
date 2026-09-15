@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// Mark-to-viewport-row resolution: the coordinate conversion Command Assist V2 anchors its

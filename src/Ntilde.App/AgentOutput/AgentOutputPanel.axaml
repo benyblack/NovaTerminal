@@ -3,7 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignWidth="380" d:DesignHeight="600"
-             x:Class="NovaTerminal.AgentOutput.AgentOutputPanel"
+             x:Class="Ntilde.AgentOutput.AgentOutputPanel"
              Width="380">
     <!-- Chrome matches the pane's other hand-styled surfaces (RemoteFilesSidebar, the assist
          overlay): fixed dark palette, hairline left edge. Width lives here so the presenter

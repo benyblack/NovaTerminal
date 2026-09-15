@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 
-namespace NovaTerminal.VT.Storage
+namespace Ntilde.VT.Storage
 {
     /// <summary>
     /// Metrics snapshot for <see cref="ScrollbackPages"/>.
@@ -132,7 +132,7 @@ namespace NovaTerminal.VT.Storage
             ReadOnlySpan<TerminalCell> row,
             bool isWrapped = false,
             SmallMap<string>? extendedText = null,
-            SmallMap<NovaTerminal.VT.Links.Hyperlink>? hyperlinks = null)
+            SmallMap<Ntilde.VT.Links.Hyperlink>? hyperlinks = null)
         {
             if (row.Length != _cols)
                 throw new ArgumentException($"Row length {row.Length} must equal Cols {_cols}.", nameof(row));
@@ -242,7 +242,7 @@ namespace NovaTerminal.VT.Storage
         }
 
         /// <summary>Returns the hyperlink SmallMap for the given logical row, or null if none.</summary>
-        public SmallMap<NovaTerminal.VT.Links.Hyperlink>? GetHyperlinkMap(int logicalIndex)
+        public SmallMap<Ntilde.VT.Links.Hyperlink>? GetHyperlinkMap(int logicalIndex)
         {
             (TerminalPage page, int rowInPage) = FindPage(logicalIndex);
             return page.GetHyperlinkMap(rowInPage);
@@ -292,7 +292,7 @@ namespace NovaTerminal.VT.Storage
             Span<TerminalCell> destination,
             out bool isWrapped,
             out SmallMap<string>? extendedText,
-            out SmallMap<NovaTerminal.VT.Links.Hyperlink>? hyperlinks)
+            out SmallMap<Ntilde.VT.Links.Hyperlink>? hyperlinks)
         {
             isWrapped = false;
             extendedText = null;

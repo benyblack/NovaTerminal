@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Text;
-using NovaTerminal.CommandAssist.ShellIntegration.Remote;
+using Ntilde.CommandAssist.ShellIntegration.Remote;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration.Integration;
 
 /// <summary>
 /// The generated one-liner, run the way a user pastes it: through a real bash, with
@@ -34,7 +34,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
     public RemoteInstallerIntegrationTests()
     {
-        _home = Path.Combine(Path.GetTempPath(), $"nova_installer_{Guid.NewGuid():N}");
+        _home = Path.Combine(Path.GetTempPath(), $"ntilde_installer_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_home);
     }
 
@@ -45,7 +45,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
     private string HomeForShell => _home.Replace('\\', '/');
 
-    private string SnippetPath => Path.Combine(_home, ".nova-shell-integration.sh");
+    private string SnippetPath => Path.Combine(_home, ".ntilde-shell-integration.sh");
 
     private string BashrcPath => Path.Combine(_home, ".bashrc");
 
@@ -120,7 +120,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
     private static int CountLoaderLines(string rcContent) => rcContent
         .Split('\n')
-        .Count(line => line.Contains("nova-shell-integration", StringComparison.Ordinal));
+        .Count(line => line.Contains("ntilde-shell-integration", StringComparison.Ordinal));
 
     /// <summary>
     /// Runs the decoded installer script directly under bash, with an explicit shell argument, and
@@ -140,7 +140,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             Assert.Skip("bash not found on this system");
         }
 
-        string installerPath = Path.Combine(_home, "nova-install.sh");
+        string installerPath = Path.Combine(_home, "ntilde-install.sh");
         File.WriteAllText(
             installerPath,
             RemoteShellIntegrationSnippets.BuildInstallerScript(RemoteShellIntegrationShell.BashOrZsh),
@@ -177,7 +177,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         Assert.Equal(
             RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh).TrimEnd('\n'),
             File.ReadAllText(SnippetPath).Replace("\r\n", "\n").TrimEnd('\n'));
-        Assert.Contains("nova: wrote ~/.nova-shell-integration.sh", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: wrote ~/.ntilde-shell-integration.sh", output, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -196,7 +196,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.BashOrZsh)!,
             rc,
             StringComparison.Ordinal);
-        Assert.Contains("nova: added loader line to ~/.bashrc", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: added loader line to ~/.bashrc", output, StringComparison.Ordinal);
     }
 
     // ---- idempotency ----------------------------------------------------------------------------
@@ -220,7 +220,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     {
         File.WriteAllText(
             BashrcPath,
-            "PS1='test$ '\nsource ~/.nova-shell-integration.sh\n",
+            "PS1='test$ '\nsource ~/.ntilde-shell-integration.sh\n",
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         RunInstaller();
@@ -236,7 +236,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     /// </summary>
     /// <remarks>
     /// Not a hypothetical: the natural way to turn this off is to comment the loader line out, and
-    /// `# see ~/.nova-shell-integration.sh` is a plausible note to leave next to something else.
+    /// `# see ~/.ntilde-shell-integration.sh` is a plausible note to leave next to something else.
     /// The marker stays the file name (so a hand-typed loader variant still counts) but is anchored
     /// to a non-comment position on the line.
     /// </remarks>
@@ -245,7 +245,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     {
         File.WriteAllText(
             BashrcPath,
-            "# I disabled nova-shell-integration on purpose\n",
+            "# I disabled ntilde-shell-integration on purpose\n",
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         string output = RunInstaller();
@@ -255,7 +255,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.BashOrZsh)!,
             rc,
             StringComparison.Ordinal);
-        Assert.Contains("nova: added loader line to ~/.bashrc", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: added loader line to ~/.bashrc", output, StringComparison.Ordinal);
         Assert.DoesNotContain("already present", output, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -280,7 +280,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         string rc = File.ReadAllText(BashrcPath).Replace("\r\n", "\n");
         Assert.Equal($"export FOO=bar\n{expectedLoader}\n", rc);
         Assert.Equal(1, CountLoaderLines(rc));
-        Assert.Contains("nova: added loader line to ~/.bashrc", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: added loader line to ~/.bashrc", output, StringComparison.Ordinal);
     }
 
     // ---- shell selection -------------------------------------------------------------------------
@@ -302,7 +302,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
         string installer = RemoteShellIntegrationSnippets.BuildInstallerScript(
             RemoteShellIntegrationShell.BashOrZsh);
-        string installerPath = Path.Combine(_home, "nova-install.sh");
+        string installerPath = Path.Combine(_home, "ntilde-install.sh");
         File.WriteAllText(installerPath, installer, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         var startInfo = new ProcessStartInfo(bash)
@@ -326,7 +326,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.BashOrZsh)!,
             File.ReadAllText(zshrcPath),
             StringComparison.Ordinal);
-        Assert.Contains("nova: added loader line to ~/.zshrc", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: added loader line to ~/.zshrc", output, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -345,7 +345,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
         string installer = RemoteShellIntegrationSnippets.BuildInstallerScript(
             RemoteShellIntegrationShell.BashOrZsh);
-        string installerPath = Path.Combine(_home, "nova-install.sh");
+        string installerPath = Path.Combine(_home, "ntilde-install.sh");
         File.WriteAllText(installerPath, installer, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         var startInfo = new ProcessStartInfo(bash)
@@ -365,7 +365,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
         Assert.True(process.WaitForExit(30_000), "installer did not finish within 30s");
 
-        Assert.Contains("nova: could not tell which shell you use", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: could not tell which shell you use", output, StringComparison.Ordinal);
         Assert.Contains(
             RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.BashOrZsh)!,
             output,
@@ -405,7 +405,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     {
         string output = RunInstaller(shadowDecodeTools: true);
 
-        Assert.Contains("nova: install failed", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: install failed", output, StringComparison.Ordinal);
         Assert.Contains("base64", output, StringComparison.Ordinal);
         Assert.DoesNotContain("cut short", output, StringComparison.Ordinal);
         Assert.False(File.Exists(SnippetPath), "snippet written despite a failed decode");
@@ -424,7 +424,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     /// <para>
     /// This asserts what happens, not what would be convenient. The payload literal opens at byte 9
     /// and closes past 7500, so the cut always lands inside the quoted blob and takes the closing
-    /// quote with it - the payload-length check is unreachable for a tail cut and no <c>nova:</c>
+    /// quote with it - the payload-length check is unreachable for a tail cut and no <c>ntilde:</c>
     /// line is ever printed. The check earns its place on mid-stream byte loss instead, where the
     /// tail arrives and the middle does not. Getting this wrong in the other direction is the
     /// failure this test exists to prevent: a future edit that made the guard *look* reachable
@@ -468,7 +468,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         Assert.True(process.WaitForExit(30_000), "truncated paste did not finish within 30s");
 
         Assert.NotEqual(0, process.ExitCode);
-        Assert.DoesNotContain("nova:", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("ntilde:", output, StringComparison.Ordinal);
         Assert.False(File.Exists(SnippetPath), $"snippet written from a truncated paste. output:\n{output}");
         Assert.False(File.Exists(BashrcPath), $"~/.bashrc written from a truncated paste. output:\n{output}");
     }
@@ -498,8 +498,8 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
         (string output, int exitCode) = RunInstallerScript("bash");
 
-        Assert.DoesNotContain("nova: added loader line", output, StringComparison.Ordinal);
-        Assert.Contains("nova: could not write ~/.bashrc", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("ntilde: added loader line", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: could not write ~/.bashrc", output, StringComparison.Ordinal);
         Assert.Contains(
             RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.BashOrZsh)!,
             output,
@@ -555,8 +555,8 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             File.SetUnixFileMode(BashrcPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
 
-        Assert.DoesNotContain("nova: added loader line", output, StringComparison.Ordinal);
-        Assert.Contains("nova: could not write ~/.bashrc", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("ntilde: added loader line", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: could not write ~/.bashrc", output, StringComparison.Ordinal);
         Assert.NotEqual(0, exitCode);
         Assert.Equal("export FOO=bar", File.ReadAllText(BashrcPath));
     }
@@ -584,7 +584,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         string rc = File.ReadAllText(BashrcPath);
         File.WriteAllText(
             BashrcPath,
-            "PS1='nova-test$ '\n" + rc,
+            "PS1='ntilde-test$ '\n" + rc,
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         var env = new Dictionary<string, string> { ["HOME"] = HomeForShell };
@@ -623,7 +623,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         // cannot parse, and what is under test here is the installer it decodes to.
         string installer = RemoteShellIntegrationSnippets.BuildInstallerScript(
             RemoteShellIntegrationShell.Fish);
-        string installerPath = Path.Combine(_home, "nova-install-fish.sh");
+        string installerPath = Path.Combine(_home, "ntilde-install-fish.sh");
         File.WriteAllText(installerPath, installer, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         var startInfo = new ProcessStartInfo(bash)
@@ -640,7 +640,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
         Assert.True(process.WaitForExit(30_000), "fish installer did not finish within 30s");
 
-        string dest = Path.Combine(_home, ".config", "fish", "conf.d", "nova-shell-integration.fish");
+        string dest = Path.Combine(_home, ".config", "fish", "conf.d", "ntilde-shell-integration.fish");
         Assert.True(File.Exists(dest), $"fish snippet not written. output:\n{output}");
         Assert.Equal(
             RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.Fish).TrimEnd('\n'),
@@ -650,13 +650,13 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     /// <summary>
     /// FishInstaller_WritesTheSnippetIntoConfD deliberately runs the *installer* (POSIX sh) under
     /// bash, because the installer itself is sh - but that means nothing in the suite exercises the
-    /// fish one-liner *wrapper* (<c>set -l __nova_t (mktemp); ...</c>) through a real fish. A bad
+    /// fish one-liner *wrapper* (<c>set -l __ntilde_t (mktemp); ...</c>) through a real fish. A bad
     /// quote, an operator precedence slip, or an accidental <c>$(...)</c> where <c>(...)</c> is
     /// required would ship undetected. This test runs the actual generated one-liner through
     /// <c>fish -c</c>, mirroring <see cref="RunInstaller"/>'s bash equivalent.
     /// </summary>
     /// <remarks>
-    /// The output assertions are specific on purpose. <c>Assert.Contains("nova:")</c> would pass on
+    /// The output assertions are specific on purpose. <c>Assert.Contains("ntilde:")</c> would pass on
     /// every failure message the installer has, including a false claim of success - which is the
     /// exact hole that let the fish status lie survive its own fix. So: the success line in full,
     /// no "install failed" of any kind, and nothing fish itself complained about.
@@ -687,23 +687,23 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
         Assert.True(process.WaitForExit(30_000), "fish one-liner did not finish within 30s");
 
-        string dest = Path.Combine(_home, ".config", "fish", "conf.d", "nova-shell-integration.fish");
+        string dest = Path.Combine(_home, ".config", "fish", "conf.d", "ntilde-shell-integration.fish");
         Assert.True(File.Exists(dest), $"fish snippet not written. output:\n{output}");
         Assert.Equal(
             RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.Fish).TrimEnd('\n'),
             File.ReadAllText(dest).Replace("\r\n", "\n").TrimEnd('\n'));
         Assert.Contains(
-            "nova: wrote ~/.config/fish/conf.d/nova-shell-integration.fish",
+            "ntilde: wrote ~/.config/fish/conf.d/ntilde-shell-integration.fish",
             output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "nova: conf.d is sourced automatically - there is nothing to add to a config file.",
+            "ntilde: conf.d is sourced automatically - there is nothing to add to a config file.",
             output,
             StringComparison.Ordinal);
         Assert.DoesNotContain("install failed", output, StringComparison.Ordinal);
         // fish prefixes its own diagnostics with "fish:", and none of the installer's four output
         // lines contains that string. Without this, a wrapper that errored on the redirect and then
-        // degraded `sh $__nova_t fish` to `sh fish` would still leave the assertions above green
+        // degraded `sh $__ntilde_t fish` to `sh fish` would still leave the assertions above green
         // on a host where a previous run had already written conf.d.
         Assert.DoesNotContain("fish:", output, StringComparison.Ordinal);
     }
@@ -713,7 +713,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     /// <summary>
     /// The design's central promise: the installer runs as a child, so nothing it defines can reach
     /// the shell that pasted the line. Asserted by checking the calling shell afterwards for the
-    /// installer's own variables, <c>__nova_dest</c> and <c>__nova_t</c> - not the snippet, which this
+    /// installer's own variables, <c>__ntilde_dest</c> and <c>__ntilde_t</c> - not the snippet, which this
     /// probe does not source and so cannot say anything about.
     /// </summary>
     [Fact]
@@ -729,9 +729,9 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             RemoteShellIntegrationShell.BashOrZsh);
         string probe =
             command +
-            "; echo \"probe-dest=[${__nova_dest-}]\"" +
-            "; echo \"probe-temp=[${__nova_t-}]\"" +
-            "; echo \"probe-blob=[${__nova_b-}]\"";
+            "; echo \"probe-dest=[${__ntilde_dest-}]\"" +
+            "; echo \"probe-temp=[${__ntilde_t-}]\"" +
+            "; echo \"probe-blob=[${__ntilde_b-}]\"";
 
         // Via a file, not -c: see RunInstaller's remarks on Git Bash's 8191-character argv cap.
         string probePath = Path.Combine(_home, "probe.sh");
@@ -773,7 +773,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             Assert.Skip("pwsh not found on this system");
         }
 
-        string installerPath = Path.Combine(_home, "nova-install.ps1");
+        string installerPath = Path.Combine(_home, "ntilde-install.ps1");
         File.WriteAllText(
             installerPath,
             RemoteShellIntegrationSnippets.BuildInstallerScript(
@@ -783,7 +783,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         string profilePath = Path.Combine(_home, "profile.ps1");
         string output = RunPwsh(pwsh, installerPath, profilePath) + RunPwsh(pwsh, installerPath, profilePath);
 
-        string dest = Path.Combine(_home, ".nova-shell-integration.ps1");
+        string dest = Path.Combine(_home, ".ntilde-shell-integration.ps1");
         Assert.True(File.Exists(dest), $"snippet not written. output:\n{output}");
         Assert.Equal(
             RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell).TrimEnd('\n'),
@@ -807,7 +807,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             Assert.Skip("pwsh not found on this system");
         }
 
-        string installerPath = Path.Combine(_home, "nova-install.ps1");
+        string installerPath = Path.Combine(_home, "ntilde-install.ps1");
         File.WriteAllText(
             installerPath,
             RemoteShellIntegrationSnippets.BuildInstallerScript(
@@ -822,7 +822,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         string expectedLoader = RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.PowerShell)!;
         string profile = File.ReadAllText(profilePath).Replace("\r\n", "\n");
         Assert.Equal($"$x = 1\n{expectedLoader}\n", profile);
-        Assert.Contains("nova: added loader line", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: added loader line", output, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -846,8 +846,8 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
         (string output, int exitCode) = RunPwshWithExitCode(pwsh, installerPath, profilePath);
 
-        Assert.DoesNotContain("nova: added loader line", output, StringComparison.Ordinal);
-        Assert.Contains("nova: could not write", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("ntilde: added loader line", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: could not write", output, StringComparison.Ordinal);
         Assert.Contains(
             RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.PowerShell)!,
             output,
@@ -873,7 +873,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         string profilePath = Path.Combine(_home, "profile.ps1");
         File.WriteAllText(
             profilePath,
-            "# I disabled nova-shell-integration on purpose\n",
+            "# I disabled ntilde-shell-integration on purpose\n",
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         string output = RunPwsh(pwsh, installerPath, profilePath);
@@ -882,7 +882,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.PowerShell)!,
             File.ReadAllText(profilePath).Replace("\r\n", "\n"),
             StringComparison.Ordinal);
-        Assert.Contains("nova: added loader line", output, StringComparison.Ordinal);
+        Assert.Contains("ntilde: added loader line", output, StringComparison.Ordinal);
         Assert.DoesNotContain("already present", output, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -907,9 +907,9 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         string output = RunPwsh(pwsh, installerPath, profilePath) + RunPwsh(pwsh, installerPath, profilePath);
 
         Assert.DoesNotContain("$PROFILE", output, StringComparison.Ordinal);
-        Assert.Contains($"nova: added loader line to {profilePath}", output, StringComparison.Ordinal);
+        Assert.Contains($"ntilde: added loader line to {profilePath}", output, StringComparison.Ordinal);
         Assert.Contains(
-            $"nova: loader line already present in {profilePath}",
+            $"ntilde: loader line already present in {profilePath}",
             output,
             StringComparison.Ordinal);
     }
@@ -934,7 +934,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
         string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
             RemoteShellIntegrationShell.PowerShell);
-        string commandPath = Path.Combine(_home, "nova-install-oneliner.txt");
+        string commandPath = Path.Combine(_home, "ntilde-install-oneliner.txt");
         File.WriteAllText(commandPath, command, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         string parseScript =
@@ -1010,7 +1010,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
     private string WritePowerShellInstaller()
     {
-        string installerPath = Path.Combine(_home, "nova-install.ps1");
+        string installerPath = Path.Combine(_home, "ntilde-install.ps1");
         File.WriteAllText(
             installerPath,
             RemoteShellIntegrationSnippets.BuildInstallerScript(

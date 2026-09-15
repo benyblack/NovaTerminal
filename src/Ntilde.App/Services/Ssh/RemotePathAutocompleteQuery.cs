@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.Models;
+using Ntilde.Models;
 
-namespace NovaTerminal.Services.Ssh;
+namespace Ntilde.Services.Ssh;
 
 public sealed class RemotePathAutocompleteQuery
 {

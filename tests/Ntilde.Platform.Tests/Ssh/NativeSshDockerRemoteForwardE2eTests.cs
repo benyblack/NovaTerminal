@@ -1,13 +1,13 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Sessions;
-using NovaTerminal.Platform.Tests.Infra;
-using NovaTerminal.VT;
-using static NovaTerminal.Platform.Tests.Ssh.NativeSshDockerTestWaits;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Sessions;
+using Ntilde.Platform.Tests.Infra;
+using Ntilde.VT;
+using static Ntilde.Platform.Tests.Ssh.NativeSshDockerTestWaits;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 /// <summary>
 /// The remote-forward row of docs/native-ssh/Native_SSH_Test_Matrix.md, against a real sshd.

@@ -1,7 +1,7 @@
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Covers <see cref="ShellHelper.ResolveExecutableOrDefault"/> and the portability predicate behind
@@ -217,7 +217,7 @@ public sealed class ShellHelperResolutionTests
         // "/opt/my shell" is the executable, not "/opt/my" with an argument. This guard is
         // load-bearing: the app persists a resolved command unquoted, so a path with spaces comes
         // back through here on every session restore.
-        string directory = Path.Combine(Path.GetTempPath(), "nova split probe " + Guid.NewGuid().ToString("N"));
+        string directory = Path.Combine(Path.GetTempPath(), "ntilde split probe " + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         string executable = Path.Combine(directory, "my shell");
 

@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace NovaTerminal;
+namespace Ntilde;
 
 internal static class VtReportCli
 {

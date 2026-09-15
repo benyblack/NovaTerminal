@@ -1,4 +1,4 @@
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     public struct SearchMatch
     {

@@ -1,8 +1,8 @@
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.OpenSsh;
-using NovaTerminal.Platform.Ssh.Storage;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.OpenSsh;
+using Ntilde.Platform.Ssh.Storage;
 
-namespace NovaTerminal.Platform.Ssh.Launch;
+namespace Ntilde.Platform.Ssh.Launch;
 
 public sealed class SshLaunchPlanner : ISshLaunchPlanner
 {

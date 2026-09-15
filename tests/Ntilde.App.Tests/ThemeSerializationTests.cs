@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Text.Json;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class ThemeSerializationTests
     {

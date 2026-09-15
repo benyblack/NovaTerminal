@@ -2,9 +2,9 @@ using System;
 using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Input;
-using NovaTerminal.CommandAssist.ViewModels;
+using Ntilde.CommandAssist.ViewModels;
 
-namespace NovaTerminal.CommandAssist.Views;
+namespace Ntilde.CommandAssist.Views;
 
 /// <summary>
 /// The suggestion popup. Renders rows, and turns pointer gestures on them into the two requests the

@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.CommandAssist.Providers;
+namespace Ntilde.CommandAssist.Providers;
 
 /// <summary>
 /// What an <see cref="IAssistContentProvider"/> is able to answer. A provider advertises the union

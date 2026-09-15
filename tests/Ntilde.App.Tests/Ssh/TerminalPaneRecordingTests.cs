@@ -1,12 +1,12 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Reflection;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Pty;
+using Ntilde.Controls;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Tests.Ssh;
+namespace Ntilde.Tests.Ssh;
 
 public sealed class TerminalPaneRecordingTests
 {
@@ -42,7 +42,7 @@ public sealed class TerminalPaneRecordingTests
             Assert.True(started.IsRecording);
             Assert.Equal(session.StartedPath, started.FilePath);
             Assert.StartsWith(AppPaths.RecordingsDirectory, started.FilePath!, StringComparison.OrdinalIgnoreCase);
-            Assert.Matches(@"^nova_rec_\d{8}_\d{6}_[0-9a-f]{6}\.rec$", Path.GetFileName(started.FilePath));
+            Assert.Matches(@"^ntilde_rec_\d{8}_\d{6}_[0-9a-f]{6}\.rec$", Path.GetFileName(started.FilePath));
 
             var stopped = notifications[1];
             Assert.Equal(RecordingNotificationKind.Stopped, stopped.Kind);
@@ -66,8 +66,8 @@ public sealed class TerminalPaneRecordingTests
             new DateTime(2026, 5, 22, 10, 30, 45),
             "f0e1d2c3");
 
-        Assert.Equal("nova_rec_20260522_103045_a1b2c3.rec", first);
-        Assert.Equal("nova_rec_20260522_103045_f0e1d2.rec", second);
+        Assert.Equal("ntilde_rec_20260522_103045_a1b2c3.rec", first);
+        Assert.Equal("ntilde_rec_20260522_103045_f0e1d2.rec", second);
         Assert.NotEqual(first, second);
     }
 
@@ -142,7 +142,7 @@ public sealed class TerminalPaneRecordingTests
         {
         }
 
-        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info)
+        public bool TryExportFlightRecording(string filePath, out Ntilde.Replay.FlightExportInfo info)
         {
             info = default;
             return false;

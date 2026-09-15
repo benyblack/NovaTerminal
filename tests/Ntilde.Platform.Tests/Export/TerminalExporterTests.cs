@@ -1,10 +1,10 @@
 using System.Threading.Tasks;
 using Xunit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT.Export;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT.Export;
+using Ntilde.VT;
 
-namespace NovaTerminal.Platform.Tests.Export
+namespace Ntilde.Platform.Tests.Export
 {
     public class TerminalExporterTests
     {
@@ -12,11 +12,11 @@ namespace NovaTerminal.Platform.Tests.Export
         public void ExportToPlainText_ShouldExtractBasicText()
         {
             var buffer = new TerminalBuffer(80, 24);
-            buffer.WriteContent("Hello, NovaTerminal!\r\nLine 2");
+            buffer.WriteContent("Hello, Ntilde!\r\nLine 2");
 
             string text = TerminalExporter.ExportToPlainText(buffer);
 
-            Assert.Contains("Hello, NovaTerminal!", text);
+            Assert.Contains("Hello, Ntilde!", text);
             Assert.Contains("Line 2", text);
         }
 

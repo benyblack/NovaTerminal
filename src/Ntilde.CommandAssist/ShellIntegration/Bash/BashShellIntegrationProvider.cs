@@ -1,7 +1,7 @@
 using System;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
 
-namespace NovaTerminal.CommandAssist.ShellIntegration.Bash;
+namespace Ntilde.CommandAssist.ShellIntegration.Bash;
 
 public sealed class BashShellIntegrationProvider : IShellIntegrationProvider
 {

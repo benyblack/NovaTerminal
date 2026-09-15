@@ -2,7 +2,7 @@
 
 Command Assist reads the OSC 133 marks a shell emits: `A` (prompt start), `B` (prompt end — the
 first cell of your input), `C` (the line you submitted), `D` (exit code and duration), plus OSC 7
-for the working directory. On a local session Nova installs the emitter for you. Over SSH it
+for the working directory. On a local session Ntilde installs the emitter for you. Over SSH it
 cannot: every injection mechanism it has — a `bash --rcfile` path, a `ZDOTDIR` or
 `XDG_CONFIG_HOME` override, a pwsh `-File` bootstrap — dies at the SSH boundary.
 
@@ -22,7 +22,7 @@ integrated ones.
 | Filesystem path suggestions | off | **still off** — see below |
 
 Path suggestions stay off for every remote session, instrumented or not.
-`FileSystemPathSuggestionProvider` completes against the machine Nova is running on, and over SSH
+`FileSystemPathSuggestionProvider` completes against the machine Ntilde is running on, and over SSH
 that is the wrong filesystem: it would offer your laptop's directories at a prompt sitting on the
 server. Completing the remote filesystem needs a remote listing channel, which is the remote-files
 sidebar's problem and not this one.
@@ -34,10 +34,10 @@ Settings → **Command assistant** → **Remote shell integration**: pick the re
 did:
 
 ```
-nova: wrote ~/.nova-shell-integration.sh
-nova: added loader line to ~/.zshrc
-nova: run  . ~/.nova-shell-integration.sh  to enable it in this session,
-nova: or open a new Nova session to this host.
+ntilde: wrote ~/.ntilde-shell-integration.sh
+ntilde: added loader line to ~/.zshrc
+ntilde: run  . ~/.ntilde-shell-integration.sh  to enable it in this session,
+ntilde: or open a new Ntilde session to this host.
 ```
 
 One line and one history entry, rather than a 300-line paste. The line decodes a
@@ -71,8 +71,8 @@ time. Canonical mode is what you get at `docker exec -it <c> sh`, on busybox/Alp
 
 **What it looks like when it happens.** The base64 payload starts at byte 9 or 10 of the line and
 runs past byte 7500, so a cut at 4096 always lands in the middle of it and takes the closing quote
-with it. Your shell therefore rejects the line outright — nothing of Nova's runs, nothing is
-written, and there is no `nova:` message:
+with it. Your shell therefore rejects the line outright — nothing of Ntilde's runs, nothing is
+written, and there is no `ntilde:` message:
 
 ```
 bash: unexpected EOF while looking for matching `''
@@ -86,7 +86,7 @@ file.
 
 The one-liner *does* carry its own payload length and check it before decoding, but that guard is
 for a different failure: bytes lost from the **middle** of the line while the end still arrives — a
-flaky link, a multiplexer dropping a chunk of a paste. There it reports `nova: install failed - the
+flaky link, a multiplexer dropping a chunk of a paste. There it reports `ntilde: install failed - the
 pasted line was cut short (N of M payload characters)` instead of blaming `base64`/`gzip` for a
 decode failure they did not cause.
 
@@ -129,14 +129,14 @@ across:
 
 ## Third-party integrations
 
-You do not have to use Nova's snippets. Anything that emits OSC 133 works — iTerm2's
-`shell_integration`, VS Code's `shell-integration.sh`, `starship`'s, a hand-rolled one. Nova's
+You do not have to use Ntilde's snippets. Anything that emits OSC 133 works — iTerm2's
+`shell_integration`, VS Code's `shell-integration.sh`, `starship`'s, a hand-rolled one. Ntilde's
 parser has never cared who wrote the marks.
 
 Two things to know about the third-party ones:
 
 - **A bare `133;C` is fine.** FinalTerm does not require a payload and several integrations send
-  none. Nova treats a payload-less `C` as the lifecycle edge it is — the command-input window
+  none. Ntilde treats a payload-less `C` as the lifecycle edge it is — the command-input window
   closes, the suggestion surface goes quiet, `D` still patches the exit code — and falls back to
   reading the command line off the grid at Enter for history. You lose nothing but the guarantee
   that a multi-line or edited command is recorded exactly.
@@ -144,7 +144,7 @@ Two things to know about the third-party ones:
   treated as a command: FinalTerm allows `key=value` attributes on these marks, and writing `aid=7`
   into your permanent history would be worse than recording nothing.
 
-## What Nova does with the marks
+## What Ntilde does with the marks
 
 Arming is unconditional for SSH panes: the OSC 133 translator is attached when the session starts,
 before any mark has arrived, because `A` and the first `B` arrive with the very first remote prompt
@@ -157,7 +157,7 @@ context reaches the same conclusion independently from the event stream, so the 
 lost to a race or undone by an unrelated directory change.
 
 Arming does **not** consult `CommandAssistPowerShellIntegrationEnabled`. That setting exists to let
-you keep Nova from *injecting* a bootstrap into a local pwsh, which is the operation people turn off
+you keep Ntilde from *injecting* a bootstrap into a local pwsh, which is the operation people turn off
 because it interacts badly with a hand-built profile. Over SSH there is no injection to decline, the
 emitter is one the user installed themselves, and the pane has no way to know which shell is on the
 far end at arm time anyway — so remote arming is governed by the general shell-integration switch
@@ -166,7 +166,7 @@ alone.
 Turning **shell integration** off in Settings turns off remote consumption too, and that covers all
 three consumers, not just the arming: the tracker is not armed, the "this session is integrated"
 latch does not flip, and a `133;C` payload is not adopted as the pane's last relevant command. It is
-the same switch that decides whether Nova injects locally, and a remote host is the one place where
+the same switch that decides whether Ntilde injects locally, and a remote host is the one place where
 you cannot simply uninstall the emitter. (Mark-based overlay *anchoring* is not gated on it — that
 path reads the parser's mark directly and predates the switch having a remote meaning.)
 
@@ -182,7 +182,7 @@ It is also the whole of the mitigation, and it is worth being plain about what i
 What you paste is an ~8 KB opaque blob, and there is nothing on the remote host — or in the pasted
 line — that lets you check it against the reviewable sources in `assets/shell-integration/install/`
 and `assets/shell-integration/`. There is no checksum you can compare, because a checksum shipped
-alongside the blob by the same build is not evidence. You are trusting the Nova build that produced
+alongside the blob by the same build is not evidence. You are trusting the Ntilde build that produced
 the clipboard contents, exactly as much as you would trust a script it downloaded for you, minus the
 network. Pasting opaque blobs into production servers is a habit worth being deliberate about, and
 this feature does encourage it.
@@ -202,9 +202,9 @@ cross-session, so that entry is then ranked and suggested in *other* sessions, i
 A hostile or compromised host can therefore seed your history with text you never typed and see it
 offered back to you later somewhere else.
 
-This is inherent to the OSC 133 contract and not specific to Nova: iTerm2, VS Code's terminal and
+This is inherent to the OSC 133 contract and not specific to Ntilde: iTerm2, VS Code's terminal and
 WezTerm all consume the same marks from the same untrusted stream, and all of them will record what
-a remote host asserts about the command it ran. Nova's snippets do not create the exposure; enabling
+a remote host asserts about the command it ran. Ntilde's snippets do not create the exposure; enabling
 consumption of anyone's marks does. Note that there is a pre-existing **local** equivalent, which
 Phase 2b does not change: any local integrated pane rendering untrusted output — a `cat` of a
 crafted file, a build log, `curl | less` — is a stream that can carry a `133;C` just as well.
@@ -240,28 +240,28 @@ once there is a second reason to touch the suggestion row rendering.
 
 - **The paste produced an unmatched-quote error, or the shell sits at a `>` prompt.** The host's tty
   is in canonical mode and cut the line at 4096 bytes — see
-  [The 4096-byte paste limit](#the-4096-byte-paste-limit). Nothing was written; nothing of Nova's
+  [The 4096-byte paste limit](#the-4096-byte-paste-limit). Nothing was written; nothing of Ntilde's
   ran.
-- **`nova: install failed - the pasted line was cut short`.** Different failure: the line arrived
+- **`ntilde: install failed - the pasted line was cut short`.** Different failure: the line arrived
   but with bytes missing from the middle. Retry the paste; if it keeps happening the transport is
   dropping data.
-- **`nova: install failed - this host needs a working base64 and gzip`.** This one means what it
+- **`ntilde: install failed - this host needs a working base64 and gzip`.** This one means what it
   says — the host could not decode the payload (on bash/zsh and pwsh its length was checked first,
   so it did arrive whole).
   busybox and coreutils both provide `base64` and `gzip`; a hardened `$PATH` that hides them is the
   other common cause. Use **Copy plain snippet** if you would rather not install anything.
-- **`nova: install failed - mktemp could not create a temp file`.** No `mktemp` on the host, or
+- **`ntilde: install failed - mktemp could not create a temp file`.** No `mktemp` on the host, or
   `$TMPDIR` is unwritable or mounted `noexec`. There is deliberately no fallback temp path: a
   predictable name in `/tmp` is a symlink attack on a shared host.
-- **`nova: could not write ~/.bashrc - add this line to it by hand`.** The snippet was written; only
+- **`ntilde: could not write ~/.bashrc - add this line to it by hand`.** The snippet was written; only
   the rc edit failed. Add the line it printed, or fix the rc file's permissions and re-run.
 - **Nothing changed.** Marks only take effect on a *new* session; sourcing the snippet into a shell
-  Nova is already attached to works, but the prompt has to repaint at least once for `B` to land.
+  Ntilde is already attached to works, but the prompt has to repaint at least once for `B` to land.
 - **Suggestions appear but history stays empty.** Check `CommandAssistHistoryEnabled`; capture is
   gated separately from the feature.
 - **Duplicate prompt marks / doubled output.** Something re-sourced the snippet in a way that
   defeated the load guard. Open a fresh session; if it persists, the culprit is a prompt framework
   rebuilding the hook chain after us — file it with the framework name.
 - **The overlay still sits in the lower band.** That is the markless fallback, so no mark is
-  reaching Nova. Confirm the remote shell is the one you instrumented (`echo $0`) and that the
+  reaching Ntilde. Confirm the remote shell is the one you instrumented (`echo $0`) and that the
   session is interactive.

@@ -5,7 +5,7 @@ Status: Approved
 
 ## Problem
 
-NovaTerminal keeps all user state under `%LOCALAPPDATA%\NovaTerminal\` — settings, themes,
+Ntilde keeps all user state under `%LOCALAPPDATA%\Ntilde\` — settings, themes,
 connection profiles, workspaces, policy, snippets. There is no way to copy that state to a new
 machine, roll it back after a bad edit, or hand a curated subset to a teammate. The only existing
 import paths are the theme `Import…` button and the Windows Terminal profile importer, neither of
@@ -27,7 +27,7 @@ which covers the general case.
 
 ## Architecture
 
-One module, `src/NovaTerminal.App/Shell/Backup/`, exposing a single service that every surface calls.
+One module, `src/Ntilde.App/Shell/Backup/`, exposing a single service that every surface calls.
 Nothing else in the app knows backups exist.
 
 | Type | Responsibility |
@@ -47,7 +47,7 @@ tests drive it against a temp tree.
 
 ## Bundle format
 
-A zip with the `.novabackup` extension.
+A zip with the `.ntildebackup` extension.
 
 ```
 manifest.json
@@ -104,8 +104,8 @@ value, the bundle bytes are scanned and must not contain it.
 
 ## Snapshots
 
-`AppPaths.BackupsDirectory` → `%LOCALAPPDATA%\NovaTerminal\backups\`, holding the same zip format
-named `<reason>-<utcTimestamp>-<hash8>.novabackup`, where reason is `auto`, `pre-import`, or
+`AppPaths.BackupsDirectory` → `%LOCALAPPDATA%\Ntilde\backups\`, holding the same zip format
+named `<reason>-<utcTimestamp>-<hash8>.ntildebackup`, where reason is `auto`, `pre-import`, or
 `pre-restore`. The file name stem is the snapshot **id** used by `Restore(id)` and the CLI.
 
 `BackupsDirectory` is itself excluded from `BackupCatalog` — snapshots never contain snapshots.
@@ -160,7 +160,7 @@ substitute for asking, and Import already prompts.
 **Command palette.** `Export configuration…`, `Import configuration…`, `Restore from snapshot…`.
 
 **CLI.** A `BackupCommand` following the existing `IsSupportedCliMode` / `Execute` chain in
-`src/NovaTerminal.Cli/Program.cs`:
+`src/Ntilde.Cli/Program.cs`:
 
 ```
 backup export <path>
@@ -175,7 +175,7 @@ default import mode, since guessing wrong is destructive.
 
 This also makes the whole feature exercisable without a window.
 
-**MCP.** `novaterminal.backup_export` and `novaterminal.backup_list` only — no import, no restore.
+**MCP.** `ntilde.backup_export` and `ntilde.backup_list` only — no import, no restore.
 The MCP server is an out-of-process helper whose existing tools are read-only schema and validation
 helpers; letting an agent silently replace live connection profiles is a destructive action the user
 never sees. Export-before-you-change is the useful half and carries no risk.
@@ -187,7 +187,7 @@ Every failure surfaces as a typed result, not an exception at the UI layer:
 | Condition | Behavior |
 | --- | --- |
 | Unreadable or truncated zip | Refuse, name the file. |
-| Missing or malformed manifest | Refuse as "not a NovaTerminal backup". |
+| Missing or malformed manifest | Refuse as "not a Ntilde backup". |
 | `schemaVersion` newer than app | Refuse, name both versions. |
 | Category present in manifest but absent in zip | Refuse as corrupt. |
 | Disk full / destination locked during import | Roll back to staged original, report failing category. |
@@ -195,7 +195,7 @@ Every failure surfaces as a typed result, not an exception at the UI layer:
 
 ## Testing
 
-`NovaTerminal.App.Tests`, driven against a temp tree via the existing `NOVATERM_APPDATA_ROOT`
+`Ntilde.App.Tests`, driven against a temp tree via the existing `NTILDE_APPDATA_ROOT`
 override. No new test project, so `ci.yml` needs no changes.
 
 - Round trip (Replace mode, import into an empty tree): reproduces the original byte-for-byte per

@@ -1,8 +1,8 @@
 using System;
 using System.Text;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// What <c>OSC 133;C</c> means when the payload is not a base64 command (V2 Phase 2b).
@@ -10,8 +10,8 @@ namespace NovaTerminal.VT.Tests;
 /// <remarks>
 /// <para>
 /// Until Phase 2b the parser raised <c>OnCommandAccepted</c> only for a decodable base64 payload,
-/// which was safe precisely because the only sessions with a listener attached were ones Nova had
-/// instrumented itself, and all four Nova bootstraps send <c>133;C;&lt;base64&gt;</c>. Phase 2b arms
+/// which was safe precisely because the only sessions with a listener attached were ones Ntilde had
+/// instrumented itself, and all four Ntilde bootstraps send <c>133;C;&lt;base64&gt;</c>. Phase 2b arms
 /// the same listener for SSH sessions instrumented by whatever the user installed, and FinalTerm
 /// does not require a payload at all: iTerm2's and VS Code's snippets send a bare <c>133;C</c>, and
 /// some hand-rolled ones send plain text.
@@ -65,7 +65,7 @@ public class Osc133AcceptedPayloadTests
     }
 
     /// <summary>
-    /// The reason base64 is the payload Nova's own bootstraps use: a command containing the
+    /// The reason base64 is the payload Ntilde's own bootstraps use: a command containing the
     /// parameter separator survives it, and nothing else would.
     /// </summary>
     [Fact]
@@ -229,7 +229,7 @@ public class Osc133AcceptedPayloadTests
     /// <summary>
     /// The plausibility check rejects U+FFFD because that is what UTF-8 decoding leaves behind when
     /// the bytes were never text. It must not reject text that is merely not ASCII: a command line
-    /// with an accented path, CJK, or an emoji in a commit message is ordinary input, and Nova's own
+    /// with an accented path, CJK, or an emoji in a commit message is ordinary input, and Ntilde's own
     /// snippets base64-encode UTF-8 precisely so it survives.
     /// </summary>
     [Theory]

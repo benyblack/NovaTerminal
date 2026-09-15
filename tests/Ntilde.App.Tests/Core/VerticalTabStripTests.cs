@@ -8,10 +8,10 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Threading;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <remarks>
 /// The <see cref="TestAppDataRoot"/> class fixture is taken for its lifetime, not its value,
@@ -33,25 +33,25 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
     /// </summary>
     public void Dispose() => TestMainWindowFactory.DisposeCreatedWindows();
 
-    private static TerminalSettings GetSettings(NovaTerminal.MainWindow window)
-        => (TerminalSettings)typeof(NovaTerminal.MainWindow)
+    private static TerminalSettings GetSettings(Ntilde.MainWindow window)
+        => (TerminalSettings)typeof(Ntilde.MainWindow)
             .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(window)!;
 
-    private static ScrollViewer? InvokeFindTabHeaderScrollViewer(NovaTerminal.MainWindow window)
-        => (ScrollViewer?)typeof(NovaTerminal.MainWindow)
+    private static ScrollViewer? InvokeFindTabHeaderScrollViewer(Ntilde.MainWindow window)
+        => (ScrollViewer?)typeof(Ntilde.MainWindow)
             .GetMethod("FindTabHeaderScrollViewer", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(window, null);
 
-    private static Orientation? InvokeGetTabItemsPanelOrientation(NovaTerminal.MainWindow window)
+    private static Orientation? InvokeGetTabItemsPanelOrientation(Ntilde.MainWindow window)
     {
-        var presenter = (ItemsPresenter?)typeof(NovaTerminal.MainWindow)
+        var presenter = (ItemsPresenter?)typeof(Ntilde.MainWindow)
             .GetMethod("FindTabItemsPresenter", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(window, null);
         return (presenter?.Panel as StackPanel)?.Orientation;
     }
 
-    private static NovaTerminal.MainWindow CreateShownWindow()
+    private static Ntilde.MainWindow CreateShownWindow()
     {
         var window = TestMainWindowFactory.Create();
         window.Show();
@@ -147,8 +147,8 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
         var tab = tabs.Items.Cast<TabItem>().First();
 
         // The status dot and preview line exist...
-        Assert.NotNull(NovaTerminal.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot"));
-        var preview = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
+        Assert.NotNull(Ntilde.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot"));
+        var preview = Ntilde.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
         Assert.NotNull(preview);
 
         // ...and the title plumbing (first-TextBlock contract) still resolves the TITLE, not the preview.
@@ -156,8 +156,8 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
         Assert.NotEqual("PREVIEW_SENTINEL", GetTabHeaderTextOf(window, tab));
     }
 
-    private static string GetTabHeaderTextOf(NovaTerminal.MainWindow window, TabItem tab)
-        => (string)typeof(NovaTerminal.MainWindow)
+    private static string GetTabHeaderTextOf(Ntilde.MainWindow window, TabItem tab)
+        => (string)typeof(Ntilde.MainWindow)
             .GetMethod("GetTabHeaderText", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(window, new object[] { tab })!;
 
@@ -174,12 +174,12 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
 
         var tabs = window.FindControl<TabControl>("Tabs")!;
         var tab = tabs.Items.Cast<TabItem>().First();
-        Assert.Null(NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine"));
+        Assert.Null(Ntilde.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine"));
     }
 
     // ---- Agent-aware vertical headers: marker chips, dot precedence, accent bar ----
 
-    private static TabItem AddPlainVerticalTab(NovaTerminal.MainWindow window)
+    private static TabItem AddPlainVerticalTab(Ntilde.MainWindow window)
     {
         var tabs = window.FindControl<TabControl>("Tabs")!;
         // Fresh, unselected tab (selection clears attention; these tests control state exactly).
@@ -192,14 +192,14 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
 
     private static TextBlock ChipOf(TabItem tab, string name)
     {
-        var chip = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, name);
+        var chip = Ntilde.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, name);
         Assert.NotNull(chip);
         return chip!;
     }
 
     private static Avalonia.Media.Color? DotColorOf(TabItem tab)
     {
-        var dot = NovaTerminal.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot");
+        var dot = Ntilde.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot");
         return (dot?.Fill as Avalonia.Media.ISolidColorBrush)?.Color;
     }
 
@@ -295,7 +295,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
             var tab = AddPlainVerticalTab(window);
 
             // Bell + activity together: bell wins both the chip and the dot.
-            window.SetTabMarkerStateForTest(tab, hasBell: true, hasActivity: true, NovaTerminal.AgentHost.AgentAttentionTier.Idle);
+            window.SetTabMarkerStateForTest(tab, hasBell: true, hasActivity: true, Ntilde.AgentHost.AgentAttentionTier.Idle);
             window.UpdateTabVisuals();
             Dispatcher.UIThread.RunJobs();
 
@@ -320,7 +320,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
             Dispatcher.UIThread.RunJobs();
             var tab = AddPlainVerticalTab(window);
 
-            window.SetTabMarkerStateForTest(tab, hasBell: false, hasActivity: false, NovaTerminal.AgentHost.AgentAttentionTier.Wrote);
+            window.SetTabMarkerStateForTest(tab, hasBell: false, hasActivity: false, Ntilde.AgentHost.AgentAttentionTier.Wrote);
             window.UpdateTabVisuals();
             Dispatcher.UIThread.RunJobs();
 
@@ -348,7 +348,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
 
             // Default/WritesOnly policy: a watched tier shows neither chip nor dot.
             settings.AgentIndicatorTabRollup = "WritesOnly";
-            window.SetTabMarkerStateForTest(tab, hasBell: false, hasActivity: false, NovaTerminal.AgentHost.AgentAttentionTier.Watched);
+            window.SetTabMarkerStateForTest(tab, hasBell: false, hasActivity: false, Ntilde.AgentHost.AgentAttentionTier.Watched);
             window.UpdateTabVisuals();
             Dispatcher.UIThread.RunJobs();
             Assert.False(ChipOf(tab, "TabAgentWatchedChip").IsVisible);
@@ -385,7 +385,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
             Dispatcher.UIThread.RunJobs();
             var tab = AddPlainVerticalTab(window);
 
-            window.SetTabMarkerStateForTest(tab, hasBell: true, hasActivity: false, NovaTerminal.AgentHost.AgentAttentionTier.Idle);
+            window.SetTabMarkerStateForTest(tab, hasBell: true, hasActivity: false, Ntilde.AgentHost.AgentAttentionTier.Idle);
             window.UpdateTabVisuals();
             Dispatcher.UIThread.RunJobs();
 
@@ -424,7 +424,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
         window.RefreshTabStatuses();
         Dispatcher.UIThread.RunJobs();
 
-        var dot = NovaTerminal.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot");
+        var dot = Ntilde.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot");
         Assert.NotNull(dot);
         Assert.NotEqual(Avalonia.Media.Brushes.Transparent, dot!.Fill);
 
@@ -501,7 +501,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
         Assert.Equal(260, scrollViewer.Width);
     }
 
-    private static Border? FindResizeGrip(NovaTerminal.MainWindow window)
+    private static Border? FindResizeGrip(Ntilde.MainWindow window)
         => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window)
             .OfType<Border>()
             .FirstOrDefault(b => b.Name == "PART_TabStripResizeGrip");
@@ -539,7 +539,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
     // spawns a real PTY per tab). UpdateTabOverflowIndicator only reads TabItem.Bounds.Width and
     // the header ScrollViewer's Bounds.Width, so a real, headless-measured header is all this
     // needs to have historically tripped the (now-guarded) horizontal clipping math.
-    private static void AddWidePlainTabs(NovaTerminal.MainWindow window, int count)
+    private static void AddWidePlainTabs(Ntilde.MainWindow window, int count)
     {
         var tabs = window.FindControl<TabControl>("Tabs");
         Assert.NotNull(tabs);
@@ -555,9 +555,9 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
         Dispatcher.UIThread.RunJobs();
     }
 
-    private static void InvokePopulateTabListMenu(NovaTerminal.MainWindow window)
+    private static void InvokePopulateTabListMenu(Ntilde.MainWindow window)
     {
-        var method = typeof(NovaTerminal.MainWindow).GetMethod("PopulateTabListMenu", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.MainWindow).GetMethod("PopulateTabListMenu", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         // Reflection Invoke fills no optional parameters - the anchor override must be
         // passed explicitly (null = title-bar anchor chain, the pre-pill behavior).
@@ -583,7 +583,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
 
         var tabs = window.FindControl<TabControl>("Tabs")!;
         var tab = tabs.Items.Cast<TabItem>().First();
-        var preview = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
+        var preview = Ntilde.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
         Assert.NotNull(preview);
 
         window.SetTabPreviewDirtyForTest(tab, false);
@@ -606,7 +606,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
 
         var tabs = window.FindControl<TabControl>("Tabs")!;
         var tab = tabs.Items.Cast<TabItem>().First();
-        var preview = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
+        var preview = Ntilde.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
         Assert.NotNull(preview);
 
         preview!.Text = "SENTINEL_STALE";
@@ -654,7 +654,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
 
         Dispatcher.UIThread.RunJobs(); // the deferred UpdateTabVisuals pass consumes the dirty flag
 
-        var preview = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
+        var preview = Ntilde.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
         Assert.NotNull(preview);
 
         // That the pass recomputed, not that the flag ended up clear. The flag is the wrong
@@ -710,7 +710,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
     // above); re-applying the layout rebuilds every header through the wired factories,
     // so the added tabs get drag-wired header hosts (vertical rows or plain horizontal
     // headers, per <paramref name="orientation"/>).
-    private static NovaTerminal.MainWindow CreateShownStripWindowWithPlainTabs(int plainTabCount, string orientation)
+    private static Ntilde.MainWindow CreateShownStripWindowWithPlainTabs(int plainTabCount, string orientation)
     {
         var window = CreateShownWindow();
         GetSettings(window).TabStripOrientation = orientation;
@@ -733,7 +733,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
         return window;
     }
 
-    private static NovaTerminal.MainWindow CreateShownVerticalWindowWithPlainTabs(int plainTabCount)
+    private static Ntilde.MainWindow CreateShownVerticalWindowWithPlainTabs(int plainTabCount)
         => CreateShownStripWindowWithPlainTabs(plainTabCount, "Vertical");
 
     private static Point HeaderCenterInWindow(Control headerHost, Window window)
@@ -751,7 +751,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
         return host!;
     }
 
-    private static Border? FindInsertIndicator(NovaTerminal.MainWindow window)
+    private static Border? FindInsertIndicator(Ntilde.MainWindow window)
         => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window)
             .OfType<Border>()
             .FirstOrDefault(b => b.Name == "PART_TabInsertIndicator");
@@ -976,8 +976,8 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
     // selection restoration on the moved tab, and no MRU churn beyond the selection's own
     // TouchTabMru (which is a no-op re-insert when the moved tab is already the MRU head).
 
-    private static List<TabItem> GetTabMru(NovaTerminal.MainWindow window)
-        => ((List<TabItem>)typeof(NovaTerminal.MainWindow)
+    private static List<TabItem> GetTabMru(Ntilde.MainWindow window)
+        => ((List<TabItem>)typeof(Ntilde.MainWindow)
             .GetField("_tabMru", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(window)!).ToList();
 
@@ -1076,7 +1076,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
 
     // ---- Vertical overflow pill (PART_TabOverflowPill) ----
 
-    private static Button? FindOverflowPill(NovaTerminal.MainWindow window)
+    private static Button? FindOverflowPill(Ntilde.MainWindow window)
         => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window)
             .OfType<Button>()
             .FirstOrDefault(b => b.Name == "PART_TabOverflowPill");
@@ -1092,7 +1092,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
     /// TabItems bypass AddTab (which would spawn a real PTY per tab - same trick as
     /// AddWidePlainTabs); re-applying the layout rebuilds their headers as vertical
     /// rows.</summary>
-    private static NovaTerminal.MainWindow CreateShownVerticalWindowWithOverflow(
+    private static Ntilde.MainWindow CreateShownVerticalWindowWithOverflow(
         int plainTabCount, double height)
     {
         var window = TestMainWindowFactory.Create();
@@ -1143,7 +1143,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
             // The expected count comes from the same pure math the production update
             // uses, so the assertion pins wiring (visible + text), not arithmetic.
             var scrollViewer = InvokeFindTabHeaderScrollViewer(window)!;
-            int expected = NovaTerminal.MainWindow.CountHiddenTabs(
+            int expected = Ntilde.MainWindow.CountHiddenTabs(
                 scrollViewer.Bounds.Height,
                 tabs.Items.Cast<TabItem>().Select(t => t.Bounds.Height),
                 44);
@@ -1215,7 +1215,7 @@ public sealed class VerticalTabStripTests : IDisposable, IClassFixture<TestAppDa
                 Avalonia.Controls.Button.ClickEvent));
             Dispatcher.UIThread.RunJobs();
 
-            var flyout = (MenuFlyout?)typeof(NovaTerminal.MainWindow)
+            var flyout = (MenuFlyout?)typeof(Ntilde.MainWindow)
                 .GetField("_tabOverflowPillFlyout", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .GetValue(window);
             Assert.NotNull(flyout);

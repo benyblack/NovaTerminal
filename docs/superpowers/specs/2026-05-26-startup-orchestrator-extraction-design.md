@@ -63,8 +63,8 @@ Extract `StartupOrchestrator` from `MainWindow` and introduce
 - No fix to the `TerminalSettings.Load()` per-pane reload (P4-#15) and no
   attempt to claw back PR #67's +5.71% `Background Restore Complete`
   regression. Both are separate follow-up PRs.
-- No changes to `NovaTerminal.VT`, `NovaTerminal.Rendering`, or
-  `NovaTerminal.Replay`.
+- No changes to `Ntilde.VT`, `Ntilde.Rendering`, or
+  `Ntilde.Replay`.
 
 ## Constraints
 
@@ -157,10 +157,10 @@ Three decisions, taken in brainstorming:
 
 ## Components
 
-### `StartupOrchestrator` (new — `src/NovaTerminal.App/Core/StartupOrchestrator.cs`)
+### `StartupOrchestrator` (new — `src/Ntilde.App/Core/StartupOrchestrator.cs`)
 
 ```csharp
-namespace NovaTerminal.Core;
+namespace Ntilde.Core;
 
 public sealed class StartupOrchestrator
 {
@@ -181,7 +181,7 @@ public sealed class StartupOrchestrator
     public void Checkpoint(string name) => _tracker.TryMarkCheckpoint(name);
 
     public void BeginSessionRestore(
-        NovaSession session,
+        NtildeSession session,
         Action<StartupRestoreTab> materializeImmediate);
 
     public void DrainDeferred(Action<StartupRestoreTab> materializeTab);
@@ -213,10 +213,10 @@ Behavior:
 - `CompleteWithoutRestore` marks both `SessionRestoreComplete` and
   `BackgroundRestoreComplete`. Idempotent.
 
-### `AppServiceBundle` (new — `src/NovaTerminal.App/Core/AppServiceBundle.cs`)
+### `AppServiceBundle` (new — `src/Ntilde.App/Core/AppServiceBundle.cs`)
 
 ```csharp
-namespace NovaTerminal.Core;
+namespace Ntilde.Core;
 
 public sealed record AppServiceBundle(StartupOrchestrator Startup);
 ```
@@ -229,10 +229,10 @@ public sealed record AppServiceBundle(
     TabRuntimeRegistry  Tabs);   // ← future PR adds this line
 ```
 
-### `AppServices` (new — `src/NovaTerminal.App/Core/AppServices.cs`)
+### `AppServices` (new — `src/Ntilde.App/Core/AppServices.cs`)
 
 ```csharp
-namespace NovaTerminal.Core;
+namespace Ntilde.Core;
 
 public static class AppServices
 {
@@ -435,7 +435,7 @@ test.
 
 ## Testing strategy
 
-All new tests in `tests/NovaTerminal.Tests/Core/`. The orchestrator is a pure
+All new tests in `tests/Ntilde.Tests/Core/`. The orchestrator is a pure
 C# class with no Avalonia dependency — tests run in xUnit, no headless
 bootstrap.
 
@@ -473,12 +473,12 @@ exceptions for assertion.
 
 | File | Change |
 |---|---|
-| `tests/NovaTerminal.Tests/Core/MainWindowStartupTests.cs` | introduce a small test helper `TestMainWindowFactory.Create()` that returns `new MainWindow(AppServices.BuildForDesigner())`; every fixture call site of `new MainWindow()` uses the helper. No assertion changes. The helper lives in `tests/NovaTerminal.Tests/Core/TestMainWindowFactory.cs` so future MainWindow ctor changes touch one file. |
-| `tests/NovaTerminal.Tests/Core/StartupRestoreCoordinatorTests.cs` | unchanged |
-| `tests/NovaTerminal.Tests/Core/StartupRestorePlanTests.cs` | unchanged |
-| `tests/NovaTerminal.Tests/Core/StartupPerformanceTrackerTests.cs` | unchanged |
-| `tests/NovaTerminal.Tests/Core/TerminalPaneStartupInstrumentationTests.cs` | unchanged (TerminalPane still uses the static) |
-| `tests/NovaTerminal.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs` | unchanged (no startup dependency) |
+| `tests/Ntilde.Tests/Core/MainWindowStartupTests.cs` | introduce a small test helper `TestMainWindowFactory.Create()` that returns `new MainWindow(AppServices.BuildForDesigner())`; every fixture call site of `new MainWindow()` uses the helper. No assertion changes. The helper lives in `tests/Ntilde.Tests/Core/TestMainWindowFactory.cs` so future MainWindow ctor changes touch one file. |
+| `tests/Ntilde.Tests/Core/StartupRestoreCoordinatorTests.cs` | unchanged |
+| `tests/Ntilde.Tests/Core/StartupRestorePlanTests.cs` | unchanged |
+| `tests/Ntilde.Tests/Core/StartupPerformanceTrackerTests.cs` | unchanged |
+| `tests/Ntilde.Tests/Core/TerminalPaneStartupInstrumentationTests.cs` | unchanged (TerminalPane still uses the static) |
+| `tests/Ntilde.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs` | unchanged (no startup dependency) |
 
 ### Verification — measurement gate
 
@@ -532,8 +532,8 @@ path; barely reduces MainWindow's responsibility surface. Rejected.
 - TerminalPane settings threading (P4-#15)
 - Background Restore +5.71% regression recovery
 - DI container adoption
-- Any change to `NovaTerminal.VT`, `NovaTerminal.Rendering`,
-  `NovaTerminal.Replay`
+- Any change to `Ntilde.VT`, `Ntilde.Rendering`,
+  `Ntilde.Replay`
 - Further MainWindow cluster extractions (`TabRuntimeRegistry`,
   `PaneZoomController`, etc.) — those follow this pattern in separate PRs
 

@@ -1,6 +1,6 @@
-using NovaTerminal.Services;
+using Ntilde.Services;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class BackgroundWorkTests
 {

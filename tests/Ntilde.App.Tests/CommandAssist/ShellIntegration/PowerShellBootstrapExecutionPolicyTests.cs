@@ -1,11 +1,11 @@
 using System;
 using System.Text;
-using NovaTerminal.Shell;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
+using Ntilde.Shell;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.ShellIntegration.PowerShell;
 using Xunit;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 /// <summary>
 /// The bootstrap used to be launched with <c>-File</c>, which PowerShell gates behind the
@@ -48,7 +48,7 @@ public sealed class PowerShellBootstrapExecutionPolicyTests
 
         // Proves it is really our bootstrap that got encoded, not an empty string or
         // a path. The sentinel is what the script uses to detect its own wrapper.
-        Assert.Contains("__nova_prompt_wrapper", decoded, StringComparison.Ordinal);
+        Assert.Contains("__ntilde_prompt_wrapper", decoded, StringComparison.Ordinal);
     }
 
     [Fact]

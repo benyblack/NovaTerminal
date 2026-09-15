@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace NovaTerminal.ExternalSuites.NativeSsh;
+namespace Ntilde.ExternalSuites.NativeSsh;
 
 public abstract record NativeSshStep;
 public sealed record EmitData(byte[] Bytes) : NativeSshStep;

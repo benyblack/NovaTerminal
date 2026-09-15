@@ -1,4 +1,4 @@
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     /// <summary>
     /// Where an OSC 133 shell-integration mark landed in the buffer, captured at parse time.

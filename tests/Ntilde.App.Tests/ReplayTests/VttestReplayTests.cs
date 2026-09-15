@@ -1,12 +1,12 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Replay;
-using NovaTerminal.Tests.Tools;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Replay;
+using Ntilde.Tests.Tools;
 using System.Reflection;
 using Xunit;
 
-namespace NovaTerminal.Tests.ReplayTests
+namespace Ntilde.Tests.ReplayTests
 {
     public class VttestReplayTests
     {
@@ -44,7 +44,7 @@ namespace NovaTerminal.Tests.ReplayTests
             Assert.True(File.Exists(recPath), $"Missing fixture: {recPath}");
 
             var buffer = new TerminalBuffer(80, 24);
-            var parser = new NovaTerminal.VT.AnsiParser(buffer);
+            var parser = new Ntilde.VT.AnsiParser(buffer);
 
             var runner = new ReplayRunner(recPath);
             await runner.RunAsync(async (data) =>

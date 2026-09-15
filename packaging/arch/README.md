@@ -1,6 +1,6 @@
 # Arch / AUR packaging
 
-This folder produces **`novaterminal-bin`**, an AUR package that repackages the
+This folder produces **`ntilde-bin`**, an AUR package that repackages the
 published `linux-x64` release tarball. Nothing is compiled here.
 
 - `build-arch.sh` — generates `PKGBUILD` + `.SRCINFO`, the two files an AUR
@@ -9,7 +9,7 @@ published `linux-x64` release tarball. Nothing is compiled here.
 - `smoke-test.sh` — builds, installs and launches the package in three Arch
   containers. The gate.
 - `test-build-arch.sh` — tests for `build-arch.sh` that need no Arch host, no
-  Docker and no NovaTerminal build.
+  Docker and no Ntilde build.
 
 There is no committed `PKGBUILD`. It is generated per release, because the two
 things that change every time — the version and the tarball's `sha256sum` — are
@@ -20,18 +20,18 @@ exactly the two things a human editing a checked-in file gets wrong.
 | `PKGBUILD` | `build-arch.sh` | Pushed to the AUR; never edited in place |
 | `.SRCINFO` | `makepkg --printsrcinfo`, via `build-arch.sh` | The AUR rejects a push without it |
 | `PKGBUILD-<tag>`, `SRCINFO-<tag>` | `release_linux` in `release.yml` | The same two files, published as release assets |
-| `novaterminal-bin-<pkgver>-1-x86_64.pkg.tar.zst` | `makepkg`, on the user's machine | Not published anywhere |
+| `ntilde-bin-<pkgver>-1-x86_64.pkg.tar.zst` | `makepkg`, on the user's machine | Not published anywhere |
 
 ## Installing on Arch today
 
-The AUR is closed to new accounts (see below), so `novaterminal-bin` is not on the
+The AUR is closed to new accounts (see below), so `ntilde-bin` is not on the
 AUR yet. Every release publishes the two files an AUR repository would contain, so
 an Arch user can build the same package from them directly:
 
 ```sh
 TAG=v0.8.0
-mkdir novaterminal-bin && cd novaterminal-bin
-curl -LO "https://github.com/benyblack/NovaTerminal/releases/download/$TAG/PKGBUILD-$TAG"
+mkdir ntilde-bin && cd ntilde-bin
+curl -LO "https://github.com/benyblack/ntilde/releases/download/$TAG/PKGBUILD-$TAG"
 mv "PKGBUILD-$TAG" PKGBUILD
 makepkg -si
 ```
@@ -48,7 +48,7 @@ installs by design.
 
 ## Why `-bin`, and why the tarball
 
-A source-built `novaterminal` would need SDK 10.0.400 (pinned in `global.json`,
+A source-built `ntilde` would need SDK 10.0.400 (pinned in `global.json`,
 which is not what Arch's `dotnet-sdk` tracks), the Rust natives, and a NuGet
 restore inside `build()` — and makepkg builds are meant to be network-free after
 `source=()`. The published tarball is the artifact `README.md` already offers as
@@ -99,7 +99,7 @@ re-pack it would inherit `build-deb.sh`'s Debian-specific `Depends:` derivation
   lossy and one-way: nothing turns `0.8.0rc1` back into `v0.8.0-rc.1`. A PKGBUILD
   building its URLs from `"v$pkgver"` would 404 on every prerelease.
 
-- **The AUR repo carries no binary blobs.** `nova.desktop`, `nova.1`, the icon and
+- **The AUR repo carries no binary blobs.** `ntilde.desktop`, `ntilde.1`, the icon and
   `LICENSE` are fetched from the tag over HTTPS with pinned `sha256sums`, so
   `packaging/linux/` stays the single source of truth for both Linux packages and
   the 662 KB icon is not re-committed per release. Incidentally that icon is a
@@ -110,16 +110,16 @@ re-pack it would inherit `build-deb.sh`'s Debian-specific `Depends:` derivation
   sums are read from that ref's blobs via `git show`, so they always describe the
   bytes the `raw.githubusercontent` URLs serve. Without it the working tree is
   used, which is right for a release built at its own tag. CI passes the release
-  tag, because a PR that edits `nova.desktop` would otherwise pin the branch's sum
+  tag, because a PR that edits `ntilde.desktop` would otherwise pin the branch's sum
   against the tag's URL and fail an integrity check unrelated to the change.
 
 - **The in-app updater is inert**, exactly as for the `.deb`:
   `VelopackUpdateService.IsSupported => _manager.IsInstalled`
-  (`src/NovaTerminal.App/Update/VelopackUpdateService.cs`), and a pacman-installed
+  (`src/Ntilde.App/Update/VelopackUpdateService.cs`), and a pacman-installed
   tree is not a Velopack install. Update through pacman.
 
 - **User data is never touched** by install, upgrade or removal. It lives at
-  `~/.local/share/NovaTerminal` via `AppPaths`, independent of install method.
+  `~/.local/share/Ntilde` via `AppPaths`, independent of install method.
 
 - **No `.install` scriptlet.** `desktop-file-utils` and `hicolor-icon-theme` ship
   pacman hooks that refresh the desktop and icon caches, the same way their dpkg
@@ -181,8 +181,8 @@ re-pack it would inherit `build-deb.sh`'s Debian-specific `Depends:` derivation
   permission" is expected: `package()` normalises the bundle to 0644 because the
   loader only mmaps a shared library. Do not make them executable to silence it.
 
-- **`/usr/bin/nova` collides with `python-novaclient`** (OpenStack), which ships
-  its own `/usr/bin/nova`. pacman refuses to install over it, so an affected user
+- **`/usr/bin/ntilde` collides with `python-ntildeclient`** (OpenStack), which ships
+  its own `/usr/bin/ntilde`. pacman refuses to install over it, so an affected user
   gets a clear file-conflict error rather than a silently shadowed command.
 
 ## Publishing to the AUR
@@ -208,15 +208,15 @@ re-pack it would inherit `build-deb.sh`'s Debian-specific `Depends:` derivation
 
 Manual, deliberately: the automation is worth wiring once the package shape has
 survived a real version bump. Requires an AUR account with an SSH key registered,
-and `novaterminal-bin` registered to it.
+and `ntilde-bin` registered to it.
 
 ```sh
 # 1. Generate at the tag. --source-ref makes the four auxiliary sums describe the
 #    tag's blobs rather than whatever the working tree holds.
 TAG=v0.8.0
-curl -LO "https://github.com/benyblack/NovaTerminal/releases/download/$TAG/NovaTerminal-linux-x64-$TAG.tar.gz"
+curl -LO "https://github.com/benyblack/ntilde/releases/download/$TAG/ntilde-linux-x64-$TAG.tar.gz"
 packaging/arch/build-arch.sh "$TAG" /tmp/aur \
-  --tarball "NovaTerminal-linux-x64-$TAG.tar.gz" \
+  --tarball "ntilde-linux-x64-$TAG.tar.gz" \
   --source-ref "$TAG"
 
 # 2. Gate it. Do not skip this - it is the only thing that has ever caught a
@@ -224,7 +224,7 @@ packaging/arch/build-arch.sh "$TAG" /tmp/aur \
 packaging/arch/smoke-test.sh /tmp/aur
 
 # 3. Push. The AUR repo contains PKGBUILD and .SRCINFO and nothing else.
-git clone ssh://aur@aur.archlinux.org/novaterminal-bin.git /tmp/aur-repo
+git clone ssh://aur@aur.archlinux.org/ntilde-bin.git /tmp/aur-repo
 cp /tmp/aur/PKGBUILD /tmp/aur/.SRCINFO /tmp/aur-repo/
 cd /tmp/aur-repo && git add PKGBUILD .SRCINFO && git commit -m "Update to $TAG" && git push
 ```

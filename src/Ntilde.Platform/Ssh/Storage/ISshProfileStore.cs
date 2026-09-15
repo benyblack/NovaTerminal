@@ -1,6 +1,6 @@
-using NovaTerminal.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Models;
 
-namespace NovaTerminal.Platform.Ssh.Storage;
+namespace Ntilde.Platform.Ssh.Storage;
 
 public interface ISshProfileStore
 {

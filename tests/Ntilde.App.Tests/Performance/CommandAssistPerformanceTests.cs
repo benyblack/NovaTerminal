@@ -4,13 +4,13 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
 using Xunit;
 
-namespace NovaTerminal.Tests.Performance;
+namespace Ntilde.Tests.Performance;
 
 /// <summary>
 /// Command Assist regression tripwires for the V2 spec's latency targets (design doc: &lt;16 ms first
@@ -22,7 +22,7 @@ namespace NovaTerminal.Tests.Performance;
 /// the ordinary xUnit suite on whatever machine CI gives them, next to tests doing IO; there is no
 /// warmup discipline beyond a few throwaway iterations, no isolation, and no statistical treatment
 /// beyond a p95. The repo already has a real BenchmarkDotNet project
-/// (<c>tests/NovaTerminal.Benchmarks</c>) and this is deliberately not it - a benchmark that CI does
+/// (<c>tests/Ntilde.Benchmarks</c>) and this is deliberately not it - a benchmark that CI does
 /// not run is a benchmark nobody reads, and what Phase 3b needs is something that fails loudly when a
 /// change makes the assist an order of magnitude slower.
 /// </para>

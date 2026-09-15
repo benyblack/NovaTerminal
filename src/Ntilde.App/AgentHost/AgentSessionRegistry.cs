@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Concurrent;
 using System.Linq;
-using NovaTerminal.AgentHost.Contracts;
+using Ntilde.AgentHost.Contracts;
 
-namespace NovaTerminal.AgentHost
+namespace Ntilde.AgentHost
 {
     /// <summary>
     /// Thread-safe registry of live terminal sessions for the agent-host

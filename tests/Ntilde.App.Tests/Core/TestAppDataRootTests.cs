@@ -1,8 +1,8 @@
 using System.IO;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// That <see cref="TestAppDataRoot"/> delivers the two properties its callers depend on: paths

@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace NovaTerminal.CommandAssist.Models;
+namespace Ntilde.CommandAssist.Models;
 
 public sealed record CommandHelpItem(
     string Title,

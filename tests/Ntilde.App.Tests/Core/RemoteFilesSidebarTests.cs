@@ -5,14 +5,14 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.VisualTree;
-using NovaTerminal.Controls;
-using NovaTerminal.Models;
-using NovaTerminal.Services.Ssh;
-using NovaTerminal.ViewModels.Ssh;
+using Ntilde.Controls;
+using Ntilde.Models;
+using Ntilde.Services.Ssh;
+using Ntilde.ViewModels.Ssh;
 using System.IO;
 using System.Linq;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class RemoteFilesSidebarTests
 {
@@ -142,7 +142,7 @@ public sealed class RemoteFilesSidebarTests
     [AvaloniaFact]
     public void Sidebar_DefinesVisibleSelectedEntryStyle()
     {
-        string sidebarPath = FindRepoFile("src", "NovaTerminal.App", "Controls", "RemoteFilesSidebar.axaml");
+        string sidebarPath = FindRepoFile("src", "Ntilde.App", "Controls", "RemoteFilesSidebar.axaml");
         string xaml = File.ReadAllText(sidebarPath);
 
         Assert.Contains("<Style Selector=\"^:selected\">", xaml);

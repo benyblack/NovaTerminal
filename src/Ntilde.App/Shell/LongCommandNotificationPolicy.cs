@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     /// <summary>
     /// Policy for "notify when a long command finishes" (agent-host A2 PR4,

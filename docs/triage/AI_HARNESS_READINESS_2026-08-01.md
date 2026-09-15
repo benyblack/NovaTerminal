@@ -2,7 +2,7 @@
 
 Date: 2026-08-01
 Targets: Claude Code (Ink/Node), OpenAI Codex CLI (ratatui/crossterm), OpenCode (Bubble Tea/opentui)
-Method: every claim below was verified against the current tree (`src/NovaTerminal.VT/AnsiParser.cs`, `src/NovaTerminal.App/MainWindow.axaml.cs`), not against `docs/vt_coverage_matrix.md` or `docs/vt_ghostty_gap_matrix.md` (both known to lag the code).
+Method: every claim below was verified against the current tree (`src/Ntilde.VT/AnsiParser.cs`, `src/Ntilde.App/MainWindow.axaml.cs`), not against `docs/vt_coverage_matrix.md` or `docs/vt_ghostty_gap_matrix.md` (both known to lag the code).
 
 ## Status (updated 2026-08-02)
 
@@ -10,7 +10,7 @@ Issues filed #264-#272 plus follow-up #274. Merged: #264 (PR #273), #265 (#275),
 
 ## Verdict
 
-NovaTerminal will *run* all three harnesses today without hangs — DA1/DA2/DSR are answered and XTGETTCAP gets a proper failure reply, so feature-detection fences resolve. But there is one real parser bug triggered *at startup by Codex and OpenCode*, and the biggest UX gaps are the kitty keyboard protocol, OSC 11 color query, and OSC 52.
+Ntilde will *run* all three harnesses today without hangs — DA1/DA2/DSR are answered and XTGETTCAP gets a proper failure reply, so feature-detection fences resolve. But there is one real parser bug triggered *at startup by Codex and OpenCode*, and the biggest UX gaps are the kitty keyboard protocol, OSC 11 color query, and OSC 52.
 
 ## Already solid (verified in tree)
 
@@ -33,12 +33,12 @@ NovaTerminal will *run* all three harnesses today without hangs — DA1/DA2/DSR 
 
 ### 1. BUG: unguarded `CSI ... u` / `s` / `r` misparse prefixed variants
 
-`case 'u'` (`AnsiParser.cs:865`) runs RestoreCursor with no `leader`/`isPrivate` guard. Codex (crossterm `supports_keyboard_enhancement`) and OpenCode both send the kitty keyboard query `CSI ? u` **at startup** — NovaTerminal executes a spurious cursor restore instead of ignoring it. Kitty push/pop (`CSI > flags u`, `CSI < u`) hit the same path. Likewise `case 's'` (`:862`) would treat XTSAVE (`CSI ? Pm s`) as SaveCursor, and `case 'r'` (`:695`) would treat XTRESTORE (`CSI ? Pm r`) as DECSTBM — setting a bogus scroll region and homing the cursor. Fix: guard all three cases on `leader == '\0'` (compare the existing `case 'm'` guard at `:868-874`).
+`case 'u'` (`AnsiParser.cs:865`) runs RestoreCursor with no `leader`/`isPrivate` guard. Codex (crossterm `supports_keyboard_enhancement`) and OpenCode both send the kitty keyboard query `CSI ? u` **at startup** — Ntilde executes a spurious cursor restore instead of ignoring it. Kitty push/pop (`CSI > flags u`, `CSI < u`) hit the same path. Likewise `case 's'` (`:862`) would treat XTSAVE (`CSI ? Pm s`) as SaveCursor, and `case 'r'` (`:695`) would treat XTRESTORE (`CSI ? Pm r`) as DECSTBM — setting a bogus scroll region and homing the cursor. Fix: guard all three cases on `leader == '\0'` (compare the existing `case 'm'` guard at `:868-874`).
 
 ### 2. Kitty keyboard protocol (`CSI u`)
 
 No implementation (only the graphics protocol exists). Consequences:
-- Claude Code: Shift+Enter cannot insert a newline; NovaTerminal isn't in `/terminal-setup`'s known list, so users are stuck with `\`+Enter. Claude Code auto-enables the protocol only when the terminal answers `CSI ? u`.
+- Claude Code: Shift+Enter cannot insert a newline; Ntilde isn't in `/terminal-setup`'s known list, so users are stuck with `\`+Enter. Claude Code auto-enables the protocol only when the terminal answers `CSI ? u`.
 - Codex: requests DISAMBIGUATE_ESCAPE_CODES, REPORT_EVENT_TYPES, REPORT_ALTERNATE_KEYS; detection fails → degraded key handling (Shift+Enter, Esc disambiguation).
 - OpenCode: renderer is configured for kitty keyboard; same degradation.
 
@@ -52,14 +52,14 @@ Verified input side: `MainWindow.axaml.cs:1843` sends `\r` for Enter regardless 
 
 - **OSC 52 clipboard**: not implemented. Yank/copy inside harness TUIs (and anything over SSH) can't reach the system clipboard. Security-sensitive — default to write-only with a setting, per the note in `vt_ghostty_gap_matrix.md`.
 - **`?1003` any-event mouse motion**: mode flag exists but `TerminalView.OnPointerMoved` only reports motion while a button is held. Hover effects in TUIs won't work.
-- **DECRQM (`CSI ? Ps $p`)**: unanswered (falls to Unhandled CSI log). Apps probing `?2026` support via DECRQM conclude sync output is unsupported and fall back to flickery redraws even though NovaTerminal supports it. Cheap win: answer for the modes already tracked in `ModeState`.
+- **DECRQM (`CSI ? Ps $p`)**: unanswered (falls to Unhandled CSI log). Apps probing `?2026` support via DECRQM conclude sync output is unsupported and fall back to flickery redraws even though Ntilde supports it. Cheap win: answer for the modes already tracked in `ModeState`.
 - **Underline styles `4:3` + SGR 58/59**: parsed but collapsed to plain underline. Harnesses use undercurl for diagnostics/spell-style markup. Cosmetic.
 
 ## P2 — nice to have
 
 - **OSC 9;4 progress** (Claude Code `terminalProgressBarEnabled`) — currently ignored cleanly; implementing gives taskbar/tab progress.
 - **OSC 9 desktop notifications** — long-run completion pings from harnesses.
-- **XTVERSION (`CSI > q`)** — some tools log terminal identity; answer with `DCS >|NovaTerminal x.y ST`.
+- **XTVERSION (`CSI > q`)** — some tools log terminal identity; answer with `DCS >|Ntilde x.y ST`.
 - **Terminfo advertisement** — still `TERM=xterm-256color`; fine for these three (they runtime-probe), so keep P2 per the existing ghostty-gap recommendation.
 
 ## Recommended order

@@ -1,11 +1,11 @@
 using System;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 using Xunit;
 
-namespace NovaTerminal.Tests.Pty;
+namespace Ntilde.Tests.Pty;
 
 /// <summary>
-/// The post-launch init used to be written to %TEMP%\nova_init_{guid}.ps1 and invoked with
+/// The post-launch init used to be written to %TEMP%\ntilde_init_{guid}.ps1 and invoked with
 /// <c>&amp; '&lt;path&gt;'</c>. Running a .ps1 is blocked under Windows' default Restricted
 /// execution policy, so every PowerShell pane without shell integration greeted the user with a
 /// red UnauthorizedAccess error. Sending the statements as input instead means no file is loaded,
@@ -19,7 +19,7 @@ public sealed class PowerShellPostLaunchInitTests
         string injection = PowerShellPostLaunchInit.BuildInjection();
 
         Assert.DoesNotContain(".ps1", injection, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("nova_init", injection, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ntilde_init", injection, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

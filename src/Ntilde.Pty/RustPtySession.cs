@@ -8,7 +8,7 @@ using Microsoft.Win32.SafeHandles;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Pty
+namespace Ntilde.Pty
 {
     public class RustPtySession : ITerminalSession
     {
@@ -883,13 +883,13 @@ namespace NovaTerminal.Pty
             }
         }
 
-        private NovaTerminal.Replay.ReplayWriter? _recorder;
+        private Ntilde.Replay.ReplayWriter? _recorder;
 
         // Flight recorder ring (agent replay export). Written from the read loop and
         // Resize; enabled/disabled from the App's agent-host lifecycle. Reference
         // swap is atomic; loops observe it with the same null-conditional pattern as
         // _recorder. Never records input — see ITerminalFlightRecorder.
-        private NovaTerminal.Replay.FlightRecordingBuffer? _flightRecorder;
+        private Ntilde.Replay.FlightRecordingBuffer? _flightRecorder;
 
         public bool IsRecording => _recorder != null;
 
@@ -903,7 +903,7 @@ namespace NovaTerminal.Pty
             // never throw at the agent-host lifecycle call site.
             int cols = _cols > 0 ? _cols : 80;
             int rows = _rows > 0 ? _rows : 24;
-            _flightRecorder = new NovaTerminal.Replay.FlightRecordingBuffer(maxTotalBytes, cols, rows);
+            _flightRecorder = new Ntilde.Replay.FlightRecordingBuffer(maxTotalBytes, cols, rows);
         }
 
         public void DisableFlightRecording()
@@ -911,7 +911,7 @@ namespace NovaTerminal.Pty
             _flightRecorder = null;
         }
 
-        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info)
+        public bool TryExportFlightRecording(string filePath, out Ntilde.Replay.FlightExportInfo info)
         {
             var ring = _flightRecorder;
             if (ring == null)
@@ -938,7 +938,7 @@ namespace NovaTerminal.Pty
         public void StartRecording(string filePath)
         {
             if (_recorder != null) return; // Already recording
-            var recorder = new NovaTerminal.Replay.ReplayWriter(filePath, _cols, _rows, ShellCommand);
+            var recorder = new Ntilde.Replay.ReplayWriter(filePath, _cols, _rows, ShellCommand);
             try
             {
                 recorder.RecordMarker("START");
@@ -1359,7 +1359,7 @@ namespace NovaTerminal.Pty
 
             // 6. Observe the PowerShell injection task and remove its script. Previously
             //    the task was discarded and the file never deleted, leaking one
-            //    nova_init_{guid}.ps1 per PowerShell session (#107).
+            //    ntilde_init_{guid}.ps1 per PowerShell session (#107).
             //
             //    Ordered last on purpose: by here the shell is gone, so it cannot be
             //    holding the script open (Windows refuses to delete a file whose open

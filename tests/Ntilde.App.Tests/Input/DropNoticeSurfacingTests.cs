@@ -2,13 +2,13 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Moq;
-using NovaTerminal.Platform;
-using NovaTerminal.Platform.Paths;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.Platform.Paths;
+using Ntilde.Shell;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.Input
+namespace Ntilde.Tests.Input
 {
     /// <summary>
     /// #182: DropRouter produced user-facing messages that nothing consumed.

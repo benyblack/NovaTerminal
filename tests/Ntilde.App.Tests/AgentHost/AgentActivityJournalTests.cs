@@ -1,8 +1,8 @@
 using System;
 using System.Linq;
-using NovaTerminal.AgentHost;
+using Ntilde.AgentHost;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 public class AgentActivityJournalTests
 {

@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.AgentHost.Contracts;
+using Ntilde.AgentHost.Contracts;
 
-namespace NovaTerminal.AgentHost
+namespace Ntilde.AgentHost
 {
     /// <summary>
     /// Bounded, thread-safe event log behind <c>waitForEvents</c>

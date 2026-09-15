@@ -2,19 +2,19 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Reduce startup latency for first window shown, first terminal ready, and full restore complete by moving NovaTerminal to staged startup with progressive restore and explicit before/after measurement support.
+**Goal:** Reduce startup latency for first window shown, first terminal ready, and full restore complete by moving Ntilde to staged startup with progressive restore and explicit before/after measurement support.
 
-**Architecture:** Keep the change in `NovaTerminal.App` and shared app metrics code. Add a startup-phase tracker, move heavy launch work out of the initial constructor path, restore the selected tab first, restore background tabs progressively, and emit structured startup metrics that support baseline and post-change comparison reports.
+**Architecture:** Keep the change in `Ntilde.App` and shared app metrics code. Add a startup-phase tracker, move heavy launch work out of the initial constructor path, restore the selected tab first, restore background tabs progressively, and emit structured startup metrics that support baseline and post-change comparison reports.
 
-**Tech Stack:** .NET 10, Avalonia 12, NovaTerminal app startup path, existing `RendererStatistics`, xUnit, PowerShell measurement scripts or test tools, deterministic app-layer tests
+**Tech Stack:** .NET 10, Avalonia 12, Ntilde app startup path, existing `RendererStatistics`, xUnit, PowerShell measurement scripts or test tools, deterministic app-layer tests
 
 ---
 
 ### Task 1: Add startup metrics coverage to the existing collector
 
 **Files:**
-- Modify: `src/NovaTerminal.Rendering/RendererStatistics.cs`
-- Modify: `tests/NovaTerminal.Tests/RenderTests/RendererMetricsTests.cs`
+- Modify: `src/Ntilde.Rendering/RendererStatistics.cs`
+- Modify: `tests/Ntilde.Tests/RenderTests/RendererMetricsTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -28,7 +28,7 @@ Cover:
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~RendererMetricsTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~RendererMetricsTests`
 
 Expected: FAIL because the startup metrics API does not exist yet.
 
@@ -38,24 +38,24 @@ Extend `RendererStatistics` with startup timing fields, record methods, reset su
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~RendererMetricsTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~RendererMetricsTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Rendering/RendererStatistics.cs tests/NovaTerminal.Tests/RenderTests/RendererMetricsTests.cs
+git add src/Ntilde.Rendering/RendererStatistics.cs tests/Ntilde.Tests/RenderTests/RendererMetricsTests.cs
 git commit -m "feat: add startup metrics to renderer statistics"
 ```
 
 ### Task 2: Introduce a startup-phase tracker
 
 **Files:**
-- Create: `src/NovaTerminal.App/Core/StartupPerformanceTracker.cs`
-- Modify: `src/NovaTerminal.App/Program.cs`
-- Modify: `src/NovaTerminal.App/App.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/App/StartupPerformanceTrackerTests.cs`
+- Create: `src/Ntilde.App/Core/StartupPerformanceTracker.cs`
+- Modify: `src/Ntilde.App/Program.cs`
+- Modify: `src/Ntilde.App/App.axaml.cs`
+- Test: `tests/Ntilde.Tests/App/StartupPerformanceTrackerTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -68,7 +68,7 @@ Add tests for a small tracker that:
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~StartupPerformanceTrackerTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~StartupPerformanceTrackerTests`
 
 Expected: FAIL because the tracker does not exist.
 
@@ -78,24 +78,24 @@ Create an app-level tracker that starts in `Program.Main`, records constructor/o
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~StartupPerformanceTrackerTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~StartupPerformanceTrackerTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Core/StartupPerformanceTracker.cs src/NovaTerminal.App/Program.cs src/NovaTerminal.App/App.axaml.cs tests/NovaTerminal.Tests/App/StartupPerformanceTrackerTests.cs
+git add src/Ntilde.App/Core/StartupPerformanceTracker.cs src/Ntilde.App/Program.cs src/Ntilde.App/App.axaml.cs tests/Ntilde.Tests/App/StartupPerformanceTrackerTests.cs
 git commit -m "feat: add startup phase tracker"
 ```
 
 ### Task 3: Stop per-pane settings reload during startup
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Modify: `src/NovaTerminal.App/Core/SessionManager.cs`
-- Test: `tests/NovaTerminal.Tests/App/TerminalPaneSettingsTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Modify: `src/Ntilde.App/Core/SessionManager.cs`
+- Test: `tests/Ntilde.Tests/App/TerminalPaneSettingsTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -103,7 +103,7 @@ Add a deterministic test that proves `TerminalPane` can be initialized with shar
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~TerminalPaneSettingsTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~TerminalPaneSettingsTests`
 
 Expected: FAIL because pane setup still owns settings loading.
 
@@ -113,23 +113,23 @@ Refactor `TerminalPane` initialization to accept already-loaded settings from `M
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~TerminalPaneSettingsTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~TerminalPaneSettingsTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml.cs src/NovaTerminal.App/MainWindow.axaml.cs src/NovaTerminal.App/Core/SessionManager.cs tests/NovaTerminal.Tests/App/TerminalPaneSettingsTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml.cs src/Ntilde.App/MainWindow.axaml.cs src/Ntilde.App/Core/SessionManager.cs tests/Ntilde.Tests/App/TerminalPaneSettingsTests.cs
 git commit -m "refactor: share startup settings across terminal panes"
 ```
 
 ### Task 4: Extract a progressive restore plan from session data
 
 **Files:**
-- Create: `src/NovaTerminal.App/Core/StartupRestorePlan.cs`
-- Modify: `src/NovaTerminal.App/Core/SessionManager.cs`
-- Test: `tests/NovaTerminal.Tests/App/StartupRestorePlanTests.cs`
+- Create: `src/Ntilde.App/Core/StartupRestorePlan.cs`
+- Modify: `src/Ntilde.App/Core/SessionManager.cs`
+- Test: `tests/Ntilde.Tests/App/StartupRestorePlanTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -141,7 +141,7 @@ Add tests that build a restore plan from a saved session and assert:
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~StartupRestorePlanTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~StartupRestorePlanTests`
 
 Expected: FAIL because no progressive restore planning seam exists.
 
@@ -151,24 +151,24 @@ Add a small restore-plan model and helper logic that can describe the startup or
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~StartupRestorePlanTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~StartupRestorePlanTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Core/StartupRestorePlan.cs src/NovaTerminal.App/Core/SessionManager.cs tests/NovaTerminal.Tests/App/StartupRestorePlanTests.cs
+git add src/Ntilde.App/Core/StartupRestorePlan.cs src/Ntilde.App/Core/SessionManager.cs tests/Ntilde.Tests/App/StartupRestorePlanTests.cs
 git commit -m "feat: add progressive startup restore planning"
 ```
 
 ### Task 5: Add a progressive restore coordinator
 
 **Files:**
-- Create: `src/NovaTerminal.App/Core/StartupRestoreCoordinator.cs`
-- Modify: `src/NovaTerminal.App/Core/SessionManager.cs`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/App/StartupRestoreCoordinatorTests.cs`
+- Create: `src/Ntilde.App/Core/StartupRestoreCoordinator.cs`
+- Modify: `src/Ntilde.App/Core/SessionManager.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Test: `tests/Ntilde.Tests/App/StartupRestoreCoordinatorTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -181,7 +181,7 @@ Add tests for a coordinator that:
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~StartupRestoreCoordinatorTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~StartupRestoreCoordinatorTests`
 
 Expected: FAIL because the coordinator does not exist.
 
@@ -191,23 +191,23 @@ Create a narrow app-layer coordinator that consumes the restore plan, schedules 
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~StartupRestoreCoordinatorTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~StartupRestoreCoordinatorTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Core/StartupRestoreCoordinator.cs src/NovaTerminal.App/Core/SessionManager.cs src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.Tests/App/StartupRestoreCoordinatorTests.cs
+git add src/Ntilde.App/Core/StartupRestoreCoordinator.cs src/Ntilde.App/Core/SessionManager.cs src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.Tests/App/StartupRestoreCoordinatorTests.cs
 git commit -m "feat: coordinate progressive startup restore"
 ```
 
 ### Task 6: Shrink the `MainWindow` critical startup path
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Modify: `src/NovaTerminal.App/App.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/App/MainWindowStartupTests.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Modify: `src/Ntilde.App/App.axaml.cs`
+- Test: `tests/Ntilde.Tests/App/MainWindowStartupTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -219,7 +219,7 @@ Add focused tests around extracted startup orchestration logic so `MainWindow` c
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~MainWindowStartupTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~MainWindowStartupTests`
 
 Expected: FAIL because startup work is still constructor-heavy and not separable.
 
@@ -229,23 +229,23 @@ Refactor `MainWindow` startup flow so the constructor builds only what the first
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~MainWindowStartupTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~MainWindowStartupTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs src/NovaTerminal.App/App.axaml.cs tests/NovaTerminal.Tests/App/MainWindowStartupTests.cs
+git add src/Ntilde.App/MainWindow.axaml.cs src/Ntilde.App/App.axaml.cs tests/Ntilde.Tests/App/MainWindowStartupTests.cs
 git commit -m "refactor: stage main window startup work"
 ```
 
 ### Task 7: Delay non-critical pane startup work
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/TerminalPaneDeferredStartupTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/TerminalPaneDeferredStartupTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -257,7 +257,7 @@ Add tests proving:
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~TerminalPaneDeferredStartupTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~TerminalPaneDeferredStartupTests`
 
 Expected: FAIL because pane startup still initializes all optional work immediately.
 
@@ -267,23 +267,23 @@ Add a small startup mode or explicit initialization path so optional pane subsys
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~TerminalPaneDeferredStartupTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~TerminalPaneDeferredStartupTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml.cs src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs tests/NovaTerminal.Tests/CommandAssist/TerminalPaneDeferredStartupTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml.cs src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs tests/Ntilde.Tests/CommandAssist/TerminalPaneDeferredStartupTests.cs
 git commit -m "perf: defer non-critical pane startup work"
 ```
 
 ### Task 8: Add structured startup metrics artifact output
 
 **Files:**
-- Create: `src/NovaTerminal.App/Core/StartupMetricsWriter.cs`
-- Modify: `src/NovaTerminal.App/Core/StartupPerformanceTracker.cs`
-- Test: `tests/NovaTerminal.Tests/App/StartupMetricsWriterTests.cs`
+- Create: `src/Ntilde.App/Core/StartupMetricsWriter.cs`
+- Modify: `src/Ntilde.App/Core/StartupPerformanceTracker.cs`
+- Test: `tests/Ntilde.Tests/App/StartupMetricsWriterTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -295,7 +295,7 @@ Add tests that verify an opt-in metrics writer can:
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~StartupMetricsWriterTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~StartupMetricsWriterTests`
 
 Expected: FAIL because no startup metrics artifact writer exists.
 
@@ -305,14 +305,14 @@ Create a simple opt-in writer controlled by environment variable or equivalent c
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~StartupMetricsWriterTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~StartupMetricsWriterTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Core/StartupMetricsWriter.cs src/NovaTerminal.App/Core/StartupPerformanceTracker.cs tests/NovaTerminal.Tests/App/StartupMetricsWriterTests.cs
+git add src/Ntilde.App/Core/StartupMetricsWriter.cs src/Ntilde.App/Core/StartupPerformanceTracker.cs tests/Ntilde.Tests/App/StartupMetricsWriterTests.cs
 git commit -m "feat: emit structured startup metrics artifacts"
 ```
 
@@ -322,7 +322,7 @@ git commit -m "feat: emit structured startup metrics artifacts"
 - Create: `tests/tools/measure_startup.ps1`
 - Create: `tests/tools/summarize_startup_metrics.ps1`
 - Create: `docs/performance/startup-measurement.md`
-- Test: `tests/NovaTerminal.Tests/App/StartupMetricsSummaryTests.cs`
+- Test: `tests/Ntilde.Tests/App/StartupMetricsSummaryTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -335,7 +335,7 @@ Add a focused test for summary logic that consumes structured startup metric rec
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~StartupMetricsSummaryTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~StartupMetricsSummaryTests`
 
 Expected: FAIL because no startup summary logic exists.
 
@@ -345,14 +345,14 @@ Add a repeatable measurement script for N launches, a summary script for before/
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~StartupMetricsSummaryTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~StartupMetricsSummaryTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add tests/tools/measure_startup.ps1 tests/tools/summarize_startup_metrics.ps1 docs/performance/startup-measurement.md tests/NovaTerminal.Tests/App/StartupMetricsSummaryTests.cs
+git add tests/tools/measure_startup.ps1 tests/tools/summarize_startup_metrics.ps1 docs/performance/startup-measurement.md tests/Ntilde.Tests/App/StartupMetricsSummaryTests.cs
 git commit -m "feat: add startup measurement and comparison tooling"
 ```
 
@@ -363,7 +363,7 @@ git commit -m "feat: add startup measurement and comparison tooling"
 
 **Step 1: Build the app in the chosen configuration**
 
-Run: `dotnet build NovaTerminal.sln -c Release`
+Run: `dotnet build Ntilde.sln -c Release`
 
 Expected: PASS
 
@@ -394,13 +394,13 @@ git commit -m "docs: lock startup baseline measurement workflow"
 
 **Step 1: Run focused startup tests**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~RendererMetricsTests|FullyQualifiedName~StartupPerformanceTrackerTests|FullyQualifiedName~TerminalPaneSettingsTests|FullyQualifiedName~StartupRestorePlanTests|FullyQualifiedName~StartupRestoreCoordinatorTests|FullyQualifiedName~MainWindowStartupTests|FullyQualifiedName~TerminalPaneDeferredStartupTests|FullyQualifiedName~StartupMetricsWriterTests|FullyQualifiedName~StartupMetricsSummaryTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~RendererMetricsTests|FullyQualifiedName~StartupPerformanceTrackerTests|FullyQualifiedName~TerminalPaneSettingsTests|FullyQualifiedName~StartupRestorePlanTests|FullyQualifiedName~StartupRestoreCoordinatorTests|FullyQualifiedName~MainWindowStartupTests|FullyQualifiedName~TerminalPaneDeferredStartupTests|FullyQualifiedName~StartupMetricsWriterTests|FullyQualifiedName~StartupMetricsSummaryTests`
 
 Expected: PASS
 
 **Step 2: Run full solution build**
 
-Run: `dotnet build NovaTerminal.sln -c Release`
+Run: `dotnet build Ntilde.sln -c Release`
 
 Expected: PASS
 

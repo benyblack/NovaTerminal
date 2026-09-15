@@ -1,17 +1,17 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Native;
-using NovaTerminal.Platform.Ssh.Storage;
-using NovaTerminal.Models;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Storage;
+using Ntilde.Models;
 
-namespace NovaTerminal.Services.Ssh;
+namespace Ntilde.Services.Ssh;
 
 public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteService
 {

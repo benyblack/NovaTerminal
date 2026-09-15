@@ -1,8 +1,8 @@
 using System;
 using System.Linq;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// The output-region reader: what a finished command printed, taken off the grid between the

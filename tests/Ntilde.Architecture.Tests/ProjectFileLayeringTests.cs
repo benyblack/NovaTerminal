@@ -3,7 +3,7 @@ using System.Linq;
 using System.Xml.Linq;
 using System.Text.RegularExpressions;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 /// <summary>
 /// IL-level layering tests (see <see cref="LayeringTests"/>) only catch dependencies that
@@ -21,19 +21,19 @@ public class ProjectFileLayeringTests
     // arguments are re-allocated on every call). Both assertions expect the same single
     // reference, so one field serves both - and this project is now built with
     // TreatWarningsAsErrors, so the analyzer is enforced rather than advisory (#108).
-    private static readonly string[] VtOnly = ["NovaTerminal.VT"];
+    private static readonly string[] VtOnly = ["Ntilde.VT"];
 
     // Same CA1861 reasoning as VtOnly above. Order matches the csproj's own ItemGroup so
     // Assert.Equal's ordered comparison doesn't need a Sort/OrderBy on either side.
     private static readonly string[] McpServerLeafDependencies =
-        ["NovaTerminal.AgentHost.Contracts", "NovaTerminal.Backup", "NovaTerminal.VtContract"];
+        ["Ntilde.AgentHost.Contracts", "Ntilde.Backup", "Ntilde.VtContract"];
 
     private static string RepoRoot()
     {
         DirectoryInfo? dir = new(AppContext.BaseDirectory);
         while (dir != null)
         {
-            if (File.Exists(Path.Combine(dir.FullName, "NovaTerminal.sln")))
+            if (File.Exists(Path.Combine(dir.FullName, "Ntilde.sln")))
             {
                 return dir.FullName;
             }
@@ -64,28 +64,28 @@ public class ProjectFileLayeringTests
     [Fact]
     public void Pty_csproj_must_not_reference_Vt()
     {
-        var refs = ProjectReferences("src/NovaTerminal.Pty/NovaTerminal.Pty.csproj");
-        Assert.DoesNotContain("NovaTerminal.VT", refs);
+        var refs = ProjectReferences("src/Ntilde.Pty/Ntilde.Pty.csproj");
+        Assert.DoesNotContain("Ntilde.VT", refs);
     }
 
     [Fact]
     public void Replay_csproj_only_references_Vt()
     {
-        var refs = ProjectReferences("src/NovaTerminal.Replay/NovaTerminal.Replay.csproj");
+        var refs = ProjectReferences("src/Ntilde.Replay/Ntilde.Replay.csproj");
         Assert.Equal(VtOnly, refs);
     }
 
     [Fact]
     public void Rendering_csproj_only_references_Vt()
     {
-        var refs = ProjectReferences("src/NovaTerminal.Rendering/NovaTerminal.Rendering.csproj");
+        var refs = ProjectReferences("src/Ntilde.Rendering/Ntilde.Rendering.csproj");
         Assert.Equal(VtOnly, refs);
     }
 
     [Fact]
     public void Vt_csproj_must_have_no_project_references()
     {
-        var refs = ProjectReferences("src/NovaTerminal.VT/NovaTerminal.VT.csproj");
+        var refs = ProjectReferences("src/Ntilde.VT/Ntilde.VT.csproj");
         Assert.Empty(refs);
     }
 
@@ -98,10 +98,10 @@ public class ProjectFileLayeringTests
     [Fact]
     public void CommandAssist_csproj_must_have_no_project_or_avalonia_references()
     {
-        var refs = ProjectReferences("src/NovaTerminal.CommandAssist/NovaTerminal.CommandAssist.csproj");
+        var refs = ProjectReferences("src/Ntilde.CommandAssist/Ntilde.CommandAssist.csproj");
         Assert.Empty(refs);
 
-        var packages = PackageReferences("src/NovaTerminal.CommandAssist/NovaTerminal.CommandAssist.csproj");
+        var packages = PackageReferences("src/Ntilde.CommandAssist/Ntilde.CommandAssist.csproj");
         Assert.DoesNotContain(packages, p => p.StartsWith("Avalonia", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -128,7 +128,7 @@ public class ProjectFileLayeringTests
             "Anthropic"
         ];
 
-        var packages = PackageReferences("src/NovaTerminal.CommandAssist/NovaTerminal.CommandAssist.csproj");
+        var packages = PackageReferences("src/Ntilde.CommandAssist/Ntilde.CommandAssist.csproj");
 
         Assert.DoesNotContain(packages, p =>
             forbiddenPrefixes.Any(prefix => p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)));
@@ -137,7 +137,7 @@ public class ProjectFileLayeringTests
     [Fact]
     public void AgentHostContracts_csproj_must_have_no_project_references()
     {
-        var refs = ProjectReferences("src/NovaTerminal.AgentHost.Contracts/NovaTerminal.AgentHost.Contracts.csproj");
+        var refs = ProjectReferences("src/Ntilde.AgentHost.Contracts/Ntilde.AgentHost.Contracts.csproj");
         Assert.Empty(refs);
     }
 
@@ -148,14 +148,14 @@ public class ProjectFileLayeringTests
     /// the protocol, so it is worth an assertion rather than only prose in
     /// <c>docs/MODULE_OWNERSHIP.md</c>.
     ///
-    /// <c>NovaTerminal.Backup</c> is allowed alongside the contracts leaf (Task 10a): the
+    /// <c>Ntilde.Backup</c> is allowed alongside the contracts leaf (Task 10a): the
     /// read-only backup MCP tools need <c>BackupService</c>. Fix round 1 of that same task
-    /// first tried reaching it through <c>NovaTerminal.Platform</c> instead - which passed
+    /// first tried reaching it through <c>Ntilde.Platform</c> instead - which passed
     /// this exact assertion, because at the csproj level "references one extra project"
     /// looks the same regardless of what that project drags in. It shipped a real hole:
     /// Platform references Pty, so McpServer -> Platform -> Pty transitively broke "does not
     /// reference App, VT, Pty, or Rendering" with the reasoning behind that rule fully
-    /// intact. <c>NovaTerminal.Backup</c> closes that hole by construction rather than by
+    /// intact. <c>Ntilde.Backup</c> closes that hole by construction rather than by
     /// naming every forbidden transitive hop: <see cref="Backup_csproj_has_no_project_references"/>
     /// pins it as a leaf, so nothing it brings in can ever be more than the BCL, no matter
     /// what future code adds to it.
@@ -169,15 +169,15 @@ public class ProjectFileLayeringTests
     [Fact]
     public void McpServer_csproj_only_references_approved_leaf_dependencies()
     {
-        var refs = ProjectReferences("src/NovaTerminal.McpServer/NovaTerminal.McpServer.csproj");
+        var refs = ProjectReferences("src/Ntilde.McpServer/Ntilde.McpServer.csproj");
         Assert.Equal(McpServerLeafDependencies, refs);
     }
 
     /// <summary>
     /// The assertion that actually keeps <see cref="McpServer_csproj_only_references_approved_leaf_dependencies"/>
     /// meaningful long-term. That test only pins McpServer's own reference list; it says
-    /// nothing about what <c>NovaTerminal.Backup</c> itself can reach. Without this test,
-    /// someone could add e.g. <c>NovaTerminal.Platform</c> as a "small, surely harmless"
+    /// nothing about what <c>Ntilde.Backup</c> itself can reach. Without this test,
+    /// someone could add e.g. <c>Ntilde.Platform</c> as a "small, surely harmless"
     /// reference to Backup one day - reopening precisely the McpServer -> Platform -> Pty
     /// hole fix round 1 of Task 10a just closed, since McpServer's own csproj would look
     /// untouched. A leaf has no project references, ever: that is the entire safety argument,
@@ -187,14 +187,14 @@ public class ProjectFileLayeringTests
     [Fact]
     public void Backup_csproj_has_no_project_references()
     {
-        var refs = ProjectReferences("src/NovaTerminal.Backup/NovaTerminal.Backup.csproj");
+        var refs = ProjectReferences("src/Ntilde.Backup/Ntilde.Backup.csproj");
         Assert.Empty(refs);
     }
 
     [Fact]
     public void VtContract_csproj_has_no_project_references()
     {
-        var refs = ProjectReferences("src/NovaTerminal.VtContract/NovaTerminal.VtContract.csproj");
+        var refs = ProjectReferences("src/Ntilde.VtContract/Ntilde.VtContract.csproj");
         Assert.Empty(refs);
     }
 
@@ -210,7 +210,7 @@ public class ProjectFileLayeringTests
     [Fact]
     public void App_csproj_must_ship_the_sideloaded_conpty_host()
     {
-        const string appCsproj = "src/NovaTerminal.App/NovaTerminal.App.csproj";
+        const string appCsproj = "src/Ntilde.App/Ntilde.App.csproj";
         var doc = XDocument.Load(Path.Combine(RepoRoot(), appCsproj));
 
         Assert.Contains("Microsoft.Windows.Console.ConPTY", PackageReferences(appCsproj));
@@ -219,7 +219,7 @@ public class ProjectFileLayeringTests
         // the hosts have to be declared per machine architecture, arm64 included: an x64 bundle
         // started on Windows-on-ARM resolves the arm64 host, and win-x64 is the only Windows RID
         // released.
-        var hostLinks = doc.Descendants("NovaRequiredConPtyHost")
+        var hostLinks = doc.Descendants("NtildeRequiredConPtyHost")
             .Select(e => ((string?)e.Element("Link") ?? string.Empty).Replace('\\', '/'))
             .ToArray();
         Assert.Contains("arm64/OpenConsole.exe", hostLinks);
@@ -230,7 +230,7 @@ public class ProjectFileLayeringTests
 
         var hostCopy = doc.Descendants("Content")
             .SingleOrDefault(c => ((string?)c.Attribute("Include") ?? string.Empty)
-                .Contains("@(NovaRequiredConPtyHost)", StringComparison.Ordinal));
+                .Contains("@(NtildeRequiredConPtyHost)", StringComparison.Ordinal));
         Assert.NotNull(hostCopy);
 
         // Both copy destinations, not just one: an output-only copy keeps every dev build working
@@ -247,11 +247,11 @@ public class ProjectFileLayeringTests
 
     // Same CA1861 reasoning as VtOnly above.
     private static readonly string[] ProjectsAllowedToReferenceVelopack =
-        ["src/NovaTerminal.App/NovaTerminal.App.csproj"];
+        ["src/Ntilde.App/Ntilde.App.csproj"];
 
     /// <summary>
     /// Velopack is the Windows install/update host. It is referenced for exactly one reason -
-    /// <c>VelopackApp.Build().Run()</c> and the update seam in <c>NovaTerminal.App/Update</c> - and
+    /// <c>VelopackApp.Build().Run()</c> and the update seam in <c>Ntilde.App/Update</c> - and
     /// must not spread. A second project taking the reference would put install-location and
     /// restart-the-process concerns behind a library boundary where nothing can see them, and would
     /// drag an unsigned-updater dependency into layers that are meant to be host-agnostic.

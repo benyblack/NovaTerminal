@@ -14,7 +14,7 @@ Design: [`docs/plans/2026-08-12-dead-pane-indicator-design.md`](2026-08-12-dead-
 
 - **Build and test only through the wrappers:** `scripts/build.ps1 <args>` (PowerShell) or `scripts/build.sh <args>` (bash). A raw `dotnet build` hangs when stdout is captured. See CLAUDE.md.
 - **Never run the whole solution's tests** — that is 20–30 minutes of headless Avalonia. Run the one project, with a `--filter`.
-- The first build in a fresh worktree compiles the Rust natives via cargo (several minutes). Do not pass `SKIP_RUST_NATIVE_BUILD=1` for the test tasks here: `NovaTerminal.App.Tests` panes need `rusty_pty.dll` in the output.
+- The first build in a fresh worktree compiles the Rust natives via cargo (several minutes). Do not pass `SKIP_RUST_NATIVE_BUILD=1` for the test tasks here: `Ntilde.App.Tests` panes need `rusty_pty.dll` in the output.
 - **Setting name and values, exactly:** `ShellExitPolicy`, one of `"Never"`, `"Graceful"`, `"Always"`, default `"Never"`. Unrecognised values behave as `"Never"` (a typo must not be more destructive than the default).
 - **Banner text, exactly** (the exit-code line is omitted when the code is 0):
   ```
@@ -30,14 +30,14 @@ Design: [`docs/plans/2026-08-12-dead-pane-indicator-design.md`](2026-08-12-dead-
 
 | File | Responsibility | Task |
 |---|---|---|
-| `src/NovaTerminal.App/Shell/TerminalSettings.cs` | Holds `ShellExitPolicy` | 1 |
-| `src/NovaTerminal.App/MainWindow.axaml.cs` | `ShouldClosePaneOnExit` (pure), `ClosePaneAsync` (pane-targeted), exit wiring | 1, 3, 4 |
-| `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs` | `WriteLocalExitBanner` | 2 |
-| `src/NovaTerminal.McpServer/Tools/SettingsTools.cs` | Agent-facing settings docs + validation | 5 |
-| `tests/NovaTerminal.App.Tests/Core/ShellExitPolicyTests.cs` (new) | Policy matrix | 1 |
-| `tests/NovaTerminal.App.Tests/Infra/TerminalBufferText.cs` (new) | Shared "what does the buffer show" test helper | 2 |
-| `tests/NovaTerminal.App.Tests/Core/TerminalPaneExitBannerTests.cs` (new) | Banner text | 2 |
-| `tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs` (new) | Close targeting + end-to-end exit behaviour | 3, 4 |
+| `src/Ntilde.App/Shell/TerminalSettings.cs` | Holds `ShellExitPolicy` | 1 |
+| `src/Ntilde.App/MainWindow.axaml.cs` | `ShouldClosePaneOnExit` (pure), `ClosePaneAsync` (pane-targeted), exit wiring | 1, 3, 4 |
+| `src/Ntilde.App/Controls/TerminalPane.axaml.cs` | `WriteLocalExitBanner` | 2 |
+| `src/Ntilde.McpServer/Tools/SettingsTools.cs` | Agent-facing settings docs + validation | 5 |
+| `tests/Ntilde.App.Tests/Core/ShellExitPolicyTests.cs` (new) | Policy matrix | 1 |
+| `tests/Ntilde.App.Tests/Infra/TerminalBufferText.cs` (new) | Shared "what does the buffer show" test helper | 2 |
+| `tests/Ntilde.App.Tests/Core/TerminalPaneExitBannerTests.cs` (new) | Banner text | 2 |
+| `tests/Ntilde.App.Tests/Core/MainWindowShellExitTests.cs` (new) | Close targeting + end-to-end exit behaviour | 3, 4 |
 
 ---
 
@@ -46,22 +46,22 @@ Design: [`docs/plans/2026-08-12-dead-pane-indicator-design.md`](2026-08-12-dead-
 Pure function plus the setting that feeds it. Nothing is wired yet, so behaviour does not change.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/TerminalSettings.cs:53` (add next to `PaneClosePolicy`)
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs:3493` (add next to `ShouldAutoAcceptRunningPaneClose`)
-- Test: `tests/NovaTerminal.App.Tests/Core/ShellExitPolicyTests.cs` (create)
+- Modify: `src/Ntilde.App/Shell/TerminalSettings.cs:53` (add next to `PaneClosePolicy`)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs:3493` (add next to `ShouldAutoAcceptRunningPaneClose`)
+- Test: `tests/Ntilde.App.Tests/Core/ShellExitPolicyTests.cs` (create)
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `TerminalSettings.ShellExitPolicy` (string, default `"Never"`); `internal static bool NovaTerminal.MainWindow.ShouldClosePaneOnExit(string? shellExitPolicy, bool isSsh, int exitCode)`.
+- Produces: `TerminalSettings.ShellExitPolicy` (string, default `"Never"`); `internal static bool Ntilde.MainWindow.ShouldClosePaneOnExit(string? shellExitPolicy, bool isSsh, int exitCode)`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Core/ShellExitPolicyTests.cs`:
+Create `tests/Ntilde.App.Tests/Core/ShellExitPolicyTests.cs`:
 
 ```csharp
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// #311: which shell exits close the pane. Pure policy — no window, no pane, no Avalonia,
@@ -86,7 +86,7 @@ public sealed class ShellExitPolicyTests
     [InlineData("Always", 1, true, false)]
     public void PolicyDecidesWhetherTheDyingPaneCloses(string policy, int exitCode, bool isSsh, bool expected)
     {
-        Assert.Equal(expected, NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh, exitCode));
+        Assert.Equal(expected, Ntilde.MainWindow.ShouldClosePaneOnExit(policy, isSsh, exitCode));
     }
 
     [Theory]
@@ -97,7 +97,7 @@ public sealed class ShellExitPolicyTests
     {
         // "ALWAYS" closes on a non-zero code; the two Graceful spellings do not.
         bool expected = policy.Trim().Equals("ALWAYS", StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(expected, NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 1));
+        Assert.Equal(expected, Ntilde.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 1));
     }
 
     [Theory]
@@ -107,8 +107,8 @@ public sealed class ShellExitPolicyTests
     public void UnrecognisedPolicyBehavesAsGraceful(string? policy)
     {
         // A typo in a hand-edited settings file must not silently mean "never tell me anything".
-        Assert.True(NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 0));
-        Assert.False(NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 1));
+        Assert.True(Ntilde.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 0));
+        Assert.False(Ntilde.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 1));
     }
 
     [Fact]
@@ -124,14 +124,14 @@ public sealed class ShellExitPolicyTests
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~ShellExitPolicyTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~ShellExitPolicyTests"
 ```
 
 Expected: compile error — `'MainWindow' does not contain a definition for 'ShouldClosePaneOnExit'` and `'TerminalSettings' does not contain a definition for 'ShellExitPolicy'`.
 
 - [ ] **Step 3: Add the setting**
 
-In `src/NovaTerminal.App/Shell/TerminalSettings.cs`, directly below `public string PaneClosePolicy { get; set; } = "Confirm";`:
+In `src/Ntilde.App/Shell/TerminalSettings.cs`, directly below `public string PaneClosePolicy { get; set; } = "Confirm";`:
 
 ```csharp
         // What happens to a pane when its shell exits (#311). Three values: "Never" (default for now)
@@ -146,7 +146,7 @@ In `src/NovaTerminal.App/Shell/TerminalSettings.cs`, directly below `public stri
 
 - [ ] **Step 4: Add the decision**
 
-In `src/NovaTerminal.App/MainWindow.axaml.cs`, directly above `internal static bool ShouldAutoAcceptRunningPaneClose(`:
+In `src/Ntilde.App/MainWindow.axaml.cs`, directly above `internal static bool ShouldAutoAcceptRunningPaneClose(`:
 
 ```csharp
         /// <summary>
@@ -177,7 +177,7 @@ In `src/NovaTerminal.App/MainWindow.axaml.cs`, directly above `internal static b
 - [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~ShellExitPolicyTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~ShellExitPolicyTests"
 ```
 
 Expected: PASS, 15 tests.
@@ -185,7 +185,7 @@ Expected: PASS, 15 tests.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/TerminalSettings.cs src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.App.Tests/Core/ShellExitPolicyTests.cs
+git add src/Ntilde.App/Shell/TerminalSettings.cs src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.App.Tests/Core/ShellExitPolicyTests.cs
 git commit -m "feat(pane): add ShellExitPolicy and the exit-close decision (#311)"
 ```
 
@@ -196,24 +196,24 @@ git commit -m "feat(pane): add ShellExitPolicy and the exit-close decision (#311
 The pane gains a way to say its shell is gone. Still not wired — only the new method's own test calls it.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs:3753` (next to `WriteSshDisconnectedBanner`)
-- Create: `tests/NovaTerminal.App.Tests/Infra/TerminalBufferText.cs`
-- Test: `tests/NovaTerminal.App.Tests/Core/TerminalPaneExitBannerTests.cs` (create)
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs:3753` (next to `WriteSshDisconnectedBanner`)
+- Create: `tests/Ntilde.App.Tests/Infra/TerminalBufferText.cs`
+- Test: `tests/Ntilde.App.Tests/Core/TerminalPaneExitBannerTests.cs` (create)
 
 **Interfaces:**
 - Consumes: nothing from Task 1.
-- Produces: `internal void TerminalPane.WriteLocalExitBanner(int code)`; `internal static string NovaTerminal.Tests.Infra.TerminalBufferText.Visible(TerminalBuffer buffer)` — Task 4's tests use it too.
+- Produces: `internal void TerminalPane.WriteLocalExitBanner(int code)`; `internal static string Ntilde.Tests.Infra.TerminalBufferText.Visible(TerminalBuffer buffer)` — Task 4's tests use it too.
 
 - [ ] **Step 1: Write the shared buffer-text helper**
 
 `TerminalPaneSshDisconnectTests` has this logic as a private static; Task 4 needs it as well, so it
 lands in one shared place rather than being copied a third time. Create
-`tests/NovaTerminal.App.Tests/Infra/TerminalBufferText.cs`:
+`tests/Ntilde.App.Tests/Infra/TerminalBufferText.cs`:
 
 ```csharp
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Infra;
+namespace Ntilde.Tests.Infra;
 
 /// <summary>
 /// What a pane actually shows: the viewport rendered as plain text, for asserting on banners and
@@ -242,15 +242,15 @@ Leave `TerminalPaneSshDisconnectTests` alone — migrating it is unrelated churn
 
 - [ ] **Step 2: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Core/TerminalPaneExitBannerTests.cs`:
+Create `tests/Ntilde.App.Tests/Core/TerminalPaneExitBannerTests.cs`:
 
 ```csharp
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Platform;
-using NovaTerminal.Tests.Infra;
+using Ntilde.Controls;
+using Ntilde.Platform;
+using Ntilde.Tests.Infra;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// #311: a local pane whose shell died must say so, and must say how to get it back — Enter
@@ -319,14 +319,14 @@ public sealed class TerminalPaneExitBannerTests
 - [ ] **Step 3: Run the test to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TerminalPaneExitBannerTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TerminalPaneExitBannerTests"
 ```
 
 Expected: compile error — `'TerminalPane' does not contain a definition for 'WriteLocalExitBanner'`.
 
 - [ ] **Step 4: Write the banner**
 
-In `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`, directly below `WriteSshDisconnectedBanner`:
+In `src/Ntilde.App/Controls/TerminalPane.axaml.cs`, directly below `WriteSshDisconnectedBanner`:
 
 ```csharp
         /// <summary>
@@ -348,7 +348,7 @@ In `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`, directly below `WriteS
 - [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TerminalPaneExitBannerTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TerminalPaneExitBannerTests"
 ```
 
 Expected: PASS, 3 tests.
@@ -356,7 +356,7 @@ Expected: PASS, 3 tests.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.App.Tests/Infra/TerminalBufferText.cs tests/NovaTerminal.App.Tests/Core/TerminalPaneExitBannerTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml.cs tests/Ntilde.App.Tests/Infra/TerminalBufferText.cs tests/Ntilde.App.Tests/Core/TerminalPaneExitBannerTests.cs
 git commit -m "feat(pane): banner for a local shell that exited (#311)"
 ```
 
@@ -367,8 +367,8 @@ git commit -m "feat(pane): banner for a local shell that exited (#311)"
 `CloseActivePaneAsync` reads `_currentPane` for the split case but falls back to `tabs.SelectedItem` when the pane is alone in its tab, and its zoom-exit uses `TryGetSelectedTab`. `UpdateActivePane(pane)` does not select that pane's tab. Auto-close routed through it would close whatever tab the user is looking at when a background shell dies. This task makes the close pane-targeted, and returns whether it happened.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs:3364-3456` (`CloseActivePaneAsync`)
-- Test: `tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs` (create)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs:3364-3456` (`CloseActivePaneAsync`)
+- Test: `tests/Ntilde.App.Tests/Core/MainWindowShellExitTests.cs` (create)
 
 **Interfaces:**
 - Consumes: nothing from Tasks 1–2.
@@ -376,16 +376,16 @@ git commit -m "feat(pane): banner for a local shell that exited (#311)"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs`:
+Create `tests/Ntilde.App.Tests/Core/MainWindowShellExitTests.cs`:
 
 ```csharp
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Shell;
+using Ntilde.Controls;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// #311. The targeting test is the important one: a shell dying in a background tab — a build, an
@@ -407,7 +407,7 @@ public sealed class MainWindowShellExitTests
 
     private sealed class TwoTabFixture : IDisposable
     {
-        private TwoTabFixture(NovaTerminal.MainWindow window, TabControl tabs, TabItem selectedTab, TerminalPane backgroundPane)
+        private TwoTabFixture(Ntilde.MainWindow window, TabControl tabs, TabItem selectedTab, TerminalPane backgroundPane)
         {
             Window = window;
             Tabs = tabs;
@@ -415,14 +415,14 @@ public sealed class MainWindowShellExitTests
             BackgroundPane = backgroundPane;
         }
 
-        public NovaTerminal.MainWindow Window { get; }
+        public Ntilde.MainWindow Window { get; }
         public TabControl Tabs { get; }
         public TabItem SelectedTab { get; }
         public TerminalPane BackgroundPane { get; }
 
         public Task<bool> ClosePaneAsync(TerminalPane pane, bool skipConfirm)
         {
-            var method = typeof(NovaTerminal.MainWindow)
+            var method = typeof(Ntilde.MainWindow)
                 .GetMethod("ClosePaneAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
             return (Task<bool>)method.Invoke(Window, [pane, skipConfirm])!;
         }
@@ -430,9 +430,9 @@ public sealed class MainWindowShellExitTests
         public static TwoTabFixture Create()
         {
             AppServiceBundle bundle = AppServices.BuildForDesigner();
-            var window = new NovaTerminal.MainWindow(bundle);
+            var window = new Ntilde.MainWindow(bundle);
             TabControl tabs = window.FindControl<TabControl>("Tabs")!;
-            var settings = (TerminalSettings)typeof(NovaTerminal.MainWindow)
+            var settings = (TerminalSettings)typeof(Ntilde.MainWindow)
                 .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .GetValue(window)!;
 
@@ -444,7 +444,7 @@ public sealed class MainWindowShellExitTests
             return new TwoTabFixture(window, tabs, selected, (TerminalPane)background.Content!);
         }
 
-        private static TabItem CreateTab(NovaTerminal.MainWindow window, TabControl tabs, TerminalSettings settings, string title)
+        private static TabItem CreateTab(Ntilde.MainWindow window, TabControl tabs, TerminalSettings settings, string title)
         {
             var tabSession = new TabSession
             {
@@ -463,7 +463,7 @@ public sealed class MainWindowShellExitTests
 
             // The production entry point for restored content — it is what wires the pane's
             // events to the window (ProcessExited included, which Task 4 depends on).
-            typeof(NovaTerminal.MainWindow)
+            typeof(Ntilde.MainWindow)
                 .GetMethod("InitializeRestoredTabs", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(window, [tabs]);
 
@@ -478,14 +478,14 @@ public sealed class MainWindowShellExitTests
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~MainWindowShellExitTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~MainWindowShellExitTests"
 ```
 
 Expected: FAIL — `GetMethod("ClosePaneAsync")` returns null, so the test throws `NullReferenceException`.
 
 - [ ] **Step 3: Extract the pane-targeted close**
 
-In `src/NovaTerminal.App/MainWindow.axaml.cs`, replace the whole of `CloseActivePaneAsync` (lines 3364–3456) with:
+In `src/Ntilde.App/MainWindow.axaml.cs`, replace the whole of `CloseActivePaneAsync` (lines 3364–3456) with:
 
 ```csharp
         private Task CloseActivePaneAsync(bool skipConfirm = false)
@@ -601,7 +601,7 @@ Two behaviour notes for the reviewer: the zoom-exit and the tab fallback now use
 - [ ] **Step 4: Run the test to verify it passes**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~MainWindowShellExitTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~MainWindowShellExitTests"
 ```
 
 Expected: PASS, 1 test.
@@ -611,7 +611,7 @@ Expected: PASS, 1 test.
 `CloseActivePaneAsync` is on the user-facing close path, so run the pane and tab suites:
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Pane|FullyQualifiedName~TabClose"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Pane|FullyQualifiedName~TabClose"
 ```
 
 Expected: PASS, no new failures.
@@ -619,7 +619,7 @@ Expected: PASS, no new failures.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs
+git add src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.App.Tests/Core/MainWindowShellExitTests.cs
 git commit -m "refactor(panes): close the pane you name, not the selected one (#311)"
 ```
 
@@ -628,8 +628,8 @@ git commit -m "refactor(panes): close the pane you name, not the selected one (#
 ### Task 4: Wire the exit path
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs:2803` (`OnPaneProcessExited`)
-- Test: `tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs` (extend)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs:2803` (`OnPaneProcessExited`)
+- Test: `tests/Ntilde.App.Tests/Core/MainWindowShellExitTests.cs` (extend)
 
 **Interfaces:**
 - Consumes: `MainWindow.ShouldClosePaneOnExit` (Task 1), `TerminalPane.WriteLocalExitBanner` (Task 2), `MainWindow.ClosePaneAsync` (Task 3).
@@ -637,7 +637,7 @@ git commit -m "refactor(panes): close the pane you name, not the selected one (#
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs`, inside the existing class, above the `TwoTabFixture` nested class. Add `using NovaTerminal.Tests.Infra;` to the file's usings — `TerminalBufferText.Visible` is the shared helper Task 2 created:
+Add to `tests/Ntilde.App.Tests/Core/MainWindowShellExitTests.cs`, inside the existing class, above the `TwoTabFixture` nested class. Add `using Ntilde.Tests.Infra;` to the file's usings — `TerminalBufferText.Visible` is the shared helper Task 2 created:
 
 ```csharp
     [AvaloniaFact]
@@ -709,7 +709,7 @@ Add these members to `TwoTabFixture` (and keep `BackgroundTab` from `Create` by 
 
         public void ProtectBackgroundTab()
         {
-            object state = typeof(NovaTerminal.MainWindow)
+            object state = typeof(Ntilde.MainWindow)
                 .GetMethod("GetOrCreateTabState", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(Window, [BackgroundTab])!;
             state.GetType().GetProperty("IsProtected")!.SetValue(state, true);
@@ -721,14 +721,14 @@ and set `Settings`/`BackgroundTab` in `Create` (`settings` and `background` are 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~MainWindowShellExitTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~MainWindowShellExitTests"
 ```
 
 Expected: the four new tests FAIL — no banner text in the buffer, and both tabs still present in the Graceful clean-exit case.
 
 - [ ] **Step 3: Wire the handler**
 
-In `src/NovaTerminal.App/MainWindow.axaml.cs`, replace `OnPaneProcessExited` with:
+In `src/Ntilde.App/MainWindow.axaml.cs`, replace `OnPaneProcessExited` with:
 
 ```csharp
         private void OnPaneProcessExited(TerminalPane pane, int exitCode)
@@ -777,7 +777,7 @@ In `src/NovaTerminal.App/MainWindow.axaml.cs`, replace `OnPaneProcessExited` wit
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~MainWindowShellExitTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~MainWindowShellExitTests"
 ```
 
 Expected: PASS, 5 tests.
@@ -785,7 +785,7 @@ Expected: PASS, 5 tests.
 - [ ] **Step 5: Run the neighbouring suites**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Pane|FullyQualifiedName~Ssh|FullyQualifiedName~TabClose"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Pane|FullyQualifiedName~Ssh|FullyQualifiedName~TabClose"
 ```
 
 Expected: PASS, no new failures — in particular the SSH disconnect tests, which assert the banner this change must not touch.
@@ -793,7 +793,7 @@ Expected: PASS, no new failures — in particular the SSH disconnect tests, whic
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs
+git add src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.App.Tests/Core/MainWindowShellExitTests.cs
 git commit -m "feat(pane): announce a dead shell, close it when it exited cleanly (#311)"
 ```
 
@@ -804,8 +804,8 @@ git commit -m "feat(pane): announce a dead shell, close it when it exited cleanl
 `SettingsToolsDriftGuardTests` reflects over `TerminalSettings` and fails when a field is missing from the MCP server's field lists, so this task is not optional.
 
 **Files:**
-- Modify: `src/NovaTerminal.McpServer/Tools/SettingsTools.cs:54` (docs table), `:112` (example JSON), `:160` (`StringFields`), `:172` (`KnownFields`)
-- Test: `tests/NovaTerminal.McpServer.Tests/SettingsToolsDriftGuardTests.cs` (existing, unmodified)
+- Modify: `src/Ntilde.McpServer/Tools/SettingsTools.cs:54` (docs table), `:112` (example JSON), `:160` (`StringFields`), `:172` (`KnownFields`)
+- Test: `tests/Ntilde.McpServer.Tests/SettingsToolsDriftGuardTests.cs` (existing, unmodified)
 
 **Interfaces:**
 - Consumes: `TerminalSettings.ShellExitPolicy` (Task 1).
@@ -814,14 +814,14 @@ git commit -m "feat(pane): announce a dead shell, close it when it exited cleanl
 - [ ] **Step 1: Run the drift guard to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~SettingsToolsDriftGuardTests"
+scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~SettingsToolsDriftGuardTests"
 ```
 
 Expected: FAIL — `KnownFields_AreExactlyTheSerializedSettings` and `StringFields_AreExactlyTheStringSettings` report `ShellExitPolicy` missing.
 
 - [ ] **Step 2: Add the docs row**
 
-In `src/NovaTerminal.McpServer/Tools/SettingsTools.cs`, directly below the `PaneClosePolicy` row:
+In `src/Ntilde.McpServer/Tools/SettingsTools.cs`, directly below the `PaneClosePolicy` row:
 
 ```
         | `ShellExitPolicy` | string (enum-like) | "Never"/"Graceful"/"Always". Default "Never". What happens to a pane when its shell exits: keep it with a banner, close it on a clean exit, or always close it. Default is "Never" — a conservative choice until #313 lands and the real exit status from the child process can be captured. SSH panes ignore this and always keep their reconnect banner. Type-checked only; unrecognised values behave as "Graceful". |
@@ -852,7 +852,7 @@ In `KnownFields`, extend the `WheelLinesPerNotch` line:
 - [ ] **Step 5: Run the drift guard to verify it passes**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~SettingsToolsDriftGuardTests"
+scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~SettingsToolsDriftGuardTests"
 ```
 
 Expected: PASS.
@@ -860,7 +860,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.McpServer/Tools/SettingsTools.cs
+git add src/Ntilde.McpServer/Tools/SettingsTools.cs
 git commit -m "docs(mcp): document ShellExitPolicy in the settings tools (#311)"
 ```
 
@@ -875,10 +875,10 @@ Automated tests cover the decision, the banner and the targeting. What they cann
 - [ ] **Step 1: Build and run the app**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
-Then launch `src/NovaTerminal.App/bin/Debug/net10.0/NovaTerminal.exe`.
+Then launch `src/Ntilde.App/bin/Debug/net10.0/Ntilde.exe`.
 
 - [ ] **Step 2: Clean exit closes the pane**
 

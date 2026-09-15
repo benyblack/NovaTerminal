@@ -1,7 +1,7 @@
-using NovaTerminal.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Native;
 using Xunit;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public class NativeSshSafeHandleTests
 {

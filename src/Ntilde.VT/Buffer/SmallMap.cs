@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.VT.Storage
+namespace Ntilde.VT.Storage
 {
     /// <summary>
     /// Memory-optimized map for few entries (<= 8).

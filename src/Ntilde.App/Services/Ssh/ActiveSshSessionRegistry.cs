@@ -3,9 +3,9 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
-using NovaTerminal.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Models;
 
-namespace NovaTerminal.Services.Ssh;
+namespace Ntilde.Services.Ssh;
 
 public sealed class ActiveSshSessionRegistry
 {

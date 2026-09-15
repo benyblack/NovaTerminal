@@ -1,4 +1,4 @@
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     /// <summary>
     /// The live command line as read out of the terminal grid by

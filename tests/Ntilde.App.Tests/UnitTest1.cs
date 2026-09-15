@@ -1,4 +1,4 @@
-namespace NovaTerminal.Tests;
+namespace Ntilde.Tests;
 
 public class UnitTest1
 {

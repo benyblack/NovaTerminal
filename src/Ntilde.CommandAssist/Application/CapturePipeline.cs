@@ -1,10 +1,10 @@
 using System;
 using System.Threading.Tasks;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
 
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// Everything that turns a command the user ran into a history entry: the heuristic Enter-time
@@ -84,7 +84,7 @@ internal sealed class CapturePipeline
     /// </para>
     /// <para>
     /// One per cycle rather than a rate limit because it is the bound the real integrations already
-    /// satisfy: a prompt cycle is by construction one accepted command, and all four of Nova's own
+    /// satisfy: a prompt cycle is by construction one accepted command, and all four of Ntilde's own
     /// emitters - plus iTerm2's, VS Code's and starship's - emit exactly one <c>C</c> between the
     /// <c>B</c> that opened the input line and the <c>D</c> that closed it. Nothing legitimate is
     /// being clipped; a flood is.

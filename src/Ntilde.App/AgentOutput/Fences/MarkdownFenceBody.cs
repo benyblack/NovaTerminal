@@ -2,7 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
 
-namespace NovaTerminal.AgentOutput.Fences;
+namespace Ntilde.AgentOutput.Fences;
 
 /// <summary>
 /// Renders a <c>markdown</c> / <c>md</c> fence as a nested document rather than as source.

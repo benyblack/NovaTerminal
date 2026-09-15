@@ -1,15 +1,15 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Storage;
+using Ntilde.Controls;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Storage;
 using System.Threading;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class SessionManagerTests
 {
@@ -342,7 +342,7 @@ public sealed class SessionManagerTests
                 BackendKind = SshBackendKind.Native
             });
 
-            var session = new NovaSession
+            var session = new NtildeSession
             {
                 Tabs =
                 {

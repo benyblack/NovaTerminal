@@ -1,4 +1,4 @@
-# NovaTerminal GPU Hardening --- Engineering Specification
+# Ntilde GPU Hardening --- Engineering Specification
 
 Generated: 2026-02-26T13:28:47.837605 UTC
 
@@ -6,7 +6,7 @@ Generated: 2026-02-26T13:28:47.837605 UTC
 
 ## 1. Strategic Objective
 
-Achieve "good-enough GPU speed" while preserving NovaTerminal's
+Achieve "good-enough GPU speed" while preserving Ntilde's
 strongest differentiator: deterministic replay correctness.
 
 Constraints: - Keep Avalonia + Skia + .NET stack. - No replay format
@@ -24,9 +24,9 @@ mutable `TerminalBuffer` during draw - Avoid runtime lock contention
 
 ### Files:
 
--   src/NovaTerminal.VT/RenderSnapshots.cs
--   src/NovaTerminal.VT/TerminalBuffer.ThreadingAndInvalidation.cs
--   src/NovaTerminal.App/Core/TerminalDrawOperation.cs
+-   src/Ntilde.VT/RenderSnapshots.cs
+-   src/Ntilde.VT/TerminalBuffer.ThreadingAndInvalidation.cs
+-   src/Ntilde.App/Core/TerminalDrawOperation.cs
 
 Tasks: - Add/Create `TerminalRenderSnapshot` DTO if not strict. -
 Refactor draw path to remove live buffer reads. - Reduce lock scope to
@@ -40,7 +40,7 @@ Acceptance: - Replay parity tests pass. - No deadlocks introduced.
 
 ## 3.1 Integer Pixel Grid Enforcement
 
-Create: - src/NovaTerminal.Rendering/PixelGrid.cs
+Create: - src/Ntilde.Rendering/PixelGrid.cs
 
 Responsibilities: - Precompute CellWidthPx, CellHeightPx - Provide
 ColToPx(), RowToPx() helpers - Handle DPI rounding once per resize
@@ -81,10 +81,10 @@ Acceptance: - Reduced DrawCallsText metric. - No visual regressions.
 
 # 4. Metrics Infrastructure
 
-Add: - src/NovaTerminal.Rendering/RenderPerfMetrics.cs
+Add: - src/Ntilde.Rendering/RenderPerfMetrics.cs
 
-Environment Flags: - NOVATERM_RENDER_METRICS=1 -
-NOVATERM_RENDER_METRICS_OUT=`<path>`{=html}
+Environment Flags: - NTILDE_RENDER_METRICS=1 -
+NTILDE_RENDER_METRICS_OUT=`<path>`{=html}
 
 Metrics: - FrameTimeMs - DirtyRows - RowCacheHits/Misses -
 DrawCallsText/Rects - AllocBytesThisFrame - TextShapingRuns
@@ -96,7 +96,7 @@ disabled.
 
 # 5. Performance Tests
 
-Add under: tests/NovaTerminal.Tests/Performance/
+Add under: tests/Ntilde.Tests/Performance/
 
 New tests: - RenderPerf_Allocations_SteadyScroll.cs -
 RenderPerf_DrawCalls_SteadyScroll.cs -

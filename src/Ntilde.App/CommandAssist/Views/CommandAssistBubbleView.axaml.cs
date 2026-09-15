@@ -1,6 +1,6 @@
 using Avalonia.Controls;
 
-namespace NovaTerminal.CommandAssist.Views;
+namespace Ntilde.CommandAssist.Views;
 
 public partial class CommandAssistBubbleView : UserControl
 {

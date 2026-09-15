@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 public static class TitleBarCatalog
 {

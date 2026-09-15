@@ -3,11 +3,11 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
-using NovaTerminal.AgentHost.Contracts;
-using NovaTerminal.McpServer;
-using NovaTerminal.McpServer.Tools;
+using Ntilde.AgentHost.Contracts;
+using Ntilde.McpServer;
+using Ntilde.McpServer.Tools;
 
-namespace NovaTerminal.McpServer.Tests;
+namespace Ntilde.McpServer.Tests;
 
 /// <summary>
 /// Client-side tests for the agent-host observe channel (milestone A1, PR4).
@@ -87,7 +87,7 @@ public class AgentHostClientTests : IDisposable
     public async Task Round_trips_a_list_sessions_call_against_a_live_endpoint()
     {
         var endpoint = OperatingSystem.IsWindows()
-            ? "novaterminal-agent-client-test-" + Guid.NewGuid().ToString("N")
+            ? "ntilde-agent-client-test-" + Guid.NewGuid().ToString("N")
             : Path.Combine(_tempDir, "t.sock");
 
         var sessions = new ListSessionsResult
@@ -140,7 +140,7 @@ public class AgentHostClientTests : IDisposable
     public async Task Malformed_server_response_is_a_protocol_error_not_unavailable()
     {
         var endpoint = OperatingSystem.IsWindows()
-            ? "novaterminal-agent-client-test-" + Guid.NewGuid().ToString("N")
+            ? "ntilde-agent-client-test-" + Guid.NewGuid().ToString("N")
             : Path.Combine(_tempDir, "m.sock");
 
         using var serverCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -362,7 +362,7 @@ public class SessionToolsFormattingTests
     {
         var text = SessionTools.FormatCapture(new CaptureScreenResult
         {
-            FilePath = @"C:\rec\agent-exports\nova_screen_20260731_120000_abc123.png",
+            FilePath = @"C:\rec\agent-exports\ntilde_screen_20260731_120000_abc123.png",
             Width = 640,
             Height = 384,
             Cols = 80,
@@ -371,7 +371,7 @@ public class SessionToolsFormattingTests
             Downscaled = false,
         });
 
-        Assert.Contains("nova_screen_20260731_120000_abc123.png", text, StringComparison.Ordinal);
+        Assert.Contains("ntilde_screen_20260731_120000_abc123.png", text, StringComparison.Ordinal);
         Assert.Contains("640x384 px for a 80x24 grid", text, StringComparison.Ordinal);
         Assert.Contains("no window chrome", text, StringComparison.Ordinal);
         Assert.DoesNotContain("downscaled", text, StringComparison.OrdinalIgnoreCase);
@@ -476,14 +476,14 @@ public class SessionToolsFormattingTests
     {
         var text = SessionTools.FormatExport(new ExportReplayResult
         {
-            FilePath = @"C:\rec\agent-exports\nova_rec_20260707_120000_abc123.rec",
+            FilePath = @"C:\rec\agent-exports\ntilde_rec_20260707_120000_abc123.rec",
             EventCount = 42,
             FirstEventMs = 10_000,
             LastEventMs = 25_500,
             TruncatedAtStart = false,
         });
 
-        Assert.Contains("nova_rec_20260707_120000_abc123.rec", text, StringComparison.Ordinal);
+        Assert.Contains("ntilde_rec_20260707_120000_abc123.rec", text, StringComparison.Ordinal);
         Assert.Contains("42 event(s) covering 15500 ms", text, StringComparison.Ordinal);
         Assert.Contains("input is never recorded", text, StringComparison.Ordinal);
         Assert.Contains("--replay", text, StringComparison.Ordinal);

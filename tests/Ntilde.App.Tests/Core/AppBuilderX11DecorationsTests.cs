@@ -4,14 +4,14 @@ using System.Reflection;
 using Avalonia;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Pins the one line of <see cref="Program.BuildAvaloniaApp"/> that decides whether MainWindow has
 /// caption buttons on Linux.
 ///
 /// MainWindow is client-side decorated - ExtendClientAreaToDecorationsHint plus
-/// NovaWindowDecorationsTheme draw our own minimize/maximize/close - and on Windows and macOS that
+/// NtildeWindowDecorationsTheme draw our own minimize/maximize/close - and on Windows and macOS that
 /// opt-in is all it takes. On X11 (what Linux gets from UsePlatformDetect, including under Wayland
 /// compositors via XWayland) Avalonia 12 additionally gates drawn decorations behind
 /// X11PlatformOptions.EnableDrawnDecorations, which defaults to FALSE. Without it

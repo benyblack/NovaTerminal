@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace NovaTerminal.Platform.Tests.Infra;
+namespace Ntilde.Platform.Tests.Infra;
 
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 public sealed class DockerFactAttribute : FactAttribute
@@ -9,13 +9,13 @@ public sealed class DockerFactAttribute : FactAttribute
     {
         if (!IsEnabled())
         {
-            Skip = "NOVATERM_ENABLE_DOCKER_E2E is not set to 1. Skipping optional Docker end-to-end test.";
+            Skip = "NTILDE_ENABLE_DOCKER_E2E is not set to 1. Skipping optional Docker end-to-end test.";
         }
     }
 
     private static bool IsEnabled()
     {
-        string? raw = Environment.GetEnvironmentVariable("NOVATERM_ENABLE_DOCKER_E2E");
+        string? raw = Environment.GetEnvironmentVariable("NTILDE_ENABLE_DOCKER_E2E");
         return raw == "1" || string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
     }
 }

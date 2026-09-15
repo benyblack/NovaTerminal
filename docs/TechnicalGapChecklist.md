@@ -1,7 +1,7 @@
-# NovaTerminal – Technical Gap Checklist → Code Mapping
+# Ntilde – Technical Gap Checklist → Code Mapping
 
 This document maps **production-grade terminal requirements** to **concrete code areas**
-in the current NovaTerminal codebase.
+in the current Ntilde codebase.
 
 Purpose:
 - Guide automated agents (Antigravity / Codex)
@@ -20,21 +20,21 @@ Purpose:
 - Never depend on OS or PTY details
 
 **Primary Code**
-- `NovaTerminal/Core/AnsiParser.cs`
+- `Ntilde/Core/AnsiParser.cs`
   - VT state machine (ESC / CSI / OSC / DEC modes)
-- `NovaTerminal/Core/TerminalBuffer.cs`
+- `Ntilde/Core/TerminalBuffer.cs`
   - Applies parsed actions to buffer state
-- `NovaTerminal/Core/TerminalCell.cs`
+- `Ntilde/Core/TerminalCell.cs`
   - Cell attributes (fg/bg, bold, italic, etc.)
-- `NovaTerminal/Core/TerminalRow.cs`
+- `Ntilde/Core/TerminalRow.cs`
   - Row structure, wrapping metadata
 
 **Relevant Tests**
-- `NovaTerminal.Tests/PowerShellBehaviorTests.cs`
-- `NovaTerminal.Tests/PowerShellCursorPositionTests.cs`
-- `NovaTerminal.Tests/PowerShellWrappingTests.cs`
-- `NovaTerminal.Tests/CMDDuplicationTests.cs`
-- `NovaTerminal.Tests/OhMyPoshTests.cs`
+- `Ntilde.Tests/PowerShellBehaviorTests.cs`
+- `Ntilde.Tests/PowerShellCursorPositionTests.cs`
+- `Ntilde.Tests/PowerShellWrappingTests.cs`
+- `Ntilde.Tests/CMDDuplicationTests.cs`
+- `Ntilde.Tests/OhMyPoshTests.cs`
 
 ---
 
@@ -46,17 +46,17 @@ Purpose:
 - Preserve cursor and attribute state
 
 **Primary Code**
-- `NovaTerminal/Core/TerminalBuffer.cs`
+- `Ntilde/Core/TerminalBuffer.cs`
   - `_mainScreen`
   - `_altScreen`
   - `_isAltScreen`
 
 **Trigger Source**
-- `NovaTerminal/Core/AnsiParser.cs`
+- `Ntilde/Core/AnsiParser.cs`
   - DEC private mode handling
 
 **Relevant Tests**
-- `NovaTerminal.Tests/AlternateScreenTests.cs`
+- `Ntilde.Tests/AlternateScreenTests.cs`
 
 ---
 
@@ -68,17 +68,17 @@ Purpose:
 - Preserve attributes and glyph width
 
 **Primary Code**
-- `NovaTerminal/Core/TerminalBuffer.cs`
+- `Ntilde/Core/TerminalBuffer.cs`
   - `Resize(...)`
   - `Reflow(...)`
-- `NovaTerminal/Core/TerminalRow.cs`
+- `Ntilde/Core/TerminalRow.cs`
   - Wrap flags and continuation metadata
 
 **Relevant Tests**
-- `NovaTerminal.Tests/ReflowScenariosTests.cs`
-- `NovaTerminal.Tests/ReflowRegressionTests.cs`
-- `NovaTerminal.Tests/PlainPowerShellResizeTests.cs`
-- `NovaTerminal.Tests/PowerShellWrappingTests.cs`
+- `Ntilde.Tests/ReflowScenariosTests.cs`
+- `Ntilde.Tests/ReflowRegressionTests.cs`
+- `Ntilde.Tests/PlainPowerShellResizeTests.cs`
+- `Ntilde.Tests/PowerShellWrappingTests.cs`
 
 ---
 
@@ -92,23 +92,23 @@ Purpose:
 - Must remain flicker-free
 
 **Resize Pipeline**
-- `NovaTerminal/Controls/TerminalPane.axaml.cs`
+- `Ntilde/Controls/TerminalPane.axaml.cs`
   - Pixel → row/column calculation
-- `NovaTerminal/Core/TerminalView.cs`
+- `Ntilde/Core/TerminalView.cs`
   - Resize invalidation / render scheduling
-- `NovaTerminal/Core/RustPtySession.cs`
+- `Ntilde/Core/RustPtySession.cs`
   - PTY resize propagation
-- `NovaTerminal/Core/ConPtyNative.cs`
+- `Ntilde/Core/ConPtyNative.cs`
   - Windows-specific resize calls
 
 **Rendering**
-- `NovaTerminal/Core/TerminalDrawOperation.cs`
+- `Ntilde/Core/TerminalDrawOperation.cs`
   - Drawing logic (cell grid → Skia)
 
 **Relevant Tests**
-- `NovaTerminal.Tests/PlainPowerShellResizeTests.cs`
-- `NovaTerminal.Tests/ReflowRegressionTests.cs`
-- `NovaTerminal.Tests/PowerShellDiagnosticTests.cs`
+- `Ntilde.Tests/PlainPowerShellResizeTests.cs`
+- `Ntilde.Tests/ReflowRegressionTests.cs`
+- `Ntilde.Tests/PowerShellDiagnosticTests.cs`
 
 ---
 
@@ -120,13 +120,13 @@ Purpose:
 - Search must not mutate buffer
 
 **Primary Code**
-- `NovaTerminal/Core/TerminalBuffer.cs`
+- `Ntilde/Core/TerminalBuffer.cs`
   - Scrollback storage and indexing
-- `NovaTerminal/Core/SearchMatch.cs`
+- `Ntilde/Core/SearchMatch.cs`
   - Search result representation
 
 **Relevant Tests**
-- `NovaTerminal.Tests/TerminalBufferTests.cs`
+- `Ntilde.Tests/TerminalBufferTests.cs`
 
 ---
 
@@ -140,9 +140,9 @@ Purpose:
 - Same buffer → same output on all OSes
 
 **Primary Code**
-- `NovaTerminal/Core/TerminalCell.cs`
-- `NovaTerminal/Core/TerminalRow.cs`
-- `NovaTerminal/Core/TerminalBuffer.cs`
+- `Ntilde/Core/TerminalCell.cs`
+- `Ntilde/Core/TerminalRow.cs`
+- `Ntilde/Core/TerminalBuffer.cs`
 
 ---
 
@@ -154,8 +154,8 @@ Purpose:
 - Prevent flicker under resize and output
 
 **Primary Code**
-- `NovaTerminal/Core/TerminalDrawOperation.cs`
-- `NovaTerminal/Core/TerminalView.cs`
+- `Ntilde/Core/TerminalDrawOperation.cs`
+- `Ntilde/Core/TerminalView.cs`
 
 **Status**
 - Cell-diff rendering not fully implemented yet
@@ -171,9 +171,9 @@ Purpose:
 - Font fallback without grid drift
 
 **Primary Code**
-- `NovaTerminal/Core/TerminalView.cs`
+- `Ntilde/Core/TerminalView.cs`
   - Font selection and metrics
-- `NovaTerminal/Core/TerminalDrawOperation.cs`
+- `Ntilde/Core/TerminalDrawOperation.cs`
   - Skia text drawing
 
 ---
@@ -188,9 +188,9 @@ Purpose:
 - No platform branching in parser or buffer
 
 **Primary Code**
-- `NovaTerminal/Core/ITerminalSession.cs`
-- `NovaTerminal/Core/RustPtySession.cs`
-- `NovaTerminal/Core/ConPtyNative.cs`
+- `Ntilde/Core/ITerminalSession.cs`
+- `Ntilde/Core/RustPtySession.cs`
+- `Ntilde/Core/ConPtyNative.cs`
 
 ---
 
@@ -202,9 +202,9 @@ Purpose:
 - Maintain low input latency
 
 **Primary Code**
-- `NovaTerminal/Core/RustPtySession.cs`
+- `Ntilde/Core/RustPtySession.cs`
   - Read loop, buffering, async dispatch
-- `NovaTerminal/Core/TerminalView.cs`
+- `Ntilde/Core/TerminalView.cs`
   - Invalidation throttling / render coalescing
 
 ---
@@ -219,10 +219,10 @@ Purpose:
 - Cursor semantics
 
 **Primary Code**
-- `NovaTerminal/Core/AnsiParser.cs`
-- `NovaTerminal/Core/TerminalBuffer.cs`
-- `NovaTerminal/Core/TerminalRow.cs`
-- `NovaTerminal/Core/TerminalCell.cs`
+- `Ntilde/Core/AnsiParser.cs`
+- `Ntilde/Core/TerminalBuffer.cs`
+- `Ntilde/Core/TerminalRow.cs`
+- `Ntilde/Core/TerminalCell.cs`
 
 ---
 
@@ -234,9 +234,9 @@ Purpose:
 - Global hotkeys
 
 **Primary Code**
-- `NovaTerminal/MainWindow.axaml(.cs)`
-- `NovaTerminal/Controls/TerminalPane.axaml(.cs)`
-- `NovaTerminal/SettingsWindow.axaml(.cs)`
+- `Ntilde/MainWindow.axaml(.cs)`
+- `Ntilde/Controls/TerminalPane.axaml(.cs)`
+- `Ntilde/SettingsWindow.axaml(.cs)`
 
 ---
 
@@ -250,9 +250,9 @@ Purpose:
 - OS-specific secure storage
 
 **Primary Code**
-- `NovaTerminal/Core/TerminalProfile.cs`
-- `NovaTerminal/Core/VaultService.cs`
-- `NovaTerminal/Core/RustPtySession.cs` ⚠️
+- `Ntilde/Core/TerminalProfile.cs`
+- `Ntilde/Core/VaultService.cs`
+- `Ntilde/Core/RustPtySession.cs` ⚠️
   - Contains password prompt injection logic
   - Must be replaced with secure flow
 
@@ -265,8 +265,8 @@ Purpose:
 - Reconnect must not desync terminal state
 
 **Primary Code**
-- `NovaTerminal/Core/RustPtySession.cs`
-- `NovaTerminal/Core/ShellHelper.cs`
+- `Ntilde/Core/RustPtySession.cs`
+- `Ntilde/Core/ShellHelper.cs`
 
 ---
 
@@ -279,18 +279,18 @@ Purpose:
 - Enable golden-state testing
 
 **Recommended Location**
-- New module: `NovaTerminal/Core/Replay/`
+- New module: `Ntilde/Core/Replay/`
 - Feed recorded byte streams into:
   - `AnsiParser` → `TerminalBuffer`
 
 **Tests**
-- Extend `NovaTerminal.Tests` with replay-based assertions
+- Extend `Ntilde.Tests` with replay-based assertions
 
 ---
 
 ## H. Production-Grade Exit Criteria
 
-NovaTerminal is production-grade when:
+Ntilde is production-grade when:
 
 - 24h stress test passes:
   - vim

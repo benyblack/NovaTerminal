@@ -1,12 +1,12 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using Xunit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Rendering;
 using SkiaSharp;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class CacheCollisionTests
     {

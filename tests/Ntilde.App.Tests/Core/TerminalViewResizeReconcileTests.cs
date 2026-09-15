@@ -1,10 +1,10 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// #432: a resize dispatch cancelled before it runs must still reach the buffer and the PTY.

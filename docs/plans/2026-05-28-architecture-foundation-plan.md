@@ -1,4 +1,4 @@
-# NovaTerminal Architecture Foundation Plan
+# Ntilde Architecture Foundation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -95,16 +95,16 @@ Get-ChildItem -Recurse -Include *.csproj | Select-String -Pattern 'PackageRefere
 Then for each csproj listed, edit each `<PackageReference Include="X" Version="Y" />` to `<PackageReference Include="X" />`. Preserve `<IncludeAssets>` / `<PrivateAssets>` child elements.
 
 Affected files (verified during review):
-- `src/NovaTerminal.App/NovaTerminal.App.csproj` — Avalonia*, AvaloniaUI.DiagnosticsSupport, SkiaSharp*, System.Security.Cryptography.ProtectedData
-- `src/NovaTerminal.Rendering/NovaTerminal.Rendering.csproj` — SkiaSharp, SkiaSharp.HarfBuzz
-- `tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj` — Avalonia.Headless.XUnit, coverlet.collector, Microsoft.NET.Test.Sdk, Moq, xunit.v3, xunit.runner.visualstudio
-- `tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj` — same set but currently pinned to xunit 2.9.3
-- `tests/NovaTerminal.Benchmarks/NovaTerminal.Benchmarks.csproj` — inspect and update
-- `tests/NovaTerminal.ExternalSuites/NovaTerminal.ExternalSuites.csproj` — inspect and update
+- `src/Ntilde.App/Ntilde.App.csproj` — Avalonia*, AvaloniaUI.DiagnosticsSupport, SkiaSharp*, System.Security.Cryptography.ProtectedData
+- `src/Ntilde.Rendering/Ntilde.Rendering.csproj` — SkiaSharp, SkiaSharp.HarfBuzz
+- `tests/Ntilde.Tests/Ntilde.Tests.csproj` — Avalonia.Headless.XUnit, coverlet.collector, Microsoft.NET.Test.Sdk, Moq, xunit.v3, xunit.runner.visualstudio
+- `tests/Ntilde.Core.Tests/Ntilde.Core.Tests.csproj` — same set but currently pinned to xunit 2.9.3
+- `tests/Ntilde.Benchmarks/Ntilde.Benchmarks.csproj` — inspect and update
+- `tests/Ntilde.ExternalSuites/Ntilde.ExternalSuites.csproj` — inspect and update
 
-- [ ] **Step 3: Change `NovaTerminal.Core.Tests` to use xunit.v3**
+- [ ] **Step 3: Change `Ntilde.Core.Tests` to use xunit.v3**
 
-Edit `tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj`. Replace:
+Edit `tests/Ntilde.Core.Tests/Ntilde.Core.Tests.csproj`. Replace:
 
 ```xml
 <PackageReference Include="xunit" />
@@ -119,7 +119,7 @@ with:
 If any test file imports `Xunit.Sdk` or uses `[Theory(Skip=...)]` quirks that changed in v3, fix them now. Run:
 
 ```powershell
-scripts/build.ps1 build tests/NovaTerminal.Core.Tests
+scripts/build.ps1 build tests/Ntilde.Core.Tests
 ```
 
 Expected: build succeeds. If it doesn't, the compile errors point at the v2→v3 API drift. Common fixes documented at https://xunit.net/docs/getting-started/v3/migration.
@@ -233,32 +233,32 @@ git commit -m "build: centralize project properties and enable warnings-as-error
 ### Task 1.3 — Add missing projects to the solution
 
 **Files:**
-- Modify: `NovaTerminal.sln`
+- Modify: `Ntilde.sln`
 
-- [ ] **Step 1: Add `NovaTerminal.Conformance` to the solution**
+- [ ] **Step 1: Add `Ntilde.Conformance` to the solution**
 
 ```powershell
-dotnet sln NovaTerminal.sln add src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj
+dotnet sln Ntilde.sln add src/Ntilde.Conformance/Ntilde.Conformance.csproj
 ```
 
-- [ ] **Step 2: Add `NovaTerminal.ExternalSuites` to the solution**
+- [ ] **Step 2: Add `Ntilde.ExternalSuites` to the solution**
 
 ```powershell
-dotnet sln NovaTerminal.sln add tests/NovaTerminal.ExternalSuites/NovaTerminal.ExternalSuites.csproj
+dotnet sln Ntilde.sln add tests/Ntilde.ExternalSuites/Ntilde.ExternalSuites.csproj
 ```
 
 - [ ] **Step 3: Verify**
 
 ```powershell
-dotnet sln NovaTerminal.sln list
+dotnet sln Ntilde.sln list
 ```
 
-Expected output includes both `NovaTerminal.Conformance` and `NovaTerminal.ExternalSuites`.
+Expected output includes both `Ntilde.Conformance` and `Ntilde.ExternalSuites`.
 
 - [ ] **Step 4: Build the whole solution to confirm**
 
 ```powershell
-scripts/build.ps1 build NovaTerminal.sln
+scripts/build.ps1 build Ntilde.sln
 ```
 
 Expected: every project (now 12 total) builds.
@@ -266,7 +266,7 @@ Expected: every project (now 12 total) builds.
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add NovaTerminal.sln
+git add Ntilde.sln
 git commit -m "build: add Conformance and ExternalSuites projects to solution"
 ```
 
@@ -274,17 +274,17 @@ git commit -m "build: add Conformance and ExternalSuites projects to solution"
 
 ## Phase 2 — Architecture-Test Scaffold
 
-**Outcome:** A `NovaTerminal.Architecture.Tests` project that encodes layering rules. Tests start out failing (capturing today's known violations as `[Fact(Skip="...")]` with the current violation count). Each subsequent phase un-skips one rule.
+**Outcome:** A `Ntilde.Architecture.Tests` project that encodes layering rules. Tests start out failing (capturing today's known violations as `[Fact(Skip="...")]` with the current violation count). Each subsequent phase un-skips one rule.
 
 This is the single most leverage-dense phase. After it lands, no PR can re-introduce the violations being fixed by phases 3–5.
 
 ### Task 2.1 — Create the architecture-tests project
 
 **Files:**
-- Create: `tests/NovaTerminal.Architecture.Tests/NovaTerminal.Architecture.Tests.csproj`
-- Create: `tests/NovaTerminal.Architecture.Tests/LayeringTests.cs`
-- Create: `tests/NovaTerminal.Architecture.Tests/NamespaceAlignmentTests.cs`
-- Modify: `NovaTerminal.sln`
+- Create: `tests/Ntilde.Architecture.Tests/Ntilde.Architecture.Tests.csproj`
+- Create: `tests/Ntilde.Architecture.Tests/LayeringTests.cs`
+- Create: `tests/Ntilde.Architecture.Tests/NamespaceAlignmentTests.cs`
+- Modify: `Ntilde.sln`
 
 - [ ] **Step 1: Create the csproj**
 
@@ -307,14 +307,14 @@ This is the single most leverage-dense phase. After it lands, no PR can re-intro
 
   <ItemGroup>
     <!-- Reference every production assembly so NetArchTest can load them. -->
-    <ProjectReference Include="..\..\src\NovaTerminal.VT\NovaTerminal.VT.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Replay\NovaTerminal.Replay.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Rendering\NovaTerminal.Rendering.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Pty\NovaTerminal.Pty.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Core\NovaTerminal.Core.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.App\NovaTerminal.App.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Cli\NovaTerminal.Cli.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Conformance\NovaTerminal.Conformance.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.VT\Ntilde.VT.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Replay\Ntilde.Replay.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Rendering\Ntilde.Rendering.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Pty\Ntilde.Pty.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Core\Ntilde.Core.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.App\Ntilde.App.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Cli\Ntilde.Cli.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Conformance\Ntilde.Conformance.csproj" />
   </ItemGroup>
 </Project>
 ```
@@ -325,15 +325,15 @@ This is the single most leverage-dense phase. After it lands, no PR can re-intro
 using System.Reflection;
 using NetArchTest.Rules;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 public class LayeringTests
 {
-    private static Assembly Vt        => typeof(global::NovaTerminal.Core.AnsiParser).Assembly; // namespace fixed in Phase 3
-    private static Assembly Replay    => typeof(global::NovaTerminal.Core.Replay.ReplayReader).Assembly;
-    private static Assembly Rendering => typeof(global::NovaTerminal.Core.GlyphAtlas).Assembly;
-    private static Assembly Pty       => typeof(global::NovaTerminal.Core.ITerminalSession).Assembly;
-    private static Assembly Core      => typeof(global::NovaTerminal.Core.Input.TerminalInputSender).Assembly;
+    private static Assembly Vt        => typeof(global::Ntilde.Core.AnsiParser).Assembly; // namespace fixed in Phase 3
+    private static Assembly Replay    => typeof(global::Ntilde.Core.Replay.ReplayReader).Assembly;
+    private static Assembly Rendering => typeof(global::Ntilde.Core.GlyphAtlas).Assembly;
+    private static Assembly Pty       => typeof(global::Ntilde.Core.ITerminalSession).Assembly;
+    private static Assembly Core      => typeof(global::Ntilde.Core.Input.TerminalInputSender).Assembly;
 
     [Fact]
     public void Vt_must_be_a_leaf_assembly()
@@ -341,11 +341,11 @@ public class LayeringTests
         var result = Types.InAssembly(Vt)
             .Should()
             .NotHaveDependencyOnAny(
-                "NovaTerminal.Replay",
-                "NovaTerminal.Rendering",
-                "NovaTerminal.Pty",
-                "NovaTerminal.Core",
-                "NovaTerminal.App",
+                "Ntilde.Replay",
+                "Ntilde.Rendering",
+                "Ntilde.Pty",
+                "Ntilde.Core",
+                "Ntilde.App",
                 "Avalonia",
                 "SkiaSharp")
             .GetResult();
@@ -360,10 +360,10 @@ public class LayeringTests
         var result = Types.InAssembly(Rendering)
             .Should()
             .NotHaveDependencyOnAny(
-                "NovaTerminal.Replay",
-                "NovaTerminal.Pty",
-                "NovaTerminal.Core",
-                "NovaTerminal.App",
+                "Ntilde.Replay",
+                "Ntilde.Pty",
+                "Ntilde.Core",
+                "Ntilde.App",
                 "Avalonia")
             .GetResult();
 
@@ -377,10 +377,10 @@ public class LayeringTests
         var result = Types.InAssembly(Replay)
             .Should()
             .NotHaveDependencyOnAny(
-                "NovaTerminal.Rendering",
-                "NovaTerminal.Pty",
-                "NovaTerminal.Core",
-                "NovaTerminal.App",
+                "Ntilde.Rendering",
+                "Ntilde.Pty",
+                "Ntilde.Core",
+                "Ntilde.App",
                 "Avalonia",
                 "SkiaSharp")
             .GetResult();
@@ -397,7 +397,7 @@ public class LayeringTests
     {
         var result = Types.InAssembly(Pty)
             .Should()
-            .NotHaveDependencyOn("NovaTerminal.VT")
+            .NotHaveDependencyOn("Ntilde.VT")
             .GetResult();
 
         Assert.True(result.IsSuccessful,
@@ -433,11 +433,11 @@ This file captures the Section B finding. **Every test starts skipped** with the
 using System.Reflection;
 using NetArchTest.Rules;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 /// <summary>
 /// Each production assembly should put its types in a namespace that matches its assembly name.
-/// Today, 5 of 6 production assemblies all use "NovaTerminal.Core" as their root namespace.
+/// Today, 5 of 6 production assemblies all use "Ntilde.Core" as their root namespace.
 /// Phase 3 fixes this one assembly at a time.
 /// </summary>
 public class NamespaceAlignmentTests
@@ -446,57 +446,57 @@ public class NamespaceAlignmentTests
         => AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == name);
 
     [Fact(Skip = "Known violation — fixed in Phase 3 (VT subphase)")]
-    public void All_VT_types_use_NovaTerminal_VT_namespace()
+    public void All_VT_types_use_Ntilde_VT_namespace()
     {
-        var result = Types.InAssembly(LoadByName("NovaTerminal.VT"))
+        var result = Types.InAssembly(LoadByName("Ntilde.VT"))
             .That()
             .DoNotResideInNamespace("System.Runtime.CompilerServices")     // attributes the compiler generates
             .And().ArePublic()
             .Should()
-            .ResideInNamespaceStartingWith("NovaTerminal.VT")
+            .ResideInNamespaceStartingWith("Ntilde.VT")
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            $"VT types not in NovaTerminal.VT.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
+            $"VT types not in Ntilde.VT.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
 
     [Fact(Skip = "Known violation — fixed in Phase 3 (Replay subphase)")]
-    public void All_Replay_types_use_NovaTerminal_Replay_namespace()
+    public void All_Replay_types_use_Ntilde_Replay_namespace()
     {
-        var result = Types.InAssembly(LoadByName("NovaTerminal.Replay"))
+        var result = Types.InAssembly(LoadByName("Ntilde.Replay"))
             .That().ArePublic()
             .Should()
-            .ResideInNamespaceStartingWith("NovaTerminal.Replay")
+            .ResideInNamespaceStartingWith("Ntilde.Replay")
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            $"Replay types not in NovaTerminal.Replay.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
+            $"Replay types not in Ntilde.Replay.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
 
     [Fact(Skip = "Known violation — fixed in Phase 3 (Rendering subphase)")]
-    public void All_Rendering_types_use_NovaTerminal_Rendering_namespace()
+    public void All_Rendering_types_use_Ntilde_Rendering_namespace()
     {
-        var result = Types.InAssembly(LoadByName("NovaTerminal.Rendering"))
+        var result = Types.InAssembly(LoadByName("Ntilde.Rendering"))
             .That().ArePublic()
             .Should()
-            .ResideInNamespaceStartingWith("NovaTerminal.Rendering")
+            .ResideInNamespaceStartingWith("Ntilde.Rendering")
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            $"Rendering types not in NovaTerminal.Rendering.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
+            $"Rendering types not in Ntilde.Rendering.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
 
     [Fact(Skip = "Known violation — fixed in Phase 3 (Pty subphase)")]
-    public void All_Pty_types_use_NovaTerminal_Pty_namespace()
+    public void All_Pty_types_use_Ntilde_Pty_namespace()
     {
-        var result = Types.InAssembly(LoadByName("NovaTerminal.Pty"))
+        var result = Types.InAssembly(LoadByName("Ntilde.Pty"))
             .That().ArePublic()
             .Should()
-            .ResideInNamespaceStartingWith("NovaTerminal.Pty")
+            .ResideInNamespaceStartingWith("Ntilde.Pty")
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            $"Pty types not in NovaTerminal.Pty.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
+            $"Pty types not in Ntilde.Pty.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
 }
 ```
@@ -504,13 +504,13 @@ public class NamespaceAlignmentTests
 - [ ] **Step 4: Add the project to the sln**
 
 ```powershell
-dotnet sln NovaTerminal.sln add tests/NovaTerminal.Architecture.Tests/NovaTerminal.Architecture.Tests.csproj
+dotnet sln Ntilde.sln add tests/Ntilde.Architecture.Tests/Ntilde.Architecture.Tests.csproj
 ```
 
 - [ ] **Step 5: Build and run only the architecture tests**
 
 ```powershell
-scripts/build.ps1 build tests/NovaTerminal.Architecture.Tests
+scripts/build.ps1 build tests/Ntilde.Architecture.Tests
 scripts/build.ps1 test --filter "FullyQualifiedName~Architecture.Tests"
 ```
 
@@ -521,7 +521,7 @@ If any of the un-skipped tests *fail*, the current assembly graph is even worse 
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add tests/NovaTerminal.Architecture.Tests/ NovaTerminal.sln
+git add tests/Ntilde.Architecture.Tests/ Ntilde.sln
 git commit -m "test: add NetArchTest scaffold with current violations captured as known issues"
 ```
 
@@ -533,10 +533,10 @@ git commit -m "test: add NetArchTest scaffold with current violations captured a
 
 **Procedure for every sub-phase:**
 
-1. Enumerate the namespace declarations in the target assembly (`grep -rn '^namespace ' src/NovaTerminal.<X>`).
-2. Map old → new (`NovaTerminal.Core` → `NovaTerminal.<X>`, sub-namespaces preserved).
-3. Do a project-scoped find-replace on `namespace ` declarations and any explicit cross-references (`using NovaTerminal.Core.<Sub>;` referring to the renamed sub-namespace).
-4. In every *consumer* project, add `using NovaTerminal.<X>;` (or fully qualify) where compile errors appear.
+1. Enumerate the namespace declarations in the target assembly (`grep -rn '^namespace ' src/Ntilde.<X>`).
+2. Map old → new (`Ntilde.Core` → `Ntilde.<X>`, sub-namespaces preserved).
+3. Do a project-scoped find-replace on `namespace ` declarations and any explicit cross-references (`using Ntilde.Core.<Sub>;` referring to the renamed sub-namespace).
+4. In every *consumer* project, add `using Ntilde.<X>;` (or fully qualify) where compile errors appear.
 5. Build solution.
 6. Run all tests.
 7. Un-skip the matching `NamespaceAlignment` architecture test (remove the `Skip` argument).
@@ -545,17 +545,17 @@ git commit -m "test: add NetArchTest scaffold with current violations captured a
 
 The find-replace is mechanical but huge. Use one IDE refactor per sub-phase to keep the diff reviewable.
 
-### Task 3.1 — Rename VT namespace (`NovaTerminal.Core` → `NovaTerminal.VT`)
+### Task 3.1 — Rename VT namespace (`Ntilde.Core` → `Ntilde.VT`)
 
 **Files:**
-- Modify: every `*.cs` under `src/NovaTerminal.VT/`
+- Modify: every `*.cs` under `src/Ntilde.VT/`
 - Modify: every `*.cs` consuming VT types (across `Replay`, `Rendering`, `Pty`, `Core`, `App`, `Cli`, tests)
-- Modify: `tests/NovaTerminal.Architecture.Tests/NamespaceAlignmentTests.cs` (un-skip the VT test)
+- Modify: `tests/Ntilde.Architecture.Tests/NamespaceAlignmentTests.cs` (un-skip the VT test)
 
 - [ ] **Step 1: List current VT namespaces**
 
 ```powershell
-Get-ChildItem -Recurse -Path src/NovaTerminal.VT -Filter *.cs `
+Get-ChildItem -Recurse -Path src/Ntilde.VT -Filter *.cs `
   | Select-String -Pattern '^namespace ' `
   | Select-Object -ExpandProperty Line `
   | Sort-Object -Unique
@@ -564,56 +564,56 @@ Get-ChildItem -Recurse -Path src/NovaTerminal.VT -Filter *.cs `
 Expected output (from the review):
 
 ```
-namespace NovaTerminal.Core
-namespace NovaTerminal.Core.Export
-namespace NovaTerminal.Core.Replay
-namespace NovaTerminal.Core.Storage
-namespace NovaTerminal.Core;
+namespace Ntilde.Core
+namespace Ntilde.Core.Export
+namespace Ntilde.Core.Replay
+namespace Ntilde.Core.Storage
+namespace Ntilde.Core;
 ```
 
 Mapping:
 
 | Old | New |
 |---|---|
-| `NovaTerminal.Core` | `NovaTerminal.VT` |
-| `NovaTerminal.Core.Export` | `NovaTerminal.VT.Export` |
-| `NovaTerminal.Core.Storage` | `NovaTerminal.VT.Storage` |
-| `NovaTerminal.Core.Replay` (when *defined* in VT) | **stays as `NovaTerminal.Core.Replay`** — see step 2 |
+| `Ntilde.Core` | `Ntilde.VT` |
+| `Ntilde.Core.Export` | `Ntilde.VT.Export` |
+| `Ntilde.Core.Storage` | `Ntilde.VT.Storage` |
+| `Ntilde.Core.Replay` (when *defined* in VT) | **stays as `Ntilde.Core.Replay`** — see step 2 |
 
-- [ ] **Step 2: Handle the `NovaTerminal.Core.Replay` ambiguity first**
+- [ ] **Step 2: Handle the `Ntilde.Core.Replay` ambiguity first**
 
-Both the VT project and the Replay project declare types in `NovaTerminal.Core.Replay`. **Find which types are in which.**
+Both the VT project and the Replay project declare types in `Ntilde.Core.Replay`. **Find which types are in which.**
 
 ```powershell
-Get-ChildItem -Recurse -Path src/NovaTerminal.VT -Filter *.cs | `
-  Select-String -Pattern 'namespace NovaTerminal\.Core\.Replay' -List | `
+Get-ChildItem -Recurse -Path src/Ntilde.VT -Filter *.cs | `
+  Select-String -Pattern 'namespace Ntilde\.Core\.Replay' -List | `
   Select-Object Path
-Get-ChildItem -Recurse -Path src/NovaTerminal.Replay -Filter *.cs | `
-  Select-String -Pattern 'namespace NovaTerminal\.Core\.Replay' -List | `
+Get-ChildItem -Recurse -Path src/Ntilde.Replay -Filter *.cs | `
+  Select-String -Pattern 'namespace Ntilde\.Core\.Replay' -List | `
   Select-Object Path
 ```
 
 Inspect each file. Types that *describe* a replay (snapshot models, replay-formatted data) belong in the **Replay** namespace. Types that are general buffer state happen to be used during replay belong in **VT**.
 
-In VT: rename the namespace of any `NovaTerminal.Core.Replay`-namespaced file to `NovaTerminal.VT` (if it's general-purpose) or `NovaTerminal.VT.Replay` (if it's specifically replay-shaped data owned by VT). Document the call in the commit message.
+In VT: rename the namespace of any `Ntilde.Core.Replay`-namespaced file to `Ntilde.VT` (if it's general-purpose) or `Ntilde.VT.Replay` (if it's specifically replay-shaped data owned by VT). Document the call in the commit message.
 
-In Replay (Task 3.2 territory, but flagged now to plan): files there will become `NovaTerminal.Replay`.
+In Replay (Task 3.2 territory, but flagged now to plan): files there will become `Ntilde.Replay`.
 
 - [ ] **Step 3: Rename namespaces in VT files**
 
-For every `.cs` under `src/NovaTerminal.VT/`:
-- `namespace NovaTerminal.Core` → `namespace NovaTerminal.VT`
-- `namespace NovaTerminal.Core;` → `namespace NovaTerminal.VT;`
-- `namespace NovaTerminal.Core.Export` → `namespace NovaTerminal.VT.Export`
-- `namespace NovaTerminal.Core.Storage` → `namespace NovaTerminal.VT.Storage`
-- `namespace NovaTerminal.Core.Replay` (in VT) → `namespace NovaTerminal.VT` or `namespace NovaTerminal.VT.Replay` per step 2
+For every `.cs` under `src/Ntilde.VT/`:
+- `namespace Ntilde.Core` → `namespace Ntilde.VT`
+- `namespace Ntilde.Core;` → `namespace Ntilde.VT;`
+- `namespace Ntilde.Core.Export` → `namespace Ntilde.VT.Export`
+- `namespace Ntilde.Core.Storage` → `namespace Ntilde.VT.Storage`
+- `namespace Ntilde.Core.Replay` (in VT) → `namespace Ntilde.VT` or `namespace Ntilde.VT.Replay` per step 2
 
 A safe approach: use the IDE's "rename namespace" refactor, file by file. Avoid global sed — it will catch namespace strings inside string literals (replay format strings, log messages) and break them.
 
 - [ ] **Step 4: Build the VT project alone**
 
 ```powershell
-scripts/build.ps1 build src/NovaTerminal.VT
+scripts/build.ps1 build src/Ntilde.VT
 ```
 
 Expected: green. Errors here are internal to VT (one file referenced another via the old namespace).
@@ -621,12 +621,12 @@ Expected: green. Errors here are internal to VT (one file referenced another via
 - [ ] **Step 5: Build the rest of the solution and fix consumer errors**
 
 ```powershell
-scripts/build.ps1 build NovaTerminal.sln
+scripts/build.ps1 build Ntilde.sln
 ```
 
-Expected: many errors of the form `The type or namespace 'TerminalBuffer' could not be found`. For each file flagged, add `using NovaTerminal.VT;` (and `using NovaTerminal.VT.Export;` / `.Storage;` as appropriate).
+Expected: many errors of the form `The type or namespace 'TerminalBuffer' could not be found`. For each file flagged, add `using Ntilde.VT;` (and `using Ntilde.VT.Export;` / `.Storage;` as appropriate).
 
-Do **not** remove existing `using NovaTerminal.Core;` lines yet — other assemblies still use that namespace until later sub-phases.
+Do **not** remove existing `using Ntilde.Core;` lines yet — other assemblies still use that namespace until later sub-phases.
 
 - [ ] **Step 6: Run all tests**
 
@@ -638,7 +638,7 @@ Expected: same pass/fail as before. Any regression here is a namespace mistake �
 
 - [ ] **Step 7: Un-skip the VT namespace architecture test**
 
-In `tests/NovaTerminal.Architecture.Tests/NamespaceAlignmentTests.cs`, remove the `Skip = "..."` from `All_VT_types_use_NovaTerminal_VT_namespace`.
+In `tests/Ntilde.Architecture.Tests/NamespaceAlignmentTests.cs`, remove the `Skip = "..."` from `All_VT_types_use_Ntilde_VT_namespace`.
 
 ```powershell
 scripts/build.ps1 test --filter "FullyQualifiedName~NamespaceAlignmentTests.All_VT"
@@ -649,38 +649,38 @@ Expected: passes.
 - [ ] **Step 8: Commit**
 
 ```powershell
-git add src/NovaTerminal.VT/ src/**/*.cs tests/**/*.cs tests/NovaTerminal.Architecture.Tests/
-git commit -m "refactor(vt): align namespace to assembly (NovaTerminal.Core -> NovaTerminal.VT)"
+git add src/Ntilde.VT/ src/**/*.cs tests/**/*.cs tests/Ntilde.Architecture.Tests/
+git commit -m "refactor(vt): align namespace to assembly (Ntilde.Core -> Ntilde.VT)"
 ```
 
-### Task 3.2 — Rename Replay namespace (`NovaTerminal.Core.Replay` → `NovaTerminal.Replay`)
+### Task 3.2 — Rename Replay namespace (`Ntilde.Core.Replay` → `Ntilde.Replay`)
 
-Same procedure as Task 3.1, scoped to `src/NovaTerminal.Replay/`. Mapping:
+Same procedure as Task 3.1, scoped to `src/Ntilde.Replay/`. Mapping:
 
 | Old | New |
 |---|---|
-| `NovaTerminal.Core.Replay` (defined in Replay project only) | `NovaTerminal.Replay` |
+| `Ntilde.Core.Replay` (defined in Replay project only) | `Ntilde.Replay` |
 
 - [ ] **Step 1: Confirm no other namespace patterns exist in Replay**
 
 ```powershell
-Get-ChildItem -Recurse -Path src/NovaTerminal.Replay -Filter *.cs | `
+Get-ChildItem -Recurse -Path src/Ntilde.Replay -Filter *.cs | `
   Select-String -Pattern '^namespace ' | Select-Object -ExpandProperty Line | Sort-Object -Unique
 ```
 
-Expected (per review): only `namespace NovaTerminal.Core.Replay`.
+Expected (per review): only `namespace Ntilde.Core.Replay`.
 
 - [ ] **Step 2: Rename namespace declarations**
 
-`namespace NovaTerminal.Core.Replay` → `namespace NovaTerminal.Replay`.
+`namespace Ntilde.Core.Replay` → `namespace Ntilde.Replay`.
 
 - [ ] **Step 3: Build and fix consumer `using` errors**
 
 ```powershell
-scripts/build.ps1 build NovaTerminal.sln
+scripts/build.ps1 build Ntilde.sln
 ```
 
-Expected: consumers (Pty references Replay; App references Replay; tests) will need `using NovaTerminal.Replay;`.
+Expected: consumers (Pty references Replay; App references Replay; tests) will need `using Ntilde.Replay;`.
 
 - [ ] **Step 4: Run tests**
 
@@ -690,7 +690,7 @@ scripts/build.ps1 test
 
 - [ ] **Step 5: Un-skip the Replay namespace architecture test**
 
-Remove the `Skip` from `All_Replay_types_use_NovaTerminal_Replay_namespace`. Run:
+Remove the `Skip` from `All_Replay_types_use_Ntilde_Replay_namespace`. Run:
 
 ```powershell
 scripts/build.ps1 test --filter "FullyQualifiedName~NamespaceAlignmentTests.All_Replay"
@@ -701,19 +701,19 @@ Expected: passes.
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add src/NovaTerminal.Replay/ src/**/*.cs tests/**/*.cs tests/NovaTerminal.Architecture.Tests/
-git commit -m "refactor(replay): align namespace to assembly (NovaTerminal.Core.Replay -> NovaTerminal.Replay)"
+git add src/Ntilde.Replay/ src/**/*.cs tests/**/*.cs tests/Ntilde.Architecture.Tests/
+git commit -m "refactor(replay): align namespace to assembly (Ntilde.Core.Replay -> Ntilde.Replay)"
 ```
 
-### Task 3.3 — Rename Rendering namespace (`NovaTerminal.Core` → `NovaTerminal.Rendering`)
+### Task 3.3 — Rename Rendering namespace (`Ntilde.Core` → `Ntilde.Rendering`)
 
-Same procedure. Per review, every file in `src/NovaTerminal.Rendering/` uses `namespace NovaTerminal.Core`.
+Same procedure. Per review, every file in `src/Ntilde.Rendering/` uses `namespace Ntilde.Core`.
 
-- [ ] **Step 1: Rename `namespace NovaTerminal.Core` → `namespace NovaTerminal.Rendering` in every file under `src/NovaTerminal.Rendering/`**
+- [ ] **Step 1: Rename `namespace Ntilde.Core` → `namespace Ntilde.Rendering` in every file under `src/Ntilde.Rendering/`**
 
 - [ ] **Step 2: Build solution, fix consumer `using` errors**
 
-`App` is the main consumer; expect to add `using NovaTerminal.Rendering;` to many files in `src/NovaTerminal.App/`.
+`App` is the main consumer; expect to add `using Ntilde.Rendering;` to many files in `src/Ntilde.App/`.
 
 - [ ] **Step 3: Run tests**
 
@@ -721,7 +721,7 @@ Same procedure. Per review, every file in `src/NovaTerminal.Rendering/` uses `na
 scripts/build.ps1 test
 ```
 
-- [ ] **Step 4: Un-skip `All_Rendering_types_use_NovaTerminal_Rendering_namespace`. Verify it passes.**
+- [ ] **Step 4: Un-skip `All_Rendering_types_use_Ntilde_Rendering_namespace`. Verify it passes.**
 
 - [ ] **Step 5: Commit**
 
@@ -729,17 +729,17 @@ scripts/build.ps1 test
 git commit -m "refactor(rendering): align namespace to assembly"
 ```
 
-### Task 3.4 — Rename Pty namespace (`NovaTerminal.Core` → `NovaTerminal.Pty`)
+### Task 3.4 — Rename Pty namespace (`Ntilde.Core` → `Ntilde.Pty`)
 
-Same procedure. Affects 6 files under `src/NovaTerminal.Pty/`.
+Same procedure. Affects 6 files under `src/Ntilde.Pty/`.
 
 **Note:** `ITerminalSession.cs` keeps its current shape for now — Phase 5 will redesign the interface. Only the namespace changes here.
 
-- [ ] **Step 1: Rename `namespace NovaTerminal.Core` → `namespace NovaTerminal.Pty` in every file under `src/NovaTerminal.Pty/`**
+- [ ] **Step 1: Rename `namespace Ntilde.Core` → `namespace Ntilde.Pty` in every file under `src/Ntilde.Pty/`**
 
 - [ ] **Step 2: Build solution, fix consumer `using` errors**
 
-Heavy consumer: `NovaTerminal.Core` (because `Core → Pty`), plus `App`.
+Heavy consumer: `Ntilde.Core` (because `Core → Pty`), plus `App`.
 
 - [ ] **Step 3: Run tests, un-skip Pty namespace test, commit**
 
@@ -747,16 +747,16 @@ Heavy consumer: `NovaTerminal.Core` (because `Core → Pty`), plus `App`.
 git commit -m "refactor(pty): align namespace to assembly"
 ```
 
-### Task 3.5 — Audit `NovaTerminal.Core` namespace
+### Task 3.5 — Audit `Ntilde.Core` namespace
 
-After tasks 3.1–3.4, the only project legitimately using `NovaTerminal.Core` as its namespace is the `NovaTerminal.Core` assembly itself.
+After tasks 3.1–3.4, the only project legitimately using `Ntilde.Core` as its namespace is the `Ntilde.Core` assembly itself.
 
-- [ ] **Step 1: Sanity-check that no other assembly still uses `NovaTerminal.Core`**
+- [ ] **Step 1: Sanity-check that no other assembly still uses `Ntilde.Core`**
 
 ```powershell
-foreach ($p in 'NovaTerminal.VT','NovaTerminal.Replay','NovaTerminal.Rendering','NovaTerminal.Pty') {
+foreach ($p in 'Ntilde.VT','Ntilde.Replay','Ntilde.Rendering','Ntilde.Pty') {
   $hits = Get-ChildItem -Recurse -Path "src/$p" -Filter *.cs |
-          Select-String -Pattern '^\s*namespace NovaTerminal\.Core(\.|;|\s|$)'
+          Select-String -Pattern '^\s*namespace Ntilde\.Core(\.|;|\s|$)'
   if ($hits) { Write-Host "LEAK in $p"; $hits }
 }
 ```
@@ -765,23 +765,23 @@ Expected: no output. If any leak, repeat the relevant sub-phase.
 
 - [ ] **Step 2: Add an architecture test that locks in the rule going forward**
 
-In `tests/NovaTerminal.Architecture.Tests/NamespaceAlignmentTests.cs`, add:
+In `tests/Ntilde.Architecture.Tests/NamespaceAlignmentTests.cs`, add:
 
 ```csharp
 [Fact]
-public void Only_the_Core_assembly_uses_NovaTerminal_Core_namespace()
+public void Only_the_Core_assembly_uses_Ntilde_Core_namespace()
 {
-    foreach (var asmName in new[] { "NovaTerminal.VT", "NovaTerminal.Replay",
-                                     "NovaTerminal.Rendering", "NovaTerminal.Pty" })
+    foreach (var asmName in new[] { "Ntilde.VT", "Ntilde.Replay",
+                                     "Ntilde.Rendering", "Ntilde.Pty" })
     {
         var result = Types.InAssembly(LoadByName(asmName))
             .That().ArePublic()
             .Should()
-            .NotResideInNamespaceStartingWith("NovaTerminal.Core")
+            .NotResideInNamespaceStartingWith("Ntilde.Core")
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            $"{asmName} must not use NovaTerminal.Core namespace. " +
+            $"{asmName} must not use Ntilde.Core namespace. " +
             $"Offenders: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
 }
@@ -803,58 +803,58 @@ git commit -am "test(architecture): lock in namespace-assembly alignment as a ru
 
 ## Phase 4 — Test Stack Unification & Missing Test Projects
 
-**Outcome:** A `NovaTerminal.VT.Tests` and `NovaTerminal.Rendering.Tests` exist as thin, fast unit suites; the existing test projects are renamed to match what they actually test; all of them use xUnit v3.
+**Outcome:** A `Ntilde.VT.Tests` and `Ntilde.Rendering.Tests` exist as thin, fast unit suites; the existing test projects are renamed to match what they actually test; all of them use xUnit v3.
 
 xUnit v3 unification was done as part of Task 1.1 step 3. This phase adds the missing projects and fixes naming.
 
-### Task 4.1 — Rename `NovaTerminal.Tests` to `NovaTerminal.App.Tests`
+### Task 4.1 — Rename `Ntilde.Tests` to `Ntilde.App.Tests`
 
-The current `NovaTerminal.Tests` references `App` + `Cli` + `Conformance`, so it's an *App-level* integration suite. The name should reflect that.
+The current `Ntilde.Tests` references `App` + `Cli` + `Conformance`, so it's an *App-level* integration suite. The name should reflect that.
 
 **Files:**
-- Rename folder: `tests/NovaTerminal.Tests/` → `tests/NovaTerminal.App.Tests/`
-- Rename csproj: `NovaTerminal.Tests.csproj` → `NovaTerminal.App.Tests.csproj`
-- Modify: `NovaTerminal.sln`
-- Modify: any `InternalsVisibleTo` referring to `NovaTerminal.Tests`
+- Rename folder: `tests/Ntilde.Tests/` → `tests/Ntilde.App.Tests/`
+- Rename csproj: `Ntilde.Tests.csproj` → `Ntilde.App.Tests.csproj`
+- Modify: `Ntilde.sln`
+- Modify: any `InternalsVisibleTo` referring to `Ntilde.Tests`
 - Modify: any CI script referring to it
 
 - [ ] **Step 1: Find all references to the old name**
 
 ```powershell
-Get-ChildItem -Recurse -File | Select-String -Pattern 'NovaTerminal\.Tests' -List | Select-Object Path
+Get-ChildItem -Recurse -File | Select-String -Pattern 'Ntilde\.Tests' -List | Select-Object Path
 ```
 
 Expected hits include:
-- `NovaTerminal.sln`
-- `src/NovaTerminal.App/NovaTerminal.App.csproj` (`<InternalsVisibleTo Include="NovaTerminal.Tests" />`)
+- `Ntilde.sln`
+- `src/Ntilde.App/Ntilde.App.csproj` (`<InternalsVisibleTo Include="Ntilde.Tests" />`)
 - `ci/run.ps1` / `ci/run.sh` (if they filter by project name)
 - Possibly GitHub Actions workflow files under `.github/`
 
 - [ ] **Step 2: Rename the directory and project file**
 
 ```powershell
-git mv tests/NovaTerminal.Tests tests/NovaTerminal.App.Tests
-git mv tests/NovaTerminal.App.Tests/NovaTerminal.Tests.csproj tests/NovaTerminal.App.Tests/NovaTerminal.App.Tests.csproj
+git mv tests/Ntilde.Tests tests/Ntilde.App.Tests
+git mv tests/Ntilde.App.Tests/Ntilde.Tests.csproj tests/Ntilde.App.Tests/Ntilde.App.Tests.csproj
 ```
 
 - [ ] **Step 3: Update the sln**
 
 ```powershell
-dotnet sln NovaTerminal.sln remove tests/NovaTerminal.App.Tests/NovaTerminal.Tests.csproj 2>$null
-dotnet sln NovaTerminal.sln add tests/NovaTerminal.App.Tests/NovaTerminal.App.Tests.csproj
+dotnet sln Ntilde.sln remove tests/Ntilde.App.Tests/Ntilde.Tests.csproj 2>$null
+dotnet sln Ntilde.sln add tests/Ntilde.App.Tests/Ntilde.App.Tests.csproj
 ```
 
-If `sln remove` fails (because the old path no longer exists post-rename), edit `NovaTerminal.sln` directly and replace `NovaTerminal.Tests` with `NovaTerminal.App.Tests` (paths and project name; **leave GUIDs unchanged**).
+If `sln remove` fails (because the old path no longer exists post-rename), edit `Ntilde.sln` directly and replace `Ntilde.Tests` with `Ntilde.App.Tests` (paths and project name; **leave GUIDs unchanged**).
 
 - [ ] **Step 4: Update `InternalsVisibleTo`**
 
-In `src/NovaTerminal.App/NovaTerminal.App.csproj`:
+In `src/Ntilde.App/Ntilde.App.csproj`:
 
 ```xml
 <!-- before -->
-<InternalsVisibleTo Include="NovaTerminal.Tests" />
+<InternalsVisibleTo Include="Ntilde.Tests" />
 <!-- after -->
-<InternalsVisibleTo Include="NovaTerminal.App.Tests" />
+<InternalsVisibleTo Include="Ntilde.App.Tests" />
 ```
 
 - [ ] **Step 5: Update CI/script references**
@@ -871,18 +871,18 @@ scripts/build.ps1 test
 - [ ] **Step 7: Commit**
 
 ```powershell
-git commit -am "test: rename NovaTerminal.Tests to NovaTerminal.App.Tests (matches reference set)"
+git commit -am "test: rename Ntilde.Tests to Ntilde.App.Tests (matches reference set)"
 ```
 
-### Task 4.2 — Add `NovaTerminal.VT.Tests`
+### Task 4.2 — Add `Ntilde.VT.Tests`
 
-This is the missing fast unit suite for the terminal engine. Many existing tests under `NovaTerminal.App.Tests` (parser, buffer, reflow) are candidates for migration here.
+This is the missing fast unit suite for the terminal engine. Many existing tests under `Ntilde.App.Tests` (parser, buffer, reflow) are candidates for migration here.
 
 **Files:**
-- Create: `tests/NovaTerminal.VT.Tests/NovaTerminal.VT.Tests.csproj`
-- Create: `tests/NovaTerminal.VT.Tests/SmokeTest.cs`
-- Modify: `NovaTerminal.sln`
-- Modify: `src/NovaTerminal.VT/NovaTerminal.VT.csproj` (add `InternalsVisibleTo`)
+- Create: `tests/Ntilde.VT.Tests/Ntilde.VT.Tests.csproj`
+- Create: `tests/Ntilde.VT.Tests/SmokeTest.cs`
+- Modify: `Ntilde.sln`
+- Modify: `src/Ntilde.VT/Ntilde.VT.csproj` (add `InternalsVisibleTo`)
 
 - [ ] **Step 1: Create the csproj**
 
@@ -904,7 +904,7 @@ This is the missing fast unit suite for the terminal engine. Many existing tests
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\NovaTerminal.VT\NovaTerminal.VT.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.VT\Ntilde.VT.csproj" />
   </ItemGroup>
 </Project>
 ```
@@ -912,9 +912,9 @@ This is the missing fast unit suite for the terminal engine. Many existing tests
 - [ ] **Step 2: Create a smoke test that exercises the parser**
 
 ```csharp
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 public class SmokeTest
 {
@@ -938,41 +938,41 @@ If `Feed`, `TakeSnapshot`, `RowAt`, `PlainText` don't exist with those names, th
 
 - [ ] **Step 3: Add `InternalsVisibleTo`**
 
-In `src/NovaTerminal.VT/NovaTerminal.VT.csproj`:
+In `src/Ntilde.VT/Ntilde.VT.csproj`:
 
 ```xml
 <ItemGroup>
-  <InternalsVisibleTo Include="NovaTerminal.VT.Tests" />
+  <InternalsVisibleTo Include="Ntilde.VT.Tests" />
 </ItemGroup>
 ```
 
 - [ ] **Step 4: Add to sln**
 
 ```powershell
-dotnet sln NovaTerminal.sln add tests/NovaTerminal.VT.Tests/NovaTerminal.VT.Tests.csproj
+dotnet sln Ntilde.sln add tests/Ntilde.VT.Tests/Ntilde.VT.Tests.csproj
 ```
 
 - [ ] **Step 5: Build and run**
 
 ```powershell
-scripts/build.ps1 build tests/NovaTerminal.VT.Tests
-scripts/build.ps1 test --filter "FullyQualifiedName~NovaTerminal.VT.Tests"
+scripts/build.ps1 build tests/Ntilde.VT.Tests
+scripts/build.ps1 test --filter "FullyQualifiedName~Ntilde.VT.Tests"
 ```
 
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add tests/NovaTerminal.VT.Tests/ src/NovaTerminal.VT/NovaTerminal.VT.csproj NovaTerminal.sln
-git commit -m "test: add NovaTerminal.VT.Tests fast unit suite"
+git add tests/Ntilde.VT.Tests/ src/Ntilde.VT/Ntilde.VT.csproj Ntilde.sln
+git commit -m "test: add Ntilde.VT.Tests fast unit suite"
 ```
 
-### Task 4.3 — Add `NovaTerminal.Rendering.Tests`
+### Task 4.3 — Add `Ntilde.Rendering.Tests`
 
 **Files:**
-- Create: `tests/NovaTerminal.Rendering.Tests/NovaTerminal.Rendering.Tests.csproj`
-- Create: `tests/NovaTerminal.Rendering.Tests/GlyphCacheTests.cs`
-- Modify: `NovaTerminal.sln`
-- Modify: `src/NovaTerminal.Rendering/NovaTerminal.Rendering.csproj` (add `InternalsVisibleTo`)
+- Create: `tests/Ntilde.Rendering.Tests/Ntilde.Rendering.Tests.csproj`
+- Create: `tests/Ntilde.Rendering.Tests/GlyphCacheTests.cs`
+- Modify: `Ntilde.sln`
+- Modify: `src/Ntilde.Rendering/Ntilde.Rendering.csproj` (add `InternalsVisibleTo`)
 
 - [ ] **Step 1: Create the csproj**
 
@@ -994,7 +994,7 @@ git commit -m "test: add NovaTerminal.VT.Tests fast unit suite"
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\NovaTerminal.Rendering\NovaTerminal.Rendering.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Rendering\Ntilde.Rendering.csproj" />
   </ItemGroup>
 </Project>
 ```
@@ -1002,16 +1002,16 @@ git commit -m "test: add NovaTerminal.VT.Tests fast unit suite"
 - [ ] **Step 2: Create one smoke test**
 
 ```csharp
-using NovaTerminal.Rendering;
+using Ntilde.Rendering;
 
-namespace NovaTerminal.Rendering.Tests;
+namespace Ntilde.Rendering.Tests;
 
 public class GlyphCacheTests
 {
     [Fact]
     public void GlyphCache_can_be_constructed()
     {
-        // Replace with the real ctor signature from src/NovaTerminal.Rendering/GlyphCache.cs.
+        // Replace with the real ctor signature from src/Ntilde.Rendering/GlyphCache.cs.
         // If it requires a Skia context, document the dependency in the test.
         var cache = new GlyphCache();
         Assert.NotNull(cache);
@@ -1021,22 +1021,22 @@ public class GlyphCacheTests
 
 Adapt to the real `GlyphCache` constructor. If the type genuinely cannot be constructed without a live Skia GPU context, leave a Skip with that reason — this is itself a signal that `Rendering` needs a thin "headless" seam.
 
-- [ ] **Step 3: Add `InternalsVisibleTo` to `NovaTerminal.Rendering.csproj`**
+- [ ] **Step 3: Add `InternalsVisibleTo` to `Ntilde.Rendering.csproj`**
 
 ```xml
 <ItemGroup>
-  <InternalsVisibleTo Include="NovaTerminal.Rendering.Tests" />
+  <InternalsVisibleTo Include="Ntilde.Rendering.Tests" />
 </ItemGroup>
 ```
 
 - [ ] **Step 4: Add to sln, build, run, commit**
 
 ```powershell
-dotnet sln NovaTerminal.sln add tests/NovaTerminal.Rendering.Tests/NovaTerminal.Rendering.Tests.csproj
-scripts/build.ps1 build tests/NovaTerminal.Rendering.Tests
-scripts/build.ps1 test --filter "FullyQualifiedName~NovaTerminal.Rendering.Tests"
-git add tests/NovaTerminal.Rendering.Tests/ src/NovaTerminal.Rendering/NovaTerminal.Rendering.csproj NovaTerminal.sln
-git commit -m "test: add NovaTerminal.Rendering.Tests scaffold"
+dotnet sln Ntilde.sln add tests/Ntilde.Rendering.Tests/Ntilde.Rendering.Tests.csproj
+scripts/build.ps1 build tests/Ntilde.Rendering.Tests
+scripts/build.ps1 test --filter "FullyQualifiedName~Ntilde.Rendering.Tests"
+git add tests/Ntilde.Rendering.Tests/ src/Ntilde.Rendering/Ntilde.Rendering.csproj Ntilde.sln
+git commit -m "test: add Ntilde.Rendering.Tests scaffold"
 ```
 
 ---
@@ -1050,18 +1050,18 @@ git commit -m "test: add NovaTerminal.Rendering.Tests scaffold"
 ### Task 5.1 — Define the split interfaces
 
 **Files:**
-- Create: `src/NovaTerminal.Pty/ITerminalIO.cs`
-- Create: `src/NovaTerminal.Pty/ITerminalLifecycle.cs`
-- Create: `src/NovaTerminal.Pty/ITerminalShellMetadata.cs`
-- Create: `src/NovaTerminal.Pty/ITerminalRecorder.cs`
-- Modify: `src/NovaTerminal.Pty/ITerminalSession.cs` — becomes a composite alias for backward compat
+- Create: `src/Ntilde.Pty/ITerminalIO.cs`
+- Create: `src/Ntilde.Pty/ITerminalLifecycle.cs`
+- Create: `src/Ntilde.Pty/ITerminalShellMetadata.cs`
+- Create: `src/Ntilde.Pty/ITerminalRecorder.cs`
+- Modify: `src/Ntilde.Pty/ITerminalSession.cs` — becomes a composite alias for backward compat
 
 - [ ] **Step 1: Define `ITerminalIO`**
 
 ```csharp
 using System;
 
-namespace NovaTerminal.Pty;
+namespace Ntilde.Pty;
 
 /// <summary>Raw byte I/O for a terminal session.</summary>
 public interface ITerminalIO
@@ -1078,7 +1078,7 @@ public interface ITerminalIO
 ```csharp
 using System;
 
-namespace NovaTerminal.Pty;
+namespace Ntilde.Pty;
 
 /// <summary>Session lifetime: identity, resize, exit, child-process state.</summary>
 public interface ITerminalLifecycle : IDisposable
@@ -1095,7 +1095,7 @@ public interface ITerminalLifecycle : IDisposable
 - [ ] **Step 3: Define `ITerminalShellMetadata`**
 
 ```csharp
-namespace NovaTerminal.Pty;
+namespace Ntilde.Pty;
 
 /// <summary>Descriptive metadata about the process backing this session.</summary>
 public interface ITerminalShellMetadata
@@ -1108,7 +1108,7 @@ public interface ITerminalShellMetadata
 - [ ] **Step 4: Define `ITerminalRecorder`**
 
 ```csharp
-namespace NovaTerminal.Pty;
+namespace Ntilde.Pty;
 
 /// <summary>Replay/recording control for a session.</summary>
 public interface ITerminalRecorder
@@ -1122,14 +1122,14 @@ public interface ITerminalRecorder
 - [ ] **Step 5: Redefine `ITerminalSession` as a composite (transitional)**
 
 ```csharp
-namespace NovaTerminal.Pty;
+namespace Ntilde.Pty;
 
 /// <summary>
 /// Composite interface preserved during the migration from a single god-interface.
 /// New code should depend on the narrowest sub-interface it actually needs
 /// (ITerminalIO, ITerminalLifecycle, ITerminalShellMetadata, ITerminalRecorder).
 /// `AttachBuffer` and `TakeSnapshot` have moved to the orchestration layer
-/// (NovaTerminal.Core's session-wiring code) and are NOT part of this contract.
+/// (Ntilde.Core's session-wiring code) and are NOT part of this contract.
 /// </summary>
 public interface ITerminalSession
     : ITerminalIO, ITerminalLifecycle, ITerminalShellMetadata, ITerminalRecorder
@@ -1142,7 +1142,7 @@ public interface ITerminalSession
 - [ ] **Step 6: Build to find compile errors**
 
 ```powershell
-scripts/build.ps1 build NovaTerminal.sln
+scripts/build.ps1 build Ntilde.sln
 ```
 
 Expected errors:
@@ -1156,7 +1156,7 @@ Don't fix yet — go through them in tasks 5.2–5.4.
 ### Task 5.2 — Migrate `RustPtySession`
 
 **Files:**
-- Modify: `src/NovaTerminal.Pty/RustPtySession.cs`
+- Modify: `src/Ntilde.Pty/RustPtySession.cs`
 
 - [ ] **Step 1: Remove `AttachBuffer` and `TakeSnapshot` implementations from `RustPtySession`**
 
@@ -1178,7 +1178,7 @@ The read loop (rust → managed) should now emit the bytes it actually has, not 
 - [ ] **Step 4: Build the Pty project alone**
 
 ```powershell
-scripts/build.ps1 build src/NovaTerminal.Pty
+scripts/build.ps1 build src/Ntilde.Pty
 ```
 
 Expected: green. `Pty` no longer needs to reference VT.
@@ -1187,36 +1187,36 @@ Expected: green. `Pty` no longer needs to reference VT.
 
 ```xml
 <!-- Delete this line -->
-<ProjectReference Include="..\NovaTerminal.VT\NovaTerminal.VT.csproj" />
+<ProjectReference Include="..\Ntilde.VT\Ntilde.VT.csproj" />
 ```
 
-But keep `..\NovaTerminal.Replay\NovaTerminal.Replay.csproj` only if `ITerminalRecorder` implementations still depend on Replay types. If not (recording is just a file path + byte logging at this layer), remove that too — but be careful: the `Replay` project itself depends on VT, so removing Replay from Pty *strengthens* the boundary.
+But keep `..\Ntilde.Replay\Ntilde.Replay.csproj` only if `ITerminalRecorder` implementations still depend on Replay types. If not (recording is just a file path + byte logging at this layer), remove that too — but be careful: the `Replay` project itself depends on VT, so removing Replay from Pty *strengthens* the boundary.
 
-If Replay types are actually needed by `RustPtySession` (look for `using NovaTerminal.Replay`), keep the reference but plan a follow-up to invert it.
+If Replay types are actually needed by `RustPtySession` (look for `using Ntilde.Replay`), keep the reference but plan a follow-up to invert it.
 
 - [ ] **Step 6: Re-build the solution**
 
 ```powershell
-scripts/build.ps1 build NovaTerminal.sln
+scripts/build.ps1 build Ntilde.sln
 ```
 
 Expected: callers in `App` / `Core` will now break. Fix in the next task.
 
 ### Task 5.3 — Move buffer-wiring out of the session
 
-The deleted `AttachBuffer` / `TakeSnapshot` logic was the seam between bytes and parsed state. It now lives in an *orchestration* layer — `NovaTerminal.Core` (which already references Pty and VT, so this is its natural home).
+The deleted `AttachBuffer` / `TakeSnapshot` logic was the seam between bytes and parsed state. It now lives in an *orchestration* layer — `Ntilde.Core` (which already references Pty and VT, so this is its natural home).
 
 **Files:**
-- Create: `src/NovaTerminal.Core/SessionBufferBinder.cs`
-- Modify: `src/NovaTerminal.App/Core/SessionManager.cs` (or wherever sessions are instantiated)
+- Create: `src/Ntilde.Core/SessionBufferBinder.cs`
+- Modify: `src/Ntilde.App/Core/SessionManager.cs` (or wherever sessions are instantiated)
 
 - [ ] **Step 1: Create `SessionBufferBinder`**
 
 ```csharp
-using NovaTerminal.Pty;
-using NovaTerminal.VT;
+using Ntilde.Pty;
+using Ntilde.VT;
 
-namespace NovaTerminal.Core;
+namespace Ntilde.Core;
 
 /// <summary>
 /// Wires a raw byte session (ITerminalIO) into an AnsiParser/TerminalBuffer pair.
@@ -1295,7 +1295,7 @@ Expected: green. Some App-level tests may need adjustment if they asserted on `s
 
 - [ ] **Step 1: Remove the `Skip` from `Pty_must_not_depend_on_Vt`**
 
-In `tests/NovaTerminal.Architecture.Tests/LayeringTests.cs`, change:
+In `tests/Ntilde.Architecture.Tests/LayeringTests.cs`, change:
 
 ```csharp
 [Fact(Skip = "Known violation — fixed in Phase 5 of architecture-foundation-plan")]
@@ -1320,7 +1320,7 @@ Expected: all pass.
 - [ ] **Step 3: Commit the whole phase as a single coherent change**
 
 ```powershell
-git add src/NovaTerminal.Pty/ src/NovaTerminal.Core/SessionBufferBinder.cs src/NovaTerminal.App/ tests/NovaTerminal.Architecture.Tests/
+git add src/Ntilde.Pty/ src/Ntilde.Core/SessionBufferBinder.cs src/Ntilde.App/ tests/Ntilde.Architecture.Tests/
 git commit -m "refactor(pty): split ITerminalSession; move buffer wiring out of Pty; remove Pty->VT dependency"
 ```
 
@@ -1338,24 +1338,24 @@ git commit -m "refactor(pty): split ITerminalSession; move buffer wiring out of 
 - [ ] **Step 1: Rewrite the layering diagram to match reality**
 
 Replace the 4-layer ASCII diagram with the 8-assembly graph from `README.md` (or update the README's graph if it's stale). Key updates:
-- `NovaTerminal.Core` is a **platform-utilities** library (Input, Paths, Process, SSH), not the terminal engine.
-- `NovaTerminal.VT` is the terminal engine (parser + buffer state).
-- `NovaTerminal.Pty` is the byte transport; it no longer interprets VT (post-Phase 5).
-- `NovaTerminal.Rendering` holds Skia primitives; the Avalonia renderer (`TerminalView`, `TerminalDrawOperation`) lives in `App` today and is slated for extraction in a follow-up.
-- `NovaTerminal.Replay` is record/playback over byte streams + buffer snapshots.
+- `Ntilde.Core` is a **platform-utilities** library (Input, Paths, Process, SSH), not the terminal engine.
+- `Ntilde.VT` is the terminal engine (parser + buffer state).
+- `Ntilde.Pty` is the byte transport; it no longer interprets VT (post-Phase 5).
+- `Ntilde.Rendering` holds Skia primitives; the Avalonia renderer (`TerminalView`, `TerminalDrawOperation`) lives in `App` today and is slated for extraction in a follow-up.
+- `Ntilde.Replay` is record/playback over byte streams + buffer snapshots.
 
 - [ ] **Step 2: Update file references throughout**
 
 Replace every occurrence of:
-- `Core/AnsiParser.cs` → `src/NovaTerminal.VT/AnsiParser.cs`
-- `Core/TerminalBuffer.cs` → `src/NovaTerminal.VT/TerminalBuffer*.cs`
-- `Core/TerminalView.cs` → (current: `src/NovaTerminal.App/Core/TerminalView.cs`; future: `src/NovaTerminal.Rendering/`)
-- `Core/TerminalDrawOperation.cs` → `src/NovaTerminal.App/Core/TerminalDrawOperation.cs`
-- `Core/RustPtySession.cs` → `src/NovaTerminal.Pty/RustPtySession.cs`
+- `Core/AnsiParser.cs` → `src/Ntilde.VT/AnsiParser.cs`
+- `Core/TerminalBuffer.cs` → `src/Ntilde.VT/TerminalBuffer*.cs`
+- `Core/TerminalView.cs` → (current: `src/Ntilde.App/Core/TerminalView.cs`; future: `src/Ntilde.Rendering/`)
+- `Core/TerminalDrawOperation.cs` → `src/Ntilde.App/Core/TerminalDrawOperation.cs`
+- `Core/RustPtySession.cs` → `src/Ntilde.Pty/RustPtySession.cs`
 
 - [ ] **Step 3: Add a section documenting the architecture-tests safety net**
 
-Point readers at `tests/NovaTerminal.Architecture.Tests/` and explain that layering rules are enforced by tests, not by convention.
+Point readers at `tests/Ntilde.Architecture.Tests/` and explain that layering rules are enforced by tests, not by convention.
 
 - [ ] **Step 4: Add explicit "Known Tech Debt" section**
 
@@ -1383,21 +1383,21 @@ git commit -m "docs(architecture): rewrite to match current 8-assembly layout"
 Template per module:
 
 ```markdown
-## NovaTerminal.<X> (`src/NovaTerminal.<X>/`)
+## Ntilde.<X> (`src/Ntilde.<X>/`)
 
-**Namespace:** `NovaTerminal.<X>[.<Sub>]`
+**Namespace:** `Ntilde.<X>[.<Sub>]`
 **Depends on:** [list of project refs]
 **Public surface:** [1-line summary of the main entry points]
 
 **Owns**
 - ...
 
-**Invariants** (enforced by `tests/NovaTerminal.Architecture.Tests/` and unit tests)
+**Invariants** (enforced by `tests/Ntilde.Architecture.Tests/` and unit tests)
 - ...
 
 **Test authority**
-- Primary: `tests/NovaTerminal.<X>.Tests/` (if it exists)
-- Integration: `tests/NovaTerminal.App.Tests/...`
+- Primary: `tests/Ntilde.<X>.Tests/` (if it exists)
+- Integration: `tests/Ntilde.App.Tests/...`
 ```
 
 Fill in all 8 modules: VT, Replay, Rendering, Pty, Core, App, Cli, Conformance.
@@ -1418,7 +1418,7 @@ The remaining findings require their own detailed plans. Each is a multi-day eff
 ### Phase 7 — Renderer Composition Extraction
 **Plan filename:** `docs/plans/YYYY-MM-DD-renderer-composition-extraction-plan.md`
 **Scope:**
-- Move `src/NovaTerminal.App/Core/TerminalView.cs` (1,912 LOC) and `src/NovaTerminal.App/Core/TerminalDrawOperation.cs` (2,723 LOC) into `src/NovaTerminal.Rendering/` behind a clean public surface.
+- Move `src/Ntilde.App/Core/TerminalView.cs` (1,912 LOC) and `src/Ntilde.App/Core/TerminalDrawOperation.cs` (2,723 LOC) into `src/Ntilde.Rendering/` behind a clean public surface.
 - Leave only a thin Avalonia binding shell in App.
 - Add an architecture test: `Rendering` may take a buffer snapshot in and produce drawing commands out; it may not reference Avalonia control types.
 - Both files are huge — expect to split each into 3–6 collaborators during the move.
@@ -1427,17 +1427,17 @@ The remaining findings require their own detailed plans. Each is a multi-day eff
 ### Phase 8 — SSH Module Extraction
 **Plan filename:** `docs/plans/YYYY-MM-DD-ssh-module-extraction-plan.md`
 **Scope:**
-- Create `src/NovaTerminal.Ssh/` (or `.Remote/`).
-- Pull together: `src/NovaTerminal.Core/Ssh/{Interactions,Launch,Models,Native,OpenSsh,Sessions,Storage,Transport}`, `src/NovaTerminal.App/Services/Ssh/`, `src/NovaTerminal.App/Core/{SftpService,VaultService,SshAskPassCommand}.cs`.
+- Create `src/Ntilde.Ssh/` (or `.Remote/`).
+- Pull together: `src/Ntilde.Core/Ssh/{Interactions,Launch,Models,Native,OpenSsh,Sessions,Storage,Transport}`, `src/Ntilde.App/Services/Ssh/`, `src/Ntilde.App/Core/{SftpService,VaultService,SshAskPassCommand}.cs`.
 - Keep Avalonia/UI types out of this assembly. ViewModels and Views stay in App.
 - The new module references VT for snapshot-related types (SSH session feeds a buffer through the same path) and Pty for `ITerminalIO`/`ITerminalLifecycle`.
-- Add architecture test: `NovaTerminal.Ssh` may not reference `Avalonia`.
+- Add architecture test: `Ntilde.Ssh` may not reference `Avalonia`.
 - Addresses: review Section E (SSH fragmentation), Section I (SSH module).
 
 ### Phase 9 — CommandAssist Module Extraction
 **Plan filename:** `docs/plans/YYYY-MM-DD-commandassist-module-extraction-plan.md`
 **Scope:**
-- Move `src/NovaTerminal.App/CommandAssist/{Application,Domain,Models,Storage,ShellIntegration}` into `src/NovaTerminal.CommandAssist/`.
+- Move `src/Ntilde.App/CommandAssist/{Application,Domain,Models,Storage,ShellIntegration}` into `src/Ntilde.CommandAssist/`.
 - Leave `ViewModels/` and `Views/` in App (UI binding stays UI).
 - Add architecture test: the new assembly must not reference Avalonia.
 - Already has internal Application/Domain/Storage layering — extraction will surface whether the layering is real or aspirational.
@@ -1446,21 +1446,21 @@ The remaining findings require their own detailed plans. Each is a multi-day eff
 ### Phase 10 — CLI Reference Inversion via Bootstrap Library
 **Plan filename:** `docs/plans/YYYY-MM-DD-bootstrap-library-and-cli-inversion-plan.md`
 **Scope:**
-- Create `src/NovaTerminal.Bootstrap/`.
-- Move `src/NovaTerminal.App/Core/{VtReportCli,VtReportCommand,CliConsoleBindings}.cs` plus any other code currently in App that is used solely by Cli into Bootstrap.
+- Create `src/Ntilde.Bootstrap/`.
+- Move `src/Ntilde.App/Core/{VtReportCli,VtReportCommand,CliConsoleBindings}.cs` plus any other code currently in App that is used solely by Cli into Bootstrap.
 - Change references: `Cli → Bootstrap` and `App → Bootstrap`. Remove `Cli → App` and the `BuildCliShim` / `PublishCliShim` MSBuild targets in `App.csproj`.
-- Remove `<InternalsVisibleTo Include="NovaTerminal.Cli" />` from App.
+- Remove `<InternalsVisibleTo Include="Ntilde.Cli" />` from App.
 - Update CI to publish CLI directly, not via App's shim copy.
 - Addresses: review Section G (CLI build dance).
 
 ### Phase 11 — Cleanups Roll-up
 **Plan filename:** `docs/plans/YYYY-MM-DD-architecture-cleanups-rollup-plan.md`
 **Scope:**
-- Decide whether `NovaTerminal.Core` should be renamed to `NovaTerminal.Platform` (it's a platform-utilities library, not the terminal core). One-shot find-replace.
-- Review `src/NovaTerminal.VT/TerminalBuffer.*.cs` (10 partial files, ~5K LOC) and propose splitting into collaborators (`WritePath`, `ReflowEngine`, `ThreadingAndInvalidation`, `TabStops` are obvious candidates).
+- Decide whether `Ntilde.Core` should be renamed to `Ntilde.Platform` (it's a platform-utilities library, not the terminal core). One-shot find-replace.
+- Review `src/Ntilde.VT/TerminalBuffer.*.cs` (10 partial files, ~5K LOC) and propose splitting into collaborators (`WritePath`, `ReflowEngine`, `ThreadingAndInvalidation`, `TabStops` are obvious candidates).
 - Decompose the three giant code-behinds: `MainWindow.axaml.cs` (5,259 LOC), `TerminalPane.axaml.cs` (2,572 LOC), `SettingsWindow.axaml.cs` (1,672 LOC) into proper ViewModels + Services. Each likely deserves its own plan.
 - Consolidate `App/Services/` / `App/Models/` / `App/UI/` conventions or collapse the empty subfolders.
-- Move `src/NovaTerminal.Conformance` to `tools/` if it's a developer tool, or fully integrate into the sln-driven build if it's library-shaped.
+- Move `src/Ntilde.Conformance` to `tools/` if it's a developer tool, or fully integrate into the sln-driven build if it's library-shaped.
 - Addresses: review Section H (Conformance orphaning), Section J (smaller items).
 
 ---
@@ -1487,4 +1487,4 @@ The remaining findings require their own detailed plans. Each is a multi-day eff
 
 **Placeholder scan:** No "TBD" / "implement later". Two adapt-to-reality callouts (Task 4.2 step 2 and 4.3 step 2) tell the engineer to match real public APIs rather than invent them — those are signal-generating tests, not placeholders.
 
-**Open question for the executor:** When Phase 3 renames the VT namespace, the `NovaTerminal.Core.Replay` namespace conflict (Task 3.1 step 2) needs a content-driven decision the executor makes by inspecting the files. That's documented in the task; do not skip the inspection.
+**Open question for the executor:** When Phase 3 renames the VT namespace, the `Ntilde.Core.Replay` namespace conflict (Task 3.1 step 2) needs a content-driven decision the executor makes by inspecting the files. That's documented in the task; do not skip the inspection.

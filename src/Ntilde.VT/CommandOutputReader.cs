@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     /// <summary>
     /// The caps a <see cref="CommandOutputReader"/> tail read walks under. Counted the same way

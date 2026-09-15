@@ -1,8 +1,8 @@
 using System.Text;
-using NovaTerminal.Platform.Ssh.Interactions;
-using NovaTerminal.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Native;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public sealed class NativeSshInteractionJsonTests
 {

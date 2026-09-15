@@ -1,7 +1,7 @@
 using Avalonia;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// <see cref="TerminalView.TryComputeGrid"/> must refuse a size it cannot express as a cell grid,

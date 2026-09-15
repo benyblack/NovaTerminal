@@ -1,9 +1,9 @@
-# NovaTerminal vNext — 12-Month Feature Roadmap (Draft)
+# Ntilde vNext — 12-Month Feature Roadmap (Draft)
 
 > Theme: **Deterministic + Observable + Structured** terminal workflows (GPU-first).
 
 This roadmap is organized into **4 phases (Q1–Q4)** with concrete deliverables, acceptance criteria, and engineering notes.  
-Assumes the current NovaTerminal pillars: **GPU rendering**, **deterministic VT replay**, **JSONL performance metrics**, and **multi-pane UI**.
+Assumes the current Ntilde pillars: **GPU rendering**, **deterministic VT replay**, **JSONL performance metrics**, and **multi-pane UI**.
 
 ---
 
@@ -87,7 +87,7 @@ Assumes the current NovaTerminal pillars: **GPU rendering**, **deterministic VT 
   - `snapshot.ansi`
   - `snapshot.json` (cell grid + metadata)
   - `snapshot.png`
-- Export replay slice (e.g., last 30 seconds) to `.novarec` subset
+- Export replay slice (e.g., last 30 seconds) to `.ntilderec` subset
 - “Copy bug report bundle” -> creates a zip
 
 ### Acceptance Criteria
@@ -174,7 +174,7 @@ Assumes the current NovaTerminal pillars: **GPU rendering**, **deterministic VT 
 - Outputs:
   - compatibility score
   - artifact bundle (snapshots + diffs + replay)
-- CLI entrypoint: `novaterm vttest run`
+- CLI entrypoint: `ntilde vttest run`
 
 ### Acceptance Criteria
 - Suite is deterministic on a given OS+GPU driver combo
@@ -207,8 +207,8 @@ Assumes the current NovaTerminal pillars: **GPU rendering**, **deterministic VT 
 **Goal:** formalize performance budgets using replay + metrics.
 
 ### Deliverables
-- `novaterm perf record <workload>` -> stores baseline JSONL + metadata
-- `novaterm perf compare` -> pass/fail against thresholds
+- `ntilde perf record <workload>` -> stores baseline JSONL + metadata
+- `ntilde perf compare` -> pass/fail against thresholds
 - CI-friendly output (JUnit/JSON summary)
 
 ### Acceptance Criteria
@@ -237,7 +237,7 @@ Assumes the current NovaTerminal pillars: **GPU rendering**, **deterministic VT 
 ---
 
 ## 11) Remote Replay Viewer (P2)
-**Goal:** upload `.novarec` and view in browser.
+**Goal:** upload `.ntilderec` and view in browser.
 
 ### Deliverables
 - Upload endpoint + storage (local filesystem or S3-compatible)
@@ -301,8 +301,8 @@ Assumes the current NovaTerminal pillars: **GPU rendering**, **deterministic VT 
 ---
 
 # Appendix: Suggested CLI Surface
-- `novaterm replay inspect <file>`
-- `novaterm snapshot export`
-- `novaterm perf record|compare`
-- `novaterm vttest run`
-- `novaterm share start|stop` (Q4)
+- `ntilde replay inspect <file>`
+- `ntilde snapshot export`
+- `ntilde perf record|compare`
+- `ntilde vttest run`
+- `ntilde share start|stop` (Q4)

@@ -1,4 +1,4 @@
-# NovaTerminal agent rules
+# Ntilde agent rules
 
 Read `CLAUDE.md` first — it carries the build/test commands and the reason they
 are not negotiable. `CONTRIBUTING.md` covers CI lanes and test categories;
@@ -16,7 +16,7 @@ invariant.
   retry through the wrapper.
 - Run test projects individually. A whole-solution run takes tens of minutes
   because of the headless Avalonia suite.
-- For `tests/NovaTerminal.App.Tests`, always pass `--blame-hang-timeout 5m`, run
+- For `tests/Ntilde.App.Tests`, always pass `--blame-hang-timeout 5m`, run
   the `Lane!=PlatformBoot` and `Lane=PlatformBoot` filters separately (they must
   not share a process), and never run two invocations concurrently against the
   same results directory.
@@ -28,7 +28,7 @@ invariant.
   Skia, no native interop, no I/O.
 - `CommandAssist`, `Backup`, `VtContract` and `AgentHost.Contracts` have zero
   project references and must keep it that way — that is what keeps
-  `NovaTerminal.McpServer` free of a path into `App`, `VT`, `Pty` or
+  `Ntilde.McpServer` free of a path into `App`, `VT`, `Pty` or
   `Rendering`. Adding a reference to any of them breaks an architecture test.
 - Command Assist must stay a separate subsystem; the App owns only its views.
 

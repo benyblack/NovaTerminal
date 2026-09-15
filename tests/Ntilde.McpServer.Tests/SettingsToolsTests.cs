@@ -1,6 +1,6 @@
-using NovaTerminal.McpServer.Tools;
+using Ntilde.McpServer.Tools;
 
-namespace NovaTerminal.McpServer.Tests;
+namespace Ntilde.McpServer.Tests;
 
 public class SettingsToolsTests
 {

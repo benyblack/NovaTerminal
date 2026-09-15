@@ -1,11 +1,11 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests;
+namespace Ntilde.Tests;
 
 public sealed class AnsiParserHardeningTests
 {
@@ -143,7 +143,7 @@ public sealed class AnsiParserHardeningTests
         // These are kitty keyboard protocol query/push/pop/set sequences (#266); they mutate
         // the keyboard flag stacks and must NOT be treated as SCO restore-cursor. The flag
         // semantics themselves are covered by
-        // tests/NovaTerminal.VT.Tests/KittyKeyboardProtocolTests.cs.
+        // tests/Ntilde.VT.Tests/KittyKeyboardProtocolTests.cs.
         parser.Process("\x1b[s");
         parser.Process("\x1b[10;20H");
 

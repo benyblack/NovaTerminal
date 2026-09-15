@@ -1,14 +1,14 @@
-using NovaTerminal.Backup;
-using NovaTerminal.McpServer.Tools;
+using Ntilde.Backup;
+using Ntilde.McpServer.Tools;
 
-namespace NovaTerminal.McpServer.Tests;
+namespace Ntilde.McpServer.Tests;
 
 public sealed class BackupToolsTests
 {
     // M7: BackupList_WithNoRootDirectory_UsesAppDataRootOverride,
     // BackupList_WithEmptyRootDirectory_BehavesLikeOmitted, and
     // BackupExport_WithEmptyRootDirectory_BehavesLikeOmitted all mutate the process-global
-    // NOVATERM_APPDATA_ROOT environment variable around a get/set/restore that is not itself
+    // NTILDE_APPDATA_ROOT environment variable around a get/set/restore that is not itself
     // atomic. xunit.v3 does not guarantee serial execution of test methods within one class, so
     // two of these interleaving their set/reset of the same env var is a genuine, CI-only race
     // (a local single-threaded run would never surface it) - one test's "restore to null/original"
@@ -23,12 +23,12 @@ public sealed class BackupToolsTests
         string root = CreateTree();
         try
         {
-            string destination = Path.Combine(root, "agent-export.novabackup");
+            string destination = Path.Combine(root, "agent-export.ntildebackup");
 
             string result = BackupTools.BackupExport(destination, root);
 
             Assert.True(File.Exists(destination));
-            Assert.Contains("agent-export.novabackup", result);
+            Assert.Contains("agent-export.ntildebackup", result);
             // File.Exists alone can't tell a real bundle from a truncated/corrupt one that
             // happens to land on disk; open it the way a consumer would.
             Assert.True(BundleReader.Open(destination).Success);
@@ -45,7 +45,7 @@ public sealed class BackupToolsTests
         string root = CreateTree();
         try
         {
-            string blocked = Path.Combine(root, "blocked.novabackup");
+            string blocked = Path.Combine(root, "blocked.ntildebackup");
             Directory.CreateDirectory(blocked);
 
             string result = BackupTools.BackupExport(blocked, root);
@@ -64,10 +64,10 @@ public sealed class BackupToolsTests
         string root = CreateTree();
         try
         {
-            string result = BackupTools.BackupExport("relative-name.novabackup", root);
+            string result = BackupTools.BackupExport("relative-name.ntildebackup", root);
 
             Assert.Contains("absolute", result, StringComparison.OrdinalIgnoreCase);
-            Assert.False(File.Exists(Path.Combine(root, "relative-name.novabackup")));
+            Assert.False(File.Exists(Path.Combine(root, "relative-name.ntildebackup")));
         }
         finally
         {
@@ -96,16 +96,16 @@ public sealed class BackupToolsTests
         lock (EnvVarGate)
         {
             string root = CreateTree();
-            string? originalOverride = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+            string? originalOverride = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
             try
             {
                 // Seed a real snapshot through BackupService directly, so the on-disk file name
-                // format (reason-timestamp-hash.novabackup) is whatever the real writer produces,
+                // format (reason-timestamp-hash.ntildebackup) is whatever the real writer produces,
                 // not a hand-guessed literal that could drift from it.
                 var seeded = new BackupService(root).Snapshot(SnapshotReason.PreImport);
                 Assert.NotNull(seeded);
 
-                Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", root);
+                Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", root);
 
                 string result = BackupTools.BackupList();
 
@@ -113,7 +113,7 @@ public sealed class BackupToolsTests
             }
             finally
             {
-                Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", originalOverride);
+                Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", originalOverride);
                 Directory.Delete(root, recursive: true);
             }
         }
@@ -125,10 +125,10 @@ public sealed class BackupToolsTests
         lock (EnvVarGate)
         {
             string root = CreateTree();
-            string? originalOverride = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+            string? originalOverride = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
             try
             {
-                Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", root);
+                Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", root);
 
                 string result = BackupTools.BackupList(rootDirectory: "");
 
@@ -136,7 +136,7 @@ public sealed class BackupToolsTests
             }
             finally
             {
-                Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", originalOverride);
+                Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", originalOverride);
                 Directory.Delete(root, recursive: true);
             }
         }
@@ -148,11 +148,11 @@ public sealed class BackupToolsTests
         lock (EnvVarGate)
         {
             string root = CreateTree();
-            string? originalOverride = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+            string? originalOverride = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
             try
             {
-                Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", root);
-                string destination = Path.Combine(root, "empty-root-export.novabackup");
+                Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", root);
+                string destination = Path.Combine(root, "empty-root-export.ntildebackup");
 
                 string result = BackupTools.BackupExport(destination, rootDirectory: "");
 
@@ -161,7 +161,7 @@ public sealed class BackupToolsTests
             }
             finally
             {
-                Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", originalOverride);
+                Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", originalOverride);
                 Directory.Delete(root, recursive: true);
             }
         }
@@ -169,7 +169,7 @@ public sealed class BackupToolsTests
 
     private static string CreateTree()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"nova_mcp_backup_{Guid.NewGuid():N}");
+        string root = Path.Combine(Path.GetTempPath(), $"ntilde_mcp_backup_{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         File.WriteAllText(Path.Combine(root, "settings.json"), """{"FontSize":14}""");
         return root;

@@ -6,18 +6,18 @@
 
 **Architecture:** First add a deterministic failing regression that models the `vim` downward-scroll pattern and proves whether the VT core is actually wrong. Then add a live Docker `vim` scenario over native SSH. Only after the failing evidence is in place should production code change, with preference given to native SSH delivery/session behavior unless the deterministic repro proves the VT scroll path is at fault.
 
-**Tech Stack:** C#, xUnit, NovaTerminal VT buffer/parser, Native SSH session, Dockerized OpenSSH fixture, `vim`
+**Tech Stack:** C#, xUnit, Ntilde VT buffer/parser, Native SSH session, Dockerized OpenSSH fixture, `vim`
 
 ---
 
 ### Task 1: Document the Existing Native SSH and Vim Test Surface
 
 **Files:**
-- Inspect: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
-- Inspect: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
-- Inspect: `tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs`
-- Inspect: `tests/NovaTerminal.Tests/AlternateScreenTests.cs`
-- Inspect: `tests/NovaTerminal.Tests/Regressions/MidnightCommanderTests.cs`
+- Inspect: `tests/Ntilde.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Inspect: `tests/Ntilde.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
+- Inspect: `tests/Ntilde.Tests/ReplayTests/NativeSshReplayParityTests.cs`
+- Inspect: `tests/Ntilde.Tests/AlternateScreenTests.cs`
+- Inspect: `tests/Ntilde.Tests/Regressions/MidnightCommanderTests.cs`
 
 **Step 1: Review the current coverage**
 
@@ -38,10 +38,10 @@ No commit for this inspection-only task.
 ### Task 2: Add a Deterministic Failing Repro for Vim-Style Downward Scroll
 
 **Files:**
-- Modify: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
-- Reference: `src/NovaTerminal.VT/AnsiParser.cs`
-- Reference: `src/NovaTerminal.VT/TerminalBuffer.WritePath.cs`
-- Reference: `src/NovaTerminal.VT/TerminalBuffer.AccessAndSnapshot.cs`
+- Modify: `tests/Ntilde.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
+- Reference: `src/Ntilde.VT/AnsiParser.cs`
+- Reference: `src/Ntilde.VT/TerminalBuffer.WritePath.cs`
+- Reference: `src/Ntilde.VT/TerminalBuffer.AccessAndSnapshot.cs`
 
 **Step 1: Write the failing test**
 
@@ -59,7 +59,7 @@ The test should:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshTerminalParityTests"
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshTerminalParityTests"
 ```
 
 Expected: the new test fails and reveals whether the VT path already reproduces the bug.
@@ -79,10 +79,10 @@ Do not commit yet. Keep the failing test uncommitted until the fix path is under
 ### Task 3: Decide the Fix Boundary From the Deterministic Result
 
 **Files:**
-- Inspect: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
-- Inspect: `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
-- Inspect: `src/NovaTerminal.VT/AnsiParser.cs`
-- Inspect: `src/NovaTerminal.VT/TerminalBuffer.WritePath.cs`
+- Inspect: `tests/Ntilde.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
+- Inspect: `src/Ntilde.Core/Ssh/Sessions/NativeSshSession.cs`
+- Inspect: `src/Ntilde.VT/AnsiParser.cs`
+- Inspect: `src/Ntilde.VT/TerminalBuffer.WritePath.cs`
 
 **Step 1: Analyze the failing result**
 
@@ -106,10 +106,10 @@ No commit in this analysis task.
 ### Task 4: Add a Live Docker Vim Repro Test
 
 **Files:**
-- Modify: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
-- Modify: `tests/NovaTerminal.ExternalSuites/NativeSsh/Dockerfile` if `vim` is not available
-- Reference: `tests/NovaTerminal.Core.Tests/Ssh/DockerSshFixture.cs`
-- Reference: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTestInteractionHandler.cs`
+- Modify: `tests/Ntilde.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Modify: `tests/Ntilde.ExternalSuites/NativeSsh/Dockerfile` if `vim` is not available
+- Reference: `tests/Ntilde.Core.Tests/Ssh/DockerSshFixture.cs`
+- Reference: `tests/Ntilde.Core.Tests/Ssh/NativeSshTestInteractionHandler.cs`
 
 **Step 1: Write the failing live test**
 
@@ -127,8 +127,8 @@ Add a Docker E2E test that:
 Run:
 
 ```powershell
-$env:NOVATERM_ENABLE_DOCKER_E2E='1'
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests"
+$env:NTILDE_ENABLE_DOCKER_E2E='1'
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests"
 ```
 
 Expected: the new vim scenario fails before the fix.
@@ -149,10 +149,10 @@ Do not commit yet. The live test should stay part of the red-green cycle.
 
 **Files:**
 - Modify exactly one of:
-  - `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
-  - `src/NovaTerminal.VT/AnsiParser.cs`
-  - `src/NovaTerminal.VT/TerminalBuffer.WritePath.cs`
-  - `src/NovaTerminal.App/Core/TerminalDrawOperation.cs`
+  - `src/Ntilde.Core/Ssh/Sessions/NativeSshSession.cs`
+  - `src/Ntilde.VT/AnsiParser.cs`
+  - `src/Ntilde.VT/TerminalBuffer.WritePath.cs`
+  - `src/Ntilde.App/Core/TerminalDrawOperation.cs`
 
 **Step 1: Write the smallest production change**
 
@@ -169,7 +169,7 @@ Implement only the minimal code required to make the deterministic and live vim 
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshTerminalParityTests"
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshTerminalParityTests"
 ```
 
 Expected: the new vim regression test passes.
@@ -179,8 +179,8 @@ Expected: the new vim regression test passes.
 Run:
 
 ```powershell
-$env:NOVATERM_ENABLE_DOCKER_E2E='1'
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests"
+$env:NTILDE_ENABLE_DOCKER_E2E='1'
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests"
 ```
 
 Expected: the new vim scenario passes.
@@ -188,7 +188,7 @@ Expected: the new vim scenario passes.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs src/NovaTerminal.VT/AnsiParser.cs src/NovaTerminal.VT/TerminalBuffer.WritePath.cs src/NovaTerminal.App/Core/TerminalDrawOperation.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs tests/NovaTerminal.ExternalSuites/NativeSsh/Dockerfile
+git add src/Ntilde.Core/Ssh/Sessions/NativeSshSession.cs src/Ntilde.VT/AnsiParser.cs src/Ntilde.VT/TerminalBuffer.WritePath.cs src/Ntilde.App/Core/TerminalDrawOperation.cs tests/Ntilde.Core.Tests/Ssh/NativeSshTerminalParityTests.cs tests/Ntilde.Core.Tests/Ssh/NativeSshDockerE2eTests.cs tests/Ntilde.ExternalSuites/NativeSsh/Dockerfile
 git commit -m "fix native ssh vim downward scroll regression"
 ```
 
@@ -202,8 +202,8 @@ Stage only the files actually touched.
 **Step 1: Run the SSH core slice**
 
 ```powershell
-$env:NOVATERM_ENABLE_DOCKER_E2E='1'
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false
+$env:NTILDE_ENABLE_DOCKER_E2E='1'
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false
 ```
 
 Expected: all SSH-focused tests pass.
@@ -211,7 +211,7 @@ Expected: all SSH-focused tests pass.
 **Step 2: Run replay parity**
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshReplayParityTests" /nodeReuse:false
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshReplayParityTests" /nodeReuse:false
 ```
 
 Expected: replay parity remains green.
@@ -219,7 +219,7 @@ Expected: replay parity remains green.
 **Step 3: Run alternate-screen / TUI regressions if the VT core was touched**
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~AlternateScreenTests|FullyQualifiedName~MidnightCommanderTests" /nodeReuse:false
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~AlternateScreenTests|FullyQualifiedName~MidnightCommanderTests" /nodeReuse:false
 ```
 
 Expected: existing alternate-screen coverage still passes.
@@ -231,7 +231,7 @@ If verification changes were needed, commit them separately; otherwise no commit
 ### Task 7: Update Documentation if the Repro Surface Changed
 
 **Files:**
-- Modify if needed: `tests/NovaTerminal.ExternalSuites/README.md`
+- Modify if needed: `tests/Ntilde.ExternalSuites/README.md`
 - Modify if needed: `docs/native-ssh/Native_SSH_Test_Matrix.md`
 
 **Step 1: Document any new live vim scenario**
@@ -249,7 +249,7 @@ Open the docs and confirm commands and filenames are accurate.
 **Step 4: Commit**
 
 ```bash
-git add tests/NovaTerminal.ExternalSuites/README.md docs/native-ssh/Native_SSH_Test_Matrix.md
+git add tests/Ntilde.ExternalSuites/README.md docs/native-ssh/Native_SSH_Test_Matrix.md
 git commit -m "document native ssh vim scroll regression coverage"
 ```
 

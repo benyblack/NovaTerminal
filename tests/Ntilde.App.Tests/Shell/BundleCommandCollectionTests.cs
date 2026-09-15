@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
-using NovaTerminal;
-using NovaTerminal.Pty;
-using NovaTerminal.Shell;
+using Ntilde;
+using Ntilde.Pty;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Shell;
+namespace Ntilde.Tests.Shell;
 
 // Regression tests for #171: before a foreign workspace bundle spawns anything on
 // restore, MainWindow confirms the ad-hoc shell commands it carries. The collector
@@ -21,9 +21,9 @@ public class BundleCommandCollectionTests
         ProfileId = profileId
     };
 
-    private static NovaSession SessionWith(params PaneNode[] roots)
+    private static NtildeSession SessionWith(params PaneNode[] roots)
     {
-        var session = new NovaSession();
+        var session = new NtildeSession();
         foreach (var root in roots)
         {
             session.Tabs.Add(new TabSession { Root = root });
@@ -98,13 +98,13 @@ public class BundleCommandCollectionTests
     public void EmptyOrNullSession_ReturnsEmpty()
     {
         Assert.Empty(MainWindow.CollectBundleCommands(null, NoProfiles()));
-        Assert.Empty(MainWindow.CollectBundleCommands(new NovaSession(), NoProfiles()));
+        Assert.Empty(MainWindow.CollectBundleCommands(new NtildeSession(), NoProfiles()));
     }
 
     [Fact]
     public void NullTabInList_DoesNotThrow()
     {
-        var session = new NovaSession();
+        var session = new NtildeSession();
         session.Tabs.Add(null!);
         session.Tabs.Add(new TabSession { Root = Leaf("htop") });
 

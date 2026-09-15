@@ -8,10 +8,10 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace NovaTerminal.Backup;
+namespace Ntilde.Backup;
 
 /// <summary>
-/// Export, import, snapshot, and restore of NovaTerminal configuration.
+/// Export, import, snapshot, and restore of Ntilde configuration.
 ///
 /// Takes its app-data root as a constructor argument rather than reading the app's data root
 /// statically, so tests drive it against a temp tree without touching the real profile.
@@ -21,7 +21,7 @@ namespace NovaTerminal.Backup;
 /// </summary>
 public sealed class BackupService
 {
-    public const string BundleExtension = ".novabackup";
+    public const string BundleExtension = ".ntildebackup";
 
     private readonly TimeProvider _timeProvider;
     private readonly Action<string> _log;
@@ -246,7 +246,7 @@ public sealed class BackupService
         // the snapshot being restored (a target at the retention edge gets pushed out by the new
         // one), and reading straight from BackupsDirectory risks aliasing the source bundle with
         // the live tree Import is about to overwrite.
-        string tempBundle = Path.Combine(Path.GetTempPath(), $"nova_restore_{Guid.NewGuid():N}{BundleExtension}");
+        string tempBundle = Path.Combine(Path.GetTempPath(), $"ntilde_restore_{Guid.NewGuid():N}{BundleExtension}");
         try
         {
             File.Copy(snapshot.FilePath, tempBundle, overwrite: true);
@@ -1033,7 +1033,7 @@ public sealed class BackupService
     /// treats that as the contract and handles a real escaping [exception] itself." That was false
     /// at the time — two of the four real callers did not: <see cref="Restore"/>'s own initial call
     /// into this method (see its remarks) was unguarded, and so was
-    /// <c>NovaTerminal.McpServer.Tools.BackupTools.BackupList</c>. Both are now fixed at their own
+    /// <c>Ntilde.McpServer.Tools.BackupTools.BackupList</c>. Both are now fixed at their own
     /// call sites (round 3) rather than by this method growing a backstop of its own. The two that
     /// were already correct remain: <c>BackupCommand.List</c> (CLI) catches it to keep the CLI's
     /// 0/1/2 exit-code contract, and <c>SettingsWindow.WireBackupSection</c>'s
@@ -1246,7 +1246,7 @@ public sealed class BackupService
             string source = Path.GetFullPath(BackupCatalog.ResolveSource(RootDirectory, entry));
             if (IsSameOrUnder(comparableDestination, source, comparison))
             {
-                reason = $"it is the live '{entry.SourceRelativePath}' NovaTerminal backs up (or a path under it); " +
+                reason = $"it is the live '{entry.SourceRelativePath}' Ntilde backs up (or a path under it); " +
                     "exporting there would overwrite it with the bundle before the export finished writing.";
                 return true;
             }
@@ -1255,7 +1255,7 @@ public sealed class BackupService
         string backupsDirectory = Path.GetFullPath(BackupsDirectory);
         if (IsSameOrUnder(comparableDestination, backupsDirectory, comparison))
         {
-            reason = "it is inside the backups directory NovaTerminal manages for snapshots; " +
+            reason = "it is inside the backups directory Ntilde manages for snapshots; " +
                 "exporting there could silently overwrite an existing snapshot.";
             return true;
         }

@@ -1,6 +1,6 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
 using System;
 using System.Diagnostics;
 using System.Text;
@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using Xunit;
 
 
-namespace NovaTerminal.Tests.Performance
+namespace Ntilde.Tests.Performance
 {
     public class StressTests
     {

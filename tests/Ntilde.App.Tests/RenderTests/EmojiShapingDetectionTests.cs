@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
 using System.Reflection;
 using Xunit;
 
-namespace NovaTerminal.Tests.RenderTests
+namespace Ntilde.Tests.RenderTests
 {
     /// <summary>
     /// `ContainsRunesRequiringComplexShaping` decides whether a run goes to the text shaper or falls

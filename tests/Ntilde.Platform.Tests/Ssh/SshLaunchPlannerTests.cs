@@ -1,9 +1,9 @@
-using NovaTerminal.Platform.Ssh.Launch;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.OpenSsh;
-using NovaTerminal.Platform.Ssh.Storage;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.OpenSsh;
+using Ntilde.Platform.Ssh.Storage;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public sealed class SshLaunchPlannerTests
 {
@@ -28,7 +28,7 @@ public sealed class SshLaunchPlannerTests
 
             Assert.False(string.IsNullOrWhiteSpace(plan.SshExecutablePath));
             Assert.Equal(profile.Id, plan.ProfileId);
-            Assert.Equal($"nova_{profile.Id:N}", plan.Alias);
+            Assert.Equal($"ntilde_{profile.Id:N}", plan.Alias);
             Assert.Equal(3, plan.Arguments.Count);
             Assert.Equal("-F", plan.Arguments[0]);
             Assert.Equal(plan.ConfigFilePath, plan.Arguments[1]);

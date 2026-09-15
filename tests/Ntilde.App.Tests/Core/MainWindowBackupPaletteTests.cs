@@ -1,13 +1,13 @@
 using System;
 using System.Reflection;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Shell;
-using NovaTerminal.Backup;
-using NovaTerminal.Tests.Backup;
+using Ntilde.Shell;
+using Ntilde.Backup;
+using Ntilde.Tests.Backup;
 
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Task 9: the three "Backup" command-palette entries, and the <see cref="SnapshotScheduler"/>
@@ -44,7 +44,7 @@ public sealed class MainWindowBackupPaletteTests : IDisposable, IClassFixture<Te
         var window = TestMainWindowFactory.Create();
         try
         {
-            var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var toggleMethod = typeof(Ntilde.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic)!;
             toggleMethod.Invoke(window, null);
 
             var backupCommands = CommandRegistry.GetCommands().Where(c => c.Category == "Backup").ToList();
@@ -84,7 +84,7 @@ public sealed class MainWindowBackupPaletteTests : IDisposable, IClassFixture<Te
         var window = TestMainWindowFactory.Create();
         try
         {
-            var schedulerField = typeof(NovaTerminal.MainWindow).GetField("_snapshotScheduler", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var schedulerField = typeof(Ntilde.MainWindow).GetField("_snapshotScheduler", BindingFlags.NonPublic | BindingFlags.Instance)!;
             var scheduler = schedulerField.GetValue(window) as SnapshotScheduler;
             Assert.NotNull(scheduler);
 
@@ -94,7 +94,7 @@ public sealed class MainWindowBackupPaletteTests : IDisposable, IClassFixture<Te
             // SetupCommandPalette also runs on every settings-save, not just the first palette
             // open. Invoking it more than once must not create a second scheduler (duplicate
             // FileSystemWatchers on the same directories) nor replace the running one.
-            var setupMethod = typeof(NovaTerminal.MainWindow).GetMethod("SetupCommandPalette", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var setupMethod = typeof(Ntilde.MainWindow).GetMethod("SetupCommandPalette", BindingFlags.NonPublic | BindingFlags.Instance)!;
             setupMethod.Invoke(window, null);
             setupMethod.Invoke(window, null);
 
@@ -122,7 +122,7 @@ public sealed class MainWindowBackupPaletteTests : IDisposable, IClassFixture<Te
         var window = TestMainWindowFactory.Create();
         try
         {
-            var setupMethod = typeof(NovaTerminal.MainWindow).GetMethod("SetupCommandPalette", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var setupMethod = typeof(Ntilde.MainWindow).GetMethod("SetupCommandPalette", BindingFlags.NonPublic | BindingFlags.Instance)!;
 
             setupMethod.Invoke(window, null);
             setupMethod.Invoke(window, null);
@@ -145,7 +145,7 @@ public sealed class MainWindowBackupPaletteTests : IDisposable, IClassFixture<Te
     public void ClosingTheWindow_DisposesTheSnapshotScheduler_AndClearsTheField()
     {
         var window = TestMainWindowFactory.Create();
-        var schedulerField = typeof(NovaTerminal.MainWindow).GetField("_snapshotScheduler", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var schedulerField = typeof(Ntilde.MainWindow).GetField("_snapshotScheduler", BindingFlags.NonPublic | BindingFlags.Instance)!;
         var scheduler = (SnapshotScheduler)schedulerField.GetValue(window)!;
         var disposedField = typeof(SnapshotScheduler).GetField("_disposed", BindingFlags.NonPublic | BindingFlags.Instance)!;
 
@@ -179,7 +179,7 @@ public sealed class MainWindowBackupPaletteTests : IDisposable, IClassFixture<Te
     {
         using var source = BackupTestTree.CreatePopulated();
         source.WriteFile("settings.json", """{"FontSize":77,"ThemeName":"FromImport"}""");
-        string bundle = Path.Combine(source.Root, "import.novabackup");
+        string bundle = Path.Combine(source.Root, "import.ntildebackup");
         Assert.True(new BackupService(source.Root).Export(bundle).Success);
 
         using var target = BackupTestTree.CreatePopulated();
@@ -195,18 +195,18 @@ public sealed class MainWindowBackupPaletteTests : IDisposable, IClassFixture<Te
             // `OpenSettings` here (that reaches a real ShowDialog); a parameterless SettingsWindow
             // reads the same overridden root and is exactly what the existing Backup-section tests
             // use for this same reflection seam.
-            var settingsWindow = new NovaTerminal.SettingsWindow();
+            var settingsWindow = new Ntilde.SettingsWindow();
 
             var importOutcome = new BackupService(target.Root).Import(bundle, ImportMode.Replace);
             Assert.True(importOutcome.Success, importOutcome.Message);
 
-            var reloadMethod = typeof(NovaTerminal.SettingsWindow).GetMethod(
+            var reloadMethod = typeof(Ntilde.SettingsWindow).GetMethod(
                 "ReloadSettingsAfterExternalChangeAsync", BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(reloadMethod);
             await (Task)reloadMethod!.Invoke(settingsWindow, null)!;
             Assert.True(settingsWindow.ConfigurationReplacedExternally);
 
-            var previewSnapshot = new NovaTerminal.MainWindow.PreviewSnapshot(
+            var previewSnapshot = new Ntilde.MainWindow.PreviewSnapshot(
                 WindowOpacity: 1.0,
                 BlurEffect: "Acrylic",
                 BackgroundImagePath: "",
@@ -219,7 +219,7 @@ public sealed class MainWindowBackupPaletteTests : IDisposable, IClassFixture<Te
             // saved: false - the dialog closed via Cancel or the window's X, not Save.
             window.ApplySettingsWindowResult(settingsWindow, saved: false, previewSnapshot);
 
-            var setupMethod = typeof(NovaTerminal.MainWindow).GetMethod("SetupCommandPalette", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var setupMethod = typeof(Ntilde.MainWindow).GetMethod("SetupCommandPalette", BindingFlags.NonPublic | BindingFlags.Instance)!;
             setupMethod.Invoke(window, null);
 
             var fontIncrease = Assert.Single(CommandRegistry.GetCommands(), c => c.Id == "font_increase");
@@ -242,13 +242,13 @@ public sealed class MainWindowBackupPaletteTests : IDisposable, IClassFixture<Te
     /// </summary>
     private static IDisposable OverrideAppDataRoot(string root)
     {
-        string? previous = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
-        Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", root);
+        string? previous = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", root);
         return new RestoreEnvVar(previous);
     }
 
     private sealed class RestoreEnvVar(string? previous) : IDisposable
     {
-        public void Dispose() => Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previous);
+        public void Dispose() => Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previous);
     }
 }

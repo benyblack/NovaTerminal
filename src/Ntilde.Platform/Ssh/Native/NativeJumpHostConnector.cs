@@ -1,6 +1,6 @@
-using NovaTerminal.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Models;
 
-namespace NovaTerminal.Platform.Ssh.Native;
+namespace Ntilde.Platform.Ssh.Native;
 
 public sealed class NativeJumpHostConnector
 {

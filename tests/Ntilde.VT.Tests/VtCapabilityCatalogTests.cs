@@ -1,6 +1,6 @@
-using NovaTerminal.VtContract;
+using Ntilde.VtContract;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 public sealed class VtCapabilityCatalogTests
 {
@@ -90,7 +90,7 @@ public sealed class VtCapabilityCatalogTests
               "support": "supported",
               "description": "",
               "matrixFeature": "CNL (E)",
-              "evidencePath": "tests/NovaTerminal.VT.Tests/CursorLinePositioningTests.cs",
+              "evidencePath": "tests/Ntilde.VT.Tests/CursorLinePositioningTests.cs",
               "contractCase": "cursor-next-line"
             }
           ]
@@ -110,7 +110,7 @@ public sealed class VtCapabilityCatalogTests
     public void Parse_RejectsSupportedEntryWithoutRequiredContractField(string field)
     {
         string entry = Entry("CSI:E", "CNL", "supported", "cursor-next-line")
-            .Replace($"\"{field}\": \"{(field == "evidencePath" ? "tests/NovaTerminal.VT.Tests/CursorLinePositioningTests.cs" : "cursor-next-line")}\"", $"\"{field}\": null", StringComparison.Ordinal);
+            .Replace($"\"{field}\": \"{(field == "evidencePath" ? "tests/Ntilde.VT.Tests/CursorLinePositioningTests.cs" : "cursor-next-line")}\"", $"\"{field}\": null", StringComparison.Ordinal);
 
         VtCapabilityManifestException error = Assert.Throws<VtCapabilityManifestException>(
             () => VtCapabilityCatalog.Parse(Manifest(entry)));
@@ -137,7 +137,7 @@ public sealed class VtCapabilityCatalogTests
               "support": "{{support}}",
               "description": "{{mnemonic}} description",
               "matrixFeature": "{{mnemonic}} ({{key[^1]}})",
-              "evidencePath": "tests/NovaTerminal.VT.Tests/CursorLinePositioningTests.cs",
+              "evidencePath": "tests/Ntilde.VT.Tests/CursorLinePositioningTests.cs",
               "contractCase": {{(contractCase is null ? "null" : $"\"{contractCase}\"")}}
             }
         """;

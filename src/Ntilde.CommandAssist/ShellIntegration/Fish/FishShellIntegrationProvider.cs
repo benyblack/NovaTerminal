@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
 
-namespace NovaTerminal.CommandAssist.ShellIntegration.Fish;
+namespace Ntilde.CommandAssist.ShellIntegration.Fish;
 
 public sealed class FishShellIntegrationProvider : IShellIntegrationProvider
 {

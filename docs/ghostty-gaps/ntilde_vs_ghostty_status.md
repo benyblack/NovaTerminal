@@ -1,16 +1,16 @@
-NovaTerminal vs Ghostty --- refreshed status
+Ntilde vs Ghostty --- refreshed status
 ------------------------------------------
 
 ### The short version
 
--   **Core VT correctness**: NovaTerminal has closed most of the high-impact gaps (parser recovery, scroll/margins, alt-screen, input modes, tabs).
+-   **Core VT correctness**: Ntilde has closed most of the high-impact gaps (parser recovery, scroll/margins, alt-screen, input modes, tabs).
 -   **Unicode behavior**: now competitive thanks to a shared width model across storage + renderer.
--   **Verification story**: NovaTerminal is now ahead with an auditable matrix + CI validation.
+-   **Verification story**: Ntilde is now ahead with an auditable matrix + CI validation.
 -   **Remaining gaps**: some sequence families still **⚠ Partial** (e.g., full directional cursor family, OSC 1337 coverage breadth, deeper Unicode conformance tables).
 
 * * * * *
 
-### Where NovaTerminal clearly improved
+### Where Ntilde clearly improved
 
 **1) Parser robustness (PR1)**
 
@@ -79,7 +79,7 @@ NovaTerminal vs Ghostty --- refreshed status
 
 * * * * *
 
-### Where NovaTerminal now leads
+### Where Ntilde now leads
 
 **1) Auditable correctness**
 
@@ -115,6 +115,6 @@ NovaTerminal vs Ghostty --- refreshed status
 ### Bottom line
 
 -   **Ghostty**: broader, mature, battle-tested compatibility.
--   **NovaTerminal**: now *structurally correct*, test-driven, and **provably verifiable**.
+-   **Ntilde**: now *structurally correct*, test-driven, and **provably verifiable**.
 
 That's a credible position---and a strong foundation to surpass on correctness over time.

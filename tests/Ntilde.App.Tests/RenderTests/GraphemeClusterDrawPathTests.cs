@@ -1,14 +1,14 @@
 using System;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Platform;
-using NovaTerminal.Rendering;
-using NovaTerminal.Tests.Infra;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.Rendering;
+using Ntilde.Tests.Infra;
+using Ntilde.VT;
 using SkiaSharp;
 using Xunit;
 
-namespace NovaTerminal.Tests.RenderTests
+namespace Ntilde.Tests.RenderTests
 {
     /// <summary>
     /// #234: the per-glyph draw path enumerated <em>runes</em> while calling the result "grapheme", so

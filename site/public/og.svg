@@ -31,7 +31,7 @@
 
   <!-- Wordmark -->
   <text x="200" y="146" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="44" font-weight="600" fill="#e4e7eb">
-    NovaTerminal
+    Ntilde
   </text>
 
   <!-- Headline -->
@@ -66,6 +66,6 @@
 
   <!-- URL -->
   <text x="96" y="580" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" fill="#5dbcff">
-    github.com/benyblack/NovaTerminal
+    github.com/benyblack/ntilde
   </text>
 </svg>

@@ -5,11 +5,11 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
-using NovaTerminal.AgentOutput;
+using Ntilde.AgentOutput;
 using Avalonia.Headless.XUnit;
 using Xunit;
 
-namespace NovaTerminal.Tests.AgentOutput;
+namespace Ntilde.Tests.AgentOutput;
 
 /// <summary>
 /// The markdown-to-Avalonia renderer: the block subset agent CLIs emit, the emphasis and code

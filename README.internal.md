@@ -1,7 +1,7 @@
-# NovaTerminal – Internal Engineering Guide
+# Ntilde – Internal Engineering Guide
 
 This document defines **engineering intent**, **non-negotiable rules**, and
-**how work is evaluated** in NovaTerminal.
+**how work is evaluated** in Ntilde.
 
 It is authoritative for contributors and automated agents.
 
@@ -39,24 +39,24 @@ Any change that weakens determinism, parity, or replayability is rejected.
 
 The solution keeps terminal semantics isolated behind small project boundaries so the VT core remains pure and reusable:
 
-- **NovaTerminal.App** owns Avalonia UI, interaction, and app composition.
-- **NovaTerminal.Platform** owns platform-integration utilities (input routing, path mapping, process abstraction, SSH) and the credential vault.
-- **NovaTerminal.VT** owns terminal state, parsing, buffer semantics, and reflow.
-- **NovaTerminal.Rendering** owns Skia-based drawing from immutable buffer snapshots.
-- **NovaTerminal.Pty** owns OS/process and stream integration.
-- **NovaTerminal.Replay** owns recording and replay infrastructure.
-- **NovaTerminal.CommandAssist** owns the Command Assist domain, ranking, storage, and shell integration.
-- **NovaTerminal.Backup** owns `.novabackup` export/import and automatic snapshots.
-- **NovaTerminal.VtContract** owns the machine-readable VT capability catalogue.
-- **NovaTerminal.AgentHost.Contracts** owns the app-to-agent wire protocol.
-- **NovaTerminal.McpServer** owns the opt-in MCP surface agents connect to.
-- **NovaTerminal.Cli** and **NovaTerminal.Conformance** own the headless entry point and the conformance tool.
+- **Ntilde.App** owns Avalonia UI, interaction, and app composition.
+- **Ntilde.Platform** owns platform-integration utilities (input routing, path mapping, process abstraction, SSH) and the credential vault.
+- **Ntilde.VT** owns terminal state, parsing, buffer semantics, and reflow.
+- **Ntilde.Rendering** owns Skia-based drawing from immutable buffer snapshots.
+- **Ntilde.Pty** owns OS/process and stream integration.
+- **Ntilde.Replay** owns recording and replay infrastructure.
+- **Ntilde.CommandAssist** owns the Command Assist domain, ranking, storage, and shell integration.
+- **Ntilde.Backup** owns `.ntildebackup` export/import and automatic snapshots.
+- **Ntilde.VtContract** owns the machine-readable VT capability catalogue.
+- **Ntilde.AgentHost.Contracts** owns the app-to-agent wire protocol.
+- **Ntilde.McpServer** owns the opt-in MCP surface agents connect to.
+- **Ntilde.Cli** and **Ntilde.Conformance** own the headless entry point and the conformance tool.
 
 Key constraints:
 
-- **NovaTerminal.VT** contains **no** Avalonia or SkiaSharp references.
-- **NovaTerminal.Rendering** contains **no** Avalonia references and does not fix semantic bugs.
-- **NovaTerminal.Pty** is strictly for stream/process management and binary interop.
+- **Ntilde.VT** contains **no** Avalonia or SkiaSharp references.
+- **Ntilde.Rendering** contains **no** Avalonia references and does not fix semantic bugs.
+- **Ntilde.Pty** is strictly for stream/process management and binary interop.
 - **CommandAssist, Backup, VtContract and AgentHost.Contracts have zero project
   references** and must keep it that way. That empty list is what lets the MCP
   server share code with the app without acquiring a path into App, VT, Pty or

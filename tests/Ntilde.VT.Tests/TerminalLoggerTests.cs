@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // Covers the leveled logging added for #109. Tests run sequentially within a class, and each
 // restores the static hooks/level it touches so it doesn't leak into other tests.

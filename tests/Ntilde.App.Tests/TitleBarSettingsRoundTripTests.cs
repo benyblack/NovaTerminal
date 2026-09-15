@@ -1,11 +1,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
-using NovaTerminal.Shell;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Shell;
+using Ntilde.Shell.TitleBar;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class TitleBarSettingsRoundTripTests
     {

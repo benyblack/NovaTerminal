@@ -1,7 +1,7 @@
 using System;
-using NovaTerminal.Update;
+using Ntilde.Update;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 /// <summary>
 /// Same home as <see cref="UpdateCoordinatorTests"/> for the same reason: this project is in the
@@ -27,7 +27,7 @@ public class UpdateCheckMessagesTests
     {
         // Outcome's contract guarantees a non-blank version, but the message is rendered from the
         // coordinator's StagedVersion passed through callers that may hand back null; it must stay
-        // presentable rather than emit "NovaTerminal  is downloaded...".
+        // presentable rather than emit "Ntilde  is downloaded...".
         var message = UpdateCheckMessages.OutcomeMessage(UpdateCheckOutcome.UpdateReady, null);
 
         Assert.DoesNotContain("  ", message);

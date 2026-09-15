@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 
-namespace NovaTerminal.Pty
+namespace Ntilde.Pty
 {
     public static class ShellHelper
     {

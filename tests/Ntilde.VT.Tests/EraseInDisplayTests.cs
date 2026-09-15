@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // Regression tests for #149: ED 2 (CSI 2 J) must erase the screen only — scrollback is
 // preserved. ED 3 (CSI 3 J, xterm "Erase Saved Lines") clears the scrollback only.

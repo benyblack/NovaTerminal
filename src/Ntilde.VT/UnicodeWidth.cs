@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 
-namespace NovaTerminal.VT;
+namespace Ntilde.VT;
 
 public static class UnicodeWidth
 {

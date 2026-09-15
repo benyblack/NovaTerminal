@@ -1,14 +1,14 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
 using System;
 using System.Diagnostics;
 using System.Text.Json;
 using Xunit;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 
 
-namespace NovaTerminal.Tests.Performance
+namespace Ntilde.Tests.Performance
 {
     public class MemoryLeakTest
     {
@@ -68,8 +68,8 @@ namespace NovaTerminal.Tests.Performance
             for (int i = 0; i < iterations; i++)
             {
                 var session = BuildSession(1 + (i % 20));
-                string json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NovaSession);
-                var restored = JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NovaSession);
+                string json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NtildeSession);
+                var restored = JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NtildeSession);
 
                 Assert.NotNull(restored);
                 restored!.Tabs.Clear(); // Simulate close-all lifecycle.
@@ -97,9 +97,9 @@ namespace NovaTerminal.Tests.Performance
             Assert.True(sw.Elapsed.TotalSeconds < 30, $"Lifecycle loop too slow: {sw.Elapsed.TotalSeconds:F2}s");
         }
 
-        private static NovaSession BuildSession(int tabCount)
+        private static NtildeSession BuildSession(int tabCount)
         {
-            var session = new NovaSession { ActiveTabIndex = 0 };
+            var session = new NtildeSession { ActiveTabIndex = 0 };
 
             for (int i = 0; i < tabCount; i++)
             {

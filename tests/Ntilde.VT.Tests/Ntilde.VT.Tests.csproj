@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\NovaTerminal.VT\NovaTerminal.VT.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.VtContract\NovaTerminal.VtContract.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.VT\Ntilde.VT.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.VtContract\Ntilde.VtContract.csproj" />
   </ItemGroup>
 </Project>

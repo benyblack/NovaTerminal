@@ -1,9 +1,9 @@
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Models;
-using NovaTerminal.Services.Ssh;
+using Ntilde.Controls;
+using Ntilde.Models;
+using Ntilde.Services.Ssh;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class RemotePathTextBoxTests
 {

@@ -1,4 +1,4 @@
-namespace NovaTerminal;
+namespace Ntilde;
 
 /// <summary>
 /// A specific section within <see cref="SettingsWindow"/> that a caller can ask the window to bring

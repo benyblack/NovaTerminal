@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using Avalonia.Input;
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.ViewModels;
-using NovaTerminal.Shell.Shortcuts;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.ViewModels;
+using Ntilde.Shell.Shortcuts;
 
-namespace NovaTerminal.Controls
+namespace Ntilde.Controls
 {
     /// <summary>
     /// Turns the catalogued Command Assist in-surface bindings into the two things the assist
@@ -16,7 +16,7 @@ namespace NovaTerminal.Controls
     /// <para>
     /// <strong>V2 Phase 3b, task 2.</strong> Lives on the App side of the Avalonia boundary because
     /// binding strings are <c>Avalonia.Input</c> chords and the catalogue is an App type. Nothing in
-    /// <c>NovaTerminal.CommandAssist</c> parses a chord; it receives
+    /// <c>Ntilde.CommandAssist</c> parses a chord; it receives
     /// <see cref="AssistKeyBindings"/> and <see cref="AssistShortcutHintLabels"/> as plain data.
     /// </para>
     /// <para>

@@ -1,4 +1,4 @@
-namespace NovaTerminal.Platform.Ssh.Transport;
+namespace Ntilde.Platform.Ssh.Transport;
 
 public interface IRemoteTerminalTransport : IDisposable
 {

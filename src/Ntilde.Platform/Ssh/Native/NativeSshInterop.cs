@@ -3,9 +3,9 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using NovaTerminal.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Models;
 
-namespace NovaTerminal.Platform.Ssh.Native;
+namespace Ntilde.Platform.Ssh.Native;
 
 public sealed partial class NativeSshInterop : INativeSshInterop
 {
@@ -158,7 +158,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         GCHandle progressStateHandle = default;
         string cancellationMarkerPath = Path.Combine(
             Path.GetTempPath(),
-            $"nova-sftp-cancel-{Guid.NewGuid():N}.signal");
+            $"ntilde-sftp-cancel-{Guid.NewGuid():N}.signal");
         CancellationTokenRegistration cancellationRegistration = default;
 
         try

@@ -1,7 +1,7 @@
-using NovaTerminal.VT;
-using NovaTerminal.VT.Links;
+using Ntilde.VT;
+using Ntilde.VT.Links;
 
-namespace NovaTerminal.VT.Tests.Links;
+namespace Ntilde.VT.Tests.Links;
 
 public class RowTextExtractorTests
 {

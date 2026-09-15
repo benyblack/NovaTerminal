@@ -1,9 +1,9 @@
 using System;
 using System.IO;
-using NovaTerminal.Controls;
+using Ntilde.Controls;
 using Xunit;
 
-namespace NovaTerminal.Tests;
+namespace Ntilde.Tests;
 
 /// <summary>
 /// Confinement rules for the kitty <c>t=f</c> transport reader wired behind
@@ -40,7 +40,7 @@ public class KittyTransportFileTests
     public void ReadKittyTransportFile_FileInsideTemp_IsRead()
     {
         string tempRoot = Path.GetTempPath();
-        string candidate = Path.Combine(tempRoot, "novaterminal-kitty-test-" + Guid.NewGuid().ToString("N") + ".rgba");
+        string candidate = Path.Combine(tempRoot, "ntilde-kitty-test-" + Guid.NewGuid().ToString("N") + ".rgba");
         try
         {
             byte[] payload = { 1, 2, 3, 4, 5 };
@@ -67,7 +67,7 @@ public class KittyTransportFileTests
     public void ReadKittyTransportFile_FileHeldOpenByWriter_IsStillRead()
     {
         string tempRoot = Path.GetTempPath();
-        string candidate = Path.Combine(tempRoot, "novaterminal-kitty-test-" + Guid.NewGuid().ToString("N") + ".rgba");
+        string candidate = Path.Combine(tempRoot, "ntilde-kitty-test-" + Guid.NewGuid().ToString("N") + ".rgba");
         try
         {
             byte[] payload = { 9, 8, 7, 6, 5, 4 };
@@ -91,7 +91,7 @@ public class KittyTransportFileTests
     [Fact]
     public void ReadKittyTransportFile_MissingFileInsideTemp_ReturnsNull()
     {
-        string candidate = Path.Combine(Path.GetTempPath(), "novaterminal-missing-" + Guid.NewGuid().ToString("N") + ".rgba");
+        string candidate = Path.Combine(Path.GetTempPath(), "ntilde-missing-" + Guid.NewGuid().ToString("N") + ".rgba");
         Assert.Null(TerminalPane.ReadKittyTransportFile(candidate));
     }
 }

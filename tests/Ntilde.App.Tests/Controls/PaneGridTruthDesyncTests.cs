@@ -1,10 +1,10 @@
 using Avalonia.Headless.XUnit;
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.Controls;
-using NovaTerminal.Shell;
+using Ntilde.CommandAssist.Application;
+using Ntilde.Controls;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Controls;
+namespace Ntilde.Tests.Controls;
 
 /// <summary>
 /// The V1 desync matrix, driven through the real stack: escape sequences into
@@ -21,7 +21,7 @@ namespace NovaTerminal.Tests.Controls;
 /// </para>
 /// <para>
 /// Sibling coverage: <c>PaneGridCommandLineTests</c> pins the mark plumbing,
-/// <c>NovaTerminal.VT.Tests.GridQueryReaderTests</c> pins extraction, and
+/// <c>Ntilde.VT.Tests.GridQueryReaderTests</c> pins extraction, and
 /// <c>CommandAssistGridTruthTests</c> pins the same scenarios against the controller seam without a
 /// terminal. This file is the one that proves the pieces are actually connected.
 /// </para>
@@ -85,12 +85,12 @@ public class PaneGridTruthDesyncTests
     public async Task AfterShellTabCompletion_TheQueryIsTheCompletedWord()
     {
         using var pane = CreatePane();
-        await AtAPromptAsync(pane, "cd Nova");
+        await AtAPromptAsync(pane, "cd Ntilde");
 
         // The shell finishes the word in place.
         pane.Parser!.Process("Terminal.CommandAssist/");
 
-        Assert.Equal("cd NovaTerminal.CommandAssist/", ReadQuery(pane)?.Text);
+        Assert.Equal("cd Ntilde.CommandAssist/", ReadQuery(pane)?.Text);
     }
 
     /// <summary>

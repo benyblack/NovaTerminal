@@ -1,7 +1,7 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Text.Json;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 // Regression tests for #167: settings persistence must be crash-safe (atomic write
 // + .bak) and corrupt files must fall back to the backup instead of silently
@@ -11,7 +11,7 @@ public sealed class TerminalSettingsPersistenceTests
     [Fact]
     public void LoadFromPath_CorruptFile_FallsBackToBackup()
     {
-        string root = Directory.CreateTempSubdirectory("nova-settings-tests-").FullName;
+        string root = Directory.CreateTempSubdirectory("ntilde-settings-tests-").FullName;
         try
         {
             string path = Path.Combine(root, "settings.json");
@@ -44,7 +44,7 @@ public sealed class TerminalSettingsPersistenceTests
     [Fact]
     public void LoadFromPath_CorruptFile_NoBackup_FallsBackToDefaults()
     {
-        string root = Directory.CreateTempSubdirectory("nova-settings-tests-").FullName;
+        string root = Directory.CreateTempSubdirectory("ntilde-settings-tests-").FullName;
         try
         {
             string path = Path.Combine(root, "settings.json");
@@ -64,7 +64,7 @@ public sealed class TerminalSettingsPersistenceTests
     [Fact]
     public void AtomicFile_WriteAllText_KeepsBackupOfPreviousContent()
     {
-        string root = Directory.CreateTempSubdirectory("nova-atomic-tests-").FullName;
+        string root = Directory.CreateTempSubdirectory("ntilde-atomic-tests-").FullName;
         try
         {
             string path = Path.Combine(root, "file.json");
@@ -85,7 +85,7 @@ public sealed class TerminalSettingsPersistenceTests
     [Fact]
     public void AtomicFile_WriteAllBytes_RoundTrips()
     {
-        string root = Directory.CreateTempSubdirectory("nova-atomic-tests-").FullName;
+        string root = Directory.CreateTempSubdirectory("ntilde-atomic-tests-").FullName;
         try
         {
             string path = Path.Combine(root, "vault.dat");

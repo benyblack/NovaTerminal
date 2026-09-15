@@ -1,7 +1,7 @@
-using NovaTerminal.Platform.Ssh.Launch;
-using NovaTerminal.Pty;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Platform.Ssh.Sessions;
+namespace Ntilde.Platform.Ssh.Sessions;
 
 public interface ISshSessionFactory
 {

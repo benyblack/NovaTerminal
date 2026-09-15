@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace NovaTerminal.AgentHost.Contracts;
+namespace Ntilde.AgentHost.Contracts;
 
 /// <summary>Params for <c>sendInput</c> (A3, act surface).</summary>
 public sealed record SendInputParams

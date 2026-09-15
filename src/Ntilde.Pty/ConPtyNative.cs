@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace NovaTerminal.Pty
+namespace Ntilde.Pty
 {
     /// <summary>
     /// P/Invoke declarations for Windows Pseudo Console (ConPTY) APIs

@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Pty;
-using NovaTerminal.Shell;
+using Ntilde.Controls;
+using Ntilde.Pty;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// #319 and #314: MainWindow answers "which tab owns this pane" with
@@ -73,7 +73,7 @@ public sealed class MainWindowTabLookupTests : IDisposable, IClassFixture<TestAp
 
     private sealed class SplitTabFixture : IDisposable
     {
-        private SplitTabFixture(NovaTerminal.MainWindow window, TabControl tabs, TabItem tab, TerminalPane first, TerminalPane second)
+        private SplitTabFixture(Ntilde.MainWindow window, TabControl tabs, TabItem tab, TerminalPane first, TerminalPane second)
         {
             Window = window;
             Tabs = tabs;
@@ -82,7 +82,7 @@ public sealed class MainWindowTabLookupTests : IDisposable, IClassFixture<TestAp
             SecondPane = second;
         }
 
-        public NovaTerminal.MainWindow Window { get; }
+        public Ntilde.MainWindow Window { get; }
         public TabControl Tabs { get; }
         public TabItem Tab { get; }
         public TerminalPane FirstPane { get; }
@@ -90,7 +90,7 @@ public sealed class MainWindowTabLookupTests : IDisposable, IClassFixture<TestAp
 
         public object? Invoke(string method, params object?[] args)
         {
-            MethodInfo m = typeof(NovaTerminal.MainWindow)
+            MethodInfo m = typeof(Ntilde.MainWindow)
                 .GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)
                 ?? throw new MissingMethodException($"MainWindow.{method} not found");
             return m.Invoke(Window, args);
@@ -107,7 +107,7 @@ public sealed class MainWindowTabLookupTests : IDisposable, IClassFixture<TestAp
             AppServiceBundle bundle = AppServices.BuildForDesigner();
             var window = TestMainWindowFactory.Create(bundle);
             TabControl tabs = window.FindControl<TabControl>("Tabs")!;
-            var settings = (TerminalSettings)typeof(NovaTerminal.MainWindow)
+            var settings = (TerminalSettings)typeof(Ntilde.MainWindow)
                 .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .GetValue(window)!;
 
@@ -140,7 +140,7 @@ public sealed class MainWindowTabLookupTests : IDisposable, IClassFixture<TestAp
             tabs.Items.Add(other);
             tabs.SelectedItem = other;
 
-            typeof(NovaTerminal.MainWindow)
+            typeof(Ntilde.MainWindow)
                 .GetMethod("InitializeRestoredTabs", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(window, [tabs]);
 

@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace NovaTerminal.Shell.Native
+namespace Ntilde.Shell.Native
 {
     public static class Win32CredentialManager
     {

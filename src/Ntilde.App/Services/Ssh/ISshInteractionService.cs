@@ -1,6 +1,6 @@
-using NovaTerminal.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Interactions;
 
-namespace NovaTerminal.Services.Ssh;
+namespace Ntilde.Services.Ssh;
 
 public interface ISshInteractionService : ISshInteractionHandler
 {

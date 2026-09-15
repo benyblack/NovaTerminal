@@ -13,11 +13,11 @@
 ### Task 1: Define sidebar models and directory browser contract
 
 **Files:**
-- Create: `src/NovaTerminal.App/Models/RemoteSidebarEntry.cs`
-- Create: `src/NovaTerminal.App/Models/RemoteSidebarListingResult.cs`
-- Create: `src/NovaTerminal.App/Services/Ssh/IRemoteDirectoryBrowserService.cs`
-- Create: `src/NovaTerminal.App/Services/Ssh/RemoteSidebarStartPathResolver.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/RemoteSidebarStartPathResolverTests.cs`
+- Create: `src/Ntilde.App/Models/RemoteSidebarEntry.cs`
+- Create: `src/Ntilde.App/Models/RemoteSidebarListingResult.cs`
+- Create: `src/Ntilde.App/Services/Ssh/IRemoteDirectoryBrowserService.cs`
+- Create: `src/Ntilde.App/Services/Ssh/RemoteSidebarStartPathResolver.cs`
+- Test: `tests/Ntilde.Tests/Ssh/RemoteSidebarStartPathResolverTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -40,7 +40,7 @@ Add a second test that falls back from blank cwd to `profile.DefaultRemoteDir`, 
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~RemoteSidebarStartPathResolverTests" -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~RemoteSidebarStartPathResolverTests" -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the resolver and sidebar models do not exist yet.
@@ -98,18 +98,18 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Models/RemoteSidebarEntry.cs src/NovaTerminal.App/Models/RemoteSidebarListingResult.cs src/NovaTerminal.App/Services/Ssh/IRemoteDirectoryBrowserService.cs src/NovaTerminal.App/Services/Ssh/RemoteSidebarStartPathResolver.cs tests/NovaTerminal.Tests/Ssh/RemoteSidebarStartPathResolverTests.cs
+git add src/Ntilde.App/Models/RemoteSidebarEntry.cs src/Ntilde.App/Models/RemoteSidebarListingResult.cs src/Ntilde.App/Services/Ssh/IRemoteDirectoryBrowserService.cs src/Ntilde.App/Services/Ssh/RemoteSidebarStartPathResolver.cs tests/Ntilde.Tests/Ssh/RemoteSidebarStartPathResolverTests.cs
 git commit -m "feat: define remote sidebar contracts"
 ```
 
 ### Task 2: Implement the remote directory browser service
 
 **Files:**
-- Create: `src/NovaTerminal.App/Services/Ssh/RemoteDirectoryBrowserService.cs`
-- Modify: `src/NovaTerminal.App/Services/Ssh/ActiveSshSessionRegistry.cs`
-- Modify: `src/NovaTerminal.App/Services/Ssh/RemotePathAutocompleteService.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/RemoteDirectoryBrowserServiceTests.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/ActiveSshSessionRegistryTests.cs`
+- Create: `src/Ntilde.App/Services/Ssh/RemoteDirectoryBrowserService.cs`
+- Modify: `src/Ntilde.App/Services/Ssh/ActiveSshSessionRegistry.cs`
+- Modify: `src/Ntilde.App/Services/Ssh/RemotePathAutocompleteService.cs`
+- Test: `tests/Ntilde.Tests/Ssh/RemoteDirectoryBrowserServiceTests.cs`
+- Test: `tests/Ntilde.Tests/Ssh/ActiveSshSessionRegistryTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -151,7 +151,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~RemoteDirectoryBrowserServiceTests" -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~RemoteDirectoryBrowserServiceTests" -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the service does not exist yet.
@@ -174,7 +174,7 @@ If shared native-connection setup emerges naturally, extract a small helper inst
 Run the same command as Step 2, then also run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~ActiveSshSessionRegistryTests" -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~ActiveSshSessionRegistryTests" -m:1 --nologo -v:minimal
 ```
 
 Expected: PASS.
@@ -182,16 +182,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Services/Ssh/RemoteDirectoryBrowserService.cs src/NovaTerminal.App/Services/Ssh/ActiveSshSessionRegistry.cs src/NovaTerminal.App/Services/Ssh/RemotePathAutocompleteService.cs tests/NovaTerminal.Tests/Ssh/RemoteDirectoryBrowserServiceTests.cs tests/NovaTerminal.Tests/Ssh/ActiveSshSessionRegistryTests.cs
+git add src/Ntilde.App/Services/Ssh/RemoteDirectoryBrowserService.cs src/Ntilde.App/Services/Ssh/ActiveSshSessionRegistry.cs src/Ntilde.App/Services/Ssh/RemotePathAutocompleteService.cs tests/Ntilde.Tests/Ssh/RemoteDirectoryBrowserServiceTests.cs tests/Ntilde.Tests/Ssh/ActiveSshSessionRegistryTests.cs
 git commit -m "feat: add native remote directory browser service"
 ```
 
 ### Task 3: Add a sidebar view model with navigation and state transitions
 
 **Files:**
-- Create: `src/NovaTerminal.App/ViewModels/Ssh/RemoteFilesSidebarViewModel.cs`
-- Create: `src/NovaTerminal.App/ViewModels/Ssh/RemoteFilesSidebarEntryViewModel.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/RemoteFilesSidebarViewModelTests.cs`
+- Create: `src/Ntilde.App/ViewModels/Ssh/RemoteFilesSidebarViewModel.cs`
+- Create: `src/Ntilde.App/ViewModels/Ssh/RemoteFilesSidebarEntryViewModel.cs`
+- Test: `tests/Ntilde.Tests/Ssh/RemoteFilesSidebarViewModelTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -230,7 +230,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~RemoteFilesSidebarViewModelTests" -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~RemoteFilesSidebarViewModelTests" -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the view model does not exist yet.
@@ -272,16 +272,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/ViewModels/Ssh/RemoteFilesSidebarViewModel.cs src/NovaTerminal.App/ViewModels/Ssh/RemoteFilesSidebarEntryViewModel.cs tests/NovaTerminal.Tests/Ssh/RemoteFilesSidebarViewModelTests.cs
+git add src/Ntilde.App/ViewModels/Ssh/RemoteFilesSidebarViewModel.cs src/Ntilde.App/ViewModels/Ssh/RemoteFilesSidebarEntryViewModel.cs tests/Ntilde.Tests/Ssh/RemoteFilesSidebarViewModelTests.cs
 git commit -m "feat: add remote files sidebar state model"
 ```
 
 ### Task 4: Add the Avalonia sidebar control
 
 **Files:**
-- Create: `src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml`
-- Create: `src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Core/RemoteFilesSidebarTests.cs`
+- Create: `src/Ntilde.App/Controls/RemoteFilesSidebar.axaml`
+- Create: `src/Ntilde.App/Controls/RemoteFilesSidebar.axaml.cs`
+- Test: `tests/Ntilde.Tests/Core/RemoteFilesSidebarTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -311,7 +311,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~RemoteFilesSidebarTests" -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~RemoteFilesSidebarTests" -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the control does not exist yet.
@@ -344,17 +344,17 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml.cs tests/NovaTerminal.Tests/Core/RemoteFilesSidebarTests.cs
+git add src/Ntilde.App/Controls/RemoteFilesSidebar.axaml src/Ntilde.App/Controls/RemoteFilesSidebar.axaml.cs tests/Ntilde.Tests/Core/RemoteFilesSidebarTests.cs
 git commit -m "feat: add remote files sidebar ui"
 ```
 
 ### Task 5: Host the sidebar in TerminalPane and wire pane lifecycle
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Test: `tests/Ntilde.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -383,7 +383,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~TerminalPaneRemoteFilesSidebarTests" -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~TerminalPaneRemoteFilesSidebarTests" -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the sidebar host and test hooks do not exist yet.
@@ -411,19 +411,19 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml src/NovaTerminal.App/Controls/TerminalPane.axaml.cs src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml src/Ntilde.App/Controls/TerminalPane.axaml.cs src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs
 git commit -m "feat: host remote files sidebar in terminal pane"
 ```
 
 ### Task 6: Route sidebar upload and download actions through the existing transfer system
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Modify: `src/NovaTerminal.App/Models/TransferDialogRequest.cs`
-- Modify: `src/NovaTerminal.App/Controls/TransferDialog.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs`
-- Test: `tests/NovaTerminal.Tests/Core/TransferDialogRequestTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Modify: `src/Ntilde.App/Models/TransferDialogRequest.cs`
+- Modify: `src/Ntilde.App/Controls/TransferDialog.axaml.cs`
+- Test: `tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs`
+- Test: `tests/Ntilde.Tests/Core/TransferDialogRequestTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -460,7 +460,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~MainWindowTransferFlowTests|FullyQualifiedName~TransferDialogRequestTests" -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~MainWindowTransferFlowTests|FullyQualifiedName~TransferDialogRequestTests" -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because sidebar-originated transfer requests do not exist yet.
@@ -489,7 +489,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml.cs src/NovaTerminal.App/MainWindow.axaml.cs src/NovaTerminal.App/Models/TransferDialogRequest.cs src/NovaTerminal.App/Controls/TransferDialog.axaml.cs tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs tests/NovaTerminal.Tests/Core/TransferDialogRequestTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml.cs src/Ntilde.App/MainWindow.axaml.cs src/Ntilde.App/Models/TransferDialogRequest.cs src/Ntilde.App/Controls/TransferDialog.axaml.cs tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs tests/Ntilde.Tests/Core/TransferDialogRequestTests.cs
 git commit -m "feat: route sidebar transfers through sftp service"
 ```
 
@@ -498,8 +498,8 @@ git commit -m "feat: route sidebar transfers through sftp service"
 **Files:**
 - Modify: `docs/USER_MANUAL.md`
 - Modify: `docs/plans/2026-04-30-native-sftp-sidebar-design.md`
-- Test: `tests/NovaTerminal.Tests/Ssh/RemoteDirectoryBrowserServiceTests.cs`
-- Test: `tests/NovaTerminal.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs`
+- Test: `tests/Ntilde.Tests/Ssh/RemoteDirectoryBrowserServiceTests.cs`
+- Test: `tests/Ntilde.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -525,7 +525,7 @@ public async Task MarkDisconnected_KeepsSidebarOpenButDisablesTransferActions()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~RemoteFilesSidebarViewModelTests.MarkDisconnected|FullyQualifiedName~TerminalPaneRemoteFilesSidebarTests" -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~RemoteFilesSidebarViewModelTests.MarkDisconnected|FullyQualifiedName~TerminalPaneRemoteFilesSidebarTests" -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL until disconnect hardening is complete.
@@ -545,6 +545,6 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add docs/USER_MANUAL.md tests/NovaTerminal.Tests/Ssh/RemoteDirectoryBrowserServiceTests.cs tests/NovaTerminal.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs src/NovaTerminal.App/ViewModels/Ssh/RemoteFilesSidebarViewModel.cs
+git add docs/USER_MANUAL.md tests/Ntilde.Tests/Ssh/RemoteDirectoryBrowserServiceTests.cs tests/Ntilde.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs src/Ntilde.App/ViewModels/Ssh/RemoteFilesSidebarViewModel.cs
 git commit -m "docs: describe native sftp sidebar flow"
 ```

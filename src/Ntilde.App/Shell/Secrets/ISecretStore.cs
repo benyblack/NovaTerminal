@@ -1,4 +1,4 @@
-namespace NovaTerminal.Shell.Secrets
+namespace Ntilde.Shell.Secrets
 {
     /// <summary>
     /// Abstracts per-user secret storage. Implementations back onto OS keychains

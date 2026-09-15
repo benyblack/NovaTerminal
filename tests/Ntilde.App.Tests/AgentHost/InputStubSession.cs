@@ -1,14 +1,14 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
-/// Shared <see cref="NovaTerminal.Pty.ITerminalSession"/> stub for act-surface
+/// Shared <see cref="Ntilde.Pty.ITerminalSession"/> stub for act-surface
 /// and attention-signal protocol tests: a minimal input-accepting session that
 /// records what was sent and can be told to report itself as not running.
 /// </summary>
-internal sealed class InputStubSession : NovaTerminal.Pty.ITerminalSession
+internal sealed class InputStubSession : Ntilde.Pty.ITerminalSession
 {
     private readonly bool _running;
     public InputStubSession(bool running = true) => _running = running;
@@ -32,6 +32,6 @@ internal sealed class InputStubSession : NovaTerminal.Pty.ITerminalSession
     public bool IsFlightRecording => false;
     public void EnableFlightRecording(long maxTotalBytes) { }
     public void DisableFlightRecording() { }
-    public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info) { info = default; return false; }
+    public bool TryExportFlightRecording(string filePath, out Ntilde.Replay.FlightExportInfo info) { info = default; return false; }
     public void Dispose() { }
 }

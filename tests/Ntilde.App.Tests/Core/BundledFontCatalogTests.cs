@@ -1,9 +1,9 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Media;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class BundledFontCatalogTests
 {

@@ -1,7 +1,7 @@
-using NovaTerminal.Rendering;
+using Ntilde.Rendering;
 using SkiaSharp;
 
-namespace NovaTerminal.Rendering.Tests;
+namespace Ntilde.Rendering.Tests;
 
 // Regression tests for #125: an atlas overflow must not wipe the entire glyph cache (which forced
 // the whole visible glyph set to be re-rasterized on the next frame). Overflow now keeps the

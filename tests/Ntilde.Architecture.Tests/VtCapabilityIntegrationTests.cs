@@ -1,4 +1,4 @@
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 public class VtCapabilityIntegrationTests
 {
@@ -7,7 +7,7 @@ public class VtCapabilityIntegrationTests
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
         while (directory is not null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "NovaTerminal.sln")))
+            if (File.Exists(Path.Combine(directory.FullName, "Ntilde.sln")))
             {
                 return directory.FullName;
             }
@@ -26,7 +26,7 @@ public class VtCapabilityIntegrationTests
     {
         var workflow = ReadRepositoryFile(".github/workflows/vt-conformance.yml");
 
-        Assert.Contains("src/NovaTerminal.VtContract/**", workflow, StringComparison.Ordinal);
+        Assert.Contains("src/Ntilde.VtContract/**", workflow, StringComparison.Ordinal);
     }
 
     [Fact]

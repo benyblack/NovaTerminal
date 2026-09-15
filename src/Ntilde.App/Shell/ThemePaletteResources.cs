@@ -2,9 +2,9 @@ using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 internal static class ThemePaletteResources
 {

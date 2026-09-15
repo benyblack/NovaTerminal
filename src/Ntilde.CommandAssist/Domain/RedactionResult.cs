@@ -1,3 +1,3 @@
-namespace NovaTerminal.CommandAssist.Domain;
+namespace Ntilde.CommandAssist.Domain;
 
 public sealed record RedactionResult(string RedactedText, bool WasRedacted);

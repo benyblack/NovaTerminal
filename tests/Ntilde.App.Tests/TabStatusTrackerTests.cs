@@ -1,5 +1,5 @@
 using System;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
 public sealed class TabStatusTrackerTests
 {

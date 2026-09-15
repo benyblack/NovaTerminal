@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// #166: images pruned from the buffer must retire their handles into the drain queue so

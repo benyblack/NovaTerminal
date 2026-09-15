@@ -1,7 +1,7 @@
 # Windows Installer + Auto-Update — Manual Verification
 
 **Date:** 2026-08-24
-**Applies to:** the Velopack installer/auto-update work on `design/windows-installer-velopack` ([#91](https://github.com/benyblack/NovaTerminal/issues/91))
+**Applies to:** the Velopack installer/auto-update work on `design/windows-installer-velopack` ([#91](https://github.com/benyblack/ntilde/issues/91))
 **Why this file exists:** none of this can be automated. The window wiring has no test coverage by design, and the release path cannot be exercised without publishing real releases. This is Task 7 of
 [the implementation plan](2026-08-24-windows-installer-velopack.md), written down so it survives the session that produced it.
 
@@ -13,7 +13,7 @@ Part A can be run now, on a dev build. Part B needs two real published releases 
 
 A dev run is **not** a Velopack install, so the update path must be inert. That is the point: portable-zip, winget and dev users must never see update UI or errors.
 
-1. Launch `src/NovaTerminal.App/bin/Debug/net10.0/NovaTerminal.exe` (run `scripts/build.ps1 build src/NovaTerminal.App` first if stale).
+1. Launch `src/Ntilde.App/bin/Debug/net10.0/Ntilde.exe` (run `scripts/build.ps1 build src/Ntilde.App` first if stale).
 2. The app opens normally and **no** update toast appears bottom-right.
 3. Open the command palette: **"Update: Check for updates"** is present under *Application*, immediately — it does not wait for the 10-second mark.
 4. Run it. Expect a toast titled **"Updates unavailable"** explaining that this build was not installed by the installer. It should auto-hide after a few seconds. It must **not** be a failure toast, and must **not** be silent.
@@ -34,16 +34,16 @@ A dev run is **not** a Velopack install, so the update path must be inert. That 
 
 ### B1. Before tagging
 
-- `scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests` — green. This is the gating project that now carries the update tests, including the backward-compatibility pin that an existing settings file must not silently opt a user out of update checks.
-- `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "Category!=ShellIntegration"` — no *new* failures versus baseline. The PTY native-test cluster is known-flaky when `rusty_pty.dll` in the test output is stale; that is unrelated to this work.
+- `scripts/build.ps1 test tests/Ntilde.Architecture.Tests` — green. This is the gating project that now carries the update tests, including the backward-compatibility pin that an existing settings file must not silently opt a user out of update checks.
+- `scripts/build.ps1 test tests/Ntilde.App.Tests --filter "Category!=ShellIntegration"` — no *new* failures versus baseline. The PTY native-test cluster is known-flaky when `rusty_pty.dll` in the test output is stale; that is unrelated to this work.
 
 ### B2. First release
 
 Push a tag (or `workflow_dispatch` with `tag_name`), then check the release carries:
 
-- the three existing zips, **`NovaTerminal-win-x64-<tag>.zip` unchanged in name** — `packaging/winget/` pins that URL and its SHA256;
-- `NovaTerminal-Setup-win-x64-<tag>.exe`;
-- `NovaTerminalApp-<version>-full.nupkg` (the `App` suffix is deliberate - see the packId note below);
+- the three existing zips, **`ntilde-win-x64-<tag>.zip` unchanged in name** — `packaging/winget/` pins that URL and its SHA256;
+- `ntilde-Setup-win-x64-<tag>.exe`;
+- `NtildeApp-<version>-full.nupkg` (the `App` suffix is deliberate - see the packId note below);
 - `releases.win.json`.
 
 **No `*-delta.nupkg` on the first release** — there was no prior Velopack release to diff against. The `Download previous Velopack release` step is expected to log a miss without failing.
@@ -55,7 +55,7 @@ Then install it and confirm: no UAC prompt (per-user install), a Start Menu entr
 Bump `Version` in `Directory.Build.props`, push the next tag, then in the **installed** vN app:
 
 1. Launch and wait ~15 s.
-2. The update toast appears: "NovaTerminal `<vN+1>` is downloaded and will be applied when you restart."
+2. The update toast appears: "Ntilde `<vN+1>` is downloaded and will be applied when you restart."
 3. The palette offers **"Update: Restart to apply `<vN+1>`"**.
 4. Open a couple of tabs, then click **Restart now**. The app restarts on vN+1 **and your tabs come back** — that is the session-preservation fix.
 5. Turn **Automatic update checks** off, relaunch, and confirm no check fires while the manual palette check still works.
@@ -64,11 +64,11 @@ Bump `Version` in `Directory.Build.props`, push the next tag, then in the **inst
 
 ## Release-day gotchas (found during review — read before B2)
 
-- **The install root and the config root are deliberately different folders.** Velopack installs to `%LocalAppData%\NovaTerminalApp` and its uninstall deletes that whole directory; the app's config lives in `%LocalAppData%\NovaTerminal` and must stay outside it, or uninstalling destroys every setting, SSH profile and command history. The `packId` in `release.yml` is what keeps them apart — do not align it with the app name. See [the configuration storage contract](../../CONFIG_STORAGE_CONTRACT.md).
+- **The install root and the config root are deliberately different folders.** Velopack installs to `%LocalAppData%\NtildeApp` and its uninstall deletes that whole directory; the app's config lives in `%LocalAppData%\Ntilde` and must stay outside it, or uninstalling destroys every setting, SSH profile and command history. The `packId` in `release.yml` is what keeps them apart — do not align it with the app name. See [the configuration storage contract](../../CONFIG_STORAGE_CONTRACT.md).
 - **A client installed under an OLD packId is still offered releases built under the NEW one**, because `CheckForUpdatesAsync` never compares package ids — it is a bare `feed.Where(Full).MaxBy(x => x.Version)`. Observed for real: a `v0.4.1-test.1` install raised an update toast for `v0.5.0` across the packId change. Applying it strands the machine running new code out of the old install root, and deleting the old release does not help (the client reads the *latest* release's feed regardless). The only fix is manual: back up the config root, uninstall, reinstall from the new `Setup.exe`, restore. A packId change is breaking and un-migratable — confirm nobody has the old id installed first, throwaway test releases included.
-- **Back up `%LocalAppData%\NovaTerminal` before testing an install on a machine with real config.** Secrets live in the Windows Credential Manager and survive regardless; the config folder does not, if the packId is ever wrong.
+- **Back up `%LocalAppData%\Ntilde` before testing an install on a machine with real config.** Secrets live in the Windows Credential Manager and survive regardless; the config folder does not, if the packId is ever wrong.
 
-- **"Was the delta used?" cannot be answered from the releases page.** A full-only release publishes green and looks identical. Confirm from the client's Velopack log at `%LocalAppData%\velopack\velopack_NovaTerminalApp.log` — note this is *not* the app's own debug log, and the app's update-failure toasts point at the latter.
+- **"Was the delta used?" cannot be answered from the releases page.** A full-only release publishes green and looks identical. Confirm from the client's Velopack log at `%LocalAppData%\velopack\velopack_NtildeApp.log` — note this is *not* the app's own debug log, and the app's update-failure toasts point at the latter.
 - **`releases.win.json` legitimately lists the previous release's `full.nupkg`**, which is not an asset on the current release. `vpk pack` re-indexes the whole output directory. Nothing on the happy path selects that entry (only a downgrade would, and `AllowVersionDowngrade` is off). It is known and benign — do not chase it.
 - **Re-dispatching the workflow for an already-published tag** deletes and rebuilds that version's nupkg, so the re-run republishes `releases.win.json` **without a delta entry** even if a delta was uploaded the first time. Clients fall back to the full package: degraded, not broken. This is inherent to making re-runs work at all.
 - **A prerelease tag stays off stable users' update path** only because `create_release` now sets GitHub's `prerelease` flag from the tag's SemVer suffix. `GithubSource` filters on that flag alone — it does not look at the version string — so if that expression is ever removed, a `-beta` tag will update everyone.

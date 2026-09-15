@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.Update;
+using Ntilde.Update;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 /// <summary>
 /// These tests live in the Architecture project, not beside the rest of the app tests, because
@@ -12,7 +12,7 @@ namespace NovaTerminal.Architecture.Tests;
 /// (VT, Rendering, Architecture, Platform, McpServer) while <c>App.Tests</c> is not - CI marks
 /// that job green via <c>continue-on-error</c>. <see cref="UpdateCoordinator"/> is pure policy
 /// (no Avalonia, no Windows, no network), and this project already has a ProjectReference to
-/// <c>NovaTerminal.App</c>, so nothing is given up by putting the update rules somewhere a
+/// <c>Ntilde.App</c>, so nothing is given up by putting the update rules somewhere a
 /// regression actually blocks a release. The Velopack-backed implementation's tests stay in
 /// <c>App.Tests</c>.
 /// </summary>

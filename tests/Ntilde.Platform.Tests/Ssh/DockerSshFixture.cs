@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Net.Sockets;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 /// <summary>Which of the per-container test keys to use. Both are generated when the fixture starts.</summary>
 internal enum NativeSshTestKey
@@ -208,7 +208,7 @@ internal sealed class DockerSshFixture : IAsyncDisposable
 
     private static async Task EnsureImageBuiltAsync()
     {
-        string rebuild = Environment.GetEnvironmentVariable("NOVATERM_REBUILD_DOCKER_E2E") ?? string.Empty;
+        string rebuild = Environment.GetEnvironmentVariable("NTILDE_REBUILD_DOCKER_E2E") ?? string.Empty;
         bool shouldRebuild = rebuild == "1" || string.Equals(rebuild, "true", StringComparison.OrdinalIgnoreCase);
         if (!shouldRebuild)
         {
@@ -219,7 +219,7 @@ internal sealed class DockerSshFixture : IAsyncDisposable
             }
         }
 
-        string dockerfilePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "NovaTerminal.ExternalSuites", "NativeSsh", "Dockerfile"));
+        string dockerfilePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Ntilde.ExternalSuites", "NativeSsh", "Dockerfile"));
         string contextDir = Path.GetDirectoryName(dockerfilePath)
             ?? throw new InvalidOperationException("Unable to resolve Docker build context.");
 
@@ -293,8 +293,8 @@ internal sealed class DockerSshFixture : IAsyncDisposable
         // sshd refuses to honour authorized_keys unless it is owned by the user and not group/world
         // writable, so the chown/chmod are load-bearing rather than tidiness.
         string script =
-            "ssh-keygen -q -t ed25519 -N '' -C novaterm-plain -f /novaterm-keys/id_ed25519 && " +
-            $"ssh-keygen -q -t ed25519 -N '{PrivateKeyPassphraseValue}' -C novaterm-encrypted -f /novaterm-keys/id_ed25519_encrypted && " +
+            "ssh-keygen -q -t ed25519 -N '' -C ntilde-plain -f /novaterm-keys/id_ed25519 && " +
+            $"ssh-keygen -q -t ed25519 -N '{PrivateKeyPassphraseValue}' -C ntilde-encrypted -f /novaterm-keys/id_ed25519_encrypted && " +
             "cat /novaterm-keys/id_ed25519.pub /novaterm-keys/id_ed25519_encrypted.pub > /home/nova/.ssh/authorized_keys && " +
             "chown nova:nova /home/nova/.ssh/authorized_keys && " +
             "chmod 600 /home/nova/.ssh/authorized_keys && " +

@@ -2,10 +2,10 @@ using System;
 using System.Globalization;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public class DirectionConverter : IValueConverter
     {

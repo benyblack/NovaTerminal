@@ -1,7 +1,7 @@
 using System;
-using NovaTerminal.Shell.Native;
+using Ntilde.Shell.Native;
 
-namespace NovaTerminal.Shell.Secrets
+namespace Ntilde.Shell.Secrets
 {
     /// <summary>
     /// Windows secret store backed by the Win32 Credential Manager (per-user, DPAPI-protected).
@@ -26,10 +26,10 @@ namespace NovaTerminal.Shell.Secrets
         public bool Delete(string key) => Win32CredentialManager.Delete(ToTarget(key));
 
         private static string ToTarget(string key)
-            => key.StartsWith("NovaTerminal:", StringComparison.Ordinal) ? key : $"NovaTerminal:{key}";
+            => key.StartsWith("Ntilde:", StringComparison.Ordinal) ? key : $"Ntilde:{key}";
 
         // Mirrors the legacy VaultService.SetSecret username extraction:
-        // "NovaTerminal:SSH:User@Host" or "NovaTerminal:SSH:ProfileName:User@Host".
+        // "Ntilde:SSH:User@Host" or "Ntilde:SSH:ProfileName:User@Host".
         private static string ExtractUsername(string target)
         {
             string username = "User";

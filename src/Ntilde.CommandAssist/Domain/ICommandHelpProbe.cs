@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.Domain;
+namespace Ntilde.CommandAssist.Domain;
 
 /// <summary>
 /// The full-help command a probe found for a token, ready to be offered as an insertable row.

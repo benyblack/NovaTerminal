@@ -1,16 +1,16 @@
-using NovaTerminal.Platform;
-using NovaTerminal.Platform.Ssh.Storage;
+using Ntilde.Platform;
+using Ntilde.Platform.Ssh.Storage;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 /// <summary>
-/// Regression tests for #406: everything <c>NovaTerminal.Platform</c> writes under the app-data
-/// root must move when <c>NOVATERM_APPDATA_ROOT</c> moves.
+/// Regression tests for #406: everything <c>Ntilde.Platform</c> writes under the app-data
+/// root must move when <c>NTILDE_APPDATA_ROOT</c> moves.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <c>JsonSshProfileStore</c> and <c>OpenSshConfigCompiler</c> each resolved
-/// <c>%LOCALAPPDATA%\NovaTerminal\ssh</c> themselves and neither consulted the override, so a
+/// <c>%LOCALAPPDATA%\Ntilde\ssh</c> themselves and neither consulted the override, so a
 /// redirected process — a test, a portable install, the screenshot harness — got a correctly
 /// sandboxed settings file, log directory and session store, and then reached straight past the
 /// sandbox for SSH data. It was found because a capture run wrote a fictional profile into a real
@@ -24,7 +24,7 @@ namespace NovaTerminal.Platform.Tests.Ssh;
 [Collection(nameof(SshPathSandboxCollection))]
 public sealed class SshPathSandboxTests
 {
-    private const string RootOverrideEnvVar = "NOVATERM_APPDATA_ROOT";
+    private const string RootOverrideEnvVar = "NTILDE_APPDATA_ROOT";
 
     [Fact]
     public void Profile_store_default_path_follows_the_appdata_root_override()
@@ -55,7 +55,7 @@ public sealed class SshPathSandboxTests
     {
         string real = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "NovaTerminal");
+            "Ntilde");
 
         using var root = new TemporaryRoot();
 
@@ -82,7 +82,7 @@ public sealed class SshPathSandboxTests
         {
             string expected = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "NovaTerminal");
+                "Ntilde");
 
             Assert.Equal(expected, PlatformAppPaths.RootDirectory);
         }
@@ -93,7 +93,7 @@ public sealed class SshPathSandboxTests
     }
 
     /// <summary>
-    /// Points <c>NOVATERM_APPDATA_ROOT</c> at a fresh directory and restores whatever was there
+    /// Points <c>NTILDE_APPDATA_ROOT</c> at a fresh directory and restores whatever was there
     /// before, so a developer's or CI's own override survives the test.
     /// </summary>
     private sealed class TemporaryRoot : IDisposable
@@ -105,7 +105,7 @@ public sealed class SshPathSandboxTests
             _saved = Environment.GetEnvironmentVariable(RootOverrideEnvVar);
             Path = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
-                "nova-ssh-sandbox-tests",
+                "ntilde-ssh-sandbox-tests",
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path);
             Environment.SetEnvironmentVariable(RootOverrideEnvVar, Path);

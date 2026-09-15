@@ -1,16 +1,16 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Pty;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class StartupRestorePlanTests
 {
     [Fact]
     public void Create_PrioritizesSelectedTabAndPreservesDeferredOrder()
     {
-        var session = new NovaSession
+        var session = new NtildeSession
         {
             ActiveTabIndex = 1,
             Tabs =

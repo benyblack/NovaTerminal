@@ -11,8 +11,8 @@
 ## Global Constraints
 
 - **Build only via wrapper scripts.** `scripts/build.ps1 <args>` (PowerShell) or `scripts/build.sh <args>` (bash). Never raw `dotnet build` — it leaks MSBuild daemons that inherit stdout/stderr and hang the calling tool.
-- **Run tests targeted, never solution-wide.** A full-solution `dotnet test` is ~20–30 min (headless Avalonia). Use `scripts/build.ps1 test tests/NovaTerminal.App.Tests` and, where possible, `--filter`.
-- Existing `ISshPasswordVault` in `VaultService.cs` must **not** gain members — `tests/NovaTerminal.App.Tests/Ssh/SshConnectionServiceTests.cs:826` has a `RecordingSshPasswordVault` implementing it, and widening the interface would break it. Add a **separate** interface.
+- **Run tests targeted, never solution-wide.** A full-solution `dotnet test` is ~20–30 min (headless Avalonia). Use `scripts/build.ps1 test tests/Ntilde.App.Tests` and, where possible, `--filter`.
+- Existing `ISshPasswordVault` in `VaultService.cs` must **not** gain members — `tests/Ntilde.App.Tests/Ssh/SshConnectionServiceTests.cs:826` has a `RecordingSshPasswordVault` implementing it, and widening the interface would break it. Add a **separate** interface.
 - Vault key sets are already defined in `VaultService`. Use `GetProfileScopedSshPasswordKeysForProfile` (canonical + per-profile legacy, **excludes** the shared `SSH:{user}@{host}` alias). Never use `GetSshPasswordKeysForProfile` for either probe or purge.
 - Never probe the vault via `ResolveSshPasswordForProfile` — it migrates legacy keys to canonical, i.e. it *writes*.
 - The `Button.Danger` style and the `NtRed` brush already exist in `ConnectionManager.axaml`. Do not add new styles or palette keys.
@@ -25,15 +25,15 @@
 
 **Modified:**
 
-- `src/NovaTerminal.App/Shell/VaultService.cs` — add `ISavedPasswordAccess` interface + three `VaultService` members. Currently 219 lines; grows ~45. Stays focused (it is exactly this file's responsibility).
-- `src/NovaTerminal.App/Controls/ConnectionManager.axaml` — one column + button in the action bar (line 522); one row in the CONNECTION grid (line 566).
-- `src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs` — one event, one property, three handlers/renderers. Currently 654 lines; grows ~60.
-- `src/NovaTerminal.App/MainWindow.axaml.cs` — two wiring lines in `EnsureConnectionManagerControl()` (line ~5166) plus two new private methods. Already ~5900 lines; this follows the file's established pattern and is not the place to restructure.
+- `src/Ntilde.App/Shell/VaultService.cs` — add `ISavedPasswordAccess` interface + three `VaultService` members. Currently 219 lines; grows ~45. Stays focused (it is exactly this file's responsibility).
+- `src/Ntilde.App/Controls/ConnectionManager.axaml` — one column + button in the action bar (line 522); one row in the CONNECTION grid (line 566).
+- `src/Ntilde.App/Controls/ConnectionManager.axaml.cs` — one event, one property, three handlers/renderers. Currently 654 lines; grows ~60.
+- `src/Ntilde.App/MainWindow.axaml.cs` — two wiring lines in `EnsureConnectionManagerControl()` (line ~5166) plus two new private methods. Already ~5900 lines; this follows the file's established pattern and is not the place to restructure.
 
 **Test files:**
 
-- `tests/NovaTerminal.App.Tests/Core/VaultServiceSavedPasswordTests.cs` — **new**. Vault-layer behaviour. Kept separate from `VaultServiceDisabledModeTests.cs` so the saved-password contract reads as one unit.
-- `tests/NovaTerminal.App.Tests/Ssh/ConnectionManagerTests.cs` — extended. Control-layer behaviour, reusing the file's existing `CreateMeasuredConnectionManager` / `SelectFirstRow` / `FindButtonByToolTip` / `CreateSshProfile` helpers.
+- `tests/Ntilde.App.Tests/Core/VaultServiceSavedPasswordTests.cs` — **new**. Vault-layer behaviour. Kept separate from `VaultServiceDisabledModeTests.cs` so the saved-password contract reads as one unit.
+- `tests/Ntilde.App.Tests/Ssh/ConnectionManagerTests.cs` — extended. Control-layer behaviour, reusing the file's existing `CreateMeasuredConnectionManager` / `SelectFirstRow` / `FindButtonByToolTip` / `CreateSshProfile` helpers.
 
 **Task order is bottom-up so each task's tests can pass on their own:** Task 1 (vault) → Task 2 (delete button + event) → Task 3 (saved-password row) → Task 4 (MainWindow wiring).
 
@@ -42,27 +42,27 @@
 ### Task 1: `ISavedPasswordAccess` on `VaultService`
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/VaultService.cs` (add interface after `ISshPasswordVault` at line 11; add members to `VaultService`)
-- Test: `tests/NovaTerminal.App.Tests/Core/VaultServiceSavedPasswordTests.cs` (create)
+- Modify: `src/Ntilde.App/Shell/VaultService.cs` (add interface after `ISshPasswordVault` at line 11; add members to `VaultService`)
+- Test: `tests/Ntilde.App.Tests/Core/VaultServiceSavedPasswordTests.cs` (create)
 
 **Interfaces:**
-- Consumes: existing `VaultService.GetProfileScopedSshPasswordKeysForProfile(TerminalProfile)`, `GetSecret(string)`, `RemoveSecret(string)`, `PersistenceAvailable`, `GetCanonicalSshProfileKey(Guid)`, `GetLegacySshKeys(TerminalProfile, bool)`; `NovaTerminal.Shell.Secrets.InMemorySecretStore`.
-- Produces: `NovaTerminal.Shell.ISavedPasswordAccess` with `bool IsVaultAvailable { get; }`, `bool HasSavedPassword(TerminalProfile profile)`, `bool ForgetSavedPassword(TerminalProfile profile)`. Implemented by `VaultService`. Tasks 3 and 4 depend on these exact names.
+- Consumes: existing `VaultService.GetProfileScopedSshPasswordKeysForProfile(TerminalProfile)`, `GetSecret(string)`, `RemoveSecret(string)`, `PersistenceAvailable`, `GetCanonicalSshProfileKey(Guid)`, `GetLegacySshKeys(TerminalProfile, bool)`; `Ntilde.Shell.Secrets.InMemorySecretStore`.
+- Produces: `Ntilde.Shell.ISavedPasswordAccess` with `bool IsVaultAvailable { get; }`, `bool HasSavedPassword(TerminalProfile profile)`, `bool ForgetSavedPassword(TerminalProfile profile)`. Implemented by `VaultService`. Tasks 3 and 4 depend on these exact names.
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/NovaTerminal.App.Tests/Core/VaultServiceSavedPasswordTests.cs`:
+Create `tests/Ntilde.App.Tests/Core/VaultServiceSavedPasswordTests.cs`:
 
 ```csharp
 using System;
-using NovaTerminal.Shell;
-using NovaTerminal.Shell.Secrets;
+using Ntilde.Shell;
+using Ntilde.Shell.Secrets;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
-// Note: both TerminalProfile and ConnectionType live in NovaTerminal.Shell
-// (src/NovaTerminal.App/Shell/TerminalProfile.cs). Do not add a
-// `using NovaTerminal.Platform;` — it is not needed here.
+// Note: both TerminalProfile and ConnectionType live in Ntilde.Shell
+// (src/Ntilde.App/Shell/TerminalProfile.cs). Do not add a
+// `using Ntilde.Platform;` — it is not needed here.
 
 public class VaultServiceSavedPasswordTests
 {
@@ -223,14 +223,14 @@ public class VaultServiceSavedPasswordTests
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter FullyQualifiedName~VaultServiceSavedPasswordTests
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter FullyQualifiedName~VaultServiceSavedPasswordTests
 ```
 
 Expected: compile FAIL — `'VaultService' does not contain a definition for 'IsVaultAvailable'` / `'HasSavedPassword'` / `'ForgetSavedPassword'`.
 
 - [ ] **Step 3: Add the interface**
 
-In `src/NovaTerminal.App/Shell/VaultService.cs`, immediately after the closing brace of `ISshPasswordVault` (line 11):
+In `src/Ntilde.App/Shell/VaultService.cs`, immediately after the closing brace of `ISshPasswordVault` (line 11):
 
 ```csharp
     /// <summary>
@@ -312,7 +312,7 @@ Add these members next to `PersistenceAvailable` (line 27):
 - [ ] **Step 5: Run tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter FullyQualifiedName~VaultServiceSavedPasswordTests
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter FullyQualifiedName~VaultServiceSavedPasswordTests
 ```
 
 Expected: PASS, 11 tests.
@@ -320,7 +320,7 @@ Expected: PASS, 11 tests.
 - [ ] **Step 6: Re-run the existing vault tests (no regression)**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter FullyQualifiedName~VaultService
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter FullyQualifiedName~VaultService
 ```
 
 Expected: PASS. `VaultServiceDisabledModeTests` must be unaffected.
@@ -328,7 +328,7 @@ Expected: PASS. `VaultServiceDisabledModeTests` must be unaffected.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/VaultService.cs tests/NovaTerminal.App.Tests/Core/VaultServiceSavedPasswordTests.cs
+git add src/Ntilde.App/Shell/VaultService.cs tests/Ntilde.App.Tests/Core/VaultServiceSavedPasswordTests.cs
 git commit -m "feat(vault): ISavedPasswordAccess to probe and clear a profile's saved password"
 ```
 
@@ -337,9 +337,9 @@ git commit -m "feat(vault): ISavedPasswordAccess to probe and clear a profile's 
 ### Task 2: Delete button raises `OnDeleteProfileRequested`
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml:522` (action bar `Grid`)
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs` (event near line 34; handler near `OnDeleteClick` peers at line 462–487)
-- Test: `tests/NovaTerminal.App.Tests/Ssh/ConnectionManagerTests.cs`
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml:522` (action bar `Grid`)
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml.cs` (event near line 34; handler near `OnDeleteClick` peers at line 462–487)
+- Test: `tests/Ntilde.App.Tests/Ssh/ConnectionManagerTests.cs`
 
 **Interfaces:**
 - Consumes: existing `ConnectionManager.TryGetRow(object?, out SshProfileRowViewModel)`, `SshProfileRowViewModel.Profile`.
@@ -347,7 +347,7 @@ git commit -m "feat(vault): ISavedPasswordAccess to probe and clear a profile's 
 
 - [ ] **Step 1: Write the failing test**
 
-In `tests/NovaTerminal.App.Tests/Ssh/ConnectionManagerTests.cs`, add after `DetailsAction_RaisesConnectionDetailsRequested_ForSelectedRow` (ends ~line 88):
+In `tests/Ntilde.App.Tests/Ssh/ConnectionManagerTests.cs`, add after `DetailsAction_RaisesConnectionDetailsRequested_ForSelectedRow` (ends ~line 88):
 
 ```csharp
     [AvaloniaFact]
@@ -425,14 +425,14 @@ and
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter FullyQualifiedName~ConnectionManagerTests
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter FullyQualifiedName~ConnectionManagerTests
 ```
 
 Expected: compile FAIL — `'ConnectionManager' does not contain a definition for 'OnDeleteProfileRequested'`.
 
 - [ ] **Step 3: Add the XAML button**
 
-In `src/NovaTerminal.App/Controls/ConnectionManager.axaml`, change line 522 to add an eleventh column:
+In `src/Ntilde.App/Controls/ConnectionManager.axaml`, change line 522 to add an eleventh column:
 
 ```xml
                         <Grid Margin="0,10,0,0" ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
@@ -448,7 +448,7 @@ Then, immediately after the `Grid.Column="9"` "Connection details" button (close
 
 - [ ] **Step 4: Add the event and handler**
 
-In `src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs`, add to the event block (after line 34, `OnNewConnectionRequested`):
+In `src/Ntilde.App/Controls/ConnectionManager.axaml.cs`, add to the event block (after line 34, `OnNewConnectionRequested`):
 
 ```csharp
         public event Action<TerminalProfile>? OnDeleteProfileRequested;
@@ -470,7 +470,7 @@ Add the handler after `OnDetailsClick` (ends line 487):
 - [ ] **Step 5: Run tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter FullyQualifiedName~ConnectionManagerTests
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter FullyQualifiedName~ConnectionManagerTests
 ```
 
 Expected: PASS. `SecondaryActionButtons_ReserveSquareHitTargets` now finds 5 buttons, all ≥30×30 (the `IconBtn` style sets `Width`/`Height` to 30; `Danger` only overrides `Foreground`).
@@ -478,7 +478,7 @@ Expected: PASS. `SecondaryActionButtons_ReserveSquareHitTargets` now finds 5 but
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/ConnectionManager.axaml src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs tests/NovaTerminal.App.Tests/Ssh/ConnectionManagerTests.cs
+git add src/Ntilde.App/Controls/ConnectionManager.axaml src/Ntilde.App/Controls/ConnectionManager.axaml.cs tests/Ntilde.App.Tests/Ssh/ConnectionManagerTests.cs
 git commit -m "feat(connections): delete action in the connection manager detail bar"
 ```
 
@@ -487,20 +487,20 @@ git commit -m "feat(connections): delete action in the connection manager detail
 ### Task 3: "Saved password" detail row + Forget button
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml:566-576` (CONNECTION grid)
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs` (property; `RenderDetail` at line 372; `RenderEmptyDetail` at line 364; new handler + renderer)
-- Test: `tests/NovaTerminal.App.Tests/Ssh/ConnectionManagerTests.cs`
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml:566-576` (CONNECTION grid)
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml.cs` (property; `RenderDetail` at line 372; `RenderEmptyDetail` at line 364; new handler + renderer)
+- Test: `tests/Ntilde.App.Tests/Ssh/ConnectionManagerTests.cs`
 
 **Interfaces:**
-- Consumes: `NovaTerminal.Shell.ISavedPasswordAccess` from Task 1; existing `SetText(string, string)`, `TryGetRow`, `RenderDetail`.
+- Consumes: `Ntilde.Shell.ISavedPasswordAccess` from Task 1; existing `SetText(string, string)`, `TryGetRow`, `RenderDetail`.
 - Produces: `public ISavedPasswordAccess? SavedPasswordAccess { get; set; }` on `ConnectionManager`. Task 4 assigns `MainWindow.Vault` to it. Control names: `KvSavedPassword` (`TextBlock`), `BtnForgetSavedPassword` (`Button`).
 
 - [ ] **Step 1: Write the failing tests**
 
-In `tests/NovaTerminal.App.Tests/Ssh/ConnectionManagerTests.cs`, add a test double at the bottom of the class, just above the `FindButtonByToolTip` helper:
+In `tests/Ntilde.App.Tests/Ssh/ConnectionManagerTests.cs`, add a test double at the bottom of the class, just above the `FindButtonByToolTip` helper:
 
 ```csharp
-    private sealed class FakeSavedPasswordAccess : NovaTerminal.Shell.ISavedPasswordAccess
+    private sealed class FakeSavedPasswordAccess : Ntilde.Shell.ISavedPasswordAccess
     {
         public bool IsVaultAvailable { get; set; } = true;
         public bool Saved { get; set; }
@@ -613,14 +613,14 @@ And add these tests after the Task 2 tests:
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter FullyQualifiedName~ConnectionManagerTests
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter FullyQualifiedName~ConnectionManagerTests
 ```
 
 Expected: compile FAIL — `'ConnectionManager' does not contain a definition for 'SavedPasswordAccess'`.
 
 - [ ] **Step 3: Add the XAML row**
 
-In `src/NovaTerminal.App/Controls/ConnectionManager.axaml`, change line 566 to add a sixth row:
+In `src/Ntilde.App/Controls/ConnectionManager.axaml`, change line 566 to add a sixth row:
 
 ```xml
                             <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,0">
@@ -642,9 +642,9 @@ Then, immediately after the `KvAuth` `TextBlock` (line 576) and before the closi
 
 - [ ] **Step 4: Add the property, renderer and handler**
 
-In `src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs`:
+In `src/Ntilde.App/Controls/ConnectionManager.axaml.cs`:
 
-Add `using NovaTerminal.Shell;` — already present at line 8, so no import change.
+Add `using Ntilde.Shell;` — already present at line 8, so no import change.
 
 Add the property after the `CardBackground`/`SecondaryForeground` block (after line 120):
 
@@ -720,7 +720,7 @@ Note on `TryGetRow`: it returns `_selectedRow` when one exists, otherwise falls 
 - [ ] **Step 5: Run tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter FullyQualifiedName~ConnectionManagerTests
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter FullyQualifiedName~ConnectionManagerTests
 ```
 
 Expected: PASS, including the Task 2 tests and `ConnectionManager_CanArrangeWithinSmallOverlay` (the new row is inside the already-scrolling `ScrollViewer` at line 560).
@@ -728,7 +728,7 @@ Expected: PASS, including the Task 2 tests and `ConnectionManager_CanArrangeWith
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/ConnectionManager.axaml src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs tests/NovaTerminal.App.Tests/Ssh/ConnectionManagerTests.cs
+git add src/Ntilde.App/Controls/ConnectionManager.axaml src/Ntilde.App/Controls/ConnectionManager.axaml.cs tests/Ntilde.App.Tests/Ssh/ConnectionManagerTests.cs
 git commit -m "feat(connections): show and clear a connection's saved password"
 ```
 
@@ -737,7 +737,7 @@ git commit -m "feat(connections): show and clear a connection's saved password"
 ### Task 4: Wire delete + vault access into `MainWindow`
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` — `EnsureConnectionManagerControl()` (line 5166–5209); two new private methods placed after `ShowNewSshConnectionDialogAsync` (ends ~line 5535)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` — `EnsureConnectionManagerControl()` (line 5166–5209); two new private methods placed after `ShowNewSshConnectionDialogAsync` (ends ~line 5535)
 
 **Interfaces:**
 - Consumes: `ConnectionManager.OnDeleteProfileRequested` (Task 2), `ConnectionManager.SavedPasswordAccess` (Task 3), `VaultService.ForgetSavedPassword` (Task 1); existing `MainWindow.Vault` (`static VaultService?`, line 3326), `_sshConnectionService.DeleteProfile(Guid)`, `RefreshProfileUIs()`, `CreateThemedDialogWindow(string, double, double, bool)`.
@@ -867,7 +867,7 @@ This mirrors `ShowRunningProcessCloseConfirmationAsync` (line 4277) — same `Cr
 - [ ] **Step 3: Build the app**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 Expected: build succeeds, no warnings introduced.
@@ -875,13 +875,13 @@ Expected: build succeeds, no warnings introduced.
 - [ ] **Step 4: Run the affected test projects**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~ConnectionManager|FullyQualifiedName~VaultService|FullyQualifiedName~SshConnectionService"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~ConnectionManager|FullyQualifiedName~VaultService|FullyQualifiedName~SshConnectionService"
 ```
 
-Expected: PASS. Nothing here changes `TerminalSettings` or connection-profile schema, so the `NovaTerminal.McpServer.Tests` drift guards are untouched — but if the reviewer wants belt-and-braces:
+Expected: PASS. Nothing here changes `TerminalSettings` or connection-profile schema, so the `Ntilde.McpServer.Tests` drift guards are untouched — but if the reviewer wants belt-and-braces:
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests
+scripts/build.ps1 test tests/Ntilde.McpServer.Tests
 ```
 
 - [ ] **Step 5: Manual smoke test**
@@ -892,10 +892,10 @@ Automated GUI driving is unreliable here, so verify by hand. Do **not** use
 the produced executable yourself from an ordinary terminal:
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App -c Debug
+scripts/build.ps1 build src/Ntilde.App -c Debug
 ```
 
-then run `src/NovaTerminal.App/bin/Debug/net10.0/NovaTerminal.App.exe`
+then run `src/Ntilde.App/bin/Debug/net10.0/Ntilde.App.exe`
 (`net10.0` is the TFM from `Directory.Build.props:20`).
 
 Then:
@@ -911,7 +911,7 @@ Then:
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs
+git add src/Ntilde.App/MainWindow.axaml.cs
 git commit -m "feat(connections): confirm and delete a connection, purging its saved password"
 ```
 
@@ -949,4 +949,4 @@ layers (see the corrected Testing section of the design spec).
 
 **Type consistency:** `ISavedPasswordAccess` / `IsVaultAvailable` / `HasSavedPassword` / `ForgetSavedPassword` are spelled identically in Tasks 1, 3, 4. `OnDeleteProfileRequested` matches between Tasks 2 and 4. `SavedPasswordAccess` matches between Tasks 3 and 4. Control names `KvSavedPassword` / `BtnForgetSavedPassword` match between Task 3's XAML, code and tests. Tooltip `"Delete connection"` matches between Task 2's XAML and both its new test and the amended `actionTips` array.
 
-**One deviation from the spec, deliberate:** the spec's Files-touched list said "`tests/NovaTerminal.App.Tests/Core/` — new or extended `VaultService` tests". The plan creates a new file, `VaultServiceSavedPasswordTests.cs`, rather than extending `VaultServiceDisabledModeTests.cs`, whose name would no longer describe its contents.
+**One deviation from the spec, deliberate:** the spec's Files-touched list said "`tests/Ntilde.App.Tests/Core/` — new or extended `VaultService` tests". The plan creates a new file, `VaultServiceSavedPasswordTests.cs`, rather than extending `VaultServiceDisabledModeTests.cs`, whose name would no longer describe its contents.

@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.ShellIntegration.Remote;
+using Ntilde.CommandAssist.ShellIntegration.Remote;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration.Integration;
 
 /// <summary>
 /// The shipped bash/zsh snippet, run through a real bash on a real PTY.
@@ -16,7 +16,7 @@ namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
 /// </para>
 /// <para>
 /// Installed the way a user installs it: a small rc file that sources the snippet, exactly like the
-/// <c>. ~/.nova-shell-integration.sh</c> line the docs tell them to add to <c>~/.bashrc</c>. Not
+/// <c>. ~/.ntilde-shell-integration.sh</c> line the docs tell them to add to <c>~/.bashrc</c>. Not
 /// passed as <c>--rcfile</c> directly, because that would test a shape nobody runs.
 /// </para>
 /// <para>
@@ -33,9 +33,9 @@ public sealed class RemoteBashSnippetIntegrationTests : IDisposable
 
     public RemoteBashSnippetIntegrationTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), $"nova_snippet_int_{Guid.NewGuid():N}");
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_snippet_int_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempRoot);
-        _snippetPath = Path.Combine(_tempRoot, "nova-shell-integration.sh");
+        _snippetPath = Path.Combine(_tempRoot, "ntilde-shell-integration.sh");
         File.WriteAllText(
             _snippetPath,
             RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh));
@@ -62,7 +62,7 @@ public sealed class RemoteBashSnippetIntegrationTests : IDisposable
         string rc = Path.Combine(_tempRoot, "rc");
         File.WriteAllText(
             rc,
-            "PS1='nova-test$ '\n" +
+            "PS1='ntilde-test$ '\n" +
             (userRcLines is null ? string.Empty : userRcLines + "\n") +
             loader + "\n" +
             (sourceTwice ? loader + "\n" : string.Empty),
@@ -96,7 +96,7 @@ public sealed class RemoteBashSnippetIntegrationTests : IDisposable
 
         var marks = result.Events.Where(e => e.Kind == "B").ToList();
         Assert.NotEmpty(marks);
-        Assert.Contains(marks, m => m.MarkPosition is { } p && p.column == "nova-test$ ".Length);
+        Assert.Contains(marks, m => m.MarkPosition is { } p && p.column == "ntilde-test$ ".Length);
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public sealed class RemoteBashSnippetIntegrationTests : IDisposable
     /// ran - so nothing had raised the DEBUG-trap busy flag, and the first entry of the user's own
     /// <c>PROMPT_COMMAND</c> chain became the "accepted command". A user with any prompt framework
     /// installed got that framework's hook name written to permanent history every time they hit
-    /// Enter at an empty prompt. Fixed by raising the flag as <c>__nova_precmd</c>'s first act,
+    /// Enter at an empty prompt. Fixed by raising the flag as <c>__ntilde_precmd</c>'s first act,
     /// which restores the busy-for-the-whole-chain invariant the design always claimed.
     /// </remarks>
     [Fact]
@@ -218,7 +218,7 @@ public sealed class RemoteBashSnippetIntegrationTests : IDisposable
     /// <summary>
     /// The DEBUG-trap filter used to skip anything whose first word began with <c>trap</c> or
     /// <c>PROMPT_COMMAND</c>, which silently dropped real user commands. The busy-flag invariant is
-    /// what keeps our own hooks out; the name patterns were unnecessary, and only <c>__nova_*</c>
+    /// what keeps our own hooks out; the name patterns were unnecessary, and only <c>__ntilde_*</c>
     /// remains.
     /// </summary>
     [Theory]
@@ -241,6 +241,6 @@ public sealed class RemoteBashSnippetIntegrationTests : IDisposable
 
         Assert.DoesNotContain(
             CapturedCommands(result),
-            t => t is not null && t.Contains("__nova_", StringComparison.Ordinal));
+            t => t is not null && t.Contains("__ntilde_", StringComparison.Ordinal));
     }
 }

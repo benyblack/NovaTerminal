@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.Domain;
+using Ntilde.CommandAssist.Domain;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 public sealed class SecretsFilterTests
 {

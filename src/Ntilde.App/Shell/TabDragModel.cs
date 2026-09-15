@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     /// <summary>
     /// Pure math for pointer-driven tab reordering. Axis-generic: the caller passes

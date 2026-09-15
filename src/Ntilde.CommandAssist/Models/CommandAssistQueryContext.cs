@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.Models;
+namespace Ntilde.CommandAssist.Models;
 
 /// <param name="HostId">
 /// The remote host this pane is connected to, or <see langword="null"/> for a local pane. Together

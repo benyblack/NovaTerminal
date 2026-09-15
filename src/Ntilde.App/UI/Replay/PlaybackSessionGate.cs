@@ -1,6 +1,6 @@
 using System.Threading;
 
-namespace NovaTerminal.UI.Replay;
+namespace Ntilde.UI.Replay;
 
 internal sealed class PlaybackSessionGate
 {

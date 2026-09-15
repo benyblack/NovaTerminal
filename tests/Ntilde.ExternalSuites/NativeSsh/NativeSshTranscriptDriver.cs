@@ -1,6 +1,6 @@
-using NovaTerminal.ExternalSuites.Vttest;
+using Ntilde.ExternalSuites.Vttest;
 
-namespace NovaTerminal.ExternalSuites.NativeSsh;
+namespace Ntilde.ExternalSuites.NativeSsh;
 
 public sealed class NativeSshTranscriptDriver
 {

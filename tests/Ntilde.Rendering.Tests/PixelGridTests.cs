@@ -1,4 +1,4 @@
-namespace NovaTerminal.Rendering.Tests;
+namespace Ntilde.Rendering.Tests;
 
 public class PixelGridTests
 {

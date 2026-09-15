@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Shell.ThemeImporters
+namespace Ntilde.Shell.ThemeImporters
 {
     public interface IThemeImporter
     {

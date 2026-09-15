@@ -1,11 +1,11 @@
 using System;
 using System.Reflection;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Shell;
+using Ntilde.Controls;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Controls;
+namespace Ntilde.Tests.Controls;
 
 /// <summary>
 /// Standing guards for #102, which reported that <c>TerminalPane</c>'s event subscriptions were
@@ -109,7 +109,7 @@ public class PaneSubscriptionLifetimeTests
     private static string[] TermViewEventNames()
     {
         var names = new System.Collections.Generic.List<string>();
-        foreach (EventInfo e in typeof(NovaTerminal.Shell.TerminalView)
+        foreach (EventInfo e in typeof(Ntilde.Shell.TerminalView)
                      .GetEvents(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly))
         {
             names.Add(e.Name);

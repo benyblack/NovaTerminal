@@ -1,13 +1,13 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Replay;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Replay;
 using Xunit;
 
-namespace NovaTerminal.Tests.ReplayTests;
+namespace Ntilde.Tests.ReplayTests;
 
 public sealed class AlternateScreenReplayTests
 {
@@ -15,7 +15,7 @@ public sealed class AlternateScreenReplayTests
     [Trait("Category", "Replay")]
     public async Task Replay_1047_ShellAppShell_RestoresMainCursorForPromptContinuation()
     {
-        string recPath = Path.Combine(Path.GetTempPath(), $"nova-alt-screen-{Path.GetRandomFileName()}.rec");
+        string recPath = Path.Combine(Path.GetTempPath(), $"ntilde-alt-screen-{Path.GetRandomFileName()}.rec");
 
         try
         {

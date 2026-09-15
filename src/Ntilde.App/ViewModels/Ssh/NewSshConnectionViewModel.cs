@@ -1,4 +1,4 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -6,12 +6,12 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Native;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Native;
 
-namespace NovaTerminal.ViewModels.Ssh;
+namespace Ntilde.ViewModels.Ssh;
 
 public enum NewSshAuthMode
 {

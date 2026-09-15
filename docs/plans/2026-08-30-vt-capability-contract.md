@@ -4,20 +4,20 @@
 
 **Goal:** Make supported CSI cursor capabilities a single machine-readable contract that CI proves against the real parser and developer-facing tooling.
 
-**Architecture:** Add a zero-project-reference `NovaTerminal.VtContract` leaf with an embedded JSON manifest and strict loader. Conformance tooling validates each manifest entry against the Markdown matrix, MCP explanations consume the same catalog, and VT tests execute every supported contract case through `AnsiParser`; the parser hot path remains unchanged.
+**Architecture:** Add a zero-project-reference `Ntilde.VtContract` leaf with an embedded JSON manifest and strict loader. Conformance tooling validates each manifest entry against the Markdown matrix, MCP explanations consume the same catalog, and VT tests execute every supported contract case through `AnsiParser`; the parser hot path remains unchanged.
 
-**Tech Stack:** .NET 10, C#, System.Text.Json, xUnit v3, GitHub Actions, existing NovaTerminal build wrappers.
+**Tech Stack:** .NET 10, C#, System.Text.Json, xUnit v3, GitHub Actions, existing Ntilde build wrappers.
 
 ---
 
 ### Task 1: Add the catalog contract test surface
 
 **Files:**
-- Create: `src/NovaTerminal.VtContract/NovaTerminal.VtContract.csproj`
-- Create: `src/NovaTerminal.VtContract/vt-capabilities.json`
-- Create: `src/NovaTerminal.VtContract/VtCapabilityCatalog.cs`
-- Modify: `tests/NovaTerminal.VT.Tests/NovaTerminal.VT.Tests.csproj`
-- Create: `tests/NovaTerminal.VT.Tests/VtCapabilityCatalogTests.cs`
+- Create: `src/Ntilde.VtContract/Ntilde.VtContract.csproj`
+- Create: `src/Ntilde.VtContract/vt-capabilities.json`
+- Create: `src/Ntilde.VtContract/VtCapabilityCatalog.cs`
+- Modify: `tests/Ntilde.VT.Tests/Ntilde.VT.Tests.csproj`
+- Create: `tests/Ntilde.VT.Tests/VtCapabilityCatalogTests.cs`
 
 **Step 1: Write the failing validation tests**
 
@@ -26,13 +26,13 @@ Add tests calling the wished-for `VtCapabilityCatalog.Parse` API. Assert that va
 **Step 2: Run the tests to verify RED**
 
 Run:
-`rtk pwsh -NoProfile -File scripts/build.ps1 test tests/NovaTerminal.VT.Tests/NovaTerminal.VT.Tests.csproj --filter FullyQualifiedName~VtCapabilityCatalogTests`
+`rtk pwsh -NoProfile -File scripts/build.ps1 test tests/Ntilde.VT.Tests/Ntilde.VT.Tests.csproj --filter FullyQualifiedName~VtCapabilityCatalogTests`
 
-Expected: build failure because `NovaTerminal.VtContract` and `VtCapabilityCatalog` do not exist.
+Expected: build failure because `Ntilde.VtContract` and `VtCapabilityCatalog` do not exist.
 
 **Step 3: Implement the minimal catalog leaf**
 
-Create a warning-clean zero-reference class library. Embed `vt-capabilities.json` as `NovaTerminal.VtContract.vt-capabilities.json`. Implement:
+Create a warning-clean zero-reference class library. Embed `vt-capabilities.json` as `Ntilde.VtContract.vt-capabilities.json`. Implement:
 
 ```csharp
 public enum VtSupport { Supported, Partial, Unsupported }
@@ -66,8 +66,8 @@ Commit as `feat(vt): add capability contract catalog`.
 ### Task 2: Prove manifest claims against the real parser
 
 **Files:**
-- Modify: `tests/NovaTerminal.VT.Tests/CursorLinePositioningTests.cs`
-- Create: `tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs`
+- Modify: `tests/Ntilde.VT.Tests/CursorLinePositioningTests.cs`
+- Create: `tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs`
 
 **Step 1: Write the failing parser-contract tests**
 
@@ -76,7 +76,7 @@ Enumerate every `Supported` catalog entry and dispatch its `ContractCase` to a d
 **Step 2: Run the tests to verify RED**
 
 Run:
-`rtk pwsh -NoProfile -File scripts/build.ps1 test tests/NovaTerminal.VT.Tests/NovaTerminal.VT.Tests.csproj --filter FullyQualifiedName~VtCapabilityContractTests`
+`rtk pwsh -NoProfile -File scripts/build.ps1 test tests/Ntilde.VT.Tests/Ntilde.VT.Tests.csproj --filter FullyQualifiedName~VtCapabilityContractTests`
 
 Expected: failure because the catalog's contract-case registry is not yet implemented and CHA lacks a registered contract assertion.
 
@@ -87,7 +87,7 @@ Add test-only handlers for `cursor-next-line`, `cursor-previous-line`, and `curs
 **Step 4: Run focused and full VT tests**
 
 Run the command from Step 2, then:
-`rtk pwsh -NoProfile -File scripts/build.ps1 test tests/NovaTerminal.VT.Tests/NovaTerminal.VT.Tests.csproj`
+`rtk pwsh -NoProfile -File scripts/build.ps1 test tests/Ntilde.VT.Tests/Ntilde.VT.Tests.csproj`
 
 Expected: all VT tests pass.
 
@@ -98,11 +98,11 @@ Commit as `test(vt): enforce supported cursor contracts`.
 ### Task 3: Make conformance validation consume the catalog
 
 **Files:**
-- Modify: `src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj`
-- Modify: `src/NovaTerminal.Conformance/VtConformanceReportTool.cs`
-- Modify: `tests/NovaTerminal.Platform.Tests/Conformance/VtConformanceToolTests.cs`
+- Modify: `src/Ntilde.Conformance/Ntilde.Conformance.csproj`
+- Modify: `src/Ntilde.Conformance/VtConformanceReportTool.cs`
+- Modify: `tests/Ntilde.Platform.Tests/Conformance/VtConformanceToolTests.cs`
 - Modify: `docs/vt_coverage_matrix.md`
-- Modify: `src/NovaTerminal.App/Resources/vt-conformance-report.json`
+- Modify: `src/Ntilde.App/Resources/vt-conformance-report.json`
 
 **Step 1: Write failing matrix-contract tests**
 
@@ -111,13 +111,13 @@ Add temporary-repository tests proving validation reports errors when a catalog 
 **Step 2: Run the tests to verify RED**
 
 Run:
-`rtk pwsh -NoProfile -File scripts/build.ps1 test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj --filter FullyQualifiedName~VtConformanceToolTests`
+`rtk pwsh -NoProfile -File scripts/build.ps1 test tests/Ntilde.Platform.Tests/Ntilde.Platform.Tests.csproj --filter FullyQualifiedName~VtConformanceToolTests`
 
 Expected: the new assertions fail because `Generate` does not validate the capability catalog.
 
 **Step 3: Implement catalog-to-matrix validation**
 
-Reference `NovaTerminal.VtContract` from the conformance project. Validate unique `MatrixFeature` values, exact status agreement, and repository-relative evidence existence. Emit deterministic `VtConformanceIssue` codes and retain the existing report schema.
+Reference `Ntilde.VtContract` from the conformance project. Validate unique `MatrixFeature` values, exact status agreement, and repository-relative evidence existence. Emit deterministic `VtConformanceIssue` codes and retain the existing report schema.
 
 **Step 4: Correct the matrix and report**
 
@@ -126,7 +126,7 @@ Replace grouped `CHA/CPL/CNL (G/F/E)` with unique `CHA (G)`, `CPL (F)`, and `CNL
 **Step 5: Run focused validation**
 
 Run the focused tests, then:
-`rtk pwsh -NoProfile -File scripts/build.ps1 run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -- --validate --check-report src/NovaTerminal.App/Resources/vt-conformance-report.json`
+`rtk pwsh -NoProfile -File scripts/build.ps1 run --project src/Ntilde.Conformance/Ntilde.Conformance.csproj -- --validate --check-report src/Ntilde.App/Resources/vt-conformance-report.json`
 
 Expected: zero validation errors and a matching embedded report.
 
@@ -137,10 +137,10 @@ Commit as `feat(vt): validate capability claims against matrix`.
 ### Task 4: Drive MCP explanations from the contract
 
 **Files:**
-- Modify: `src/NovaTerminal.McpServer/NovaTerminal.McpServer.csproj`
-- Modify: `src/NovaTerminal.McpServer/Tools/VtTools.cs`
-- Modify: `tests/NovaTerminal.McpServer.Tests/V2ToolsTests.cs`
-- Modify: `tests/NovaTerminal.Architecture.Tests/ProjectFileLayeringTests.cs`
+- Modify: `src/Ntilde.McpServer/Ntilde.McpServer.csproj`
+- Modify: `src/Ntilde.McpServer/Tools/VtTools.cs`
+- Modify: `tests/Ntilde.McpServer.Tests/V2ToolsTests.cs`
+- Modify: `tests/Ntilde.Architecture.Tests/ProjectFileLayeringTests.cs`
 - Modify: `docs/MODULE_OWNERSHIP.md`
 
 **Step 1: Write failing explanation tests**
@@ -150,7 +150,7 @@ Replace the stale unsupported assertions for `CSI E/F` with tests that require `
 **Step 2: Run the tests to verify RED**
 
 Run:
-`rtk pwsh -NoProfile -File scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests/NovaTerminal.McpServer.Tests.csproj --filter FullyQualifiedName~ExplainEscapeSequenceTests`
+`rtk pwsh -NoProfile -File scripts/build.ps1 test tests/Ntilde.McpServer.Tests/Ntilde.McpServer.Tests.csproj --filter FullyQualifiedName~ExplainEscapeSequenceTests`
 
 Expected: CNL/CPL tests fail because the curated table still says they are unhandled.
 
@@ -161,7 +161,7 @@ Reference the zero-dependency contract leaf from MCP. Remove E/F/G duplicates fr
 **Step 4: Run MCP and architecture tests**
 
 Run the focused MCP tests and:
-`rtk pwsh -NoProfile -File scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests/NovaTerminal.Architecture.Tests.csproj`
+`rtk pwsh -NoProfile -File scripts/build.ps1 test tests/Ntilde.Architecture.Tests/Ntilde.Architecture.Tests.csproj`
 
 Expected: all tests pass and the layering invariant names all permitted MCP leaf dependencies.
 
@@ -172,14 +172,14 @@ Commit as `fix(mcp): source VT explanations from capability contract`.
 ### Task 5: Wire the contract into repository CI and solution metadata
 
 **Files:**
-- Modify: `NovaTerminal.sln`
+- Modify: `Ntilde.sln`
 - Modify: `.github/workflows/vt-conformance.yml`
 - Modify: `.github/pull_request_template.md`
 - Modify: `docs/ghostty-gaps/vt_conformance_tooling.md`
 
 **Step 1: Write the failing workflow/documentation assertions**
 
-Extend the existing architecture or tooling tests to assert the conformance workflow watches `src/NovaTerminal.VtContract/**` and the PR template requires contract evidence for parser support changes.
+Extend the existing architecture or tooling tests to assert the conformance workflow watches `src/Ntilde.VtContract/**` and the PR template requires contract evidence for parser support changes.
 
 **Step 2: Run the focused tests to verify RED**
 
@@ -207,7 +207,7 @@ Commit as `ci(vt): gate capability contract changes`.
 Run:
 
 ```powershell
-rtk pwsh -NoProfile -File scripts/build.ps1 build NovaTerminal.sln -c Release
+rtk pwsh -NoProfile -File scripts/build.ps1 build Ntilde.sln -c Release
 rtk pwsh -NoProfile -File scripts/build.ps1 test -c Release
 ```
 

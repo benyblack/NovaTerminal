@@ -1,13 +1,13 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
-using NovaTerminal.Controls;
-using NovaTerminal.CommandAssist.ViewModels;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Controls;
+using Ntilde.CommandAssist.ViewModels;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 public sealed class TerminalPaneCommandAssistShortcutTests
 {
@@ -286,7 +286,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
         ConfigureCommandAssist(pane);
         pane.NotifyCommandAssistPaste("git checkout");
 
-        bool handled = NovaTerminal.MainWindow.TryOpenCommandAssistHelp(pane);
+        bool handled = Ntilde.MainWindow.TryOpenCommandAssistHelp(pane);
 
         Assert.True(handled);
     }
@@ -294,7 +294,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     [AvaloniaFact]
     public void TryOpenCommandAssistHelp_WhenPaneIsMissing_ReturnsFalse()
     {
-        bool handled = NovaTerminal.MainWindow.TryOpenCommandAssistHelp(null);
+        bool handled = Ntilde.MainWindow.TryOpenCommandAssistHelp(null);
 
         Assert.False(handled);
     }

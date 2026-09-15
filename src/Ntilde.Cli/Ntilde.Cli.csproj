@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <AssemblyName>NovaTerminal.Cli</AssemblyName>
+    <AssemblyName>Ntilde.Cli</AssemblyName>
     <OutputType>Exe</OutputType>
     <!-- Ratchet (#108): warning-free today, so lock it in. See the repo-wide default in
          Directory.Build.props, which stays false until the noisy projects are cleaned. -->
@@ -8,6 +8,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NovaTerminal.App\NovaTerminal.App.csproj" />
+    <ProjectReference Include="..\Ntilde.App\Ntilde.App.csproj" />
   </ItemGroup>
 </Project>

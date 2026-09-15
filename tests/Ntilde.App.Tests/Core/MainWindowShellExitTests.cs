@@ -2,12 +2,12 @@ using System;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Pty;
-using NovaTerminal.Shell;
-using NovaTerminal.Tests.Infra;
+using Ntilde.Controls;
+using Ntilde.Pty;
+using Ntilde.Shell;
+using Ntilde.Tests.Infra;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// #311. The targeting test is the important one: a shell dying in a background tab — a build, an
@@ -214,7 +214,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
 
     private sealed class TwoTabFixture : IDisposable
     {
-        private TwoTabFixture(NovaTerminal.MainWindow window, TabControl tabs, TabItem selectedTab, TerminalPane backgroundPane)
+        private TwoTabFixture(Ntilde.MainWindow window, TabControl tabs, TabItem selectedTab, TerminalPane backgroundPane)
         {
             Window = window;
             Tabs = tabs;
@@ -222,7 +222,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
             BackgroundPane = backgroundPane;
         }
 
-        public NovaTerminal.MainWindow Window { get; }
+        public Ntilde.MainWindow Window { get; }
         public TabControl Tabs { get; }
         public TabItem SelectedTab { get; }
         public TerminalPane BackgroundPane { get; }
@@ -231,7 +231,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
 
         public void ProtectBackgroundTab()
         {
-            object state = typeof(NovaTerminal.MainWindow)
+            object state = typeof(Ntilde.MainWindow)
                 .GetMethod("GetOrCreateTabState", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(Window, [BackgroundTab])!;
             state.GetType().GetProperty("IsProtected")!.SetValue(state, true);
@@ -239,7 +239,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
 
         public Task<bool> ClosePaneAsync(TerminalPane pane, bool skipConfirm)
         {
-            var method = typeof(NovaTerminal.MainWindow)
+            var method = typeof(Ntilde.MainWindow)
                 .GetMethod("ClosePaneAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
             return (Task<bool>)method.Invoke(Window, [pane, skipConfirm])!;
         }
@@ -249,7 +249,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
             AppServiceBundle bundle = AppServices.BuildForDesigner();
             var window = TestMainWindowFactory.Create(bundle);
             TabControl tabs = window.FindControl<TabControl>("Tabs")!;
-            var settings = (TerminalSettings)typeof(NovaTerminal.MainWindow)
+            var settings = (TerminalSettings)typeof(Ntilde.MainWindow)
                 .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .GetValue(window)!;
 
@@ -265,7 +265,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
             };
         }
 
-        private static TabItem CreateTab(NovaTerminal.MainWindow window, TabControl tabs, TerminalSettings settings, string title)
+        private static TabItem CreateTab(Ntilde.MainWindow window, TabControl tabs, TerminalSettings settings, string title)
         {
             var tabSession = new TabSession
             {
@@ -284,7 +284,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
 
             // The production entry point for restored content — it is what wires the pane's
             // events to the window (ProcessExited included, which Task 4 depends on).
-            typeof(NovaTerminal.MainWindow)
+            typeof(Ntilde.MainWindow)
                 .GetMethod("InitializeRestoredTabs", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(window, [tabs]);
 
@@ -303,7 +303,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
     private sealed class SplitPaneFixture : IDisposable
     {
         private SplitPaneFixture(
-            NovaTerminal.MainWindow window,
+            Ntilde.MainWindow window,
             TabControl tabs,
             TabItem splitTab,
             TerminalPane paneToClose,
@@ -318,7 +318,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
             OtherTab = otherTab;
         }
 
-        public NovaTerminal.MainWindow Window { get; }
+        public Ntilde.MainWindow Window { get; }
         public TabControl Tabs { get; }
         public TabItem SplitTab { get; }
         public TerminalPane PaneToClose { get; }
@@ -333,7 +333,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
 
         public Task<bool> ClosePaneAsync(TerminalPane pane, bool skipConfirm)
         {
-            var method = typeof(NovaTerminal.MainWindow)
+            var method = typeof(Ntilde.MainWindow)
                 .GetMethod("ClosePaneAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
             return (Task<bool>)method.Invoke(Window, [pane, skipConfirm])!;
         }
@@ -346,7 +346,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
         /// </summary>
         public void EnterZoomOnSplitTab()
         {
-            var method = typeof(NovaTerminal.MainWindow)
+            var method = typeof(Ntilde.MainWindow)
                 .GetMethod("EnterPaneZoom", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var entered = (bool)method.Invoke(Window, [SplitTab, PaneToClose, true])!;
             if (!entered)
@@ -358,7 +358,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
         /// <summary>Reads the private <c>_paneZoomStateByTab</c> dictionary this file cannot see the type of.</summary>
         public bool IsTabZoomed(TabItem tab)
         {
-            var field = typeof(NovaTerminal.MainWindow)
+            var field = typeof(Ntilde.MainWindow)
                 .GetField("_paneZoomStateByTab", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var dictionary = (System.Collections.IDictionary)field.GetValue(Window)!;
             return dictionary.Contains(tab);
@@ -369,7 +369,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
             AppServiceBundle bundle = AppServices.BuildForDesigner();
             var window = TestMainWindowFactory.Create(bundle);
             TabControl tabs = window.FindControl<TabControl>("Tabs")!;
-            var settings = (TerminalSettings)typeof(NovaTerminal.MainWindow)
+            var settings = (TerminalSettings)typeof(Ntilde.MainWindow)
                 .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .GetValue(window)!;
 
@@ -422,7 +422,7 @@ public sealed class MainWindowShellExitTests : IDisposable, IClassFixture<TestAp
 
             // The production entry point for restored content — it is what wires the panes'
             // events to the window, same as the single-leaf fixture above.
-            typeof(NovaTerminal.MainWindow)
+            typeof(Ntilde.MainWindow)
                 .GetMethod("InitializeRestoredTabs", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(window, [tabs]);
 

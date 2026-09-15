@@ -127,7 +127,7 @@ def run_wrapper(shell: str, exe: str, stub_dir: Path, args):
     env["PATH"] = str(stub_dir) + os.pathsep + env["PATH"]
     # The wrappers sweep leftover test hosts before compiling; irrelevant here, and it shells
     # out to PowerShell on every case. Opt out.
-    env["NOVA_KEEP_STALE_HOSTS"] = "1"
+    env["NTILDE_KEEP_STALE_HOSTS"] = "1"
 
     if shell == "sh":
         # as_posix(), because bash receives "D:\path\build.sh" with the backslashes eaten as

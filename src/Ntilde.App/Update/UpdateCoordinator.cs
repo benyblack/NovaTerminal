@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Update
+namespace Ntilde.Update
 {
     /// <summary>Why a check ended the way it did. Returned for tests and logging, not for display.</summary>
     public enum UpdateCheckOutcome

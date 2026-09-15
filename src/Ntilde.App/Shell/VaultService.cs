@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using NovaTerminal.Shell.Secrets;
+using Ntilde.Shell.Secrets;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public interface ISshPasswordVault
     {

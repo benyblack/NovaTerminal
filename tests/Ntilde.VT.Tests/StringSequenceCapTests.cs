@@ -1,6 +1,6 @@
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // Regression tests for #106: OSC/DCS/APC string accumulation must be bounded so a hostile
 // or runaway stream cannot grow parser buffers without limit. The production cap is generous

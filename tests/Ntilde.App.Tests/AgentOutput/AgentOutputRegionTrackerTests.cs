@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.AgentOutput;
-using NovaTerminal.VT;
+using Ntilde.AgentOutput;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.AgentOutput;
+namespace Ntilde.Tests.AgentOutput;
 
 /// <summary>
 /// The per-pane region tracker: what it posts, when, and what it refuses to post.

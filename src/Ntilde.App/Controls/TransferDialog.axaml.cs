@@ -1,4 +1,4 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.Collections.Generic;
 using Avalonia;
@@ -6,12 +6,12 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Input;
 using Avalonia.Platform.Storage;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Models;
-using NovaTerminal.Services.Ssh;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Models;
+using Ntilde.Services.Ssh;
 
-namespace NovaTerminal.Controls;
+namespace Ntilde.Controls;
 
 public partial class TransferDialog : Window
 {

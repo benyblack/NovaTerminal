@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Covers <see cref="RustPtySession.ResolveSystemTool"/>, which turns a helper name such as

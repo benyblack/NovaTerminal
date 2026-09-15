@@ -1,8 +1,8 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class AppPathsTests
 {
@@ -10,11 +10,11 @@ public sealed class AppPathsTests
     public void RootDirectory_UsesEnvironmentOverrideWhenSet()
     {
         string tempRoot = CreateTempDirectory();
-        string? previous = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        string? previous = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
 
         try
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", tempRoot);
 
             Assert.Equal(Path.GetFullPath(tempRoot), Path.GetFullPath(AppPaths.RootDirectory));
             Assert.Equal(
@@ -23,7 +23,7 @@ public sealed class AppPathsTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previous);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previous);
             Directory.Delete(tempRoot, recursive: true);
         }
     }
@@ -135,7 +135,7 @@ public sealed class AppPathsTests
 
     private static string CreateTempDirectory()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"nova_paths_test_{Guid.NewGuid():N}");
+        string path = Path.Combine(Path.GetTempPath(), $"ntilde_paths_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
     }

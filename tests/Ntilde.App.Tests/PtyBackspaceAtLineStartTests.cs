@@ -3,11 +3,11 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
-using NovaTerminal.Pty;
-using NovaTerminal.VT;
+using Ntilde.Pty;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests;
+namespace Ntilde.Tests;
 
 /// <summary>
 /// The empirical foundation under Command Assist's replace-on-accept arithmetic: <c>DEL</c>

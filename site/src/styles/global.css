@@ -35,7 +35,7 @@
   }
 
   ::selection {
-    @apply bg-nova-500/30 text-white;
+    @apply bg-ntilde-500/30 text-white;
   }
 
   /* Headings default to a tighter, more terminal-friendly rhythm. */
@@ -47,11 +47,11 @@
   }
 
   a {
-    @apply text-nova-300 transition-colors;
+    @apply text-ntilde-300 transition-colors;
   }
 
   a:hover {
-    @apply text-nova-200;
+    @apply text-ntilde-200;
   }
 
   /* Anchor-offset so the sticky nav doesn't cover section headings. */
@@ -72,19 +72,19 @@
   .eyebrow {
     @apply inline-flex items-center gap-2 rounded-full border border-ink-800
       bg-ink-900/60 px-3 py-1 text-xs font-medium uppercase tracking-wider
-      text-nova-300;
+      text-ntilde-300;
   }
 
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-md px-4
       py-2.5 text-sm font-medium transition focus:outline-none focus-visible:ring-2
-      focus-visible:ring-nova-400 focus-visible:ring-offset-2
+      focus-visible:ring-ntilde-400 focus-visible:ring-offset-2
       focus-visible:ring-offset-ink-950;
   }
 
   .btn-primary {
-    @apply btn bg-nova-500 text-white shadow-lg shadow-nova-900/40
-      hover:bg-nova-400;
+    @apply btn bg-ntilde-500 text-white shadow-lg shadow-ntilde-900/40
+      hover:bg-ntilde-400;
   }
 
   .btn-secondary {
@@ -119,7 +119,7 @@
   }
 
   .pill-dot {
-    @apply h-1.5 w-1.5 rounded-full bg-nova-400;
+    @apply h-1.5 w-1.5 rounded-full bg-ntilde-400;
   }
 
   .code-block {

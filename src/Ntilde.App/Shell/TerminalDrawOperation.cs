@@ -13,10 +13,10 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
+using Ntilde.VT;
+using Ntilde.Rendering;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public sealed class TerminalDrawOperation : ICustomDrawOperation
     {
@@ -54,15 +54,15 @@ namespace NovaTerminal.Shell
         private readonly bool _showRenderHud;
         private bool _wasAltScreenLastFrame;
 
-        private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
-        private static readonly bool GridDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GRID");
-        private static readonly bool ForceKnownGoodBoxFont = IsEnvFlagEnabled("NOVATERM_FORCE_BOX_FONT");
+        private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NTILDE_DIAG_GLYPH");
+        private static readonly bool GridDiagnosticsEnabled = IsEnvFlagEnabled("NTILDE_DIAG_GRID");
+        private static readonly bool ForceKnownGoodBoxFont = IsEnvFlagEnabled("NTILDE_FORCE_BOX_FONT");
         // On by default: font-supplied box glyphs do not span the full cell height on most
         // installed fonts, leaving a gap at every row boundary so vertical borders render as
         // dashed ladders. The primitive path fills cell-edge to cell-edge. Set
-        // NOVATERM_BOX_PRIMITIVES=0 to fall back to font glyphs.
-        private static readonly bool UseBoxDrawingPrimitives = IsEnvFlagEnabled("NOVATERM_BOX_PRIMITIVES", defaultValue: true);
-        private static readonly bool UseBlockElementPrimitives = IsEnvFlagEnabled("NOVATERM_BLOCK_PRIMITIVES");
+        // NTILDE_BOX_PRIMITIVES=0 to fall back to font glyphs.
+        private static readonly bool UseBoxDrawingPrimitives = IsEnvFlagEnabled("NTILDE_BOX_PRIMITIVES", defaultValue: true);
+        private static readonly bool UseBlockElementPrimitives = IsEnvFlagEnabled("NTILDE_BLOCK_PRIMITIVES");
         private static readonly AsyncLocal<TestPrimitiveRenderOverride?> PrimitiveRenderOverrideForTests = new();
         private static readonly ConcurrentDictionary<string, byte> GlyphDiagOnce = new();
         private static readonly string[] KnownGoodBoxFonts = { "JetBrains Mono NL", "JetBrainsMonoNL NFM", "JetBrainsMonoNL Nerd Font Mono", "Cascadia Mono PL", "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };

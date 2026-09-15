@@ -1,4 +1,4 @@
-# NovaTerminal MCP — security model
+# Ntilde MCP — security model
 
 The server has **two tool families** with different security postures.
 
@@ -10,14 +10,14 @@ These are a development aid and must never become an exfiltration or command-exe
 - **No SSH / network.** They open no sockets and require no network access.
 - **No credentials / private keys.** They never read the vault, profiles, `known_hosts`, or keys.
 - **Read-only filesystem access, confined to `docs/`.** Reads go through `RepoContext`, which:
-  - resolves a single repo root (env `NOVATERMINAL_REPO_ROOT`, or by walking up to `NovaTerminal.sln`);
+  - resolves a single repo root (env `NTILDE_REPO_ROOT`, or by walking up to `Ntilde.sln`);
   - serves only files under `docs/`;
   - canonicalizes every requested path and **rejects anything that escapes `docs/`** (`../`,
     absolute paths). Covered by `RepoContextTests`.
 
 ## Live-session tools (agent host) — explicit, default-off opt-ins
 
-The observe/act tools proxy the **running** NovaTerminal app over a **per-user local IPC endpoint**
+The observe/act tools proxy the **running** Ntilde app over a **per-user local IPC endpoint**
 (a `CurrentUserOnly` named pipe on Windows; a `0600` unix-domain socket under the app-data dir on
 macOS/Linux). They are gated by opt-ins in the app's settings:
 
@@ -62,10 +62,10 @@ Full analysis of the acting surface: the
 
 ## Architectural enforcement
 
-- `NovaTerminal.McpServer`'s only cross-assembly dependency is the zero-reference
-  `NovaTerminal.AgentHost.Contracts` leaf (the IPC wire types). It links **no** terminal, PTY, SSH,
+- `Ntilde.McpServer`'s only cross-assembly dependency is the zero-reference
+  `Ntilde.AgentHost.Contracts` leaf (the IPC wire types). It links **no** terminal, PTY, SSH,
   or rendering code — the live-session tools reach the app purely over that IPC contract, never by
   calling into it in-process.
 - Otherwise it depends only on `ModelContextProtocol` and `Microsoft.Extensions.Hosting`.
 - Dev-companion schemas that mirror real types are kept honest by drift-guard tests in
-  `tests/NovaTerminal.McpServer.Tests`.
+  `tests/Ntilde.McpServer.Tests`.

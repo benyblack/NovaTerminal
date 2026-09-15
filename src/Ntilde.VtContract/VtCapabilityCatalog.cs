@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using System.Reflection;
 using System.Text.Json;
 
-namespace NovaTerminal.VtContract;
+namespace Ntilde.VtContract;
 
 public enum VtSupport
 {
@@ -35,7 +35,7 @@ public sealed class VtCapabilityManifestException : Exception
 
 public static class VtCapabilityCatalog
 {
-    private const string ResourceName = "NovaTerminal.VtContract.vt-capabilities.json";
+    private const string ResourceName = "Ntilde.VtContract.vt-capabilities.json";
 
     private static JsonSerializerOptions JsonOptions { get; } = new()
     {

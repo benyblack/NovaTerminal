@@ -1,4 +1,4 @@
-# NovaTerminal GPU Hardening --- 8 Week Sprint Plan
+# Ntilde GPU Hardening --- 8 Week Sprint Plan
 
 Generated: 2026-02-26T13:28:47.837605 UTC
 

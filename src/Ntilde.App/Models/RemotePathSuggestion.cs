@@ -1,4 +1,4 @@
-namespace NovaTerminal.Models;
+namespace Ntilde.Models;
 
 public sealed class RemotePathSuggestion
 {

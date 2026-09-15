@@ -8,11 +8,11 @@ using Avalonia;
 using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
-using NovaTerminal.AgentOutput;
+using Ntilde.AgentOutput;
 using Avalonia.Headless.XUnit;
 using Xunit;
 
-namespace NovaTerminal.Tests.AgentOutput;
+namespace Ntilde.Tests.AgentOutput;
 
 /// <summary>
 /// The panel view's contract with its view model: content swaps rebuild the markdown host, the

@@ -5,9 +5,9 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
 
-namespace NovaTerminal.Backup;
+namespace Ntilde.Backup;
 
-/// <summary>Reads and validates a <c>.novabackup</c> zip.</summary>
+/// <summary>Reads and validates a <c>.ntildebackup</c> zip.</summary>
 public static class BundleReader
 {
     /// <summary>Reads the manifest and counts entries per category. Extracts nothing.</summary>
@@ -27,7 +27,7 @@ public static class BundleReader
             {
                 return InspectOutcome.Fail(
                     BackupFailureKind.NotABackup,
-                    $"{Path.GetFileName(bundlePath)} has no manifest.json — not a NovaTerminal backup.");
+                    $"{Path.GetFileName(bundlePath)} has no manifest.json — not a Ntilde backup.");
             }
 
             BackupManifest? manifest;
@@ -75,7 +75,7 @@ public static class BundleReader
                 return InspectOutcome.Fail(
                     BackupFailureKind.UnsupportedSchemaVersion,
                     $"Bundle uses schema version {manifest.SchemaVersion}; this build understands up to " +
-                    $"{BackupManifest.CurrentSchemaVersion}. Update NovaTerminal to import it.");
+                    $"{BackupManifest.CurrentSchemaVersion}. Update Ntilde to import it.");
             }
 
             // Schema v1 is the first version, so there are no migrations yet. When v2 lands,

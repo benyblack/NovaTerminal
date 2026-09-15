@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Rendering;
 using System.Text.Json;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class StartupPerformanceTrackerTests
 {
@@ -56,7 +56,7 @@ public sealed class StartupPerformanceTrackerTests
     [Fact]
     public void MarkPhase_WritesStartupSnapshotOnceAfterReadyPhasesComplete()
     {
-        string tempDir = Path.Combine(Path.GetTempPath(), "novaterm-startup-tests", Guid.NewGuid().ToString("N"));
+        string tempDir = Path.Combine(Path.GetTempPath(), "ntilde-startup-tests", Guid.NewGuid().ToString("N"));
         string outPath = Path.Combine(tempDir, "startup_metrics.jsonl");
         Directory.CreateDirectory(tempDir);
 

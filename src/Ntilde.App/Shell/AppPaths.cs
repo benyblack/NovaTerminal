@@ -1,12 +1,12 @@
 using System;
 using System.IO;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public static class AppPaths
     {
-        private const string AppName = "NovaTerminal";
-        private const string RootOverrideEnvVar = "NOVATERM_APPDATA_ROOT";
+        private const string AppName = "Ntilde";
+        private const string RootOverrideEnvVar = "NTILDE_APPDATA_ROOT";
         private static readonly object InitLock = new();
         private static bool _initialized;
 

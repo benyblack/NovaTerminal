@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// REP — <c>CSI Ps b</c>, ECMA-48 §8.3.103 — repeats the preceding graphic character.

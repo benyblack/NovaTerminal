@@ -3,10 +3,10 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <!-- Assembly name keeps the .App.Tests convention so InternalsVisibleTo targets resolve,
-         but the root namespace avoids creating a `NovaTerminal.App` namespace prefix that
-         would shadow the App class defined in `namespace NovaTerminal`. -->
-    <AssemblyName>NovaTerminal.App.Tests</AssemblyName>
-    <RootNamespace>NovaTerminal.AppTests</RootNamespace>
+         but the root namespace avoids creating a `Ntilde.App` namespace prefix that
+         would shadow the App class defined in `namespace Ntilde`. -->
+    <AssemblyName>Ntilde.App.Tests</AssemblyName>
+    <RootNamespace>Ntilde.AppTests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,9 +28,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\NovaTerminal.App\NovaTerminal.App.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Cli\NovaTerminal.Cli.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Conformance\NovaTerminal.Conformance.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.App\Ntilde.App.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Cli\Ntilde.Cli.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Conformance\Ntilde.Conformance.csproj" />
   </ItemGroup>
 
 </Project>

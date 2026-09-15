@@ -19,7 +19,7 @@ export default {
           900: '#1f2933',
           950: '#11161d',
         },
-        nova: {
+        ntilde: {
           // Used for accents, links, and the brand mark.
           50: '#eef9ff',
           100: '#daf0ff',

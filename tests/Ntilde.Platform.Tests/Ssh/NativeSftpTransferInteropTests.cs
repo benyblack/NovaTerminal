@@ -1,9 +1,9 @@
-using NovaTerminal.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Native;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public sealed class NativeSftpTransferInteropTests
 {
@@ -80,7 +80,7 @@ public sealed class NativeSftpTransferInteropTests
             "NativeSftpTransferProgressCallback",
             BindingFlags.NonPublic);
         Type? topLevelDelegate = typeof(INativeSshInterop).Assembly.GetType(
-            "NovaTerminal.Platform.Ssh.Native.NativeSftpTransferProgressCallback",
+            "Ntilde.Platform.Ssh.Native.NativeSftpTransferProgressCallback",
             throwOnError: false,
             ignoreCase: false);
 
@@ -132,13 +132,13 @@ public sealed class NativeSftpTransferInteropTests
             KnownHostsFilePath = @"C:\known-hosts.json",
             JumpHops =
             [
-                new NovaTerminal.Platform.Ssh.Models.SshJumpHop
+                new Ntilde.Platform.Ssh.Models.SshJumpHop
                 {
                     Host = "jump-one.internal",
                     User = "jumper",
                     Port = 2200
                 },
-                new NovaTerminal.Platform.Ssh.Models.SshJumpHop
+                new Ntilde.Platform.Ssh.Models.SshJumpHop
                 {
                     Host = "jump-two.internal",
                     User = string.Empty,
@@ -240,7 +240,7 @@ public sealed class NativeSftpTransferInteropTests
     [Fact]
     public void CleanupCancellationMarker_DisposesRegistrationBeforeDeletingMarker()
     {
-        string markerPath = Path.Combine(Path.GetTempPath(), $"nova-sftp-test-{Guid.NewGuid():N}.signal");
+        string markerPath = Path.Combine(Path.GetTempPath(), $"ntilde-sftp-test-{Guid.NewGuid():N}.signal");
         File.WriteAllText(markerPath, string.Empty);
 
         using CancellationTokenSource cts = new();

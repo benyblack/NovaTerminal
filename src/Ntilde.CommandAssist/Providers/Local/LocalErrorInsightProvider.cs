@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.Providers.Local;
+namespace Ntilde.CommandAssist.Providers.Local;
 
 /// <summary>
 /// Serves <see cref="AssistCapabilities.SuggestFix"/> from <see cref="IErrorInsightService"/> - the

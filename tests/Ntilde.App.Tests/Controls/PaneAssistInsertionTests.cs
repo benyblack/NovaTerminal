@@ -3,17 +3,17 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.ViewModels;
-using NovaTerminal.Controls;
-using NovaTerminal.Pty;
-using NovaTerminal.Replay;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.ViewModels;
+using Ntilde.Controls;
+using Ntilde.Pty;
+using Ntilde.Replay;
+using Ntilde.Shell;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.Controls;
+namespace Ntilde.Tests.Controls;
 
 /// <summary>
 /// What <c>Ctrl+Enter</c> is allowed to send, driven through the real pane: parser, mark, grid
@@ -884,7 +884,7 @@ public class PaneAssistInsertionTests
             // pane-level tests have written into the shared history file.
             string directory = Path.Combine(
                 Path.GetTempPath(),
-                $"nova_assist_insertion_{Environment.ProcessId}_{Guid.NewGuid():N}");
+                $"ntilde_assist_insertion_{Environment.ProcessId}_{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
 
             var services = new CommandAssistServices(

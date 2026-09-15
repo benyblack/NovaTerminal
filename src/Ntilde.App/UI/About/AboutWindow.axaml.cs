@@ -7,9 +7,9 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform;
-using NovaTerminal.Update;
+using Ntilde.Update;
 
-namespace NovaTerminal.UI.About;
+namespace Ntilde.UI.About;
 
 /// <summary>
 /// The "+" flyout's About dialog: identity (icon, name, version) plus the one question a user
@@ -20,7 +20,7 @@ namespace NovaTerminal.UI.About;
 /// </summary>
 public partial class AboutWindow : Window, IUpdateCheckFeedback
 {
-    private const string RepoUrl = "https://github.com/benyblack/NovaTerminal";
+    private const string RepoUrl = "https://github.com/benyblack/ntilde";
     private const string ReleasesUrl = RepoUrl + "/releases";
 
     public AboutWindow()
@@ -29,7 +29,7 @@ public partial class AboutWindow : Window, IUpdateCheckFeedback
 
         try
         {
-            Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://NovaTerminal/Assets/nova_icon.ico")));
+            Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://Ntilde/Assets/ntilde_icon.ico")));
         }
         catch (Exception)
         {
@@ -156,7 +156,7 @@ public partial class AboutWindow : Window, IUpdateCheckFeedback
         {
             // The pipeline reports every ordinary outcome through IUpdateCheckFeedback; this only
             // catches a throw from the plumbing itself, so the window never looks hung.
-            NovaTerminal.VT.TerminalLogger.Log("About-window update check failed unexpectedly: " + ex);
+            Ntilde.VT.TerminalLogger.Log("About-window update check failed unexpectedly: " + ex);
             Outcome(UpdateCheckOutcome.Failed, null);
         }
     }

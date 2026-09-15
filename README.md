@@ -1,8 +1,8 @@
-# NovaTerminal
+# Ntilde
 
 <img width="100" alt="ico" src="https://github.com/user-attachments/assets/cffc2a9b-4c2b-4ee9-b03d-1d4c3c793d85" />
 
-**NovaTerminal** is a modern, cross-platform terminal emulator focused on
+**Ntilde** is a modern, cross-platform terminal emulator focused on
 
 **correctness, performance, and predictability**.
 
@@ -24,9 +24,9 @@ Supported platforms: **Windows · Linux · macOS**
 
 ---
 
-### ✨ Why NovaTerminal?
+### ✨ Why Ntilde?
 
-Most terminal emulators optimize for speed or features. NovaTerminal focuses on something different:
+Most terminal emulators optimize for speed or features. Ntilde focuses on something different:
 
 -   🧪 **Deterministic rendering**\
     Same input → same output. Always. Enables reliable testing and replay.
@@ -57,24 +57,24 @@ all three OSes before any bundle is published.
 
 **Windows**
 
-- **Installer** — download `NovaTerminal-Setup-win-x64-<tag>.exe` from the
-  [latest release](https://github.com/benyblack/NovaTerminal/releases/latest). Installs per-user
+- **Installer** — download `ntilde-Setup-win-x64-<tag>.exe` from the
+  [latest release](https://github.com/benyblack/ntilde/releases/latest). Installs per-user
   (no admin prompt), adds Start Menu and Desktop shortcuts, and checks for updates in the
   background — a new version downloads quietly and is applied when you accept the prompt and
   restart. Never a surprise restart. Automatic checks can be turned off in Settings.
-- **Portable** — download `NovaTerminal-win-x64-<tag>.zip` and extract it anywhere. No updater.
-- **winget** — `winget install benyblack.NovaTerminal` (portable package).
+- **Portable** — download `ntilde-win-x64-<tag>.zip` and extract it anywhere. No updater.
+- **winget** — `winget install benyblack.ntilde` (portable package).
 
-The installer and the executables are **not code-signed yet** ([#91](https://github.com/benyblack/NovaTerminal/issues/91)),
+The installer and the executables are **not code-signed yet** ([#91](https://github.com/benyblack/ntilde/issues/91)),
 so SmartScreen will warn on first run. Choose *More info → Run anyway*.
 
 **macOS**
 
-- **macOS (Apple Silicon)** — download `NovaTerminal-Setup-osx-arm64-<tag>.pkg` from the
-  [latest release](https://github.com/benyblack/NovaTerminal/releases/latest) and run it;
-  it installs into `/Applications` (or `~/Applications`) as a proper `NovaTerminal.app`
-  bundle. Alternatively grab `NovaTerminal-osx-arm64-<tag>.zip`, open it, and drag
-  `NovaTerminal.app` to `/Applications`.
+- **macOS (Apple Silicon)** — download `ntilde-Setup-osx-arm64-<tag>.pkg` from the
+  [latest release](https://github.com/benyblack/ntilde/releases/latest) and run it;
+  it installs into `/Applications` (or `~/Applications`) as a proper `Ntilde.app`
+  bundle. Alternatively grab `ntilde-osx-arm64-<tag>.zip`, open it, and drag
+  `Ntilde.app` to `/Applications`.
 
 macOS builds installed via the `.pkg` check for updates in the background and apply them
 on restart, same as Windows. If the app lives in `/Applications`, macOS will ask for your
@@ -82,15 +82,15 @@ password once per update.
 
 Releases built while the macOS signing secrets are unset (see
 [packaging/macos](packaging/macos/README.md), tracking
-[#91](https://github.com/benyblack/NovaTerminal/issues/91)) are **not code-signed or
+[#91](https://github.com/benyblack/ntilde/issues/91)) are **not code-signed or
 notarized**, so Gatekeeper blocks their first launch. On macOS 13+:
 
-1. Try to open `NovaTerminal` once (it will be blocked — that's expected).
+1. Try to open `Ntilde` once (it will be blocked — that's expected).
 2. Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
 3. Confirm — macOS remembers the approval for subsequent launches and updates.
 
 From a terminal, the one-liner equivalent is
-`xattr -cr /Applications/NovaTerminal.app`.
+`xattr -cr /Applications/Ntilde.app`.
 
 **Linux**
 
@@ -101,10 +101,10 @@ rolling distro. Debian 11 and RHEL 8/9 are not supported.
 
 ```sh
 # Replace <tag> with the latest release, and x64 with arm64 on ARM machines.
-curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/NovaTerminal-linux-x64-<tag>.AppImage
-chmod +x NovaTerminal-linux-x64-<tag>.AppImage
-mkdir -p ~/Applications && mv NovaTerminal-linux-x64-<tag>.AppImage ~/Applications/
-~/Applications/NovaTerminal-linux-x64-<tag>.AppImage
+curl -LO https://github.com/benyblack/ntilde/releases/download/<tag>/ntilde-linux-x64-<tag>.AppImage
+chmod +x ntilde-linux-x64-<tag>.AppImage
+mkdir -p ~/Applications && mv ntilde-linux-x64-<tag>.AppImage ~/Applications/
+~/Applications/ntilde-linux-x64-<tag>.AppImage
 ```
 
 Keep it somewhere you can write, such as `~/Applications` — the app updates itself by
@@ -124,38 +124,38 @@ label into `~` — dpkg reads the *last* `-` in a version as the revision
 separator, so a prerelease left as `-beta.1` would parse as upstream `0.5.0`
 revision `beta.1` and sort *above* the eventual `0.5.0-1` final release; `~`
 sorts before everything, so `~beta.1-1` correctly sorts below it. `v0.5.3` ships
-as `novaterminal_0.5.3-1_amd64.deb`; `v0.5.0-beta.1` is built as
-`novaterminal_0.5.0~beta.1-1_amd64.deb`, but GitHub replaces `~` with `.` in
+as `ntilde_0.5.3-1_amd64.deb`; `v0.5.0-beta.1` is built as
+`ntilde_0.5.0~beta.1-1_amd64.deb`, but GitHub replaces `~` with `.` in
 release asset names, so the file you'll actually see on the releases page for a
-prerelease is named `novaterminal_0.5.0.beta.1-1_amd64.deb` — the package's
+prerelease is named `ntilde_0.5.0.beta.1-1_amd64.deb` — the package's
 internal `Version:` field (what dpkg reads) still carries the `~`, so
 installation works either way; stable tags have no `~` to sanitize, so this
 doesn't affect them. That's exactly why you shouldn't construct the filename
-yourself — copy it verbatim from the [releases page](https://github.com/benyblack/NovaTerminal/releases):
+yourself — copy it verbatim from the [releases page](https://github.com/benyblack/ntilde/releases):
 
 ```sh
-curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/<exact .deb filename from the release page>
+curl -LO https://github.com/benyblack/ntilde/releases/download/<tag>/<exact .deb filename from the release page>
 sudo apt install ./<same filename>
-nova
+ntilde
 ```
 
 On ARM machines, grab the `arm64` asset instead of `amd64` — the `.deb` uses
 Debian architecture names (`amd64`/`arm64`), not the `x64`/`arm64` RID names the
 AppImage and tarball below use.
 
-Installs `nova` on your PATH, an app-menu entry, and `man nova`. The in-app updater is
+Installs `ntilde` on your PATH, an app-menu entry, and `man ntilde`. The in-app updater is
 inactive for package installs by design.
 
 **Portable tarball** (no integration):
 
 ```sh
 # Replace <tag> with the latest release, and x64 with arm64 on ARM machines.
-curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/NovaTerminal-linux-x64-<tag>.tar.gz
-tar -xzf NovaTerminal-linux-x64-<tag>.tar.gz && ./NovaTerminal
+curl -LO https://github.com/benyblack/ntilde/releases/download/<tag>/ntilde-linux-x64-<tag>.tar.gz
+tar -xzf ntilde-linux-x64-<tag>.tar.gz && ./Ntilde
 ```
 
-NovaTerminal is not registered as your default terminal. To do that yourself after
-installing the `.deb`, see `man nova`.
+Ntilde is not registered as your default terminal. To do that yourself after
+installing the `.deb`, see `man ntilde`.
 
 For details on what each Linux package contains and its known limitations, see
 [packaging/linux](packaging/linux/README.md).
@@ -204,7 +204,7 @@ about where the prompt ends — built on OSC 133 shell-integration marks.
 ### Configuration backup & restore
 
 - Export settings, themes, connections, workspaces, policy and snippets to a
-  single portable `.novabackup` file, and import it on another machine
+  single portable `.ntildebackup` file, and import it on another machine
 - Six independently selectable categories; import merges or replaces
 - Automatic background snapshots, deduplicated by content hash and retention-capped
 - A snapshot is taken before every import and restore, so both are reversible
@@ -240,7 +240,7 @@ the flip.
 - Native SFTP transfers and a pane-local remote-files sidebar
 
 ### Cross-platform parity
-NovaTerminal guarantees identical terminal behavior across operating systems
+Ntilde guarantees identical terminal behavior across operating systems
 for VT interpretation, buffer state, wrapping & reflow, and search semantics.
 Platform-specific differences are limited to window chrome, blur/transparency,
 global hotkeys, and credential storage backends.
@@ -248,7 +248,7 @@ global hotkeys, and credential storage backends.
 ### Agent access (MCP)
 
 A local, stdio [Model Context Protocol](https://modelcontextprotocol.io) server
-(`NovaTerminal.McpServer`) exposes NovaTerminal to AI coding agents (Claude Code, Claude
+(`Ntilde.McpServer`) exposes Ntilde to AI coding agents (Claude Code, Claude
 Desktop, VS Code, …):
 
 - **Repo / dev-companion tools** — read-only and offline: project docs, VT/ANSI conformance
@@ -263,7 +263,7 @@ Desktop, VS Code, …):
   activity journal.
 
 With both toggles off there is no live endpoint at all. See the
-[MCP server README](src/NovaTerminal.McpServer/) and the
+[MCP server README](src/Ntilde.McpServer/) and the
 [acting threat model](docs/agent-host/2026-07-12-acting-threat-model.md).
 
 ---
@@ -274,19 +274,19 @@ Build the server, then register it with your MCP client, pointing at the **built
 the compiled DLL — never `dotnet run`, which corrupts the stdio stream):
 
 ```bash
-scripts/build.ps1 build -c Release src/NovaTerminal.McpServer   # or scripts/build.sh
+scripts/build.ps1 build -c Release src/Ntilde.McpServer   # or scripts/build.sh
 ```
 
 **Claude Code:**
 
 ```bash
-claude mcp add novaterminal -- dotnet "<path-to-repo>/src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll"
+claude mcp add ntilde -- dotnet "<path-to-repo>/src/Ntilde.McpServer/bin/Release/net10.0/Ntilde.McpServer.dll"
 ```
 
 For **Claude Desktop / VS Code**, add the same `command`/`args` to the client's MCP config.
 
 The repo / dev-companion tools work immediately. To expose live sessions, enable
-**Settings → Agent access (observe)** in NovaTerminal; to let an agent type into, spawn, or
+**Settings → Agent access (observe)** in Ntilde; to let an agent type into, spawn, or
 close sessions, also enable the **Agent access (act)** sub-toggle (and allowlist any SSH
 profiles you want reachable). Both are off by default.
 
@@ -305,57 +305,57 @@ profiles you want reachable). Both are off by default.
 
 ### Architecture
 
-NovaTerminal is organized into focused class libraries under `src/` with an
+Ntilde is organized into focused class libraries under `src/` with an
 acyclic dependency graph.
 
-- **[`src/NovaTerminal.App`](src/NovaTerminal.App/)** — Avalonia/UI layer: windows, themes, settings, orchestration.
-- **[`src/NovaTerminal.Platform`](src/NovaTerminal.Platform/)** — Shared runtime primitives: input, paths, process, SSH.
-- **[`src/NovaTerminal.VT`](src/NovaTerminal.VT/)** — Virtual Terminal engine: frame-agnostic parser logic and buffer state.
-- **[`src/NovaTerminal.Rendering`](src/NovaTerminal.Rendering/)** — SkiaSharp rendering: framework-agnostic text shaping and GPU glyph caching.
-- **[`src/NovaTerminal.Pty`](src/NovaTerminal.Pty/)** — Native OS integration and PTY session management.
-- **[`src/NovaTerminal.Replay`](src/NovaTerminal.Replay/)** — Deterministic session recording and playback.
-- **[`src/NovaTerminal.CommandAssist`](src/NovaTerminal.CommandAssist/)** — Command Assist domain, ranking, history/snippet storage, and shell integration. Avalonia-free by design; the App owns only its views.
-- **[`src/NovaTerminal.Backup`](src/NovaTerminal.Backup/)** — `.novabackup` export/import, automatic snapshots, and the category-to-path catalogue. A leaf, so the MCP server can reference it without reaching into the app.
-- **[`src/NovaTerminal.VtContract`](src/NovaTerminal.VtContract/)** — the machine-readable VT capability catalogue (`vt-capabilities.json`) and its schema validation, shared by the conformance tool, the parser tests, and the MCP dev tools.
-- **[`src/NovaTerminal.Conformance`](src/NovaTerminal.Conformance/)** — VT conformance matrix tooling and report generation.
-- **[`src/NovaTerminal.Cli`](src/NovaTerminal.Cli/)** — console-subsystem twin of the (WinExe) app for headless tooling: `vt-report`, headless replay (`--replay <file>`), and the SSH askpass helper.
-- **[`src/NovaTerminal.AgentHost.Contracts`](src/NovaTerminal.AgentHost.Contracts/)** — zero-dependency wire contracts for the agent-host observe channel (shared by App and McpServer).
-- **[`src/NovaTerminal.McpServer`](src/NovaTerminal.McpServer/)** — stdio-only MCP server exposing project docs, config validators, VT conformance data, and (opt-in) live terminal sessions to AI tooling: observe by default, and — behind a separate explicit opt-in — act (type into / open / close sessions).
+- **[`src/Ntilde.App`](src/Ntilde.App/)** — Avalonia/UI layer: windows, themes, settings, orchestration.
+- **[`src/Ntilde.Platform`](src/Ntilde.Platform/)** — Shared runtime primitives: input, paths, process, SSH.
+- **[`src/Ntilde.VT`](src/Ntilde.VT/)** — Virtual Terminal engine: frame-agnostic parser logic and buffer state.
+- **[`src/Ntilde.Rendering`](src/Ntilde.Rendering/)** — SkiaSharp rendering: framework-agnostic text shaping and GPU glyph caching.
+- **[`src/Ntilde.Pty`](src/Ntilde.Pty/)** — Native OS integration and PTY session management.
+- **[`src/Ntilde.Replay`](src/Ntilde.Replay/)** — Deterministic session recording and playback.
+- **[`src/Ntilde.CommandAssist`](src/Ntilde.CommandAssist/)** — Command Assist domain, ranking, history/snippet storage, and shell integration. Avalonia-free by design; the App owns only its views.
+- **[`src/Ntilde.Backup`](src/Ntilde.Backup/)** — `.ntildebackup` export/import, automatic snapshots, and the category-to-path catalogue. A leaf, so the MCP server can reference it without reaching into the app.
+- **[`src/Ntilde.VtContract`](src/Ntilde.VtContract/)** — the machine-readable VT capability catalogue (`vt-capabilities.json`) and its schema validation, shared by the conformance tool, the parser tests, and the MCP dev tools.
+- **[`src/Ntilde.Conformance`](src/Ntilde.Conformance/)** — VT conformance matrix tooling and report generation.
+- **[`src/Ntilde.Cli`](src/Ntilde.Cli/)** — console-subsystem twin of the (WinExe) app for headless tooling: `vt-report`, headless replay (`--replay <file>`), and the SSH askpass helper.
+- **[`src/Ntilde.AgentHost.Contracts`](src/Ntilde.AgentHost.Contracts/)** — zero-dependency wire contracts for the agent-host observe channel (shared by App and McpServer).
+- **[`src/Ntilde.McpServer`](src/Ntilde.McpServer/)** — stdio-only MCP server exposing project docs, config validators, VT conformance data, and (opt-in) live terminal sessions to AI tooling: observe by default, and — behind a separate explicit opt-in — act (type into / open / close sessions).
 
 Validation:
 
-- **[`tests/NovaTerminal.App.Tests`](tests/NovaTerminal.App.Tests/)** — primary unit and integration suite (Avalonia Headless UI), including replay, render-metrics, golden-PNG, and shell-integration lanes.
-- **[`tests/NovaTerminal.VT.Tests`](tests/NovaTerminal.VT.Tests/)**, **[`tests/NovaTerminal.Rendering.Tests`](tests/NovaTerminal.Rendering.Tests/)**, **[`tests/NovaTerminal.Platform.Tests`](tests/NovaTerminal.Platform.Tests/)**, **[`tests/NovaTerminal.McpServer.Tests`](tests/NovaTerminal.McpServer.Tests/)** — deterministic per-module suites (the blocking CI lane).
-- **[`tests/NovaTerminal.Architecture.Tests`](tests/NovaTerminal.Architecture.Tests/)** — the key invariants of the graph below are *enforced*, not aspirational: NetArchTest checks at IL, csproj, and namespace level.
-- **[`tests/NovaTerminal.Benchmarks`](tests/NovaTerminal.Benchmarks/)** — performance benchmarks and the SharpFuzz/libFuzzer harness.
-- **[`tests/NovaTerminal.ExternalSuites`](tests/NovaTerminal.ExternalSuites/)** — manual vttest / native-SSH scenario driver.
+- **[`tests/Ntilde.App.Tests`](tests/Ntilde.App.Tests/)** — primary unit and integration suite (Avalonia Headless UI), including replay, render-metrics, golden-PNG, and shell-integration lanes.
+- **[`tests/Ntilde.VT.Tests`](tests/Ntilde.VT.Tests/)**, **[`tests/Ntilde.Rendering.Tests`](tests/Ntilde.Rendering.Tests/)**, **[`tests/Ntilde.Platform.Tests`](tests/Ntilde.Platform.Tests/)**, **[`tests/Ntilde.McpServer.Tests`](tests/Ntilde.McpServer.Tests/)** — deterministic per-module suites (the blocking CI lane).
+- **[`tests/Ntilde.Architecture.Tests`](tests/Ntilde.Architecture.Tests/)** — the key invariants of the graph below are *enforced*, not aspirational: NetArchTest checks at IL, csproj, and namespace level.
+- **[`tests/Ntilde.Benchmarks`](tests/Ntilde.Benchmarks/)** — performance benchmarks and the SharpFuzz/libFuzzer harness.
+- **[`tests/Ntilde.ExternalSuites`](tests/Ntilde.ExternalSuites/)** — manual vttest / native-SSH scenario driver.
 
 ```mermaid
 graph TD
-    Cli[NovaTerminal.Cli] --> App[NovaTerminal.App]
-    App --> Platform[NovaTerminal.Platform]
-    App --> VT[NovaTerminal.VT]
-    App --> Rendering[NovaTerminal.Rendering]
-    App --> Pty[NovaTerminal.Pty]
-    App --> Replay[NovaTerminal.Replay]
-    App --> CommandAssist[NovaTerminal.CommandAssist]
-    App --> Backup[NovaTerminal.Backup]
-    App --> Contracts[NovaTerminal.AgentHost.Contracts]
+    Cli[Ntilde.Cli] --> App[Ntilde.App]
+    App --> Platform[Ntilde.Platform]
+    App --> VT[Ntilde.VT]
+    App --> Rendering[Ntilde.Rendering]
+    App --> Pty[Ntilde.Pty]
+    App --> Replay[Ntilde.Replay]
+    App --> CommandAssist[Ntilde.CommandAssist]
+    App --> Backup[Ntilde.Backup]
+    App --> Contracts[Ntilde.AgentHost.Contracts]
     Platform --> Pty
     Pty --> Replay
     Rendering --> VT
     Replay --> VT
-    McpServer[NovaTerminal.McpServer] --> Contracts
+    McpServer[Ntilde.McpServer] --> Contracts
     McpServer --> Backup
-    McpServer --> VtContract[NovaTerminal.VtContract]
-    Conformance[NovaTerminal.Conformance] --> VtContract
+    McpServer --> VtContract[Ntilde.VtContract]
+    Conformance[Ntilde.Conformance] --> VtContract
 ```
 
 `CommandAssist`, `Backup`, `VtContract` and `AgentHost.Contracts` are leaves with
 zero project references, and that is what lets `McpServer` share code with the
 app without acquiring a path into `App`, `VT`, `Pty` or `Rendering`.
 
-Enforced invariants (`NovaTerminal.Architecture.Tests`): `VT` is a leaf with zero project references; `Pty` must **not** depend on `VT` (the PTY layer delivers raw bytes only); `Replay` and `Rendering` reference exactly `VT`; no production assembly references test libraries. The remaining edges above are documented from the csproj references but not individually asserted.
+Enforced invariants (`Ntilde.Architecture.Tests`): `VT` is a leaf with zero project references; `Pty` must **not** depend on `VT` (the PTY layer delivers raw bytes only); `Replay` and `Rendering` reference exactly `VT`; no production assembly references test libraries. The remaining edges above are documented from the csproj references but not individually asserted.
 
 ---
 
@@ -373,11 +373,11 @@ Enforced invariants (`NovaTerminal.Architecture.Tests`): `VT` is a leaf with zer
   [`docs/agent-host/2026-07-12-acting-threat-model.md`](docs/agent-host/2026-07-12-acting-threat-model.md)),
   with deterministic replay as the debugging story. Debug what your agent did,
   frame by frame: with both opt-in toggles enabled, an agent can call
-  `novaterminal.export_replay` to save a session's recent output (never
+  `ntilde.export_replay` to save a session's recent output (never
   input — typed keys are not retained) as a standard `.rec` file, and anyone
   can re-render it deterministically with
-  `NovaTerminal.Cli --replay <file> [--attributes]`. When the pixels are what
-  matter — inline images, TUI layout, a rendering bug — `novaterminal.capture_screen`
+  `Ntilde.Cli --replay <file> [--attributes]`. When the pixels are what
+  matter — inline images, TUI layout, a rendering bug — `ntilde.capture_screen`
   renders a pane to a PNG offscreen from its buffer, so a minimized or occluded
   window captures identically and nothing outside the pane can appear in the
   image - with a caller-named `scale` for text large enough to read back, and a
@@ -434,9 +434,9 @@ cargo --version
 
 Notes:
 
-- `dotnet build` for `src/NovaTerminal.App` triggers `cargo build --release` for the native PTY and native SSH libraries automatically.
+- `dotnet build` for `src/Ntilde.App` triggers `cargo build --release` for the native PTY and native SSH libraries automatically.
 - The CLI project references the app project, so `dotnet build` and `dotnet test` both require the Rust toolchain unless you explicitly set `SKIP_RUST_NATIVE_BUILD=1` for a downstream job that already has the native artifacts.
-- If a clean clone fails during Cargo's `build-script-build` step on macOS, first confirm `rustc`/`cargo` are installed and that Xcode Command Line Tools are available. If the failure happened after a partial build, remove `src/NovaTerminal.App/native/target` and `src/NovaTerminal.App/native/rusty_ssh/target` and retry.
+- If a clean clone fails during Cargo's `build-script-build` step on macOS, first confirm `rustc`/`cargo` are installed and that Xcode Command Line Tools are available. If the failure happened after a partial build, remove `src/Ntilde.App/native/target` and `src/Ntilde.App/native/rusty_ssh/target` and retry.
 
 Build — **always through the wrapper scripts**, never raw `dotnet build`:
 
@@ -472,8 +472,8 @@ CI-style sequence. Both scripts assume the .NET and Rust toolchains are already 
 
 ### Native AOT publish
 
-NovaTerminal is configured for **Native AOT** publish in
-[`src/NovaTerminal.App/NovaTerminal.App.csproj`](src/NovaTerminal.App/NovaTerminal.App.csproj).
+Ntilde is configured for **Native AOT** publish in
+[`src/Ntilde.App/Ntilde.App.csproj`](src/Ntilde.App/Ntilde.App.csproj).
 The project supports `win-x64`, `linux-x64`, and `osx-arm64` publish targets.
 The release workflow publishes Native AOT bundles for those targets to the
 corresponding GitHub Release.
@@ -481,7 +481,7 @@ corresponding GitHub Release.
 Example publish command:
 
 ```bash
-dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -o artifacts/publish/win-x64
+dotnet publish src/Ntilde.App/Ntilde.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -o artifacts/publish/win-x64
 ```
 
 Swap `win-x64` for `linux-x64` or `osx-arm64` as needed.
@@ -490,7 +490,7 @@ Swap `win-x64` for `linux-x64` or `osx-arm64` as needed.
 
 ### Running GitHub CI locally with `act`
 
-NovaTerminal workflows exchange artifacts between jobs (native binaries and
+Ntilde workflows exchange artifacts between jobs (native binaries and
 test results). When running via `act`, enable its artifact server or
 artifact upload/download steps will fail.
 
@@ -518,7 +518,7 @@ License: [`MIT`](LICENSE).
 
 ### Contributing
 
-Contributions are welcome. NovaTerminal has a strong correctness culture —
+Contributions are welcome. Ntilde has a strong correctness culture —
 terminal core invariants are enforced and automated tests gate changes. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for details, and
 [`docs/reviews/`](docs/reviews/) for periodic deep code reviews with the
@@ -528,7 +528,7 @@ current known-issues backlog.
 
 ### Acknowledgements
 
-Thanks to [**Greptile**](https://www.greptile.com/) for granting NovaTerminal
+Thanks to [**Greptile**](https://www.greptile.com/) for granting Ntilde
 free access to their AI code review as an open source project. It reviews every
 pull request here, and that extra pair of eyes is a real help on a codebase
 where correctness is the whole point.
@@ -537,7 +537,7 @@ where correctness is the whole point.
 
 ## Philosophy
 
-NovaTerminal aims to be:
+Ntilde aims to be:
 
 - **boring in behavior**
 - **predictable under stress**

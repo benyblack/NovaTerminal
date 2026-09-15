@@ -6,15 +6,15 @@
 
 **Architecture:** Keep the current `CommandAssistController` and provider stack intact, and replace only the presentation/placement layer in `TerminalPane` and Avalonia views. Add a pane-local anchor calculator that computes safe bubble and popup rectangles from terminal metrics and a prompt-region estimate.
 
-**Tech Stack:** C#, .NET 10, Avalonia, xUnit, existing `NovaTerminal.App.CommandAssist` subsystem, pane-local overlay composition in `TerminalPane`.
+**Tech Stack:** C#, .NET 10, Avalonia, xUnit, existing `Ntilde.App.CommandAssist` subsystem, pane-local overlay composition in `TerminalPane`.
 
 ---
 
 ### Task 1: Lock prompt-adjacent placement behavior with tests
 
 **Files:**
-- Create: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistAnchorCalculator.cs`
+- Create: `tests/Ntilde.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/Application/CommandAssistAnchorCalculator.cs`
 
 **Step 1: Write the failing tests**
 
@@ -50,7 +50,7 @@ public void Calculate_WhenSpaceExistsAbovePrompt_PlacesBubbleAbovePrompt()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistAnchorCalculatorTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistAnchorCalculatorTests"
 ```
 
 Expected: FAIL with missing calculator/layout types.
@@ -69,7 +69,7 @@ Avoid any controller dependencies.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistAnchorCalculatorTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistAnchorCalculatorTests"
 ```
 
 Expected: PASS
@@ -77,17 +77,17 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs src/NovaTerminal.App/CommandAssist/Application/CommandAssistAnchorCalculator.cs
+git add tests/Ntilde.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs src/Ntilde.App/CommandAssist/Application/CommandAssistAnchorCalculator.cs
 git commit -m "Add Command Assist prompt anchor calculator"
 ```
 
 ### Task 2: Split the footer view model into bubble and popup state
 
 **Files:**
-- Create: `src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistBubbleViewModel.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistPopupViewModel.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/ViewModels/CommandAssistBubbleViewModel.cs`
+- Create: `src/Ntilde.App/CommandAssist/ViewModels/CommandAssistPopupViewModel.cs`
+- Modify: `src/Ntilde.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -101,7 +101,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
 ```
 
 Expected: FAIL because the current single footer viewmodel cannot express bubble/popup split.
@@ -118,7 +118,7 @@ Refactor viewmodel state so:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
 ```
 
 Expected: PASS
@@ -126,18 +126,18 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistBubbleViewModel.cs src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistPopupViewModel.cs src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs
+git add src/Ntilde.App/CommandAssist/ViewModels/CommandAssistBubbleViewModel.cs src/Ntilde.App/CommandAssist/ViewModels/CommandAssistPopupViewModel.cs src/Ntilde.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs
 git commit -m "Split Command Assist footer state into bubble and popup"
 ```
 
 ### Task 3: Add floating bubble and popup views
 
 **Files:**
-- Create: `src/NovaTerminal.App/CommandAssist/Views/CommandAssistBubbleView.axaml`
-- Create: `src/NovaTerminal.App/CommandAssist/Views/CommandAssistBubbleView.axaml.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Views/CommandAssistPopupView.axaml`
-- Create: `src/NovaTerminal.App/CommandAssist/Views/CommandAssistPopupView.axaml.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/Views/CommandAssistBubbleView.axaml`
+- Create: `src/Ntilde.App/CommandAssist/Views/CommandAssistBubbleView.axaml.cs`
+- Create: `src/Ntilde.App/CommandAssist/Views/CommandAssistPopupView.axaml`
+- Create: `src/Ntilde.App/CommandAssist/Views/CommandAssistPopupView.axaml.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -151,7 +151,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
 ```
 
 Expected: FAIL because views do not exist.
@@ -170,7 +170,7 @@ Keep styling intentionally light and compact.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
 ```
 
 Expected: PASS
@@ -178,16 +178,16 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/Views/CommandAssistBubbleView.axaml src/NovaTerminal.App/CommandAssist/Views/CommandAssistBubbleView.axaml.cs src/NovaTerminal.App/CommandAssist/Views/CommandAssistPopupView.axaml src/NovaTerminal.App/CommandAssist/Views/CommandAssistPopupView.axaml.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs
+git add src/Ntilde.App/CommandAssist/Views/CommandAssistBubbleView.axaml src/Ntilde.App/CommandAssist/Views/CommandAssistBubbleView.axaml.cs src/Ntilde.App/CommandAssist/Views/CommandAssistPopupView.axaml src/Ntilde.App/CommandAssist/Views/CommandAssistPopupView.axaml.cs tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs
 git commit -m "Add Command Assist floating bubble and popup views"
 ```
 
 ### Task 4: Replace footer hosting with overlay composition in TerminalPane
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -201,7 +201,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
 ```
 
 Expected: FAIL because the footer-based host is still present.
@@ -219,7 +219,7 @@ Do not use an `Auto` row for assist content.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistLayoutTests"
 ```
 
 Expected: PASS
@@ -227,17 +227,17 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml src/Ntilde.App/Controls/TerminalPane.axaml.cs tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs
 git commit -m "Host Command Assist as prompt-adjacent overlays"
 ```
 
 ### Task 5: Feed terminal metrics and prompt hints into placement logic
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Core/TerminalView.cs`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/TerminalViewKeyHandlingTests.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs`
+- Modify: `src/Ntilde.App/Core/TerminalView.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/TerminalViewKeyHandlingTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -251,7 +251,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistAnchorCalculatorTests|TerminalViewKeyHandlingTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistAnchorCalculatorTests|TerminalViewKeyHandlingTests"
 ```
 
 Expected: FAIL because prompt-region feed is not wired into placement yet.
@@ -270,7 +270,7 @@ Keep this App-side and non-invasive.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistAnchorCalculatorTests|TerminalViewKeyHandlingTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistAnchorCalculatorTests|TerminalViewKeyHandlingTests"
 ```
 
 Expected: PASS
@@ -278,15 +278,15 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Core/TerminalView.cs src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.Tests/CommandAssist/TerminalViewKeyHandlingTests.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs
+git add src/Ntilde.App/Core/TerminalView.cs src/Ntilde.App/Controls/TerminalPane.axaml.cs tests/Ntilde.Tests/CommandAssist/TerminalViewKeyHandlingTests.cs tests/Ntilde.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs
 git commit -m "Wire prompt-region hints into Command Assist placement"
 ```
 
 ### Task 6: Preserve current Command Assist behavior with collapsed/expanded states
 
 **Files:**
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -300,7 +300,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistControllerTests"
 ```
 
 Expected: FAIL because collapsed/expanded presentation state is not expressed yet.
@@ -319,7 +319,7 @@ Do not rework ranking/help/fix logic.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistControllerTests"
 ```
 
 Expected: PASS
@@ -327,16 +327,16 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs
+git add src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs
 git commit -m "Add collapsed and expanded Command Assist presentation states"
 ```
 
 ### Task 7: Add constrained-pane fallback behavior
 
 **Files:**
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistAnchorCalculator.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistAnchorCalculator.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -350,7 +350,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistAnchorCalculatorTests|CommandAssistLayoutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistAnchorCalculatorTests|CommandAssistLayoutTests"
 ```
 
 Expected: FAIL because degraded placement/layout rules are not implemented.
@@ -369,7 +369,7 @@ Keep rules explicit and deterministic.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistAnchorCalculatorTests|CommandAssistLayoutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistAnchorCalculatorTests|CommandAssistLayoutTests"
 ```
 
 Expected: PASS
@@ -377,17 +377,17 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/Application/CommandAssistAnchorCalculator.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs
+git add src/Ntilde.App/CommandAssist/Application/CommandAssistAnchorCalculator.cs tests/Ntilde.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs
 git commit -m "Add constrained-pane fallbacks for Command Assist overlays"
 ```
 
 ### Task 8: Preserve key ownership and alt-screen behavior
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistKeyRouterTests.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/AlternateScreenTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistKeyRouterTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/AlternateScreenTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -401,7 +401,7 @@ Add tests for:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistKeyRouterTests|TerminalPaneCommandAssistShortcutTests|AlternateScreenTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistKeyRouterTests|TerminalPaneCommandAssistShortcutTests|AlternateScreenTests"
 ```
 
 Expected: FAIL if the refactor broke routing or hide rules.
@@ -418,7 +418,7 @@ Adjust pane routing only as needed to:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssistKeyRouterTests|TerminalPaneCommandAssistShortcutTests|AlternateScreenTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssistKeyRouterTests|TerminalPaneCommandAssistShortcutTests|AlternateScreenTests"
 ```
 
 Expected: PASS
@@ -426,7 +426,7 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistKeyRouterTests.cs tests/NovaTerminal.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs tests/NovaTerminal.Tests/CommandAssist/AlternateScreenTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml.cs tests/Ntilde.Tests/CommandAssist/CommandAssistKeyRouterTests.cs tests/Ntilde.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs tests/Ntilde.Tests/CommandAssist/AlternateScreenTests.cs
 git commit -m "Preserve Command Assist routing and alt-screen behavior"
 ```
 
@@ -440,7 +440,7 @@ git commit -m "Preserve Command Assist routing and alt-screen behavior"
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "CommandAssist|ShellIntegration|AlternateScreen|HeadlessUI" --logger "console;verbosity=minimal"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "CommandAssist|ShellIntegration|AlternateScreen|HeadlessUI" --logger "console;verbosity=minimal"
 ```
 
 Expected: PASS
@@ -450,7 +450,7 @@ Expected: PASS
 Run:
 
 ```bash
-dotnet msbuild src/NovaTerminal.App/NovaTerminal.App.csproj /t:Compile /p:Configuration=Release /v:minimal
+dotnet msbuild src/Ntilde.App/Ntilde.App.csproj /t:Compile /p:Configuration=Release /v:minimal
 ```
 
 Expected: Build succeeded

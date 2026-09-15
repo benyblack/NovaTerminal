@@ -1,4 +1,4 @@
-namespace NovaTerminal.Platform.Ssh.Launch;
+namespace Ntilde.Platform.Ssh.Launch;
 
 public interface ISshLaunchPlanner
 {

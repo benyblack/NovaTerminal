@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace NovaTerminal.Shell.Shortcuts;
+namespace Ntilde.Shell.Shortcuts;
 
 public static class ShortcutBindingResolver
 {

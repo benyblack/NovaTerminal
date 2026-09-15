@@ -4,17 +4,17 @@
 
 **Goal:** Bundle `Cascadia Mono PL`, register it at app startup, include the upstream license notice, and make it the first-run terminal default for new users without changing terminal core behavior.
 
-**Architecture:** Keep the change inside `NovaTerminal.App` resource/bootstrap/settings code. Ship the font and license under app assets, register the bundled family during Avalonia startup, and update the persisted default font family for fresh settings only.
+**Architecture:** Keep the change inside `Ntilde.App` resource/bootstrap/settings code. Ship the font and license under app assets, register the bundled family during Avalonia startup, and update the persisted default font family for fresh settings only.
 
-**Tech Stack:** .NET 10, Avalonia 11, existing `NovaTerminal.App` startup path, xUnit, app asset packaging
+**Tech Stack:** .NET 10, Avalonia 11, existing `Ntilde.App` startup path, xUnit, app asset packaging
 
 ---
 
 ### Task 1: Lock in the new default with tests
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/Core/TerminalSettingsTests.cs`
-- Modify: `src/NovaTerminal.App/Core/TerminalSettings.cs`
+- Modify: `tests/Ntilde.Tests/Core/TerminalSettingsTests.cs`
+- Modify: `src/Ntilde.App/Core/TerminalSettings.cs`
 
 **Step 1: Write the failing test**
 
@@ -24,7 +24,7 @@ Add a second test that writes a settings JSON payload with an explicit `FontFami
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~TerminalSettingsTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~TerminalSettingsTests`
 
 Expected: FAIL because the default is still `Consolas` or the preservation scenario is not covered.
 
@@ -34,23 +34,23 @@ Update `TerminalSettings.FontFamily` to `Cascadia Mono PL` and keep load behavio
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~TerminalSettingsTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~TerminalSettingsTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/Core/TerminalSettingsTests.cs src/NovaTerminal.App/Core/TerminalSettings.cs
+git add tests/Ntilde.Tests/Core/TerminalSettingsTests.cs src/Ntilde.App/Core/TerminalSettings.cs
 git commit -m "feat: change first-run terminal font default"
 ```
 
 ### Task 2: Bundle the font and license notice
 
 **Files:**
-- Create: `src/NovaTerminal.App/Assets/Fonts/CascadiaMonoPL-Regular.otf`
-- Create: `src/NovaTerminal.App/Assets/Fonts/LICENSES/CascadiaMono-OFL.txt`
-- Modify: `src/NovaTerminal.App/NovaTerminal.App.csproj`
+- Create: `src/Ntilde.App/Assets/Fonts/CascadiaMonoPL-Regular.otf`
+- Create: `src/Ntilde.App/Assets/Fonts/LICENSES/CascadiaMono-OFL.txt`
+- Modify: `src/Ntilde.App/Ntilde.App.csproj`
 
 **Step 1: Write the failing test**
 
@@ -58,7 +58,7 @@ If a deterministic asset test seam is cheap, add a test that verifies the expect
 
 **Step 2: Run verification to prove the gap**
 
-Run: `dotnet build src/NovaTerminal.App/NovaTerminal.App.csproj -c Release`
+Run: `dotnet build src/Ntilde.App/Ntilde.App.csproj -c Release`
 
 Expected: output does not yet contain the bundled font asset or license notice.
 
@@ -68,24 +68,24 @@ Add the official font file and license notice under `Assets/Fonts/`. Ensure the 
 
 **Step 4: Run verification to confirm packaging**
 
-Run: `dotnet build src/NovaTerminal.App/NovaTerminal.App.csproj -c Release`
+Run: `dotnet build src/Ntilde.App/Ntilde.App.csproj -c Release`
 
 Expected: PASS, with bundled font resources available in the app assembly/output.
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Assets/Fonts src/NovaTerminal.App/NovaTerminal.App.csproj
+git add src/Ntilde.App/Assets/Fonts src/Ntilde.App/Ntilde.App.csproj
 git commit -m "chore: bundle cascadia mono pl font assets"
 ```
 
 ### Task 3: Register the bundled font at startup
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Program.cs`
-- Modify: `src/NovaTerminal.App/App.axaml.cs`
-- Create: `src/NovaTerminal.App/Core/BundledFontRegistration.cs`
-- Test: `tests/NovaTerminal.Tests/App/BundledFontRegistrationTests.cs`
+- Modify: `src/Ntilde.App/Program.cs`
+- Modify: `src/Ntilde.App/App.axaml.cs`
+- Create: `src/Ntilde.App/Core/BundledFontRegistration.cs`
+- Test: `tests/Ntilde.Tests/App/BundledFontRegistrationTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -93,7 +93,7 @@ Add a focused test for the registration helper that exposes the bundled font fam
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~BundledFontRegistrationTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~BundledFontRegistrationTests`
 
 Expected: FAIL because the helper does not exist.
 
@@ -103,22 +103,22 @@ Create a small app-level helper that registers the bundled Cascadia font collect
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~BundledFontRegistrationTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~BundledFontRegistrationTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Program.cs src/NovaTerminal.App/App.axaml.cs src/NovaTerminal.App/Core/BundledFontRegistration.cs tests/NovaTerminal.Tests/App/BundledFontRegistrationTests.cs
+git add src/Ntilde.App/Program.cs src/Ntilde.App/App.axaml.cs src/Ntilde.App/Core/BundledFontRegistration.cs tests/Ntilde.Tests/App/BundledFontRegistrationTests.cs
 git commit -m "feat: register bundled cascadia mono pl font"
 ```
 
 ### Task 4: Keep the settings UI aligned with the bundled font
 
 **Files:**
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/App/SettingsWindowFontListTests.cs`
+- Modify: `src/Ntilde.App/SettingsWindow.axaml.cs`
+- Test: `tests/Ntilde.Tests/App/SettingsWindowFontListTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -126,7 +126,7 @@ Add a deterministic test around the font-list preparation logic so the configure
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~SettingsWindowFontListTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~SettingsWindowFontListTests`
 
 Expected: FAIL because the settings UI only trusts the raw font manager list.
 
@@ -136,14 +136,14 @@ Refactor only the font-list assembly logic needed to inject the bundled family n
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~SettingsWindowFontListTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~SettingsWindowFontListTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/SettingsWindow.axaml.cs tests/NovaTerminal.Tests/App/SettingsWindowFontListTests.cs
+git add src/Ntilde.App/SettingsWindow.axaml.cs tests/Ntilde.Tests/App/SettingsWindowFontListTests.cs
 git commit -m "fix: keep bundled font visible in settings"
 ```
 
@@ -154,13 +154,13 @@ git commit -m "fix: keep bundled font visible in settings"
 
 **Step 1: Run focused tests**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~TerminalSettingsTests|FullyQualifiedName~BundledFontRegistrationTests|FullyQualifiedName~SettingsWindowFontListTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~TerminalSettingsTests|FullyQualifiedName~BundledFontRegistrationTests|FullyQualifiedName~SettingsWindowFontListTests`
 
 Expected: PASS
 
 **Step 2: Run app build**
 
-Run: `dotnet build NovaTerminal.sln -c Release`
+Run: `dotnet build Ntilde.sln -c Release`
 
 Expected: PASS
 

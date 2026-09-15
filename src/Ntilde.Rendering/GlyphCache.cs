@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using SkiaSharp;
 
-namespace NovaTerminal.Rendering
+namespace Ntilde.Rendering
 {
     /// <summary>
     /// A rasterized glyph in the atlas, and where to put it.

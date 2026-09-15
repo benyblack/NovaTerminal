@@ -1,8 +1,8 @@
 using System.IO;
 using Xunit;
-using NovaTerminal.Platform.Input;
+using Ntilde.Platform.Input;
 
-namespace NovaTerminal.Tests.Input
+namespace Ntilde.Tests.Input
 {
     public class TextFileDetectorTests
     {

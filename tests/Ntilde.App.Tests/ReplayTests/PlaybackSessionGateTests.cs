@@ -1,6 +1,6 @@
-using NovaTerminal.UI.Replay;
+using Ntilde.UI.Replay;
 
-namespace NovaTerminal.Tests.ReplayTests;
+namespace Ntilde.Tests.ReplayTests;
 
 public sealed class PlaybackSessionGateTests
 {

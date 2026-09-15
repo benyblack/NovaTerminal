@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace NovaTerminal.AgentHost
+namespace Ntilde.AgentHost
 {
     /// <summary>
     /// One recorded agent acting attempt (A3). Denied attempts are recorded too:

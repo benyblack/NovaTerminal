@@ -1,15 +1,15 @@
 using System;
 using System.IO;
 using System.Text;
-using NovaTerminal.Replay;
-using NovaTerminal.VT;
+using Ntilde.Replay;
+using Ntilde.VT;
 
-namespace NovaTerminal;
+namespace Ntilde;
 
 /// <summary>
 /// Headless replay for CI and agent-run postmortems (milestone A4,
 /// docs/plans/2026-07-07-agent-host-a4-replay-design.md):
-/// <c>NovaTerminal.Cli --replay &lt;file&gt; [--attributes]</c> runs a replay
+/// <c>Ntilde.Cli --replay &lt;file&gt; [--attributes]</c> runs a replay
 /// file (v2, with v1 compatibility) through the deterministic core in Virtual
 /// mode and prints the final screen as <see cref="BufferSnapshot"/> formatted
 /// text — the same snapshot the golden/parity tests consume.
@@ -163,7 +163,7 @@ internal static class ReplayCommand
 
     private static void PrintUsage(TextWriter stderr)
     {
-        stderr.WriteLine("Usage: NovaTerminal.Cli --replay <file> [--attributes]");
-        stderr.WriteLine("Replays a NovaTerminal .rec file headlessly and prints the final screen.");
+        stderr.WriteLine("Usage: Ntilde.Cli --replay <file> [--attributes]");
+        stderr.WriteLine("Replays a Ntilde .rec file headlessly and prints the final screen.");
     }
 }

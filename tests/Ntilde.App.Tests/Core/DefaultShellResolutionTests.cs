@@ -1,7 +1,7 @@
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Covers the Unix half of <see cref="ShellHelper.GetDefaultShell"/>, which used to answer
@@ -191,13 +191,13 @@ public sealed class DefaultShellResolutionTests
     public void IsLaunchableShell_MissingFile_IsRejected()
     {
         Assert.False(ShellHelper.IsLaunchableShell(
-            Path.Combine(Path.GetTempPath(), "nova missing shell " + Guid.NewGuid().ToString("N"))));
+            Path.Combine(Path.GetTempPath(), "ntilde missing shell " + Guid.NewGuid().ToString("N"))));
     }
 
     [Fact]
     public void IsLaunchableShell_ExecutableFile_IsAccepted()
     {
-        string path = Path.Combine(Path.GetTempPath(), "nova launchable " + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(Path.GetTempPath(), "ntilde launchable " + Guid.NewGuid().ToString("N"));
 
         try
         {
@@ -226,7 +226,7 @@ public sealed class DefaultShellResolutionTests
         }
 
         // A fresh temp file is born 0644 on Unix, which is exactly the shape being rejected.
-        string path = Path.Combine(Path.GetTempPath(), "nova not executable " + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(Path.GetTempPath(), "ntilde not executable " + Guid.NewGuid().ToString("N"));
 
         try
         {
@@ -251,7 +251,7 @@ public sealed class DefaultShellResolutionTests
             Assert.Skip("The probe is only consulted on Unix.");
         }
 
-        string path = Path.Combine(Path.GetTempPath(), "nova probe denied " + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(Path.GetTempPath(), "ntilde probe denied " + Guid.NewGuid().ToString("N"));
 
         try
         {
@@ -271,7 +271,7 @@ public sealed class DefaultShellResolutionTests
     [Fact]
     public void IsLaunchableShell_ProbeUnavailable_FallsBackToTheModeHeuristic()
     {
-        string path = Path.Combine(Path.GetTempPath(), "nova probe blind " + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(Path.GetTempPath(), "ntilde probe blind " + Guid.NewGuid().ToString("N"));
 
         try
         {

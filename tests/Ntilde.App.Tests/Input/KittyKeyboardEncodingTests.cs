@@ -1,9 +1,9 @@
 using Avalonia.Input;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.Input
+namespace Ntilde.Tests.Input
 {
     // Issue #266: kitty keyboard protocol key encoding, disambiguate tier (flag 0b1).
     // Spec: https://sw.kovidgoyal.net/kitty/keyboard-protocol/#disambiguate-escape-codes
@@ -110,7 +110,7 @@ namespace NovaTerminal.Tests.Input
         [InlineData(Key.OemPeriod, KeyModifiers.None)]
         [InlineData(Key.Space, KeyModifiers.None)]
 
-        // Out of scope for this tier in NovaTerminal: keypad and functional keys keep the
+        // Out of scope for this tier in Ntilde: keypad and functional keys keep the
         // legacy CSI/SS3 encodings produced by EncodeSpecialKey.
         [InlineData(Key.Up, KeyModifiers.None)]
         [InlineData(Key.Up, KeyModifiers.Control)]

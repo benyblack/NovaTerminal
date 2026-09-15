@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
-namespace NovaTerminal.VT.Links
+namespace Ntilde.VT.Links
 {
     /// <summary>Detects links in a single line of text by applying an ordered list of LinkRules.</summary>
     public sealed class UrlDetector

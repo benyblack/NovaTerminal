@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.Models;
+namespace Ntilde.CommandAssist.Models;
 
 public enum AssistSuggestionType
 {

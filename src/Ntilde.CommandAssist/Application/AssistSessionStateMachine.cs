@@ -1,7 +1,7 @@
 using System;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// Owns what the assist session is doing. Every change of state is a named transition; there is no

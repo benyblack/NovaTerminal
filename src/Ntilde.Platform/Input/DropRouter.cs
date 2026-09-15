@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using NovaTerminal.Platform.Paths;
+using Ntilde.Platform.Paths;
 
-namespace NovaTerminal.Platform
+namespace Ntilde.Platform
 {
     public class DropRouterResult
     {

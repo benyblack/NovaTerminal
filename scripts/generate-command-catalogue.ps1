@@ -6,7 +6,7 @@
 .DESCRIPTION
     Command Assist V2 Phase 4b (docs/plans/2026-08-01-command-assist-v2-plan.md, Phase 4 task 3).
     Reads the markdown pages of a tldr-pages checkout and emits
-    assets/command-knowledge/command-catalogue.json, which NovaTerminal.CommandAssist embeds and
+    assets/command-knowledge/command-catalogue.json, which Ntilde.CommandAssist embeds and
     CommandKnowledgeService serves as Help docs and Recipe rows.
 
     SELECTION POLICY (deterministic, reviewable, and the reason this is a curated list rather than
@@ -55,7 +55,7 @@
 .NOTES
     LICENSING. tldr-pages content is CC-BY-SA 4.0
     (https://github.com/tldr-pages/tldr/blob/main/LICENSE.md). The attribution and licence URL are
-    written into the asset header by this script, embedded into NovaTerminal.CommandAssist, and
+    written into the asset header by this script, embedded into Ntilde.CommandAssist, and
     surfaced to the user in the Command Assist Help popup footer. Do not strip the header.
 #>
 [CmdletBinding()]
@@ -520,7 +520,7 @@ $catalogue = [ordered]@{
     v = 1
     license = 'CC-BY-SA-4.0'
     licenseUrl = 'https://creativecommons.org/licenses/by-sa/4.0/'
-    attribution = 'Command examples from tldr-pages (https://github.com/tldr-pages/tldr), CC BY-SA 4.0. Entries marked "o": "nova" were authored for NovaTerminal and are not tldr-pages content.'
+    attribution = 'Command examples from tldr-pages (https://github.com/tldr-pages/tldr), CC BY-SA 4.0. Entries marked "o": "nova" were authored for Ntilde and are not tldr-pages content.'
     generatedFrom = "tldr-pages @ $sourceRevision"
     generatedBy = 'scripts/generate-command-catalogue.ps1'
     entries = $ordered

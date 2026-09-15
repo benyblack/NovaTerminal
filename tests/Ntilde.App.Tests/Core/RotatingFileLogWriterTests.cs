@@ -3,9 +3,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// The debug log's sink. Covers what the previous <c>File.AppendAllText</c>-per-call version got
@@ -15,7 +15,7 @@ namespace NovaTerminal.Tests.Core;
 public class RotatingFileLogWriterTests
 {
     private static string TempPath() =>
-        Path.Combine(Path.GetTempPath(), "nova-logwriter-tests", Guid.NewGuid().ToString("N"), "debug.log");
+        Path.Combine(Path.GetTempPath(), "ntilde-logwriter-tests", Guid.NewGuid().ToString("N"), "debug.log");
 
     private static void Cleanup(string path)
     {
@@ -183,7 +183,7 @@ public class RotatingFileLogWriterTests
         // TypeInitializationException on the first log call anywhere in the process. The directory
         // is created for us, so an unusable path is the interesting case: a file where a directory
         // has to go.
-        string blocker = Path.Combine(Path.GetTempPath(), "nova-logwriter-blocker-" + Guid.NewGuid().ToString("N"));
+        string blocker = Path.Combine(Path.GetTempPath(), "ntilde-logwriter-blocker-" + Guid.NewGuid().ToString("N"));
         File.WriteAllText(blocker, "not a directory");
         try
         {

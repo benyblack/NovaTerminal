@@ -1,7 +1,7 @@
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Services.Ssh;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Services.Ssh;
 
-namespace NovaTerminal.Tests.Ssh;
+namespace Ntilde.Tests.Ssh;
 
 public sealed class ActiveSshSessionRegistryTests
 {

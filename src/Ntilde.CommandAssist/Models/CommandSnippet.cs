@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.CommandAssist.Models;
+namespace Ntilde.CommandAssist.Models;
 
 public sealed record CommandSnippet(
     string Id,

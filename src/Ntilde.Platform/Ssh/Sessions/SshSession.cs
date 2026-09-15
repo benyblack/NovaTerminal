@@ -1,9 +1,9 @@
-using NovaTerminal.Platform.Ssh.Launch;
-using NovaTerminal.Platform.Ssh.Storage;
-using NovaTerminal.VT;
-using NovaTerminal.Pty;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Platform.Ssh.Storage;
+using Ntilde.VT;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Platform.Ssh.Sessions;
+namespace Ntilde.Platform.Ssh.Sessions;
 
 public interface ISshProcessLauncher
 {
@@ -86,6 +86,6 @@ public sealed class SshSession : ITerminalSession
     public bool IsFlightRecording => _inner.IsFlightRecording;
     public void EnableFlightRecording(long maxTotalBytes) => _inner.EnableFlightRecording(maxTotalBytes);
     public void DisableFlightRecording() => _inner.DisableFlightRecording();
-    public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info) => _inner.TryExportFlightRecording(filePath, out info);
+    public bool TryExportFlightRecording(string filePath, out Ntilde.Replay.FlightExportInfo info) => _inner.TryExportFlightRecording(filePath, out info);
     public void Dispose() => _inner.Dispose();
 }

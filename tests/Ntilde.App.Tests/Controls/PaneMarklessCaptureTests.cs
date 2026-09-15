@@ -1,14 +1,14 @@
 using System.Reflection;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
-using NovaTerminal.AgentHost;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.Controls;
-using NovaTerminal.Shell;
+using Ntilde.AgentHost;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.Controls;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Controls;
+namespace Ntilde.Tests.Controls;
 
 /// <summary>
 /// Enter-time history capture in sessions the grid cannot serve (V2 Phase 1, task 7): `cmd.exe`,
@@ -705,7 +705,7 @@ public class PaneMarklessCaptureTests
             // with whatever else is running.
             string directory = Path.Combine(
                 Path.GetTempPath(),
-                $"nova_markless_capture_{Environment.ProcessId}_{Guid.NewGuid():N}");
+                $"ntilde_markless_capture_{Environment.ProcessId}_{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
 
             var services = new CommandAssistServices(

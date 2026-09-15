@@ -1,14 +1,14 @@
 using System;
 using System.Linq;
-using NovaTerminal.McpServer.Tools;
-using NovaTerminal.Platform;                 // RemoteShellKind
-using NovaTerminal.Platform.Ssh.Models;      // SshProfile, SshJumpHop, PortForward, SshMuxOptions, enums
-using NovaTerminal.Platform.Ssh.Storage;     // SshProfileStoreSnapshot
+using Ntilde.McpServer.Tools;
+using Ntilde.Platform;                 // RemoteShellKind
+using Ntilde.Platform.Ssh.Models;      // SshProfile, SshJumpHop, PortForward, SshMuxOptions, enums
+using Ntilde.Platform.Ssh.Storage;     // SshProfileStoreSnapshot
 
-namespace NovaTerminal.McpServer.Tests;
+namespace Ntilde.McpServer.Tests;
 
 // Guards against drift between the hand-mirrored field/enum knowledge in
-// ConnectionProfileTools and the real types in NovaTerminal.Platform. If these fail,
+// ConnectionProfileTools and the real types in Ntilde.Platform. If these fail,
 // a profile type changed — update ConnectionProfileTools (fields, enums, schema, rules).
 public class ConnectionProfileDriftGuardTests
 {
@@ -36,7 +36,7 @@ public class ConnectionProfileDriftGuardTests
 
     // SshProfileStoreSnapshot is a public proxy for the actually-serialized (internal)
     // SshStoreDocument; both must stay structurally identical ({ SchemaVersion, Profiles }).
-    // SshStoreDocument is internal to NovaTerminal.Platform and unreachable here, so we guard
+    // SshStoreDocument is internal to Ntilde.Platform and unreachable here, so we guard
     // DocumentFields against the snapshot. If you add a field to SshStoreDocument, mirror it on
     // SshProfileStoreSnapshot (and in ConnectionProfileTools.DocumentFields) or this guard goes stale.
     [Fact]

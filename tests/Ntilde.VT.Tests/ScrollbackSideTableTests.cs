@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // Regression coverage for the resize/reflow scrollback paths dropping row side
 // tables (extended text, hyperlinks, wrap flag). The normal write-path eviction
@@ -92,9 +92,9 @@ public class ScrollbackSideTableTests
     [Fact]
     public void PopThenAppend_DoesNotResurrectStaleMetadata()
     {
-        var pool = new NovaTerminal.VT.Storage.TerminalPagePool();
-        var scrollback = new NovaTerminal.VT.Storage.ScrollbackPages(4, pool);
-        var map = new NovaTerminal.VT.Storage.SmallMap<string>();
+        var pool = new Ntilde.VT.Storage.TerminalPagePool();
+        var scrollback = new Ntilde.VT.Storage.ScrollbackPages(4, pool);
+        var map = new Ntilde.VT.Storage.SmallMap<string>();
         map.Set(0, "\U0001F44D");
         scrollback.AppendRow(new TerminalCell[4], isWrapped: true, extendedText: map);
 

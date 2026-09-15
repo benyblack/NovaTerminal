@@ -3,7 +3,7 @@
     "Hand-authored catalogue entries for commands tldr-pages does not document, merged into",
     "command-catalogue.json by scripts/generate-command-catalogue.ps1. These are NOT tldr-pages",
     "content and are not covered by its CC-BY-SA licence; the generator marks every entry from",
-    "this file with \"o\": \"nova\" in the output so the asset's attribution header stays honest.",
+    "this file with \"o\": \"ntilde\" in the output so the asset's attribution header stays honest.",
     "Keep this list short. An entry belongs here only when the command is one the plan or a user",
     "report names and tldr has no page for it - not as a place to second-guess tldr's wording."
   ],

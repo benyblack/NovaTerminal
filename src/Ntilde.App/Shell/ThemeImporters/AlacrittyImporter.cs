@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Avalonia.Media;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Shell.ThemeImporters
+namespace Ntilde.Shell.ThemeImporters
 {
     public class AlacrittyImporter : IThemeImporter
     {

@@ -1,11 +1,11 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.IO;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Rendering;
 
-namespace NovaTerminal.Tests.Infra
+namespace Ntilde.Tests.Infra
 {
     internal static class MetricsArtifactWriter
     {

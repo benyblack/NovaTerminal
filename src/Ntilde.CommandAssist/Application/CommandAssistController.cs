@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.Providers;
-using NovaTerminal.CommandAssist.Providers.Local;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.CommandAssist.ViewModels;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.Providers;
+using Ntilde.CommandAssist.Providers.Local;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.ViewModels;
 
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// The facade the terminal pane talks to. It owns the assist view-model and the selected-row list,

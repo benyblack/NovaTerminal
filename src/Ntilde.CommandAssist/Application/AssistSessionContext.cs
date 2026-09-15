@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// The environment an assist session runs in: which shell, where, whether the connection is remote,

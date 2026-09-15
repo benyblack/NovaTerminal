@@ -2,23 +2,23 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add `novaterminal.get_settings_schema` + `novaterminal.validate_settings_json` to the MCP Dev Companion, validating the top-level `settings.json` shape (depth A).
+**Goal:** Add `ntilde.get_settings_schema` + `ntilde.validate_settings_json` to the MCP Dev Companion, validating the top-level `settings.json` shape (depth A).
 
-**Architecture:** A new static tool class `SettingsTools` in `src/NovaTerminal.McpServer`, mirroring `ConnectionProfileTools` (`[McpServerToolType]` / `[McpServerTool]`, `System.Text.Json` `JsonDocument` parsing, `VALID`/`INVALID` report). Validates top-level settings fields + structural shape of collections only — no deep per-profile validation. No server `ProjectReference`, no drift-guard test.
+**Architecture:** A new static tool class `SettingsTools` in `src/Ntilde.McpServer`, mirroring `ConnectionProfileTools` (`[McpServerToolType]` / `[McpServerTool]`, `System.Text.Json` `JsonDocument` parsing, `VALID`/`INVALID` report). Validates top-level settings fields + structural shape of collections only — no deep per-profile validation. No server `ProjectReference`, no drift-guard test.
 
 **Tech Stack:** C# / .NET 10, `ModelContextProtocol` SDK, `System.Text.Json`, xUnit v3.
 
 ## Global Constraints
 
 - Build/test ONLY via wrappers: `scripts/build.ps1 <args>` / `scripts/build.sh <args>`. Never raw `dotnet` (hangs when stdout is captured).
-- No `ProjectReference` added to `src/NovaTerminal.McpServer` (security isolation). Field knowledge is hand-mirrored.
+- No `ProjectReference` added to `src/Ntilde.McpServer` (security isolation). Field knowledge is hand-mirrored.
 - Wire format = **PascalCase keys + integer enums** (the embedded profile enums; settings scalars are bool/double/int/string). Not camelCase, not string enums.
 - Report format mirrors `ThemeTools`/`ConnectionProfileTools`: output starts with `VALID` or `INVALID`; optional `Errors:` and/or `Warnings:` blocks, lines `  - <msg>`; trailing whitespace trimmed. Validity = zero errors (warnings never fail). `"INVALID".StartsWith("VALID")` is false → keep `Assert.StartsWith` in tests.
 - **No required fields:** `{}` is VALID.
-- Tool names exactly `novaterminal.get_settings_schema`, `novaterminal.validate_settings_json`.
-- **No reflection drift-guard** for settings (would need a heavy `NovaTerminal.App` reference). The known-field list is hand-maintained with a comment pointing to `src/NovaTerminal.App/Shell/TerminalSettings.cs`.
+- Tool names exactly `ntilde.get_settings_schema`, `ntilde.validate_settings_json`.
+- **No reflection drift-guard** for settings (would need a heavy `Ntilde.App` reference). The known-field list is hand-maintained with a comment pointing to `src/Ntilde.App/Shell/TerminalSettings.cs`.
 
-**Reference — the 32 serialized top-level fields** (source of truth: `src/NovaTerminal.App/Shell/TerminalSettings.cs`; `ThemeManager` and `ActiveTheme` are `[JsonIgnore]` and excluded):
+**Reference — the 32 serialized top-level fields** (source of truth: `src/Ntilde.App/Shell/TerminalSettings.cs`; `ThemeManager` and `ActiveTheme` are `[JsonIgnore]` and excluded):
 - **bool (14):** `EnableLigatures`, `EnableComplexShaping`, `CursorBlink`, `BellAudioEnabled`, `BellVisualEnabled`, `SmoothScrolling`, `EnableLinkDetection`, `QuakeModeEnabled`, `CommandAssistEnabled`, `CommandAssistHistoryEnabled`, `CommandAssistAutoHideInAltScreen`, `CommandAssistShellIntegrationEnabled`, `CommandAssistPowerShellIntegrationEnabled`, `ExperimentalNativeSshEnabled`
 - **number/double (4):** `FontSize` (>0), `WindowOpacity` (0–1), `BackgroundImageOpacity` (0–1), `WheelLinesPerNotch` (warn ≤0)
 - **integer (2):** `MaxHistory` (≥0), `CommandAssistMaxHistoryEntries` (≥0)
@@ -32,20 +32,20 @@
 ### Task 1: Schema tool (`get_settings_schema`)
 
 **Files:**
-- Create: `src/NovaTerminal.McpServer/Tools/SettingsTools.cs`
-- Test: `tests/NovaTerminal.McpServer.Tests/SettingsToolsTests.cs`
+- Create: `src/Ntilde.McpServer/Tools/SettingsTools.cs`
+- Test: `tests/Ntilde.McpServer.Tests/SettingsToolsTests.cs`
 
 **Interfaces:**
 - Produces: `public static string SettingsTools.GetSettingsSchema()` on a `[McpServerToolType] public static class SettingsTools`. (Task 2 adds `ValidateSettingsJson` + helpers to the same class.)
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.McpServer.Tests/SettingsToolsTests.cs`:
+Create `tests/Ntilde.McpServer.Tests/SettingsToolsTests.cs`:
 
 ```csharp
-using NovaTerminal.McpServer.Tools;
+using Ntilde.McpServer.Tools;
 
-namespace NovaTerminal.McpServer.Tests;
+namespace Ntilde.McpServer.Tests;
 
 public class SettingsToolsTests
 {
@@ -71,35 +71,35 @@ public class SettingsToolsTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~SettingsToolsTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~SettingsToolsTests"`
 Expected: FAIL — build error, `SettingsTools` does not exist.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `src/NovaTerminal.McpServer/Tools/SettingsTools.cs`:
+Create `src/Ntilde.McpServer/Tools/SettingsTools.cs`:
 
 ```csharp
 using System.ComponentModel;
 using ModelContextProtocol.Server;
 
-namespace NovaTerminal.McpServer.Tools;
+namespace Ntilde.McpServer.Tools;
 
-// Source of truth for the field list: src/NovaTerminal.App/Shell/TerminalSettings.cs
+// Source of truth for the field list: src/Ntilde.App/Shell/TerminalSettings.cs
 // (PascalCase keys, integer enums; ThemeManager and ActiveTheme are [JsonIgnore]).
-// This server has NO ProjectReference to NovaTerminal.App by design, so the field knowledge
+// This server has NO ProjectReference to Ntilde.App by design, so the field knowledge
 // is hand-mirrored. There is intentionally no reflection drift-guard (an App reference would
 // pull in Avalonia); keep this list in sync with TerminalSettings by hand.
 [McpServerToolType]
 public static class SettingsTools
 {
-    [McpServerTool(Name = "novaterminal.get_settings_schema"),
-     Description("Returns the schema for NovaTerminal's settings.json: top-level fields grouped by area (PascalCase keys, integer enums for embedded profiles), types, defaults, and an annotated example. Validates the top-level shape only (embedded profiles are not deep-validated). Use before authoring or editing settings.json.")]
+    [McpServerTool(Name = "ntilde.get_settings_schema"),
+     Description("Returns the schema for Ntilde's settings.json: top-level fields grouped by area (PascalCase keys, integer enums for embedded profiles), types, defaults, and an annotated example. Validates the top-level shape only (embedded profiles are not deep-validated). Use before authoring or editing settings.json.")]
     public static string GetSettingsSchema() =>
         """
-        # NovaTerminal settings.json schema
+        # Ntilde settings.json schema
 
-        Settings are stored at `%LOCALAPPDATA%\NovaTerminal\settings.json` (override dir via
-        `NOVATERM_APPDATA_ROOT`). The on-disk format uses **PascalCase** field names and
+        Settings are stored at `%LOCALAPPDATA%\Ntilde\settings.json` (override dir via
+        `NTILDE_APPDATA_ROOT`). The on-disk format uses **PascalCase** field names and
         **integer-valued enums** (for embedded profiles). Every field has a default, so an empty
         object `{}` is valid. This tool/validator covers the top-level fields and the structural
         shape of collections; it does not deep-validate embedded profile entries.
@@ -204,13 +204,13 @@ public static class SettingsTools
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~SettingsToolsTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~SettingsToolsTests"`
 Expected: PASS (1 test).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.McpServer/Tools/SettingsTools.cs tests/NovaTerminal.McpServer.Tests/SettingsToolsTests.cs
+git add src/Ntilde.McpServer/Tools/SettingsTools.cs tests/Ntilde.McpServer.Tests/SettingsToolsTests.cs
 git commit -m "feat(mcp): add get_settings_schema tool"
 ```
 
@@ -219,8 +219,8 @@ git commit -m "feat(mcp): add get_settings_schema tool"
 ### Task 2: Validator tool (`validate_settings_json`)
 
 **Files:**
-- Modify: `src/NovaTerminal.McpServer/Tools/SettingsTools.cs`
-- Test: `tests/NovaTerminal.McpServer.Tests/SettingsToolsTests.cs`
+- Modify: `src/Ntilde.McpServer/Tools/SettingsTools.cs`
+- Test: `tests/Ntilde.McpServer.Tests/SettingsToolsTests.cs`
 
 **Interfaces:**
 - Consumes: `GetSettingsSchema()` (self-consistency test).
@@ -406,7 +406,7 @@ Append inside the `SettingsToolsTests` class:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~SettingsToolsTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~SettingsToolsTests"`
 Expected: FAIL — build error, `ValidateSettingsJson` does not exist.
 
 - [ ] **Step 3: Write the implementation**
@@ -456,8 +456,8 @@ Add the following members inside the `SettingsTools` class (after `GetSettingsSc
         "ExperimentalNativeSshEnabled", "Profiles", "DefaultProfileId",
     };
 
-    [McpServerTool(Name = "novaterminal.validate_settings_json"),
-     Description("Validates a NovaTerminal settings.json string (the top-level shape). Reports wrong field types, out-of-range numerics, a malformed DefaultProfileId GUID, malformed collection shapes, and warns on unknown fields and any stray Password. Embedded profiles are not deep-validated. An empty object {} is valid (every setting has a default).")]
+    [McpServerTool(Name = "ntilde.validate_settings_json"),
+     Description("Validates a Ntilde settings.json string (the top-level shape). Reports wrong field types, out-of-range numerics, a malformed DefaultProfileId GUID, malformed collection shapes, and warns on unknown fields and any stray Password. Embedded profiles are not deep-validated. An empty object {} is valid (every setting has a default).")]
     public static string ValidateSettingsJson(
         [Description("The settings.json document to validate.")] string settingsJson)
     {
@@ -668,18 +668,18 @@ Note on `MaxHistory: 1.5` → `TryGetInt32` returns false for a non-integral JSO
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~SettingsToolsTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~SettingsToolsTests"`
 Expected: PASS (all `SettingsToolsTests`).
 
 - [ ] **Step 5: Run the whole test project**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests`
+Run: `scripts/build.ps1 test tests/Ntilde.McpServer.Tests`
 Expected: PASS — existing tests plus the new ones.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.McpServer/Tools/SettingsTools.cs tests/NovaTerminal.McpServer.Tests/SettingsToolsTests.cs
+git add src/Ntilde.McpServer/Tools/SettingsTools.cs tests/Ntilde.McpServer.Tests/SettingsToolsTests.cs
 git commit -m "feat(mcp): add validate_settings_json tool"
 ```
 
@@ -695,13 +695,13 @@ git commit -m "feat(mcp): add validate_settings_json tool"
 
 - [ ] **Step 1: Add the two tools to the tools table and bump the version**
 
-In `docs/mcp/tools.md`, change the title line `# NovaTerminal MCP Dev Companion — tools (v0.3)` to `(v0.4)`.
+In `docs/mcp/tools.md`, change the title line `# Ntilde MCP Dev Companion — tools (v0.3)` to `(v0.4)`.
 
-Then add these two rows to the tools table, immediately after the `novaterminal.validate_connection_profile_json` row:
+Then add these two rows to the tools table, immediately after the `ntilde.validate_connection_profile_json` row:
 
 ```markdown
-| `novaterminal.get_settings_schema` | — | The settings.json schema: top-level fields by area (PascalCase, integer enums for embedded profiles), types, defaults, and an example. Top-level shape only. |
-| `novaterminal.validate_settings_json` | `settingsJson` | Validates a settings.json string (top-level shape); reports wrong types, out-of-range numerics, malformed `DefaultProfileId`, bad collection shapes, and warns on unknown fields and any stray `Password`. Embedded profiles are not deep-validated. |
+| `ntilde.get_settings_schema` | — | The settings.json schema: top-level fields by area (PascalCase, integer enums for embedded profiles), types, defaults, and an example. Top-level shape only. |
+| `ntilde.validate_settings_json` | `settingsJson` | Validates a settings.json string (top-level shape); reports wrong types, out-of-range numerics, malformed `DefaultProfileId`, bad collection shapes, and warns on unknown fields and any stray `Password`. Embedded profiles are not deep-validated. |
 ```
 
 - [ ] **Step 2: Note the depth in the Notes section**
@@ -718,8 +718,8 @@ In `docs/mcp/tools.md`, append this bullet to the `## Notes` section:
 In `docs/mcp-dev-companion.md`, in the tools paragraph that points at `mcp/tools.md`, add the two new tool names alongside the connection-profile ones:
 
 ```markdown
-`novaterminal.get_connection_profile_schema`, `novaterminal.validate_connection_profile_json`,
-`novaterminal.get_settings_schema`, `novaterminal.validate_settings_json`.
+`ntilde.get_connection_profile_schema`, `ntilde.validate_connection_profile_json`,
+`ntilde.get_settings_schema`, `ntilde.validate_settings_json`.
 ```
 
 (If the existing text lists only the connection-profile tools, append the two settings tools to that same sentence.)
@@ -738,5 +738,5 @@ git commit -m "docs(mcp): document settings schema & validation tools"
 - **Raw string literal:** `GetSettingsSchema` uses a `"""` raw string; preserve the closing `"""` indentation exactly, matching `ThemeTools.GetThemeSchema` / `ConnectionProfileTools.GetConnectionProfileSchema`.
 - **`VALID` vs `INVALID`:** `"INVALID".StartsWith("VALID")` is false, so `Assert.StartsWith("VALID", ...)` distinguishes them — do not change to `Contains`.
 - **Implicit usings:** the McpServer project has `ImplicitUsings` enabled, so some `using`s may be redundant; redundant file-level usings that duplicate a global using are harmless. If the build reports an *unnecessary using* error (warnings-as-errors), drop the redundant ones to keep output pristine.
-- **No CI change:** `NovaTerminal.McpServer.Tests` is already in CI's unit-test loop; no new project, no `ci.yml` change.
+- **No CI change:** `Ntilde.McpServer.Tests` is already in CI's unit-test loop; no new project, no `ci.yml` change.
 - **Reviewer awareness:** Greptile auto-reviews on PR open and every push; Gemini auto-reviews on open; Codex reviews on `@codex review`.

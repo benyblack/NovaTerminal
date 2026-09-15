@@ -1,8 +1,8 @@
 using System;
 using System.Text;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // Edge-case coverage for #123. Reflow/resize basics are tested elsewhere; these target the
 // historically bug-prone cases that had no tests: wide chars at the wrap boundary, resize with

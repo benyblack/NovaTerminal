@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.ShellIntegration.Zsh;
+using Ntilde.CommandAssist.ShellIntegration.Zsh;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 public sealed class ZshBootstrapBuilderTests : IDisposable
 {
@@ -8,7 +8,7 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
 
     public ZshBootstrapBuilderTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), $"nova_command_assist_zsh_bootstrap_{Guid.NewGuid():N}");
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_command_assist_zsh_bootstrap_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempRoot);
     }
 
@@ -46,7 +46,7 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
         Assert.Equal(
             1,
             script.Split("PROMPT=", StringSplitOptions.None).Length - 1);
-        Assert.Contains("PROMPT=\"${PROMPT%$__nova_prompt_mark}$__nova_prompt_mark\"", script);
+        Assert.Contains("PROMPT=\"${PROMPT%$__ntilde_prompt_mark}$__ntilde_prompt_mark\"", script);
     }
 
     [Fact]
@@ -57,13 +57,13 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
         // A is printed from precmd, i.e. before PROMPT is expanded; B has to
         // land after the last prompt cell, so it rides at the tail of PROMPT
         // wrapped in %{...%} (zero display width).
-        Assert.Contains("__nova_prompt_mark=$'%{\\e]133;B\\a%}'", script);
-        Assert.Contains("PROMPT=\"${PROMPT%$__nova_prompt_mark}$__nova_prompt_mark\"", script);
+        Assert.Contains("__ntilde_prompt_mark=$'%{\\e]133;B\\a%}'", script);
+        Assert.Contains("PROMPT=\"${PROMPT%$__ntilde_prompt_mark}$__ntilde_prompt_mark\"", script);
 
         // ...and it is (re)applied from precmd so prompt frameworks that
         // reassign PROMPT every cycle cannot drop it.
-        int precmdIndex = script.IndexOf("__nova_precmd() {", StringComparison.Ordinal);
-        int applyIndex = script.IndexOf("    __nova_apply_prompt_mark", precmdIndex, StringComparison.Ordinal);
+        int precmdIndex = script.IndexOf("__ntilde_precmd() {", StringComparison.Ordinal);
+        int applyIndex = script.IndexOf("    __ntilde_apply_prompt_mark", precmdIndex, StringComparison.Ordinal);
         Assert.True(applyIndex > precmdIndex, "precmd must re-apply the prompt mark");
     }
 
@@ -80,8 +80,8 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
         // report the input cell several columns early. ${PROMPT%pattern} trims
         // only a *trailing* match and is a no-op when absent, so the mark is
         // re-seated at the true tail every cycle.
-        Assert.Contains("PROMPT=\"${PROMPT%$__nova_prompt_mark}$__nova_prompt_mark\"", script);
-        Assert.DoesNotContain("if [[ \"$PROMPT\" != *\"$__nova_prompt_mark\"* ]]; then", script);
+        Assert.Contains("PROMPT=\"${PROMPT%$__ntilde_prompt_mark}$__ntilde_prompt_mark\"", script);
+        Assert.DoesNotContain("if [[ \"$PROMPT\" != *\"$__ntilde_prompt_mark\"* ]]; then", script);
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
     {
         // Builder-level stand-in for the real-shell accumulation test bash has
         // (zsh is not installed on Windows CI). Models what
-        // __nova_apply_prompt_mark does to PROMPT over repeated precmd cycles,
+        // __ntilde_apply_prompt_mark does to PROMPT over repeated precmd cycles,
         // including the "a later hook appended something" case that the old
         // containment guard could not repair.
         const string mark = "%{]133;B%}";
@@ -166,13 +166,13 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
     {
         string script = ZshBootstrapBuilder.BuildScript();
 
-        Assert.Contains("precmd_functions=(__nova_status_snapshot \"${precmd_functions[@]}\")", script);
-        Assert.Contains("__nova_last_status=$?", script);
-        Assert.Contains("local exit=$__nova_last_status", script);
+        Assert.Contains("precmd_functions=(__ntilde_status_snapshot \"${precmd_functions[@]}\")", script);
+        Assert.Contains("__ntilde_last_status=$?", script);
+        Assert.Contains("local exit=$__ntilde_last_status", script);
 
         // ...and the mark-applying hook is still the appended one.
-        int prependIndex = script.IndexOf("precmd_functions=(__nova_status_snapshot", StringComparison.Ordinal);
-        int appendIndex = script.IndexOf("precmd_functions+=(__nova_precmd)", StringComparison.Ordinal);
+        int prependIndex = script.IndexOf("precmd_functions=(__ntilde_status_snapshot", StringComparison.Ordinal);
+        int appendIndex = script.IndexOf("precmd_functions+=(__ntilde_precmd)", StringComparison.Ordinal);
         Assert.True(prependIndex > 0 && appendIndex > prependIndex);
     }
 

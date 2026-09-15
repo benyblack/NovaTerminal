@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.Shell.Shortcuts;
+namespace Ntilde.Shell.Shortcuts;
 
 public sealed record ShortcutDefinition
 {

@@ -1,7 +1,7 @@
 using System;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>Rules for the long-command completion toast (A2 PR4).</summary>
 public class LongCommandNotificationPolicyTests

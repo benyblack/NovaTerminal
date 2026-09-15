@@ -1,13 +1,13 @@
 using System.Net;
 using System.Net.Sockets;
-using NovaTerminal.Platform.Ssh.Interactions;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Sessions;
-using NovaTerminal.Platform.Tests.Infra;
-using NovaTerminal.VT;
-using static NovaTerminal.Platform.Tests.Ssh.NativeSshDockerTestWaits;
+using Ntilde.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Sessions;
+using Ntilde.Platform.Tests.Infra;
+using Ntilde.VT;
+using static Ntilde.Platform.Tests.Ssh.NativeSshDockerTestWaits;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 /// <summary>
 /// The auth, host-key and forwarding rows that docs/native-ssh/Native_SSH_Test_Matrix.md listed as
@@ -26,7 +26,7 @@ public sealed class NativeSshDockerAuthE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = CreateTempRoot("nova-native-key-plain");
+        string tempRoot = CreateTempRoot("ntilde-native-key-plain");
         try
         {
             string keyPath = await fixture.CopyPrivateKeyAsync(
@@ -65,7 +65,7 @@ public sealed class NativeSshDockerAuthE2eTests
     {
         await using var fixture = await DockerSshFixture.StartAsync();
 
-        string tempRoot = CreateTempRoot("nova-native-key-encrypted");
+        string tempRoot = CreateTempRoot("ntilde-native-key-encrypted");
         try
         {
             string keyPath = await fixture.CopyPrivateKeyAsync(

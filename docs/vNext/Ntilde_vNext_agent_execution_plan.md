@@ -1,8 +1,8 @@
 
-# NovaTerminal — AI Agent Execution Plan
+# Ntilde — AI Agent Execution Plan
 
 This document describes how multiple AI coding agents can implement
-NovaTerminal roadmap features in parallel.
+Ntilde roadmap features in parallel.
 
 ---
 

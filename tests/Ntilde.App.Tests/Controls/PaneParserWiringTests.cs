@@ -2,12 +2,12 @@ using System;
 using System.IO;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
-using NovaTerminal.Controls;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Controls;
+using Ntilde.Shell;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.Controls;
+namespace Ntilde.Tests.Controls;
 
 /// <summary>
 /// Pins the invariant that makes #102's headline finding a non-issue.
@@ -76,11 +76,11 @@ public class PaneParserWiringTests
         pane.CreateAndWireParser();
 
         Assert.NotNull(pane.Parser);
-        Assert.IsType<NovaTerminal.Rendering.SkiaImageDecoder>(pane.Parser!.ImageDecoder);
+        Assert.IsType<Ntilde.Rendering.SkiaImageDecoder>(pane.Parser!.ImageDecoder);
 
         // And after a reconnect, which replaces the parser wholesale.
         pane.CreateAndWireParser();
-        Assert.IsType<NovaTerminal.Rendering.SkiaImageDecoder>(pane.Parser!.ImageDecoder);
+        Assert.IsType<Ntilde.Rendering.SkiaImageDecoder>(pane.Parser!.ImageDecoder);
     }
 
     [AvaloniaFact]
@@ -133,11 +133,11 @@ public class PaneParserWiringTests
     public void CreateAndWireParser_UsesProfileThemeOverride_NotGlobalTheme()
     {
         string tempRoot = CreateTempAppRoot();
-        string? previousRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        string? previousRoot = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
 
         try
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", tempRoot);
 
             var globalTheme = new TerminalTheme
             {
@@ -181,7 +181,7 @@ public class PaneParserWiringTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previousRoot);
             Directory.Delete(tempRoot, recursive: true);
         }
     }
@@ -206,7 +206,7 @@ public class PaneParserWiringTests
         AnsiParser parser = pane.Parser!;
 
         Assert.True(
-            NovaTerminal.AgentHost.AgentSessionRegistry.Instance.TryGet(pane.PaneId, out var registration),
+            Ntilde.AgentHost.AgentSessionRegistry.Instance.TryGet(pane.PaneId, out var registration),
             "the pane registers itself with the agent-session registry in SetupCommon");
 
         int commandStartedCount = 0;
@@ -225,10 +225,10 @@ public class PaneParserWiringTests
         Dispatcher.UIThread.RunJobs();
 
         var afterPromptEnd = registration.StatusMachine.Snapshot();
-        Assert.Equal(NovaTerminal.AgentHost.AgentSessionStatusKind.AwaitingInput, afterPromptEnd.Kind);
+        Assert.Equal(Ntilde.AgentHost.AgentSessionStatusKind.AwaitingInput, afterPromptEnd.Kind);
         // Precise, not merely "heuristic and nothing running": A already put the machine on
         // the precise tier, so AwaitingInput here is a real statement about the shell.
-        Assert.Equal(NovaTerminal.AgentHost.AgentSessionStatusConfidence.Precise, afterPromptEnd.Confidence);
+        Assert.Equal(Ntilde.AgentHost.AgentSessionStatusConfidence.Precise, afterPromptEnd.Confidence);
         Assert.Null(afterPromptEnd.CurrentCommand);
         Assert.Equal(3, pane.LastExitCode);
         Assert.Equal(0, commandStartedCount);
@@ -239,7 +239,7 @@ public class PaneParserWiringTests
         Dispatcher.UIThread.RunJobs();
 
         var afterAccepted = registration.StatusMachine.Snapshot();
-        Assert.Equal(NovaTerminal.AgentHost.AgentSessionStatusKind.Running, afterAccepted.Kind);
+        Assert.Equal(Ntilde.AgentHost.AgentSessionStatusKind.Running, afterAccepted.Kind);
         Assert.Equal("sleep 5", afterAccepted.CurrentCommand);
         Assert.Null(pane.LastExitCode);
         Assert.Equal(1, commandStartedCount);
@@ -256,14 +256,14 @@ public class PaneParserWiringTests
         using var pane = new TerminalPane();
         pane.CreateAndWireParser();
         Assert.True(
-            NovaTerminal.AgentHost.AgentSessionRegistry.Instance.TryGet(pane.PaneId, out var registration));
+            Ntilde.AgentHost.AgentSessionRegistry.Instance.TryGet(pane.PaneId, out var registration));
 
         AnsiParser parser = pane.Parser!;
         string encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("sleep 5"));
         parser.Process("\x1b]133;A\x07$ \x1b]133;B\x07");
         parser.Process($"\x1b]133;C;{encoded}\x07");
         Assert.Equal(
-            NovaTerminal.AgentHost.AgentSessionStatusKind.Running,
+            Ntilde.AgentHost.AgentSessionStatusKind.Running,
             registration.StatusMachine.Snapshot().Kind);
 
         parser.Process("\x1b]133;B\x07");
@@ -271,13 +271,13 @@ public class PaneParserWiringTests
         Dispatcher.UIThread.RunJobs();
 
         var snapshot = registration.StatusMachine.Snapshot();
-        Assert.Equal(NovaTerminal.AgentHost.AgentSessionStatusKind.Running, snapshot.Kind);
+        Assert.Equal(Ntilde.AgentHost.AgentSessionStatusKind.Running, snapshot.Kind);
         Assert.Equal("sleep 5", snapshot.CurrentCommand);
     }
 
     private static string CreateTempAppRoot()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"nova_pane_wiring_test_{Guid.NewGuid():N}");
+        string path = Path.Combine(Path.GetTempPath(), $"ntilde_pane_wiring_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
     }

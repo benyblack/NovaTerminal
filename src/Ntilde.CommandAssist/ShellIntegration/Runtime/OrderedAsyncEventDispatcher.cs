@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.CommandAssist.ShellIntegration.Runtime;
+namespace Ntilde.CommandAssist.ShellIntegration.Runtime;
 
 public sealed class OrderedAsyncEventDispatcher
 {

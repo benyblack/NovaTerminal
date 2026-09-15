@@ -35,11 +35,11 @@ defaults.
 
 ## What already exists (reused, not rebuilt)
 
-- **OSC 8 explicit links**: parsed in `AnsiParser.HandleOsc` (`src/NovaTerminal.VT/AnsiParser.cs`),
+- **OSC 8 explicit links**: parsed in `AnsiParser.HandleOsc` (`src/Ntilde.VT/AnsiParser.cs`),
   stored per-row in a side table (`TerminalRow` / `TerminalPage` `SetHyperlink`/`GetHyperlink`,
   `SmallMap<string>`), preserved across reflow, looked up via
   `TerminalBuffer.GetHyperlinkAbsolute(col, absRow)`. Opened on Ctrl+Click in
-  `TerminalView.OnPointerPressed` (`src/NovaTerminal.App/Shell/TerminalView.cs:1662`).
+  `TerminalView.OnPointerPressed` (`src/Ntilde.App/Shell/TerminalView.cs:1662`).
 - **Rendering** flows through a custom `TerminalDrawOperation` (`TerminalView.Render`,
   ~line 1533) that already receives transient overlay state such as `_selection`. The hover
   underline rides the same channel — no buffer mutation.
@@ -48,7 +48,7 @@ defaults.
 
 ### 1. `UrlDetector` — the rule-list engine (extensibility seam)
 
-Pure, UI-free class in `NovaTerminal.VT`.
+Pure, UI-free class in `Ntilde.VT`.
 
 - Holds an ordered `IReadOnlyList<LinkRule>`, where `LinkRule = { string Name, Regex Pattern,
   Func<Match,string> Resolve }`. `Resolve` maps a match to a final URI (the email rule resolves
@@ -124,8 +124,8 @@ current behavior):
 
 ## Files likely touched
 
-- `src/NovaTerminal.VT/UrlDetector.cs` (new), `LinkRule` / `LinkSpan` types.
-- `src/NovaTerminal.App/Shell/TerminalView.cs` — hover state, hit-testing, `TryOpenLink`,
+- `src/Ntilde.VT/UrlDetector.cs` (new), `LinkRule` / `LinkSpan` types.
+- `src/Ntilde.App/Shell/TerminalView.cs` — hover state, hit-testing, `TryOpenLink`,
   pass-through to draw op.
 - `TerminalDrawOperation` (in `TerminalView.cs` / rendering) — draw hover underline.
 - Settings surface — auto-detection toggle.

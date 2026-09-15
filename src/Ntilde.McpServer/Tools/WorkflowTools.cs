@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using ModelContextProtocol.Server;
 
-namespace NovaTerminal.McpServer.Tools;
+namespace Ntilde.McpServer.Tools;
 
 [McpServerToolType]
 public static class WorkflowTools
@@ -13,25 +13,25 @@ public static class WorkflowTools
     private static readonly (string[] Keywords, string Area)[] AreaHints =
     {
         (new[] { "ssh", "key", "auth", "connection", "jump host", "known_hosts" },
-            "SSH: NovaTerminal.Platform/Ssh (native + external OpenSSH) and NovaTerminal.App SSH UI/profiles."),
+            "SSH: Ntilde.Platform/Ssh (native + external OpenSSH) and Ntilde.App SSH UI/profiles."),
         (new[] { "theme", "color", "palette" },
-            "Theming: NovaTerminal.App ThemeManager + docs/ThemeSystem.md; colors via TerminalTheme (NovaTerminal.VT). Validate with novaterminal.validate_theme_json."),
+            "Theming: Ntilde.App ThemeManager + docs/ThemeSystem.md; colors via TerminalTheme (Ntilde.VT). Validate with ntilde.validate_theme_json."),
         (new[] { "parser", "escape", "ansi", "csi", "osc", "dcs", "vt", "sequence" },
-            "VT/ANSI: NovaTerminal.VT/AnsiParser.cs. Check novaterminal.get_vt_conformance_summary first."),
+            "VT/ANSI: Ntilde.VT/AnsiParser.cs. Check ntilde.get_vt_conformance_summary first."),
         (new[] { "reflow", "resize", "scrollback", "wrap" },
-            "Reflow/buffers: NovaTerminal.VT TerminalBuffer.*; lossless reflow is a headline invariant."),
+            "Reflow/buffers: Ntilde.VT TerminalBuffer.*; lossless reflow is a headline invariant."),
         (new[] { "render", "glyph", "atlas", "draw", "paint", "frame" },
-            "Rendering: NovaTerminal.Rendering (GlyphCache/Atlas) + NovaTerminal.App TerminalView/TerminalDrawOperation."),
+            "Rendering: Ntilde.Rendering (GlyphCache/Atlas) + Ntilde.App TerminalView/TerminalDrawOperation."),
         (new[] { "pty", "shell", "process", "spawn" },
-            "PTY: NovaTerminal.Pty (Rust native backend via P/Invoke)."),
+            "PTY: Ntilde.Pty (Rust native backend via P/Invoke)."),
         (new[] { "sftp", "transfer", "upload", "download" },
-            "SFTP: NovaTerminal.App SftpService (native transfer is in the Rust layer)."),
+            "SFTP: Ntilde.App SftpService (native transfer is in the Rust layer)."),
         (new[] { "tab", "pane", "window", "layout" },
-            "UI shell: NovaTerminal.App MainWindow / TerminalPane."),
+            "UI shell: Ntilde.App MainWindow / TerminalPane."),
     };
 
-    [McpServerTool(Name = "novaterminal.generate_codex_prompt_for_issue"),
-     Description("Generates a structured implementation prompt for a NovaTerminal issue/task. Given a title and description, returns relevant code areas, architectural constraints, suggested PR size, implementation steps, tests to update, acceptance criteria, and risks — tailored to NovaTerminal's conventions.")]
+    [McpServerTool(Name = "ntilde.generate_codex_prompt_for_issue"),
+     Description("Generates a structured implementation prompt for a Ntilde issue/task. Given a title and description, returns relevant code areas, architectural constraints, suggested PR size, implementation steps, tests to update, acceptance criteria, and risks — tailored to Ntilde's conventions.")]
     public static string GenerateCodexPromptForIssue(
         [Description("Short title of the issue/task, e.g. 'Improve SSH key authentication UX'.")] string title,
         [Description("Optional fuller description / acceptance notes for the task.")] string description = "")
@@ -46,7 +46,7 @@ public static class WorkflowTools
             .ToList();
         if (areas.Count == 0)
         {
-            areas.Add("Could not auto-map to a subsystem — call novaterminal.get_architecture_map and novaterminal.get_project_summary to locate the relevant module.");
+            areas.Add("Could not auto-map to a subsystem — call ntilde.get_architecture_map and ntilde.get_project_summary to locate the relevant module.");
         }
 
         var sb = new StringBuilder();
@@ -65,7 +65,7 @@ public static class WorkflowTools
 
             ## Architectural constraints
             - Build/test only via `scripts/build.{ps1,sh}` (never raw `dotnet`) — see CLAUDE.md.
-            - Respect module boundaries (novaterminal.get_architecture_map): NovaTerminal.VT is a
+            - Respect module boundaries (ntilde.get_architecture_map): Ntilde.VT is a
               leaf (BCL only); Pty/Replay/Rendering must not reference UI/App.
             - All `TerminalBuffer` reads require holding `TerminalBuffer.Lock`.
             - Lossless reflow must be preserved; alternate-screen isolation must be preserved.
@@ -78,7 +78,7 @@ public static class WorkflowTools
             ## Implementation steps
             1. Reproduce / characterize current behavior (add a failing test where applicable).
             2. Make the minimal change in the owning assembly.
-            3. Add/extend unit tests (prefer NovaTerminal.VT.Tests for VT logic; project-specific
+            3. Add/extend unit tests (prefer Ntilde.VT.Tests for VT logic; project-specific
                test projects otherwise).
             4. Run the targeted test project, then a broader build, via the wrapper scripts.
 
@@ -103,46 +103,46 @@ public static class WorkflowTools
     private static readonly (string[] Keywords, string[] Files)[] FileHints =
     {
         (new[] { "reflow", "resize", "wrap" }, new[] {
-            "src/NovaTerminal.VT/TerminalBuffer.ReflowEngine.cs",
-            "src/NovaTerminal.VT/TerminalBuffer.ResizeAndReflow.cs",
-            "tests/NovaTerminal.App.Tests/ReflowScenariosTests.cs",
-            "tests/NovaTerminal.VT.Tests/ReflowEdgeCaseTests.cs" }),
+            "src/Ntilde.VT/TerminalBuffer.ReflowEngine.cs",
+            "src/Ntilde.VT/TerminalBuffer.ResizeAndReflow.cs",
+            "tests/Ntilde.App.Tests/ReflowScenariosTests.cs",
+            "tests/Ntilde.VT.Tests/ReflowEdgeCaseTests.cs" }),
         (new[] { "scrollback" }, new[] {
-            "src/NovaTerminal.VT/Buffer/ScrollbackPages.cs",
-            "src/NovaTerminal.VT/TerminalBuffer.ReflowEngine.cs" }),
+            "src/Ntilde.VT/Buffer/ScrollbackPages.cs",
+            "src/Ntilde.VT/TerminalBuffer.ReflowEngine.cs" }),
         (new[] { "parser", "escape", "ansi", "csi", "osc", "dcs", "apc", "sequence" }, new[] {
-            "src/NovaTerminal.VT/AnsiParser.cs",
-            "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
-            "tests/NovaTerminal.VT.Tests/CsiParamClampTests.cs" }),
+            "src/Ntilde.VT/AnsiParser.cs",
+            "tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs",
+            "tests/Ntilde.VT.Tests/CsiParamClampTests.cs" }),
         (new[] { "theme", "color", "palette" }, new[] {
-            "src/NovaTerminal.VT/TerminalTheme.cs",
-            "src/NovaTerminal.App/Shell/ThemeManager.cs",
+            "src/Ntilde.VT/TerminalTheme.cs",
+            "src/Ntilde.App/Shell/ThemeManager.cs",
             "docs/ThemeSystem.md" }),
         (new[] { "glyph", "atlas", "render", "draw", "paint" }, new[] {
-            "src/NovaTerminal.Rendering/GlyphCache.cs",
-            "src/NovaTerminal.Rendering/GlyphAtlas.cs",
-            "src/NovaTerminal.App/Shell/TerminalDrawOperation.cs",
-            "src/NovaTerminal.App/Shell/TerminalView.cs" }),
+            "src/Ntilde.Rendering/GlyphCache.cs",
+            "src/Ntilde.Rendering/GlyphAtlas.cs",
+            "src/Ntilde.App/Shell/TerminalDrawOperation.cs",
+            "src/Ntilde.App/Shell/TerminalView.cs" }),
         (new[] { "pty", "spawn", "process" }, new[] {
-            "src/NovaTerminal.Pty/RustPtySession.cs" }),
+            "src/Ntilde.Pty/RustPtySession.cs" }),
         (new[] { "ssh", "key", "auth", "connection", "jump" }, new[] {
-            "src/NovaTerminal.App/Shell/TerminalProfile.cs",
-            "src/NovaTerminal.Platform/Ssh/",
+            "src/Ntilde.App/Shell/TerminalProfile.cs",
+            "src/Ntilde.Platform/Ssh/",
             "docs/SSH_ROADMAP.md" }),
         (new[] { "sftp", "transfer", "upload", "download" }, new[] {
-            "src/NovaTerminal.App/Shell/SftpService.cs" }),
+            "src/Ntilde.App/Shell/SftpService.cs" }),
         (new[] { "log", "logging", "logger" }, new[] {
-            "src/NovaTerminal.VT/TerminalLogger.cs" }),
+            "src/Ntilde.VT/TerminalLogger.cs" }),
         (new[] { "tab", "pane", "window", "layout" }, new[] {
-            "src/NovaTerminal.App/MainWindow.axaml.cs",
-            "src/NovaTerminal.App/Controls/TerminalPane.axaml.cs" }),
+            "src/Ntilde.App/MainWindow.axaml.cs",
+            "src/Ntilde.App/Controls/TerminalPane.axaml.cs" }),
         (new[] { "fuzz", "robustness" }, new[] {
-            "tests/NovaTerminal.Benchmarks/FuzzTarget.cs",
-            "tests/NovaTerminal.VT.Tests/FuzzSmokeTests.cs" }),
+            "tests/Ntilde.Benchmarks/FuzzTarget.cs",
+            "tests/Ntilde.VT.Tests/FuzzSmokeTests.cs" }),
     };
 
-    [McpServerTool(Name = "novaterminal.suggest_relevant_files"),
-     Description("Given a topic or task description, suggests the concrete NovaTerminal source/test files most relevant to it (e.g. 'reflow', 'OSC 8 hyperlinks', 'theme validation'). Start here to find where to work.")]
+    [McpServerTool(Name = "ntilde.suggest_relevant_files"),
+     Description("Given a topic or task description, suggests the concrete Ntilde source/test files most relevant to it (e.g. 'reflow', 'OSC 8 hyperlinks', 'theme validation'). Start here to find where to work.")]
     public static string SuggestRelevantFiles(
         [Description("The topic or task, e.g. 'reflow edge cases', 'glyph atlas', 'ssh key auth'.")] string topic)
     {
@@ -157,8 +157,8 @@ public static class WorkflowTools
 
         if (files.Count == 0)
         {
-            return "No direct file mapping for that topic. Call novaterminal.get_architecture_map " +
-                   "to find the owning assembly, then novaterminal.list_docs / read_doc.";
+            return "No direct file mapping for that topic. Call ntilde.get_architecture_map " +
+                   "to find the owning assembly, then ntilde.list_docs / read_doc.";
         }
 
         var sb = new StringBuilder();

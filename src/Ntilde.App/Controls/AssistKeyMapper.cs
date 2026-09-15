@@ -1,14 +1,14 @@
 using Avalonia.Input;
-using NovaTerminal.CommandAssist.Application;
+using Ntilde.CommandAssist.Application;
 
-namespace NovaTerminal.Controls
+namespace Ntilde.Controls
 {
     /// <summary>
     /// Translates Avalonia input types into the Avalonia-free vocabulary Command Assist uses.
     /// </summary>
     /// <remarks>
     /// This is the single App-side boundary between <c>Avalonia.Input</c> and
-    /// <c>NovaTerminal.CommandAssist</c>; the assist assembly must not reference Avalonia
+    /// <c>Ntilde.CommandAssist</c>; the assist assembly must not reference Avalonia
     /// (enforced by <c>CommandAssist_must_not_depend_on_Avalonia</c> in the architecture tests).
     /// </remarks>
     internal static class AssistKeyMapper

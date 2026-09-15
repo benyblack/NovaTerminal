@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Refine the Native SSH remote-files sidebar into a denser two-column utility rail with host identity and modified-time metadata while preserving NovaTerminal's terminal-first SFTP boundaries.
+**Goal:** Refine the Native SSH remote-files sidebar into a denser two-column utility rail with host identity and modified-time metadata while preserving Ntilde's terminal-first SFTP boundaries.
 
 **Architecture:** Keep `TerminalPane` as the pane-local host, keep the remote directory browser service as a one-directory-at-a-time listing boundary, expand the remote entry contract to carry modified metadata, and keep `MainWindow` plus `SftpService` responsible for picker invocation and transfer execution. This is a visual and metadata polish pass, not a remote file-manager expansion.
 
@@ -13,10 +13,10 @@
 ### Task 1: Extend remote sidebar entry metadata
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Models/RemoteSidebarEntry.cs`
-- Modify: `src/NovaTerminal.App/Models/RemoteSidebarListingResult.cs`
-- Modify: `src/NovaTerminal.App/Services/Ssh/RemoteDirectoryBrowserService.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/RemoteDirectoryBrowserServiceTests.cs`
+- Modify: `src/Ntilde.App/Models/RemoteSidebarEntry.cs`
+- Modify: `src/Ntilde.App/Models/RemoteSidebarListingResult.cs`
+- Modify: `src/Ntilde.App/Services/Ssh/RemoteDirectoryBrowserService.cs`
+- Test: `tests/Ntilde.Tests/Ssh/RemoteDirectoryBrowserServiceTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -40,7 +40,7 @@ public async Task ListDirectoryAsync_PreservesModifiedTimeMetadata()
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj --filter "FullyQualifiedName~RemoteDirectoryBrowserServiceTests" /p:UseAppHost=false /p:OutDir=D:\projects\nova2\.artifacts\sidebar-v3-build\
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj --filter "FullyQualifiedName~RemoteDirectoryBrowserServiceTests" /p:UseAppHost=false /p:OutDir=D:\projects\nova2\.artifacts\sidebar-v3-build\
 ```
 
 Expected: FAIL because `RemoteSidebarEntry` does not expose modified metadata yet.
@@ -61,16 +61,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Models/RemoteSidebarEntry.cs src/NovaTerminal.App/Models/RemoteSidebarListingResult.cs src/NovaTerminal.App/Services/Ssh/RemoteDirectoryBrowserService.cs tests/NovaTerminal.Tests/Ssh/RemoteDirectoryBrowserServiceTests.cs
+git add src/Ntilde.App/Models/RemoteSidebarEntry.cs src/Ntilde.App/Models/RemoteSidebarListingResult.cs src/Ntilde.App/Services/Ssh/RemoteDirectoryBrowserService.cs tests/Ntilde.Tests/Ssh/RemoteDirectoryBrowserServiceTests.cs
 git commit -m "feat: add remote sidebar modified metadata"
 ```
 
 ### Task 2: Surface modified metadata in the sidebar view model
 
 **Files:**
-- Modify: `src/NovaTerminal.App/ViewModels/Ssh/RemoteFilesSidebarEntryViewModel.cs`
-- Modify: `src/NovaTerminal.App/ViewModels/Ssh/RemoteFilesSidebarViewModel.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/RemoteFilesSidebarViewModelTests.cs`
+- Modify: `src/Ntilde.App/ViewModels/Ssh/RemoteFilesSidebarEntryViewModel.cs`
+- Modify: `src/Ntilde.App/ViewModels/Ssh/RemoteFilesSidebarViewModel.cs`
+- Test: `tests/Ntilde.Tests/Ssh/RemoteFilesSidebarViewModelTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -97,7 +97,7 @@ public async Task OpenAsync_MapsModifiedMetadataToEntryViewModels()
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj --filter "FullyQualifiedName~RemoteFilesSidebarViewModelTests" /p:UseAppHost=false /p:OutDir=D:\projects\nova2\.artifacts\sidebar-v3-build\
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj --filter "FullyQualifiedName~RemoteFilesSidebarViewModelTests" /p:UseAppHost=false /p:OutDir=D:\projects\nova2\.artifacts\sidebar-v3-build\
 ```
 
 Expected: FAIL because the entry view model does not expose modified display data yet.
@@ -117,17 +117,17 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/ViewModels/Ssh/RemoteFilesSidebarEntryViewModel.cs src/NovaTerminal.App/ViewModels/Ssh/RemoteFilesSidebarViewModel.cs tests/NovaTerminal.Tests/Ssh/RemoteFilesSidebarViewModelTests.cs
+git add src/Ntilde.App/ViewModels/Ssh/RemoteFilesSidebarEntryViewModel.cs src/Ntilde.App/ViewModels/Ssh/RemoteFilesSidebarViewModel.cs tests/Ntilde.Tests/Ssh/RemoteFilesSidebarViewModelTests.cs
 git commit -m "feat: expose modified metadata in sidebar entries"
 ```
 
 ### Task 3: Redesign the sidebar header and path chrome
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml`
-- Modify: `src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml.cs`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Core/RemoteFilesSidebarTests.cs`
+- Modify: `src/Ntilde.App/Controls/RemoteFilesSidebar.axaml`
+- Modify: `src/Ntilde.App/Controls/RemoteFilesSidebar.axaml.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Test: `tests/Ntilde.Tests/Core/RemoteFilesSidebarTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -153,7 +153,7 @@ public void Sidebar_UsesHostHeader_AndCompactPathRow()
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj --filter "FullyQualifiedName~RemoteFilesSidebarTests" /p:UseAppHost=false /p:OutDir=D:\projects\nova2\.artifacts\sidebar-v3-build\
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj --filter "FullyQualifiedName~RemoteFilesSidebarTests" /p:UseAppHost=false /p:OutDir=D:\projects\nova2\.artifacts\sidebar-v3-build\
 ```
 
 Expected: FAIL because the current XAML does not expose the new host-first header shape.
@@ -174,15 +174,15 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml.cs src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.Tests/Core/RemoteFilesSidebarTests.cs
+git add src/Ntilde.App/Controls/RemoteFilesSidebar.axaml src/Ntilde.App/Controls/RemoteFilesSidebar.axaml.cs src/Ntilde.App/Controls/TerminalPane.axaml.cs tests/Ntilde.Tests/Core/RemoteFilesSidebarTests.cs
 git commit -m "feat: restyle remote files sidebar header"
 ```
 
 ### Task 4: Convert the listing to a dense two-column layout
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml`
-- Test: `tests/NovaTerminal.Tests/Core/RemoteFilesSidebarTests.cs`
+- Modify: `src/Ntilde.App/Controls/RemoteFilesSidebar.axaml`
+- Test: `tests/Ntilde.Tests/Core/RemoteFilesSidebarTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -227,7 +227,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml tests/NovaTerminal.Tests/Core/RemoteFilesSidebarTests.cs
+git add src/Ntilde.App/Controls/RemoteFilesSidebar.axaml tests/Ntilde.Tests/Core/RemoteFilesSidebarTests.cs
 git commit -m "feat: add dense two-column remote sidebar list"
 ```
 
@@ -236,8 +236,8 @@ git commit -m "feat: add dense two-column remote sidebar list"
 **Files:**
 - Modify: `docs/USER_MANUAL.md`
 - Modify: `docs/plans/2026-05-04-native-sftp-sidebar-v3-design.md`
-- Test: `tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs`
-- Test: `tests/NovaTerminal.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs`
+- Test: `tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs`
+- Test: `tests/Ntilde.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -265,7 +265,7 @@ public async Task SidebarPolish_DoesNotReintroduceTransferDialogForSidebarDownlo
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj --filter "FullyQualifiedName~MainWindowTransferFlowTests|FullyQualifiedName~TerminalPaneRemoteFilesSidebarTests" /p:UseAppHost=false /p:OutDir=D:\projects\nova2\.artifacts\sidebar-v3-build\
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj --filter "FullyQualifiedName~MainWindowTransferFlowTests|FullyQualifiedName~TerminalPaneRemoteFilesSidebarTests" /p:UseAppHost=false /p:OutDir=D:\projects\nova2\.artifacts\sidebar-v3-build\
 ```
 
 Expected: FAIL if any polish work accidentally reintroduces the old flow.
@@ -281,7 +281,7 @@ Expected: FAIL if any polish work accidentally reintroduces the old flow.
 Run the same command as Step 2, then run the broader sidebar slice:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj --filter "FullyQualifiedName~MainWindowTransferFlowTests|FullyQualifiedName~RemoteFilesSidebarTests|FullyQualifiedName~TerminalPaneRemoteFilesSidebarTests|FullyQualifiedName~RemoteFilesSidebarViewModelTests|FullyQualifiedName~RemoteDirectoryBrowserServiceTests" /p:UseAppHost=false /p:OutDir=D:\projects\nova2\.artifacts\sidebar-v3-build\
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj --filter "FullyQualifiedName~MainWindowTransferFlowTests|FullyQualifiedName~RemoteFilesSidebarTests|FullyQualifiedName~TerminalPaneRemoteFilesSidebarTests|FullyQualifiedName~RemoteFilesSidebarViewModelTests|FullyQualifiedName~RemoteDirectoryBrowserServiceTests" /p:UseAppHost=false /p:OutDir=D:\projects\nova2\.artifacts\sidebar-v3-build\
 ```
 
 Expected: PASS.
@@ -289,6 +289,6 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add docs/USER_MANUAL.md docs/plans/2026-05-04-native-sftp-sidebar-v3-design.md tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs tests/NovaTerminal.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs
+git add docs/USER_MANUAL.md docs/plans/2026-05-04-native-sftp-sidebar-v3-design.md tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs tests/Ntilde.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs
 git commit -m "docs: describe refined native sftp sidebar"
 ```

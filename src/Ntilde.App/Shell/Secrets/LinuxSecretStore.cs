@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace NovaTerminal.Shell.Secrets
+namespace Ntilde.Shell.Secrets
 {
     /// <summary>
     /// Linux secret store backed by libsecret / Secret Service (GNOME Keyring, KWallet).
@@ -11,7 +11,7 @@ namespace NovaTerminal.Shell.Secrets
     /// Uses libsecret's non-varargs ("vectored") password API
     /// (<c>secret_password_*v_sync</c>) so we never have to marshal a C varargs call.
     /// Attributes are passed in a glib <c>GHashTable</c>. Items are namespaced by the
-    /// schema name <c>com.novaterminal.Vault</c> and distinguished by a <c>"key"</c>
+    /// schema name <c>com.ntilde.Vault</c> and distinguished by a <c>"key"</c>
     /// attribute.
     ///
     /// This library only loads on Linux. On Windows/macOS the native libraries are
@@ -26,7 +26,7 @@ namespace NovaTerminal.Shell.Secrets
     {
         private const string Lib = "libsecret-1.so.0";
         private const string Glib = "libglib-2.0.so.0";
-        private const string SchemaName = "com.novaterminal.Vault";
+        private const string SchemaName = "com.ntilde.Vault";
         private const string KeyAttribute = "key";
 
         // SecretSchemaFlags.SECRET_SCHEMA_NONE
@@ -82,7 +82,7 @@ namespace NovaTerminal.Shell.Secrets
                 // Probe the Secret Service. A missing native lib throws (caught);
                 // a present lib with no running keyring sets a GError, which we treat
                 // as "unavailable" rather than throwing.
-                _ = LookupRaw("__novaterminal_probe__", out bool serviceError);
+                _ = LookupRaw("__ntilde_probe__", out bool serviceError);
                 _available = !serviceError;
             }
             catch (DllNotFoundException) { _available = false; }
@@ -152,7 +152,7 @@ namespace NovaTerminal.Shell.Secrets
                 // the call, so default LPUTF8Str marshalling is safe here.
                 _ = secret_password_storev_sync(
                     _schema, attrs, IntPtr.Zero,
-                    label: $"NovaTerminal: {key}", password: value,
+                    label: $"Ntilde: {key}", password: value,
                     cancellable: IntPtr.Zero, error: out IntPtr error);
                 FreeError(error);
             }

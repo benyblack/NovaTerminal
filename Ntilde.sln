@@ -5,49 +5,49 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.App", "src\NovaTerminal.App\NovaTerminal.App.csproj", "{3216A4F7-15A0-4B66-93DB-20F1E685C66A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.App", "src\Ntilde.App\Ntilde.App.csproj", "{3216A4F7-15A0-4B66-93DB-20F1E685C66A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.VT", "src\NovaTerminal.VT\NovaTerminal.VT.csproj", "{36B01B02-235C-4941-AA93-7F81C1D4948C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.VT", "src\Ntilde.VT\Ntilde.VT.csproj", "{36B01B02-235C-4941-AA93-7F81C1D4948C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Rendering", "src\NovaTerminal.Rendering\NovaTerminal.Rendering.csproj", "{75E5223B-2889-46DE-A3E1-FD1D7B3CE6FC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.Rendering", "src\Ntilde.Rendering\Ntilde.Rendering.csproj", "{75E5223B-2889-46DE-A3E1-FD1D7B3CE6FC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Pty", "src\NovaTerminal.Pty\NovaTerminal.Pty.csproj", "{427D86A6-3048-4D48-86A2-DDD6334B4CD5}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.Pty", "src\Ntilde.Pty\Ntilde.Pty.csproj", "{427D86A6-3048-4D48-86A2-DDD6334B4CD5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Replay", "src\NovaTerminal.Replay\NovaTerminal.Replay.csproj", "{E5F14A49-50E5-4EA3-AE47-0B8CCABB789C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.Replay", "src\Ntilde.Replay\Ntilde.Replay.csproj", "{E5F14A49-50E5-4EA3-AE47-0B8CCABB789C}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.App.Tests", "tests\NovaTerminal.App.Tests\NovaTerminal.App.Tests.csproj", "{4A93ABB3-6D89-46B7-B976-4C186E1DFFF5}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.App.Tests", "tests\Ntilde.App.Tests\Ntilde.App.Tests.csproj", "{4A93ABB3-6D89-46B7-B976-4C186E1DFFF5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Benchmarks", "tests\NovaTerminal.Benchmarks\NovaTerminal.Benchmarks.csproj", "{29FD5B8C-7247-4FA8-881F-3B5BD57B233C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.Benchmarks", "tests\Ntilde.Benchmarks\Ntilde.Benchmarks.csproj", "{29FD5B8C-7247-4FA8-881F-3B5BD57B233C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Platform", "src\NovaTerminal.Platform\NovaTerminal.Platform.csproj", "{8B42DC16-B2C8-4618-8854-D90570AD3BEA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.Platform", "src\Ntilde.Platform\Ntilde.Platform.csproj", "{8B42DC16-B2C8-4618-8854-D90570AD3BEA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Cli", "src\NovaTerminal.Cli\NovaTerminal.Cli.csproj", "{C1B18C34-97C2-4A49-9D4D-6DD1E4420A5F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.Cli", "src\Ntilde.Cli\Ntilde.Cli.csproj", "{C1B18C34-97C2-4A49-9D4D-6DD1E4420A5F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Platform.Tests", "tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj", "{ABA0C905-4895-4725-B271-DAD27C2DD189}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.Platform.Tests", "tests\Ntilde.Platform.Tests\Ntilde.Platform.Tests.csproj", "{ABA0C905-4895-4725-B271-DAD27C2DD189}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Conformance", "src\NovaTerminal.Conformance\NovaTerminal.Conformance.csproj", "{74074EA6-AEFE-4950-9061-37D0F7359B77}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.Conformance", "src\Ntilde.Conformance\Ntilde.Conformance.csproj", "{74074EA6-AEFE-4950-9061-37D0F7359B77}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.ExternalSuites", "tests\NovaTerminal.ExternalSuites\NovaTerminal.ExternalSuites.csproj", "{46840AF6-2510-43A4-81D6-6AD53D83DAB7}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.ExternalSuites", "tests\Ntilde.ExternalSuites\Ntilde.ExternalSuites.csproj", "{46840AF6-2510-43A4-81D6-6AD53D83DAB7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Architecture.Tests", "tests\NovaTerminal.Architecture.Tests\NovaTerminal.Architecture.Tests.csproj", "{B62BD46D-4C93-4406-B598-0A58714F1937}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.Architecture.Tests", "tests\Ntilde.Architecture.Tests\Ntilde.Architecture.Tests.csproj", "{B62BD46D-4C93-4406-B598-0A58714F1937}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.VT.Tests", "tests\NovaTerminal.VT.Tests\NovaTerminal.VT.Tests.csproj", "{C480ADFF-F69D-4383-9A87-6300FC525F13}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.VT.Tests", "tests\Ntilde.VT.Tests\Ntilde.VT.Tests.csproj", "{C480ADFF-F69D-4383-9A87-6300FC525F13}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Rendering.Tests", "tests\NovaTerminal.Rendering.Tests\NovaTerminal.Rendering.Tests.csproj", "{39F1F320-2266-487E-98D8-43BE0FECD0A4}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.Rendering.Tests", "tests\Ntilde.Rendering.Tests\Ntilde.Rendering.Tests.csproj", "{39F1F320-2266-487E-98D8-43BE0FECD0A4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.McpServer", "src\NovaTerminal.McpServer\NovaTerminal.McpServer.csproj", "{4B799A42-DE84-4393-89E9-B7B1EFFFA02D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.McpServer", "src\Ntilde.McpServer\Ntilde.McpServer.csproj", "{4B799A42-DE84-4393-89E9-B7B1EFFFA02D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.McpServer.Tests", "tests\NovaTerminal.McpServer.Tests\NovaTerminal.McpServer.Tests.csproj", "{254C6074-5012-4A10-BBA4-E14953766E7F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.McpServer.Tests", "tests\Ntilde.McpServer.Tests\Ntilde.McpServer.Tests.csproj", "{254C6074-5012-4A10-BBA4-E14953766E7F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.AgentHost.Contracts", "src\NovaTerminal.AgentHost.Contracts\NovaTerminal.AgentHost.Contracts.csproj", "{A7C4E9D1-6B2F-4E8A-9F31-5D8C7B0A2E64}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.AgentHost.Contracts", "src\Ntilde.AgentHost.Contracts\Ntilde.AgentHost.Contracts.csproj", "{A7C4E9D1-6B2F-4E8A-9F31-5D8C7B0A2E64}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.CommandAssist", "src\NovaTerminal.CommandAssist\NovaTerminal.CommandAssist.csproj", "{5C0E7A31-9D24-4F17-8B6E-2A93C1F40D58}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.CommandAssist", "src\Ntilde.CommandAssist\Ntilde.CommandAssist.csproj", "{5C0E7A31-9D24-4F17-8B6E-2A93C1F40D58}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Backup", "src\NovaTerminal.Backup\NovaTerminal.Backup.csproj", "{77C2766D-8D87-43D3-BE92-42910ACFB648}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.Backup", "src\Ntilde.Backup\Ntilde.Backup.csproj", "{77C2766D-8D87-43D3-BE92-42910ACFB648}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.VtContract", "src\NovaTerminal.VtContract\NovaTerminal.VtContract.csproj", "{371D13FE-6F65-4AEA-9426-E6C954A572BD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ntilde.VtContract", "src\Ntilde.VtContract\Ntilde.VtContract.csproj", "{371D13FE-6F65-4AEA-9426-E6C954A572BD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

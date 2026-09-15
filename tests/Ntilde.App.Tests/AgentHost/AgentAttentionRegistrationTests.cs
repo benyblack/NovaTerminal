@@ -1,8 +1,8 @@
 using System;
-using NovaTerminal.AgentHost;
-using NovaTerminal.VT;
+using Ntilde.AgentHost;
+using Ntilde.VT;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// The registration owns a pane's attention machine and its published

@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Text;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Pty;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration.Integration;
 
 internal sealed record HarnessResult(
     string Stdout,
@@ -114,7 +114,7 @@ internal static class ShellHarness
         // without the passthrough flag) for the duration of this call.
         // Production (Avalonia app with a real GUI process) does not set
         // this and continues to use the original passthrough path.
-        Environment.SetEnvironmentVariable("NOVA_PTY_NO_PASSTHROUGH", "1");
+        Environment.SetEnvironmentVariable("NTILDE_PTY_NO_PASSTHROUGH", "1");
 
         // Force a predictable locale so OSC output isn't disturbed by
         // user-locale variations on test runners.

@@ -1,14 +1,14 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Reflection;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde;
 using SkiaSharp;
 using Xunit;
 
-namespace NovaTerminal.Tests.RenderTests;
+namespace Ntilde.Tests.RenderTests;
 
 public sealed class GlyphFallbackTests
 {

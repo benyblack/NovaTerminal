@@ -1,9 +1,9 @@
 using System;
 using System.Linq;
-using NovaTerminal.AgentHost;
-using NovaTerminal.VT;
+using Ntilde.AgentHost;
+using Ntilde.VT;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// Pure unit tests for the agent-session registry (PR2 of milestone A1,

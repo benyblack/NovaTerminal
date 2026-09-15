@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// Shell-integration marks re-anchored across a reflowing (width-changing) resize.

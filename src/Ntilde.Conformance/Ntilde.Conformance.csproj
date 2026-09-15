@@ -4,6 +4,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NovaTerminal.VtContract\NovaTerminal.VtContract.csproj" />
+    <ProjectReference Include="..\Ntilde.VtContract\Ntilde.VtContract.csproj" />
   </ItemGroup>
 </Project>

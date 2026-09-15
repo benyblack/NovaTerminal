@@ -129,7 +129,7 @@ Driven against the worktree build with the agent side over real MCP, not simulat
   automation label (both source the title from rendered header text).
 - `MainWindow.axaml.cs` has two unguarded `async void` click handlers with the same hazard
   fixed on the pane segment in `7a3beff`.
-- Tests that construct `MainWindow` mutate the process-global `NOVATERM_APPDATA_ROOT` in
+- Tests that construct `MainWindow` mutate the process-global `NTILDE_APPDATA_ROOT` in
   separate xUnit collections; they want one shared collection.
 - `Debug.WriteLine` is the only record for swallowed exceptions in the attention plumbing —
   a no-op in Release.

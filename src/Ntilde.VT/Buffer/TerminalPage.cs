@@ -1,7 +1,7 @@
 using System;
 using System.Buffers;
 
-namespace NovaTerminal.VT.Storage
+namespace Ntilde.VT.Storage
 {
     /// <summary>
     /// A contiguous slab of TerminalCell values for multiple scrollback rows.
@@ -40,7 +40,7 @@ namespace NovaTerminal.VT.Storage
         // Sparse per-row metadata side-channels. null = no extended text/hyperlinks on any row in this page.
         // Indexed by rowIndex (0..RowsInPage-1). Each element is null if that row has no metadata.
         private SmallMap<string>?[]? _extendedText;
-        private SmallMap<NovaTerminal.VT.Links.Hyperlink>?[]? _hyperlinks;
+        private SmallMap<Ntilde.VT.Links.Hyperlink>?[]? _hyperlinks;
 
         public TerminalPage(int rowsInPage, int cols)
         {
@@ -181,7 +181,7 @@ namespace NovaTerminal.VT.Storage
         // ── Hyperlink Metadata ───────────────────────────────────────────────────
 
         /// <summary>Gets the hyperlink identity for a cell, or null if none.</summary>
-        public NovaTerminal.VT.Links.Hyperlink? GetHyperlink(int rowIndex, int col)
+        public Ntilde.VT.Links.Hyperlink? GetHyperlink(int rowIndex, int col)
         {
             if (_hyperlinks == null) return null;
             var map = _hyperlinks[rowIndex];
@@ -190,15 +190,15 @@ namespace NovaTerminal.VT.Storage
         }
 
         /// <summary>Copies all hyperlink entries from an existing SmallMap into the specified row.</summary>
-        public void SetHyperlinkFromMap(int rowIndex, SmallMap<NovaTerminal.VT.Links.Hyperlink>? source)
+        public void SetHyperlinkFromMap(int rowIndex, SmallMap<Ntilde.VT.Links.Hyperlink>? source)
         {
             if (source == null || source.Count == 0) return;
-            _hyperlinks ??= new SmallMap<NovaTerminal.VT.Links.Hyperlink>?[RowsInPage];
+            _hyperlinks ??= new SmallMap<Ntilde.VT.Links.Hyperlink>?[RowsInPage];
             _hyperlinks[rowIndex] = source;
         }
 
         /// <summary>Returns the raw SmallMap for the row's hyperlinks (null if none).</summary>
-        public SmallMap<NovaTerminal.VT.Links.Hyperlink>? GetHyperlinkMap(int rowIndex) =>
+        public SmallMap<Ntilde.VT.Links.Hyperlink>? GetHyperlinkMap(int rowIndex) =>
             _hyperlinks?[rowIndex];
 
         /// <summary>

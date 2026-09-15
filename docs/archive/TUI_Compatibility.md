@@ -1,10 +1,10 @@
 # TUI Compatibility & Text Reflow
 
-This document details the specific heuristics and character handling logic implemented in NovaTerminal to ensure compatibility with complex Text User Interface (TUI) applications like Midnight Commander (MC), htop, and vim.
+This document details the specific heuristics and character handling logic implemented in Ntilde to ensure compatibility with complex Text User Interface (TUI) applications like Midnight Commander (MC), htop, and vim.
 
 ## 1. Text Reflow Heuristics
 
-To support responsive resizing while preserving TUI layouts (borders, panels), NovaTerminal employs a "Smart Reflow" strategy.
+To support responsive resizing while preserving TUI layouts (borders, panels), Ntilde employs a "Smart Reflow" strategy.
 
 ### The Challenge
 When a terminal is resized to be wider, hard-wrapped lines from the shell (like paragraphs of text) should reflow to fill the new width. However, TUI applications draw "pictures" using characters (box drawing, spaces with background colors) which must **NOT** be reflowed or merged, as this destroys the layout.

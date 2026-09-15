@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.Application;
+using Ntilde.CommandAssist.Application;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 public sealed class CommandAssistKeyRouterTests
 {
@@ -111,7 +111,7 @@ public sealed class CommandAssistKeyRouterTests
     {
         bool owned = CommandAssistKeyRouter.IsAssistOwnedKey(
             Visible,
-            NovaTerminal.Controls.AssistKeyMapper.ToAssistKey(Avalonia.Input.Key.P),
+            Ntilde.Controls.AssistKeyMapper.ToAssistKey(Avalonia.Input.Key.P),
             AssistModifiers.Control | AssistModifiers.Shift);
 
         Assert.False(owned);
@@ -297,7 +297,7 @@ public sealed class CommandAssistKeyRouterTests
     [Fact]
     public void AssistKeyMapper_MapsMeta()
     {
-        AssistModifiers mapped = NovaTerminal.Controls.AssistKeyMapper.ToAssistModifiers(
+        AssistModifiers mapped = Ntilde.Controls.AssistKeyMapper.ToAssistModifiers(
             Avalonia.Input.KeyModifiers.Meta);
 
         Assert.Equal(AssistModifiers.Meta, mapped);

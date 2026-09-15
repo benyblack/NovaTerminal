@@ -1,8 +1,8 @@
 using System;
 using System.Text;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     /// <summary>
     /// Tees <see cref="PtyLogger"/> into a string for the duration of a test, so an

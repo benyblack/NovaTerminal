@@ -4,16 +4,16 @@ using System.Linq;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.AgentHost;
-using NovaTerminal.Controls;
-using NovaTerminal.Pty;
-using NovaTerminal.Shell;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.AgentHost;
+using Ntilde.Controls;
+using Ntilde.Pty;
+using Ntilde.Shell;
+using Ntilde.Shell.TitleBar;
 // Aliased, not a plain namespace using: Avalonia.Controls.Shapes also exports a Path type that
-// would collide with System.IO.Path, which this file uses for its NOVATERM_APPDATA_ROOT scratch dirs.
+// would collide with System.IO.Path, which this file uses for its NTILDE_APPDATA_ROOT scratch dirs.
 using Ellipse = Avalonia.Controls.Shapes.Ellipse;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// The window-level agent light. It is a permission indicator first — visible
@@ -277,19 +277,19 @@ public class AgentObserveIndicatorTests : IDisposable
     /// AgentHostService.Instance.Apply(...). On a machine with observe
     /// persisted as enabled that would start a real named-pipe/Unix-socket
     /// accept loop inside this shared test process. Point
-    /// NOVATERM_APPDATA_ROOT at a fresh empty directory so Load() always yields
+    /// NTILDE_APPDATA_ROOT at a fresh empty directory so Load() always yields
     /// defaults and Apply() takes its no-op Stop() path. Same pattern as
     /// AgentIndicatorTabRollupTests.RunIsolated.
     /// </summary>
     private static void RunIsolated(Action<MainWindow> body)
     {
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"novaterm_observe_indicator_test_{Guid.NewGuid():N}");
-        string? previousRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_observe_indicator_test_{Guid.NewGuid():N}");
+        string? previousRoot = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", tempRoot);
 
             var window = TestMainWindowFactory.Create();
             window.Show();
@@ -297,7 +297,7 @@ public class AgentObserveIndicatorTests : IDisposable
         }
         finally
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previousRoot);
             try { Directory.Delete(tempRoot, recursive: true); } catch { /* best effort */ }
         }
     }
@@ -469,17 +469,17 @@ public class AgentObserveIndicatorTests : IDisposable
         // machine where that setting is persisted as enabled (e.g. anyone who
         // has exercised this feature for real), Apply(true) would start a real
         // named-pipe/Unix-socket accept loop inside this shared test process.
-        // Point NOVATERM_APPDATA_ROOT at a fresh, empty scratch directory for
+        // Point NTILDE_APPDATA_ROOT at a fresh, empty scratch directory for
         // the duration of the test so TerminalSettings.Load() always yields
         // defaults (observe disabled) and Apply() takes its no-op Stop() path,
         // regardless of what is persisted on the machine running the test.
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"novaterm_observe_indicator_test_{Guid.NewGuid():N}");
-        string? previousRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_observe_indicator_test_{Guid.NewGuid():N}");
+        string? previousRoot = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", tempRoot);
 
             var window = TestMainWindowFactory.Create();
             window.Show();
@@ -491,7 +491,7 @@ public class AgentObserveIndicatorTests : IDisposable
         }
         finally
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previousRoot);
             try { Directory.Delete(tempRoot, recursive: true); } catch { /* best effort */ }
         }
     }
@@ -570,22 +570,22 @@ public class AgentObserveIndicatorTests : IDisposable
     /// loads the real on-disk settings.json and calls
     /// AgentHostService.Instance.Apply(settings.AgentAccessObserveEnabled), which on a machine with
     /// observe persisted as enabled would start a real named-pipe/Unix-socket accept loop inside
-    /// this shared test process. A fresh empty NOVATERM_APPDATA_ROOT forces defaults.
+    /// this shared test process. A fresh empty NTILDE_APPDATA_ROOT forces defaults.
     /// </summary>
     private static void RunIsolatedWindow(Action<MainWindow> body)
     {
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"novaterm_observe_indicator_test_{Guid.NewGuid():N}");
-        string? previousRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_observe_indicator_test_{Guid.NewGuid():N}");
+        string? previousRoot = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", tempRoot);
             body(TestMainWindowFactory.Create());
         }
         finally
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previousRoot);
             try { Directory.Delete(tempRoot, recursive: true); } catch { /* best effort */ }
         }
     }

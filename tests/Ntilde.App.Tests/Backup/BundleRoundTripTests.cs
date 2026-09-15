@@ -2,9 +2,9 @@ using System.IO.Compression;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
-using NovaTerminal.Backup;
+using Ntilde.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class BundleRoundTripTests
 {
@@ -12,7 +12,7 @@ public sealed class BundleRoundTripTests
     public void Write_ProducesManifestAndCategoryEntries()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "out.novabackup");
+        string bundle = Path.Combine(tree.Root, "out.ntildebackup");
 
         BundleWriter.Write(tree.Root, bundle, BackupCatalog.AllCategories, NewManifest());
 
@@ -30,7 +30,7 @@ public sealed class BundleRoundTripTests
     public void Write_OmitsExcludedContent()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "out.novabackup");
+        string bundle = Path.Combine(tree.Root, "out.ntildebackup");
 
         BundleWriter.Write(tree.Root, bundle, BackupCatalog.AllCategories, NewManifest());
 
@@ -46,7 +46,7 @@ public sealed class BundleRoundTripTests
     public void Write_HonorsCategorySubset()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "themes-only.novabackup");
+        string bundle = Path.Combine(tree.Root, "themes-only.ntildebackup");
 
         BundleWriter.Write(tree.Root, bundle, new[] { BackupCategory.Themes }, NewManifest());
 
@@ -61,7 +61,7 @@ public sealed class BundleRoundTripTests
     public void Open_ReturnsManifestAndItemCounts()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "out.novabackup");
+        string bundle = Path.Combine(tree.Root, "out.ntildebackup");
         BundleWriter.Write(tree.Root, bundle, BackupCatalog.AllCategories, NewManifest());
 
         var outcome = BundleReader.Open(bundle);
@@ -83,7 +83,7 @@ public sealed class BundleRoundTripTests
     public void Open_WithCategorySubset_SucceedsAndCountsOnlyWrittenCategories()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "themes-only.novabackup");
+        string bundle = Path.Combine(tree.Root, "themes-only.ntildebackup");
         var manifest = NewManifest() with { Categories = new[] { "themes" } };
 
         BundleWriter.Write(tree.Root, bundle, new[] { BackupCategory.Themes }, manifest);
@@ -102,7 +102,7 @@ public sealed class BundleRoundTripTests
     {
         using var source = BackupTestTree.CreatePopulated();
         using var target = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(source.Root, "out.novabackup");
+        string bundle = Path.Combine(source.Root, "out.ntildebackup");
         BundleWriter.Write(source.Root, bundle, BackupCatalog.AllCategories, NewManifest());
 
         BundleReader.ExtractTo(bundle, target.Root, BackupCatalog.AllCategories);
@@ -120,7 +120,7 @@ public sealed class BundleRoundTripTests
     public void ExtractTo_RejectsEntryThatEscapesUpward()
     {
         using var stage = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(stage.Root, "malicious.novabackup");
+        string bundle = Path.Combine(stage.Root, "malicious.ntildebackup");
         WriteBundleWithRawEntry(bundle, "themes/../../evil.txt", "payload");
 
         string destinationRoot = Path.Combine(stage.Root, "dest");
@@ -146,7 +146,7 @@ public sealed class BundleRoundTripTests
         string destinationRoot = Path.Combine(parent, "root");
         Directory.CreateDirectory(destinationRoot);
 
-        string bundle = Path.Combine(stage.Root, "malicious-sibling.novabackup");
+        string bundle = Path.Combine(stage.Root, "malicious-sibling.ntildebackup");
         // "rootEvil" starts with "root" as a string — this is exactly what
         // fullDestination.StartsWith(fullRoot) let through before the fix.
         WriteBundleWithRawEntry(bundle, "themes/../../rootEvil/evil.txt", "payload");
@@ -162,7 +162,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsNonZipFile()
     {
         using var tree = BackupTestTree.CreateEmpty();
-        string bogus = Path.Combine(tree.Root, "not-a-zip.novabackup");
+        string bogus = Path.Combine(tree.Root, "not-a-zip.ntildebackup");
         File.WriteAllText(bogus, "this is plain text");
 
         var outcome = BundleReader.Open(bogus);
@@ -175,7 +175,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsTruncatedZip()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "out.novabackup");
+        string bundle = Path.Combine(tree.Root, "out.ntildebackup");
         BundleWriter.Write(tree.Root, bundle, BackupCatalog.AllCategories, NewManifest());
 
         // Lop off the central directory — the classic half-copied-file case.
@@ -193,7 +193,7 @@ public sealed class BundleRoundTripTests
     {
         using var tree = BackupTestTree.CreateEmpty();
 
-        var outcome = BundleReader.Open(Path.Combine(tree.Root, "nope.novabackup"));
+        var outcome = BundleReader.Open(Path.Combine(tree.Root, "nope.ntildebackup"));
 
         Assert.False(outcome.Success);
         Assert.Equal(BackupFailureKind.NotFound, outcome.Failure);
@@ -203,7 +203,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsZipWithoutManifest()
     {
         using var tree = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(tree.Root, "no-manifest.novabackup");
+        string bundle = Path.Combine(tree.Root, "no-manifest.ntildebackup");
         using (var zip = ZipFile.Open(bundle, ZipArchiveMode.Create))
         {
             var entry = zip.CreateEntry("settings/settings.json");
@@ -221,7 +221,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsMalformedManifest()
     {
         using var tree = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(tree.Root, "bad-manifest.novabackup");
+        string bundle = Path.Combine(tree.Root, "bad-manifest.ntildebackup");
         WriteManifestOnlyBundle(bundle, "{ this is not json");
 
         var outcome = BundleReader.Open(bundle);
@@ -247,7 +247,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsManifestWithNullCategories()
     {
         using var tree = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(tree.Root, "null-categories.novabackup");
+        string bundle = Path.Combine(tree.Root, "null-categories.ntildebackup");
         WriteManifestOnlyBundle(
             bundle,
             """{"schemaVersion":1,"appVersion":"1.0.0","createdUtc":"2026-08-27T00:00:00+00:00","machine":"X","categories":null}""");
@@ -269,7 +269,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsManifestWithNullAppVersion()
     {
         using var tree = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(tree.Root, "null-app-version.novabackup");
+        string bundle = Path.Combine(tree.Root, "null-app-version.ntildebackup");
         WriteManifestOnlyBundle(
             bundle,
             """{"schemaVersion":1,"appVersion":null,"createdUtc":"2026-08-27T00:00:00+00:00","machine":"X","categories":["settings"]}""");
@@ -284,7 +284,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsNewerSchemaVersion()
     {
         using var tree = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(tree.Root, "future.novabackup");
+        string bundle = Path.Combine(tree.Root, "future.ntildebackup");
         int future = BackupManifest.CurrentSchemaVersion + 1;
         WriteManifestOnlyBundle(
             bundle,
@@ -301,7 +301,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsManifestCategoryWithNoContent()
     {
         using var tree = BackupTestTree.CreateEmpty();
-        string bundle = Path.Combine(tree.Root, "corrupt.novabackup");
+        string bundle = Path.Combine(tree.Root, "corrupt.ntildebackup");
         WriteManifestOnlyBundle(
             bundle,
             """{"schemaVersion":1,"appVersion":"1.0.0","createdUtc":"2026-08-27T00:00:00+00:00","machine":"X","categories":["settings"]}""");
@@ -333,7 +333,7 @@ public sealed class BundleRoundTripTests
     public void Open_RejectsFileWithAccessDenied_WithAMessageDistinctFromNotABackup()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "denied.novabackup");
+        string bundle = Path.Combine(tree.Root, "denied.ntildebackup");
         BundleWriter.Write(tree.Root, bundle, BackupCatalog.AllCategories, NewManifest());
 
         bool blocked = TryDenyFileRead(bundle, out Action restore);
@@ -348,7 +348,7 @@ public sealed class BundleRoundTripTests
 
             Assert.False(outcome.Success);
             Assert.Equal(BackupFailureKind.AccessDenied, outcome.Failure);
-            Assert.DoesNotContain("not a NovaTerminal backup", outcome.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("not a Ntilde backup", outcome.Message, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("not a readable archive", outcome.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally

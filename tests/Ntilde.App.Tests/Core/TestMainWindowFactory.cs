@@ -1,26 +1,26 @@
 using System;
 using System.Collections.Generic;
-using NovaTerminal.Platform;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.Shell;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 internal static class TestMainWindowFactory
 {
     private static readonly object Gate = new();
-    private static readonly List<NovaTerminal.MainWindow> Created = new();
+    private static readonly List<Ntilde.MainWindow> Created = new();
 
-    public static NovaTerminal.MainWindow Create() => Create(AppServices.BuildForDesigner());
+    public static Ntilde.MainWindow Create() => Create(AppServices.BuildForDesigner());
 
     /// <summary>
     /// For the tests that need their own service bundle. Same tracking, so their windows are torn
     /// down with everyone else's — a window built with a custom bundle still opens a real tab with
     /// a real shell behind it.
     /// </summary>
-    public static NovaTerminal.MainWindow Create(AppServiceBundle services)
+    public static Ntilde.MainWindow Create(AppServiceBundle services)
     {
-        var window = new NovaTerminal.MainWindow(services);
+        var window = new Ntilde.MainWindow(services);
 
         lock (Gate)
         {
@@ -51,14 +51,14 @@ internal static class TestMainWindowFactory
     /// </remarks>
     public static void DisposeCreatedWindows()
     {
-        NovaTerminal.MainWindow[] windows;
+        Ntilde.MainWindow[] windows;
         lock (Gate)
         {
             windows = Created.ToArray();
             Created.Clear();
         }
 
-        foreach (NovaTerminal.MainWindow window in windows)
+        foreach (Ntilde.MainWindow window in windows)
         {
             // Guarded on the window's own dispatcher, never Dispatcher.UIThread: reading that
             // static off the dispatch thread binds UI-thread identity to the caller, which is the

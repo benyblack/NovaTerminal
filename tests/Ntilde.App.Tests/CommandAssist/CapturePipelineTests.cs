@@ -1,9 +1,9 @@
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// Capture rules in isolation: which submissions become history entries, how the heuristic and
@@ -341,7 +341,7 @@ public sealed class CapturePipelineTests
     // does the same. Entries land in the global, cross-session history, so the number of them a
     // single prompt cycle can produce is not the emitter's to choose. One is the bound every real
     // integration already satisfies: a prompt cycle is by construction one accepted command, and
-    // all four of Nova's emitters plus iTerm2's, VS Code's and starship's send exactly one C
+    // all four of Ntilde's emitters plus iTerm2's, VS Code's and starship's send exactly one C
     // between the B that opened the input line and the D that closed it.
 
     private static ShellIntegrationEvent Mark(ShellIntegrationEventType type) => new(

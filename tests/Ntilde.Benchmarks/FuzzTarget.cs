@@ -1,14 +1,14 @@
 using System;
 using System.Text;
 using SharpFuzz;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Benchmarks
+namespace Ntilde.Benchmarks
 {
     /// <summary>
     /// SharpFuzz entry points for the VT layer. The per-input cores (<see cref="FuzzParser"/>,
     /// <see cref="FuzzParseAndResize"/>) are public and deterministic so they can be exercised
-    /// directly from a unit test (see NovaTerminal.VT.Tests) without the SharpFuzz/libFuzzer
+    /// directly from a unit test (see Ntilde.VT.Tests) without the SharpFuzz/libFuzzer
     /// instrumentation — the nightly job runs them continuously, the unit test gates each commit.
     /// </summary>
     public static class FuzzTarget

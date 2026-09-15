@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.CommandAssist.ShellIntegration.Fish;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.ShellIntegration.Fish;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 public sealed class FishShellIntegrationProviderTests
 {

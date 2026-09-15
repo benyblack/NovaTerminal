@@ -3,9 +3,9 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using NovaTerminal.CommandAssist.Domain;
+using Ntilde.CommandAssist.Domain;
 
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 /// <summary>
 /// The App-side implementation of <see cref="ICommandHelpProbe"/>: works out how the user would open

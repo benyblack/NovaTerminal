@@ -1,8 +1,8 @@
 using System;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.VT;
 
-namespace NovaTerminal.AgentHost
+namespace Ntilde.AgentHost
 {
     /// <summary>A rendered pane screenshot (A5), as returned by <see cref="AgentSessionRegistration.TryCapturePng"/>.</summary>
     public readonly record struct AgentCaptureInfo(
@@ -168,7 +168,7 @@ namespace NovaTerminal.AgentHost
         // ITerminalLifecycle in A4 so the endpoint can also reach the
         // flight-recorder surface (ITerminalFlightRecorder) without touching
         // the pane; the sweep still uses only the lifecycle members.
-        private volatile NovaTerminal.Pty.ITerminalSession? _session;
+        private volatile Ntilde.Pty.ITerminalSession? _session;
 
         // Desired flight-recording state pushed by the endpoint (A4). Kept on
         // the registration because the pane may publish the session *after*
@@ -178,7 +178,7 @@ namespace NovaTerminal.AgentHost
         private long _flightRecordingMaxBytes;
 
         /// <summary>Publishes (or clears) the PTY session this registration runs on. UI thread.</summary>
-        public void SetLifecycle(NovaTerminal.Pty.ITerminalSession? session)
+        public void SetLifecycle(Ntilde.Pty.ITerminalSession? session)
         {
             var previous = _session;
             _session = session;
@@ -244,7 +244,7 @@ namespace NovaTerminal.AgentHost
         /// False when no session is published, recording is not enabled, or the
         /// write failed (the session logs the reason).
         /// </summary>
-        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info)
+        public bool TryExportFlightRecording(string filePath, out Ntilde.Replay.FlightExportInfo info)
         {
             var session = _session;
             if (session == null)
@@ -264,7 +264,7 @@ namespace NovaTerminal.AgentHost
             }
         }
 
-        private static void TryApplyFlightRecording(NovaTerminal.Pty.ITerminalSession session, long maxBytes)
+        private static void TryApplyFlightRecording(Ntilde.Pty.ITerminalSession session, long maxBytes)
         {
             try
             {
@@ -355,7 +355,7 @@ namespace NovaTerminal.AgentHost
         /// <summary>
         /// Injects <paramref name="text"/> into the live session (A3). Returns
         /// false when no session is published or its process has already exited.
-        /// Goes through <see cref="NovaTerminal.Pty.ITerminalIO.SendInput"/> —
+        /// Goes through <see cref="Ntilde.Pty.ITerminalIO.SendInput"/> —
         /// the same thread-safe, replay-recorded path human keystrokes take.
         /// </summary>
         public bool TrySendInput(string text)
@@ -508,7 +508,7 @@ namespace NovaTerminal.AgentHost
                 // is rare enough that building one atlas per call costs nothing that
                 // matters. Same remedy #346 used to get the primitive painter back on the
                 // golden-baseline path.
-                using var glyphCache = new NovaTerminal.Rendering.GlyphCache();
+                using var glyphCache = new Ntilde.Rendering.GlyphCache();
                 options = options with { GlyphCache = glyphCache };
 
                 using var bitmap = TerminalSnapshotRenderer.Capture(buffer, parameters.Metrics, width, height, options);

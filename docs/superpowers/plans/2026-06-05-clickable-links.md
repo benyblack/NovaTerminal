@@ -4,7 +4,7 @@
 
 **Goal:** Auto-detect plain-text URLs/emails in terminal output and make them (plus existing OSC 8 links) hover-underlined and openable with a modifier-click, via an extensible rule-list detector.
 
-**Architecture:** A pure, UI-free `UrlDetector` in `NovaTerminal.VT` holds an ordered list of regex `LinkRule`s (ships with scheme + email defaults; new link kinds = append a rule). `RowTextExtractor` turns an absolute buffer row into display text plus a char→column map. `TerminalView` scans the row under the cursor on hover (memoized to one row), underlines the hovered span as a transient `DrawingContext` overlay (same model as the bell flash), and opens links on Ctrl/Cmd+Click through one `TryOpenLink` gated by a scheme allowlist. OSC 8 storage and lookup are reused unchanged.
+**Architecture:** A pure, UI-free `UrlDetector` in `Ntilde.VT` holds an ordered list of regex `LinkRule`s (ships with scheme + email defaults; new link kinds = append a rule). `RowTextExtractor` turns an absolute buffer row into display text plus a char→column map. `TerminalView` scans the row under the cursor on hover (memoized to one row), underlines the hovered span as a transient `DrawingContext` overlay (same model as the bell flash), and opens links on Ctrl/Cmd+Click through one `TryOpenLink` gated by a scheme allowlist. OSC 8 storage and lookup are reused unchanged.
 
 **Tech Stack:** C# / .NET, Avalonia (custom-drawn `TerminalView`), xUnit v3 tests. Build/test via `scripts/build.ps1` (never raw `dotnet` — see CLAUDE.md).
 
@@ -12,41 +12,41 @@
 
 ## File Structure
 
-**New (NovaTerminal.VT — pure, unit-tested):**
-- `src/NovaTerminal.VT/Links/LinkSpan.cs` — `LinkSpan` value type (char range + resolved URI).
-- `src/NovaTerminal.VT/Links/LinkRule.cs` — one detection rule (name, regex, resolver, trim flag).
-- `src/NovaTerminal.VT/Links/UrlDetector.cs` — runs rules over a line, dedups overlaps. Holds `DefaultRules`.
-- `src/NovaTerminal.VT/Links/RowTextExtractor.cs` — buffer row → `(text, charToCol)` + `SpanToColumns`.
-- `src/NovaTerminal.VT/Links/LinkSchemes.cs` — open-scheme allowlist (`http/https/mailto/file`).
+**New (Ntilde.VT — pure, unit-tested):**
+- `src/Ntilde.VT/Links/LinkSpan.cs` — `LinkSpan` value type (char range + resolved URI).
+- `src/Ntilde.VT/Links/LinkRule.cs` — one detection rule (name, regex, resolver, trim flag).
+- `src/Ntilde.VT/Links/UrlDetector.cs` — runs rules over a line, dedups overlaps. Holds `DefaultRules`.
+- `src/Ntilde.VT/Links/RowTextExtractor.cs` — buffer row → `(text, charToCol)` + `SpanToColumns`.
+- `src/Ntilde.VT/Links/LinkSchemes.cs` — open-scheme allowlist (`http/https/mailto/file`).
 
 **New tests:**
-- `tests/NovaTerminal.VT.Tests/Links/UrlDetectorTests.cs`
-- `tests/NovaTerminal.VT.Tests/Links/RowTextExtractorTests.cs`
-- `tests/NovaTerminal.VT.Tests/Links/LinkSchemesTests.cs`
+- `tests/Ntilde.VT.Tests/Links/UrlDetectorTests.cs`
+- `tests/Ntilde.VT.Tests/Links/RowTextExtractorTests.cs`
+- `tests/Ntilde.VT.Tests/Links/LinkSchemesTests.cs`
 
-**Modified (NovaTerminal.App):**
-- `src/NovaTerminal.App/Shell/TerminalView.cs` — hover state + `UpdateHoveredLink`, `OnPointerMoved`/`OnPointerExited` wiring, underline overlay in `Render`, `TryOpenLink` + `OnPointerPressed` refactor.
-- `src/NovaTerminal.App/Shell/TerminalSettings.cs` — `EnableLinkDetection` setting.
+**Modified (Ntilde.App):**
+- `src/Ntilde.App/Shell/TerminalView.cs` — hover state + `UpdateHoveredLink`, `OnPointerMoved`/`OnPointerExited` wiring, underline overlay in `Render`, `TryOpenLink` + `OnPointerPressed` refactor.
+- `src/Ntilde.App/Shell/TerminalSettings.cs` — `EnableLinkDetection` setting.
 
 ---
 
 ## Task 1: `LinkSpan`, `LinkRule`, and `UrlDetector` (scheme rule + overlap dedup)
 
 **Files:**
-- Create: `src/NovaTerminal.VT/Links/LinkSpan.cs`
-- Create: `src/NovaTerminal.VT/Links/LinkRule.cs`
-- Create: `src/NovaTerminal.VT/Links/UrlDetector.cs`
-- Test: `tests/NovaTerminal.VT.Tests/Links/UrlDetectorTests.cs`
+- Create: `src/Ntilde.VT/Links/LinkSpan.cs`
+- Create: `src/Ntilde.VT/Links/LinkRule.cs`
+- Create: `src/Ntilde.VT/Links/UrlDetector.cs`
+- Test: `tests/Ntilde.VT.Tests/Links/UrlDetectorTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.VT.Tests/Links/UrlDetectorTests.cs`:
+Create `tests/Ntilde.VT.Tests/Links/UrlDetectorTests.cs`:
 
 ```csharp
 using System.Linq;
-using NovaTerminal.VT.Links;
+using Ntilde.VT.Links;
 
-namespace NovaTerminal.VT.Tests.Links;
+namespace Ntilde.VT.Tests.Links;
 
 public class UrlDetectorTests
 {
@@ -88,28 +88,28 @@ public class UrlDetectorTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.VT.Tests --filter "FullyQualifiedName~UrlDetectorTests"`
-Expected: FAIL — compile error, `NovaTerminal.VT.Links` does not exist.
+Run: `scripts/build.ps1 test tests/Ntilde.VT.Tests --filter "FullyQualifiedName~UrlDetectorTests"`
+Expected: FAIL — compile error, `Ntilde.VT.Links` does not exist.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `src/NovaTerminal.VT/Links/LinkSpan.cs`:
+Create `src/Ntilde.VT/Links/LinkSpan.cs`:
 
 ```csharp
-namespace NovaTerminal.VT.Links
+namespace Ntilde.VT.Links
 {
     /// <summary>A detected link: character range [StartChar, EndChar) in a line plus its resolved URI.</summary>
     public readonly record struct LinkSpan(int StartChar, int EndChar, string Uri);
 }
 ```
 
-Create `src/NovaTerminal.VT/Links/LinkRule.cs`:
+Create `src/Ntilde.VT/Links/LinkRule.cs`:
 
 ```csharp
 using System;
 using System.Text.RegularExpressions;
 
-namespace NovaTerminal.VT.Links
+namespace Ntilde.VT.Links
 {
     /// <summary>
     /// One link-detection rule. Adding a new kind of clickable text = appending a LinkRule
@@ -135,14 +135,14 @@ namespace NovaTerminal.VT.Links
 }
 ```
 
-Create `src/NovaTerminal.VT/Links/UrlDetector.cs`:
+Create `src/Ntilde.VT/Links/UrlDetector.cs`:
 
 ```csharp
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
-namespace NovaTerminal.VT.Links
+namespace Ntilde.VT.Links
 {
     /// <summary>Detects links in a single line of text by applying an ordered list of LinkRules.</summary>
     public sealed class UrlDetector
@@ -216,13 +216,13 @@ namespace NovaTerminal.VT.Links
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.VT.Tests --filter "FullyQualifiedName~UrlDetectorTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.VT.Tests --filter "FullyQualifiedName~UrlDetectorTests"`
 Expected: PASS (4 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.VT/Links/LinkSpan.cs src/NovaTerminal.VT/Links/LinkRule.cs src/NovaTerminal.VT/Links/UrlDetector.cs tests/NovaTerminal.VT.Tests/Links/UrlDetectorTests.cs
+git add src/Ntilde.VT/Links/LinkSpan.cs src/Ntilde.VT/Links/LinkRule.cs src/Ntilde.VT/Links/UrlDetector.cs tests/Ntilde.VT.Tests/Links/UrlDetectorTests.cs
 git commit -m "feat(links): scheme URL detector with overlap dedup"
 ```
 
@@ -231,8 +231,8 @@ git commit -m "feat(links): scheme URL detector with overlap dedup"
 ## Task 2: Trailing-punctuation / bracket trimming
 
 **Files:**
-- Modify: `src/NovaTerminal.VT/Links/UrlDetector.cs` (already has `TrimTrailingEnd` from Task 1 — this task pins the behavior with tests)
-- Test: `tests/NovaTerminal.VT.Tests/Links/UrlDetectorTests.cs`
+- Modify: `src/Ntilde.VT/Links/UrlDetector.cs` (already has `TrimTrailingEnd` from Task 1 — this task pins the behavior with tests)
+- Test: `tests/Ntilde.VT.Tests/Links/UrlDetectorTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -261,7 +261,7 @@ Append to `UrlDetectorTests.cs`:
 
 - [ ] **Step 2: Run test to verify it fails or passes**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.VT.Tests --filter "FullyQualifiedName~UrlDetectorTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.VT.Tests --filter "FullyQualifiedName~UrlDetectorTests"`
 Expected: All PASS — the Task 1 implementation already covers these. If `Keeps_balanced_parens_inside_url` FAILS, fix `TrimTrailingEnd` (Step 3); otherwise skip Step 3.
 
 - [ ] **Step 3: Fix only if the balanced-parens test failed**
@@ -270,13 +270,13 @@ The balanced-paren case is handled by the `CountChar('(') < CountChar(')')` guar
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.VT.Tests --filter "FullyQualifiedName~UrlDetectorTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.VT.Tests --filter "FullyQualifiedName~UrlDetectorTests"`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.VT.Tests/Links/UrlDetectorTests.cs src/NovaTerminal.VT/Links/UrlDetector.cs
+git add tests/Ntilde.VT.Tests/Links/UrlDetectorTests.cs src/Ntilde.VT/Links/UrlDetector.cs
 git commit -m "test(links): pin trailing-punctuation and bracket trimming"
 ```
 
@@ -285,8 +285,8 @@ git commit -m "test(links): pin trailing-punctuation and bracket trimming"
 ## Task 3: Email → mailto rule
 
 **Files:**
-- Modify: `src/NovaTerminal.VT/Links/UrlDetector.cs` (add email rule to `DefaultRules`)
-- Test: `tests/NovaTerminal.VT.Tests/Links/UrlDetectorTests.cs`
+- Modify: `src/Ntilde.VT/Links/UrlDetector.cs` (add email rule to `DefaultRules`)
+- Test: `tests/Ntilde.VT.Tests/Links/UrlDetectorTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -314,12 +314,12 @@ Append to `UrlDetectorTests.cs`:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.VT.Tests --filter "FullyQualifiedName~UrlDetectorTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.VT.Tests --filter "FullyQualifiedName~UrlDetectorTests"`
 Expected: FAIL — `Detects_email_as_mailto` returns 0 spans (no email rule yet).
 
 - [ ] **Step 3: Add the email rule**
 
-In `src/NovaTerminal.VT/Links/UrlDetector.cs`, replace the `DefaultRules` initializer with:
+In `src/Ntilde.VT/Links/UrlDetector.cs`, replace the `DefaultRules` initializer with:
 
 ```csharp
         public static IReadOnlyList<LinkRule> DefaultRules { get; } = new[]
@@ -341,13 +341,13 @@ In `src/NovaTerminal.VT/Links/UrlDetector.cs`, replace the `DefaultRules` initia
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.VT.Tests --filter "FullyQualifiedName~UrlDetectorTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.VT.Tests --filter "FullyQualifiedName~UrlDetectorTests"`
 Expected: PASS (all UrlDetectorTests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.VT/Links/UrlDetector.cs tests/NovaTerminal.VT.Tests/Links/UrlDetectorTests.cs
+git add src/Ntilde.VT/Links/UrlDetector.cs tests/Ntilde.VT.Tests/Links/UrlDetectorTests.cs
 git commit -m "feat(links): add email->mailto detection rule"
 ```
 
@@ -356,18 +356,18 @@ git commit -m "feat(links): add email->mailto detection rule"
 ## Task 4: `RowTextExtractor` (row → text + char→column map)
 
 **Files:**
-- Create: `src/NovaTerminal.VT/Links/RowTextExtractor.cs`
-- Test: `tests/NovaTerminal.VT.Tests/Links/RowTextExtractorTests.cs`
+- Create: `src/Ntilde.VT/Links/RowTextExtractor.cs`
+- Test: `tests/Ntilde.VT.Tests/Links/RowTextExtractorTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.VT.Tests/Links/RowTextExtractorTests.cs`:
+Create `tests/Ntilde.VT.Tests/Links/RowTextExtractorTests.cs`:
 
 ```csharp
-using NovaTerminal.VT;
-using NovaTerminal.VT.Links;
+using Ntilde.VT;
+using Ntilde.VT.Links;
 
-namespace NovaTerminal.VT.Tests.Links;
+namespace Ntilde.VT.Tests.Links;
 
 public class RowTextExtractorTests
 {
@@ -420,18 +420,18 @@ public class RowTextExtractorTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.VT.Tests --filter "FullyQualifiedName~RowTextExtractorTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.VT.Tests --filter "FullyQualifiedName~RowTextExtractorTests"`
 Expected: FAIL — `RowTextExtractor` does not exist.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `src/NovaTerminal.VT/Links/RowTextExtractor.cs`:
+Create `src/Ntilde.VT/Links/RowTextExtractor.cs`:
 
 ```csharp
 using System.Collections.Generic;
 using System.Text;
 
-namespace NovaTerminal.VT.Links
+namespace Ntilde.VT.Links
 {
     /// <summary>
     /// Turns an absolute buffer row into its display text plus a map from each text-character
@@ -481,13 +481,13 @@ namespace NovaTerminal.VT.Links
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.VT.Tests --filter "FullyQualifiedName~RowTextExtractorTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.VT.Tests --filter "FullyQualifiedName~RowTextExtractorTests"`
 Expected: PASS (3 tests). If the wide-char test reports a different continuation column, adjust the test's expected columns to match this buffer's wide-cell model — the production mapping logic (skip `IsWideContinuation`) is correct.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.VT/Links/RowTextExtractor.cs tests/NovaTerminal.VT.Tests/Links/RowTextExtractorTests.cs
+git add src/Ntilde.VT/Links/RowTextExtractor.cs tests/Ntilde.VT.Tests/Links/RowTextExtractorTests.cs
 git commit -m "feat(links): row text extraction with char->column mapping"
 ```
 
@@ -496,17 +496,17 @@ git commit -m "feat(links): row text extraction with char->column mapping"
 ## Task 5: `LinkSchemes` open allowlist
 
 **Files:**
-- Create: `src/NovaTerminal.VT/Links/LinkSchemes.cs`
-- Test: `tests/NovaTerminal.VT.Tests/Links/LinkSchemesTests.cs`
+- Create: `src/Ntilde.VT/Links/LinkSchemes.cs`
+- Test: `tests/Ntilde.VT.Tests/Links/LinkSchemesTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.VT.Tests/Links/LinkSchemesTests.cs`:
+Create `tests/Ntilde.VT.Tests/Links/LinkSchemesTests.cs`:
 
 ```csharp
-using NovaTerminal.VT.Links;
+using Ntilde.VT.Links;
 
-namespace NovaTerminal.VT.Tests.Links;
+namespace Ntilde.VT.Tests.Links;
 
 public class LinkSchemesTests
 {
@@ -530,18 +530,18 @@ public class LinkSchemesTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.VT.Tests --filter "FullyQualifiedName~LinkSchemesTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.VT.Tests --filter "FullyQualifiedName~LinkSchemesTests"`
 Expected: FAIL — `LinkSchemes` does not exist.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `src/NovaTerminal.VT/Links/LinkSchemes.cs`:
+Create `src/Ntilde.VT/Links/LinkSchemes.cs`:
 
 ```csharp
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.VT.Links
+namespace Ntilde.VT.Links
 {
     /// <summary>
     /// Allowlist of URI schemes the terminal will launch. Detected text must never be able to
@@ -565,13 +565,13 @@ namespace NovaTerminal.VT.Links
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.VT.Tests --filter "FullyQualifiedName~LinkSchemesTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.VT.Tests --filter "FullyQualifiedName~LinkSchemesTests"`
 Expected: PASS (9 cases).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.VT/Links/LinkSchemes.cs tests/NovaTerminal.VT.Tests/Links/LinkSchemesTests.cs
+git add src/Ntilde.VT/Links/LinkSchemes.cs tests/Ntilde.VT.Tests/Links/LinkSchemesTests.cs
 git commit -m "feat(links): open-scheme allowlist"
 ```
 
@@ -580,12 +580,12 @@ git commit -m "feat(links): open-scheme allowlist"
 ## Task 6: `EnableLinkDetection` setting
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/TerminalSettings.cs:26` (after `SmoothScrolling`)
-- Modify: `src/NovaTerminal.App/Shell/TerminalView.cs:678` (in `ApplySettings`, after `_enableSmoothScrolling = settings.SmoothScrolling;`)
+- Modify: `src/Ntilde.App/Shell/TerminalSettings.cs:26` (after `SmoothScrolling`)
+- Modify: `src/Ntilde.App/Shell/TerminalView.cs:678` (in `ApplySettings`, after `_enableSmoothScrolling = settings.SmoothScrolling;`)
 
 - [ ] **Step 1: Add the setting property**
 
-In `src/NovaTerminal.App/Shell/TerminalSettings.cs`, immediately after the `SmoothScrolling` line (line 26), add:
+In `src/Ntilde.App/Shell/TerminalSettings.cs`, immediately after the `SmoothScrolling` line (line 26), add:
 
 ```csharp
         public bool EnableLinkDetection { get; set; } = true;
@@ -593,7 +593,7 @@ In `src/NovaTerminal.App/Shell/TerminalSettings.cs`, immediately after the `Smoo
 
 - [ ] **Step 2: Add the backing field in TerminalView**
 
-In `src/NovaTerminal.App/Shell/TerminalView.cs`, next to the other `_enable*` fields (near line 545–546), add:
+In `src/Ntilde.App/Shell/TerminalView.cs`, next to the other `_enable*` fields (near line 545–546), add:
 
 ```csharp
         private bool _enableLinkDetection = true;
@@ -601,7 +601,7 @@ In `src/NovaTerminal.App/Shell/TerminalView.cs`, next to the other `_enable*` fi
 
 - [ ] **Step 3: Apply it in ApplySettings**
 
-In `src/NovaTerminal.App/Shell/TerminalView.cs`, in `ApplySettings`, immediately after `_enableSmoothScrolling = settings.SmoothScrolling;` (line 678), add:
+In `src/Ntilde.App/Shell/TerminalView.cs`, in `ApplySettings`, immediately after `_enableSmoothScrolling = settings.SmoothScrolling;` (line 678), add:
 
 ```csharp
                 _enableLinkDetection = settings.EnableLinkDetection;
@@ -609,13 +609,13 @@ In `src/NovaTerminal.App/Shell/TerminalView.cs`, in `ApplySettings`, immediately
 
 - [ ] **Step 4: Build to verify it compiles**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.App`
+Run: `scripts/build.ps1 build src/Ntilde.App`
 Expected: Build succeeded, 0 errors.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/TerminalSettings.cs src/NovaTerminal.App/Shell/TerminalView.cs
+git add src/Ntilde.App/Shell/TerminalSettings.cs src/Ntilde.App/Shell/TerminalView.cs
 git commit -m "feat(links): add EnableLinkDetection setting (default on)"
 ```
 
@@ -624,26 +624,26 @@ git commit -m "feat(links): add EnableLinkDetection setting (default on)"
 ## Task 7: Hover state + hit-testing in `TerminalView`
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/TerminalView.cs` (fields near line 849; `OnPointerMoved` near line 1730; new `UpdateHoveredLink` / `ClearHoveredLink` helpers; `OnPointerExited` override)
+- Modify: `src/Ntilde.App/Shell/TerminalView.cs` (fields near line 849; `OnPointerMoved` near line 1730; new `UpdateHoveredLink` / `ClearHoveredLink` helpers; `OnPointerExited` override)
 
 - [ ] **Step 1: Add hover fields**
 
-In `src/NovaTerminal.App/Shell/TerminalView.cs`, near the `_selection` field (line 849), add:
+In `src/Ntilde.App/Shell/TerminalView.cs`, near the `_selection` field (line 849), add:
 
 ```csharp
-        private readonly NovaTerminal.VT.Links.UrlDetector _urlDetector = new NovaTerminal.VT.Links.UrlDetector();
+        private readonly Ntilde.VT.Links.UrlDetector _urlDetector = new Ntilde.VT.Links.UrlDetector();
         // Hovered link overlay state (transient UI state, never written to the buffer).
         private (int AbsRow, int StartCol, int EndCol, string Uri)? _hoveredLink;
         // One-row memo so we only re-run detection when the pointer moves to a new row.
         private int _hoverScanRow = -1;
-        private System.Collections.Generic.IReadOnlyList<NovaTerminal.VT.Links.LinkSpan> _hoverScanSpans =
-            System.Array.Empty<NovaTerminal.VT.Links.LinkSpan>();
+        private System.Collections.Generic.IReadOnlyList<Ntilde.VT.Links.LinkSpan> _hoverScanSpans =
+            System.Array.Empty<Ntilde.VT.Links.LinkSpan>();
         private int[] _hoverScanMap = System.Array.Empty<int>();
 ```
 
 - [ ] **Step 2: Add the hover update + clear helpers**
 
-In `src/NovaTerminal.App/Shell/TerminalView.cs`, add these methods near the other pointer helpers (e.g. just after `OnPointerReleased`, around line 1792):
+In `src/Ntilde.App/Shell/TerminalView.cs`, add these methods near the other pointer helpers (e.g. just after `OnPointerReleased`, around line 1792):
 
 ```csharp
         private void UpdateHoveredLink(Avalonia.Point position)
@@ -665,7 +665,7 @@ In `src/NovaTerminal.App/Shell/TerminalView.cs`, add these methods near the othe
             {
                 if (absRow != _hoverScanRow)
                 {
-                    var (text, map) = NovaTerminal.VT.Links.RowTextExtractor.Extract(_buffer, absRow);
+                    var (text, map) = Ntilde.VT.Links.RowTextExtractor.Extract(_buffer, absRow);
                     _hoverScanSpans = _urlDetector.Detect(text);
                     _hoverScanMap = map;
                     _hoverScanRow = absRow;
@@ -673,7 +673,7 @@ In `src/NovaTerminal.App/Shell/TerminalView.cs`, add these methods near the othe
 
                 foreach (var span in _hoverScanSpans)
                 {
-                    var (startCol, endCol) = NovaTerminal.VT.Links.RowTextExtractor.SpanToColumns(span, _hoverScanMap);
+                    var (startCol, endCol) = Ntilde.VT.Links.RowTextExtractor.SpanToColumns(span, _hoverScanMap);
                     if (col >= startCol && col <= endCol)
                     {
                         SetHoveredLink((absRow, startCol, endCol, span.Uri));
@@ -704,7 +704,7 @@ In `src/NovaTerminal.App/Shell/TerminalView.cs`, add these methods near the othe
 
 - [ ] **Step 3: Call the helper from `OnPointerMoved`**
 
-In `src/NovaTerminal.App/Shell/TerminalView.cs`, in `OnPointerMoved`, after the mouse-reporting `return;` block (line 1730) and before `if (_isSelecting)` (line 1732), insert:
+In `src/Ntilde.App/Shell/TerminalView.cs`, in `OnPointerMoved`, after the mouse-reporting `return;` block (line 1730) and before `if (_isSelecting)` (line 1732), insert:
 
 ```csharp
             if (!_isSelecting)
@@ -715,7 +715,7 @@ In `src/NovaTerminal.App/Shell/TerminalView.cs`, in `OnPointerMoved`, after the 
 
 - [ ] **Step 4: Clear hover on pointer exit**
 
-In `src/NovaTerminal.App/Shell/TerminalView.cs`, add an override near the other pointer overrides (e.g. after `OnPointerMoved`'s closing brace, around line 1759):
+In `src/Ntilde.App/Shell/TerminalView.cs`, add an override near the other pointer overrides (e.g. after `OnPointerMoved`'s closing brace, around line 1759):
 
 ```csharp
         protected override void OnPointerExited(Avalonia.Input.PointerEventArgs e)
@@ -728,13 +728,13 @@ In `src/NovaTerminal.App/Shell/TerminalView.cs`, add an override near the other 
 
 - [ ] **Step 5: Build to verify it compiles**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.App`
+Run: `scripts/build.ps1 build src/Ntilde.App`
 Expected: Build succeeded, 0 errors.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/TerminalView.cs
+git add src/Ntilde.App/Shell/TerminalView.cs
 git commit -m "feat(links): hover hit-testing and Hand cursor for links"
 ```
 
@@ -743,11 +743,11 @@ git commit -m "feat(links): hover hit-testing and Hand cursor for links"
 ## Task 8: Render the hover underline overlay
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/TerminalView.cs` (in `Render`, after the `context.Custom(...)` op and alongside the bell-flash overlay, around line 1563)
+- Modify: `src/Ntilde.App/Shell/TerminalView.cs` (in `Render`, after the `context.Custom(...)` op and alongside the bell-flash overlay, around line 1563)
 
 - [ ] **Step 1: Draw the underline overlay**
 
-In `src/NovaTerminal.App/Shell/TerminalView.cs`, in `Render`, immediately before the `if (_isBellFlashActive)` block (line 1564), insert:
+In `src/Ntilde.App/Shell/TerminalView.cs`, in `Render`, immediately before the `if (_isBellFlashActive)` block (line 1564), insert:
 
 ```csharp
             if (_hoveredLink is { } link && _metrics.CellWidth > 0 && _metrics.CellHeight > 0)
@@ -770,18 +770,18 @@ In `src/NovaTerminal.App/Shell/TerminalView.cs`, in `Render`, immediately before
 
 - [ ] **Step 2: Build to verify it compiles**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.App`
+Run: `scripts/build.ps1 build src/Ntilde.App`
 Expected: Build succeeded, 0 errors.
 
 - [ ] **Step 3: Manual verification**
 
-Run the app: `scripts/build.ps1 run src/NovaTerminal.App` (or your usual launch). In a shell, run `echo see https://example.com here`, then move the mouse over the URL.
+Run the app: `scripts/build.ps1 run src/Ntilde.App` (or your usual launch). In a shell, run `echo see https://example.com here`, then move the mouse over the URL.
 Expected: the URL gets an underline and the cursor becomes a hand while hovering; both disappear when the mouse moves away or leaves the pane.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/TerminalView.cs
+git add src/Ntilde.App/Shell/TerminalView.cs
 git commit -m "feat(links): underline the hovered link as a render overlay"
 ```
 
@@ -790,11 +790,11 @@ git commit -m "feat(links): underline the hovered link as a render overlay"
 ## Task 9: Unified modifier-click open path
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/TerminalView.cs` (`OnPointerPressed` block at lines 1656–1683; add `TryOpenLink` helper)
+- Modify: `src/Ntilde.App/Shell/TerminalView.cs` (`OnPointerPressed` block at lines 1656–1683; add `TryOpenLink` helper)
 
 - [ ] **Step 1: Add the `TryOpenLink` helper**
 
-In `src/NovaTerminal.App/Shell/TerminalView.cs`, add near the pointer helpers (e.g. after `ClearHoveredLink`):
+In `src/Ntilde.App/Shell/TerminalView.cs`, add near the pointer helpers (e.g. after `ClearHoveredLink`):
 
 ```csharp
         private static bool IsLinkActivationModifier(KeyModifiers modifiers)
@@ -807,7 +807,7 @@ In `src/NovaTerminal.App/Shell/TerminalView.cs`, add near the pointer helpers (e
 
         private bool TryOpenLink(string? uri)
         {
-            if (!NovaTerminal.VT.Links.LinkSchemes.IsAllowed(uri)) return false;
+            if (!Ntilde.VT.Links.LinkSchemes.IsAllowed(uri)) return false;
             if (!Uri.TryCreate(uri, UriKind.Absolute, out var linkUri)) return false;
             try
             {
@@ -835,10 +835,10 @@ In `src/NovaTerminal.App/Shell/TerminalView.cs`, add near the pointer helpers (e
 
             if (!_enableLinkDetection) return null;
 
-            var (text, map) = NovaTerminal.VT.Links.RowTextExtractor.Extract(_buffer, absRow);
+            var (text, map) = Ntilde.VT.Links.RowTextExtractor.Extract(_buffer, absRow);
             foreach (var span in _urlDetector.Detect(text))
             {
-                var (startCol, endCol) = NovaTerminal.VT.Links.RowTextExtractor.SpanToColumns(span, map);
+                var (startCol, endCol) = Ntilde.VT.Links.RowTextExtractor.SpanToColumns(span, map);
                 if (col >= startCol && col <= endCol) return span.Uri;
             }
             return null;
@@ -847,7 +847,7 @@ In `src/NovaTerminal.App/Shell/TerminalView.cs`, add near the pointer helpers (e
 
 - [ ] **Step 2: Replace the existing OSC 8 click block**
 
-In `src/NovaTerminal.App/Shell/TerminalView.cs`, replace the current block at lines 1661–1683:
+In `src/Ntilde.App/Shell/TerminalView.cs`, replace the current block at lines 1661–1683:
 
 ```csharp
                 bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
@@ -891,7 +891,7 @@ with:
 
 - [ ] **Step 3: Build to verify it compiles**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.App`
+Run: `scripts/build.ps1 build src/Ntilde.App`
 Expected: Build succeeded, 0 errors.
 
 - [ ] **Step 4: Manual verification**
@@ -902,7 +902,7 @@ Expected: the URL opens in the default browser. A plain click (no modifier) sele
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/TerminalView.cs
+git add src/Ntilde.App/Shell/TerminalView.cs
 git commit -m "feat(links): unified modifier-click open with scheme allowlist"
 ```
 
@@ -914,12 +914,12 @@ git commit -m "feat(links): unified modifier-click open with scheme allowlist"
 
 - [ ] **Step 1: Run the full VT test project**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.VT.Tests`
+Run: `scripts/build.ps1 test tests/Ntilde.VT.Tests`
 Expected: PASS — all link tests plus pre-existing VT tests green.
 
 - [ ] **Step 2: Build the app once more**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.App`
+Run: `scripts/build.ps1 build src/Ntilde.App`
 Expected: Build succeeded, 0 errors, 0 new warnings from touched files.
 
 - [ ] **Step 3: Commit any incidental fixes (if needed)**

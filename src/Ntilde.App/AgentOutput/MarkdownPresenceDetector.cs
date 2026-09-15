@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.AgentOutput;
+namespace Ntilde.AgentOutput;
 
 /// <summary>
 /// Decides whether a chunk of terminal output looks like markdown, using distinct structural

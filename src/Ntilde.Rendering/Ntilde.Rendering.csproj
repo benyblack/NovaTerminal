@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\NovaTerminal.VT\NovaTerminal.VT.csproj" />
+    <ProjectReference Include="..\Ntilde.VT\Ntilde.VT.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -10,7 +10,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="NovaTerminal.Rendering.Tests" />
+    <InternalsVisibleTo Include="Ntilde.Rendering.Tests" />
   </ItemGroup>
 
 </Project>

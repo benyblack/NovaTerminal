@@ -2,7 +2,7 @@
 
 ## Goal
 
-Polish NovaTerminal's Native SSH remote-files sidebar into a denser, more legible pane-local utility rail while preserving its terminal-first scope.
+Polish Ntilde's Native SSH remote-files sidebar into a denser, more legible pane-local utility rail while preserving its terminal-first scope.
 
 ## Product Direction
 
@@ -179,10 +179,10 @@ Update coverage in four areas:
 
 After this pass:
 
-- the sidebar looks materially closer to a polished NovaTerminal surface
+- the sidebar looks materially closer to a polished Ntilde surface
 - the rail remains compact and pane-local
 - remote context is clearer
 - recently modified entries are visible without opening a second details surface
 - users can quickly see what changed recently in the current directory
-- the UX remains aligned with NovaTerminal's terminal-first philosophy
+- the UX remains aligned with Ntilde's terminal-first philosophy
 - the product does not drift into an embedded SFTP client or file manager

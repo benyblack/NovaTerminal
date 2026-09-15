@@ -1,4 +1,4 @@
-namespace NovaTerminal.Platform.Ssh.Models;
+namespace Ntilde.Platform.Ssh.Models;
 
 public sealed class SshJumpHop
 {

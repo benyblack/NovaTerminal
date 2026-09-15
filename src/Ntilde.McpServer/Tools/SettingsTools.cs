@@ -6,24 +6,24 @@ using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Server;
 
-namespace NovaTerminal.McpServer.Tools;
+namespace Ntilde.McpServer.Tools;
 
-// Source of truth for the field list: src/NovaTerminal.App/Shell/TerminalSettings.cs
+// Source of truth for the field list: src/Ntilde.App/Shell/TerminalSettings.cs
 // (PascalCase keys, integer enums; ThemeManager and ActiveTheme are [JsonIgnore]).
-// This server has NO ProjectReference to NovaTerminal.App by design, so the field knowledge
+// This server has NO ProjectReference to Ntilde.App by design, so the field knowledge
 // is hand-mirrored. There is intentionally no reflection drift-guard (an App reference would
 // pull in Avalonia); keep this list in sync with TerminalSettings by hand.
 [McpServerToolType]
 public static class SettingsTools
 {
-    [McpServerTool(Name = "novaterminal.get_settings_schema"),
-     Description("Returns the schema for NovaTerminal's settings.json: top-level fields grouped by area (PascalCase keys, integer enums for embedded profiles), types, defaults, and an annotated example. Validates the top-level shape only (embedded profiles are not deep-validated). Use before authoring or editing settings.json.")]
+    [McpServerTool(Name = "ntilde.get_settings_schema"),
+     Description("Returns the schema for Ntilde's settings.json: top-level fields grouped by area (PascalCase keys, integer enums for embedded profiles), types, defaults, and an annotated example. Validates the top-level shape only (embedded profiles are not deep-validated). Use before authoring or editing settings.json.")]
     public static string GetSettingsSchema() =>
         """
-        # NovaTerminal settings.json schema
+        # Ntilde settings.json schema
 
-        Settings are stored at `%LOCALAPPDATA%\NovaTerminal\settings.json` (override dir via
-        `NOVATERM_APPDATA_ROOT`). The on-disk format uses **PascalCase** field names and
+        Settings are stored at `%LOCALAPPDATA%\Ntilde\settings.json` (override dir via
+        `NTILDE_APPDATA_ROOT`). The on-disk format uses **PascalCase** field names and
         **integer-valued enums** (for embedded profiles). Every field has a default, so an empty
         object `{}` is valid. This tool/validator covers the top-level fields and the structural
         shape of collections; it does not deep-validate embedded profile entries.
@@ -198,8 +198,8 @@ public static class SettingsTools
         "Profiles", "DefaultProfileId", "TitleBarItems", "TitleBarOrder",
     };
 
-    [McpServerTool(Name = "novaterminal.validate_settings_json"),
-     Description("Validates a NovaTerminal settings.json string (the top-level shape). Reports wrong field types, out-of-range numerics, a malformed DefaultProfileId GUID, malformed collection shapes, and warns on unknown fields and any stray Password. Embedded profiles are not deep-validated. An empty object {} is valid (every setting has a default).")]
+    [McpServerTool(Name = "ntilde.validate_settings_json"),
+     Description("Validates a Ntilde settings.json string (the top-level shape). Reports wrong field types, out-of-range numerics, a malformed DefaultProfileId GUID, malformed collection shapes, and warns on unknown fields and any stray Password. Embedded profiles are not deep-validated. An empty object {} is valid (every setting has a default).")]
     public static string ValidateSettingsJson(
         [Description("The settings.json document to validate.")] string settingsJson)
     {

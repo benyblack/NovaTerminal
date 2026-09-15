@@ -4,12 +4,12 @@ import sitemap from '@astrojs/sitemap';
 
 // `site` is the canonical origin (no trailing path) used for the sitemap
 // and OpenGraph URLs. `base` is the path prefix Astro adds to every page
-// and asset. Defaults assume a project Pages site at `/NovaTerminal/`.
+// and asset. Defaults assume a project Pages site at `/Ntilde/`.
 // The sentinel `__default__` (substituted by the workflow when the
 // variable is unset) means "use the default". An empty value means
 // "explicitly no prefix" — used for custom-domain deployments.
 const DEFAULT_SITE = 'https://benyblack.github.io';
-const DEFAULT_BASE = '/NovaTerminal';
+const DEFAULT_BASE = '/ntilde';
 const USE_DEFAULT = '__default__';
 const resolveEnv = (name, fallback) => {
   const v = process.env[name];

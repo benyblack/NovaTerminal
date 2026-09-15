@@ -49,7 +49,7 @@ body:
         This one distinction saves a lot of triage — it tells us whether the
         bug is ours or upstream in the program you are running.
       options:
-        - "No — NovaTerminal only (works correctly elsewhere)"
+        - "No — Ntilde only (works correctly elsewhere)"
         - "Yes — other terminals do the same thing"
         - "Haven't checked"
     validations:
@@ -66,7 +66,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: NovaTerminal version or commit
+      label: Ntilde version or commit
       description: |
         The release bundle version, or `git rev-parse --short HEAD` if you built
         from source.

@@ -1,9 +1,9 @@
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
-/// Covers <see cref="NovaTerminal.MainWindow.ComputeCaptionButtonReserve"/>, which replaced the
+/// Covers <see cref="Ntilde.MainWindow.ComputeCaptionButtonReserve"/>, which replaced the
 /// literal 140 in MainWindow.axaml's title bar margin.
 ///
 /// 140 is three 45px caption buttons plus 2px spacing plus the 1px border margin, and it is only
@@ -19,7 +19,7 @@ namespace NovaTerminal.Tests.Core;
 /// </summary>
 public class MainWindowCaptionReserveTests
 {
-    private const double Gutter = NovaTerminal.MainWindow.CaptionReserveGutter;
+    private const double Gutter = Ntilde.MainWindow.CaptionReserveGutter;
 
     // Measured off a real X11 window on Hyprland (only the close button survives there): the window
     // spanned 1227 DIPs, the strip sat at x=1173 and was 45 wide. Pinned as the concrete case so a
@@ -32,7 +32,7 @@ public class MainWindowCaptionReserveTests
     [Fact]
     public void CloseOnlyStrip_ReservesTheStripPlusItsInsetPlusTheGutter()
     {
-        var reserve = NovaTerminal.MainWindow.ComputeCaptionButtonReserve(
+        var reserve = Ntilde.MainWindow.ComputeCaptionButtonReserve(
             RealWindowWidth, RealStripLeft, RealStripWidth);
 
         // 1227 - 1173 = 54 (the 45px button plus the 9px frame inset to its right), + 8 gutter.
@@ -42,7 +42,7 @@ public class MainWindowCaptionReserveTests
     [Fact]
     public void CloseOnlyStrip_ReservesFarLessThanTheOldHardcoded140()
     {
-        var reserve = NovaTerminal.MainWindow.ComputeCaptionButtonReserve(
+        var reserve = Ntilde.MainWindow.ComputeCaptionButtonReserve(
             RealWindowWidth, RealStripLeft, RealStripWidth);
 
         Assert.True(reserve < 140, $"expected the measured reserve to beat the old constant, got {reserve}");
@@ -63,9 +63,9 @@ public class MainWindowCaptionReserveTests
         const double threeWide = 139;
         const double oneWide = 45;
 
-        var three = NovaTerminal.MainWindow.ComputeCaptionButtonReserve(
+        var three = Ntilde.MainWindow.ComputeCaptionButtonReserve(
             windowWidth, windowWidth - inset - threeWide, threeWide);
-        var one = NovaTerminal.MainWindow.ComputeCaptionButtonReserve(
+        var one = Ntilde.MainWindow.ComputeCaptionButtonReserve(
             windowWidth, windowWidth - inset - oneWide, oneWide);
 
         Assert.Equal(threeWide - oneWide, three - one);
@@ -80,7 +80,7 @@ public class MainWindowCaptionReserveTests
         // Zero width is a real state, not just a guard: the theme collapses the whole overlay panel
         // in fullscreen. A platform drawing native chrome instead reaches the same answer via a null
         // strip in UpdateCaptionButtonReserve.
-        var reserve = NovaTerminal.MainWindow.ComputeCaptionButtonReserve(
+        var reserve = Ntilde.MainWindow.ComputeCaptionButtonReserve(
             RealWindowWidth, RealStripLeft, stripWidth);
 
         Assert.Equal(Gutter, reserve);
@@ -94,7 +94,7 @@ public class MainWindowCaptionReserveTests
         // Both are NaN before the first arrange. Without the guard the subtraction would propagate
         // NaN into a Thickness, and Avalonia lays out a NaN margin as zero - silently putting our
         // buttons underneath the caption buttons rather than failing.
-        var reserve = NovaTerminal.MainWindow.ComputeCaptionButtonReserve(
+        var reserve = Ntilde.MainWindow.ComputeCaptionButtonReserve(
             windowWidth, stripLeft, RealStripWidth);
 
         Assert.Equal(Gutter, reserve);
@@ -106,7 +106,7 @@ public class MainWindowCaptionReserveTests
         // left > windowWidth is reachable mid-transition, when the frame has resized on one layout
         // pass and the strip has not caught up. A negative margin is legal in Avalonia and would let
         // our buttons overhang the window, so the floor matters.
-        var reserve = NovaTerminal.MainWindow.ComputeCaptionButtonReserve(
+        var reserve = Ntilde.MainWindow.ComputeCaptionButtonReserve(
             windowWidth: 800, captionStripLeft: 900, captionStripWidth: 45);
 
         Assert.Equal(Gutter, reserve);
@@ -117,7 +117,7 @@ public class MainWindowCaptionReserveTests
     {
         // Same mid-transition origin: a strip still holding a previous, much larger window's
         // coordinates would otherwise reserve most of the title bar and push our buttons out of view.
-        var reserve = NovaTerminal.MainWindow.ComputeCaptionButtonReserve(
+        var reserve = Ntilde.MainWindow.ComputeCaptionButtonReserve(
             windowWidth: 800, captionStripLeft: 10, captionStripWidth: 700);
 
         Assert.Equal(400, reserve);
@@ -128,7 +128,7 @@ public class MainWindowCaptionReserveTests
     {
         // The ceiling is max(gutter, width/2) rather than width/2 so the two bounds cannot cross on a
         // window narrower than twice the gutter, which Math.Clamp would throw on.
-        var reserve = NovaTerminal.MainWindow.ComputeCaptionButtonReserve(
+        var reserve = Ntilde.MainWindow.ComputeCaptionButtonReserve(
             windowWidth: 10, captionStripLeft: 0, captionStripWidth: 45);
 
         Assert.Equal(Gutter, reserve);

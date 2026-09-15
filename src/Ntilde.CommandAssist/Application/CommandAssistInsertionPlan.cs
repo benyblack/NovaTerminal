@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// How an accepted row is turned into bytes: extend what the user typed, or throw it away and

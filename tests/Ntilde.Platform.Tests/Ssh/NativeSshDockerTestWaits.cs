@@ -1,10 +1,10 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using NovaTerminal.Replay;
-using NovaTerminal.VT;
+using Ntilde.Replay;
+using Ntilde.VT;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 /// <summary>
 /// Waiting and traffic helpers shared by the Docker end-to-end suites.

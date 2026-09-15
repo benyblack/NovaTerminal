@@ -1,10 +1,10 @@
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.Providers;
-using NovaTerminal.CommandAssist.Providers.Local;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.Providers;
+using Ntilde.CommandAssist.Providers.Local;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// The V2 Phase 5 AI content-provider seam: the redaction guarantee, the registry's policy and

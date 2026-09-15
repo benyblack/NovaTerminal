@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.Platform
+namespace Ntilde.Platform
 {
     public enum DetectedShell
     {

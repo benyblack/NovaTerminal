@@ -1,6 +1,6 @@
-using NovaTerminal.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Interactions;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 internal sealed class NativeSshTestInteractionHandler : ISshInteractionHandler
 {

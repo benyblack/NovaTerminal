@@ -1,8 +1,8 @@
 using System.IO;
-using NovaTerminal.McpServer;
-using NovaTerminal.McpServer.Tools;
+using Ntilde.McpServer;
+using Ntilde.McpServer.Tools;
 
-namespace NovaTerminal.McpServer.Tests;
+namespace Ntilde.McpServer.Tests;
 
 public class WorkflowToolsTests
 {
@@ -39,7 +39,7 @@ public class WorkflowToolsTests
     [Fact]
     public void ProjectSummary_IsNonEmpty()
     {
-        Assert.Contains("NovaTerminal", ProjectTools.GetProjectSummary());
+        Assert.Contains("Ntilde", ProjectTools.GetProjectSummary());
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public class RepoContextTests
     [Fact]
     public void ReadDoc_ConfinedToDocs_RejectsTraversal()
     {
-        string root = Path.Combine(Path.GetTempPath(), "nova-mcp-test-" + System.Guid.NewGuid().ToString("N"));
+        string root = Path.Combine(Path.GetTempPath(), "ntilde-mcp-test-" + System.Guid.NewGuid().ToString("N"));
         try
         {
             Directory.CreateDirectory(Path.Combine(root, "docs"));

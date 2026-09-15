@@ -13,11 +13,11 @@
 ### Task 1: Add failing shell integration contract tests
 
 **Files:**
-- Create: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs`
-- Create: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellShellIntegrationProviderTests.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Contracts/IShellIntegrationProvider.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Contracts/ShellIntegrationLaunchPlan.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Runtime/ShellIntegrationRegistry.cs`
+- Create: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs`
+- Create: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellShellIntegrationProviderTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Contracts/IShellIntegrationProvider.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Contracts/ShellIntegrationLaunchPlan.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Runtime/ShellIntegrationRegistry.cs`
 
 **Step 1: Write the failing tests**
 
@@ -54,7 +54,7 @@ public void CreateLaunchPlan_WhenPowerShellEnabled_ReturnsIntegratedPlan()
 
 **Step 2: Run tests to verify they fail**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "ShellIntegrationRegistryTests|PowerShellShellIntegrationProviderTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "ShellIntegrationRegistryTests|PowerShellShellIntegrationProviderTests" --logger "console;verbosity=minimal"`
 
 Expected: FAIL with missing shell integration contracts and provider types.
 
@@ -78,24 +78,24 @@ public sealed record ShellIntegrationLaunchPlan(
 
 **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "ShellIntegrationRegistryTests|PowerShellShellIntegrationProviderTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "ShellIntegrationRegistryTests|PowerShellShellIntegrationProviderTests" --logger "console;verbosity=minimal"`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/CommandAssist/ShellIntegration src/NovaTerminal.App/CommandAssist/ShellIntegration
+git add tests/Ntilde.Tests/CommandAssist/ShellIntegration src/Ntilde.App/CommandAssist/ShellIntegration
 git commit -m "Add shell integration provider contracts"
 ```
 
 ### Task 2: Add failing PowerShell bootstrap builder tests
 
 **Files:**
-- Create: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Assets/PowerShell/CommandAssistBootstrap.ps1`
-- Modify: `src/NovaTerminal.App/Core/AppPaths.cs`
+- Create: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Assets/PowerShell/CommandAssistBootstrap.ps1`
+- Modify: `src/Ntilde.App/Core/AppPaths.cs`
 
 **Step 1: Write the failing tests**
 
@@ -122,7 +122,7 @@ public void WriteBootstrapScript_WritesIntoAppPath()
 
 **Step 2: Run tests to verify they fail**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "PowerShellBootstrapBuilderTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "PowerShellBootstrapBuilderTests" --logger "console;verbosity=minimal"`
 
 Expected: FAIL with missing bootstrap builder and asset handling.
 
@@ -133,7 +133,7 @@ Use a generated script that emits:
 ```powershell
 $esc = [char]27
 $bel = [char]7
-function Write-NovaOsc([string]$payload) {
+function Write-NtildeOsc([string]$payload) {
     [Console]::Out.Write("$esc]$payload$bel")
 }
 ```
@@ -147,22 +147,22 @@ Include hooks for:
 
 **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "PowerShellBootstrapBuilderTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "PowerShellBootstrapBuilderTests" --logger "console;verbosity=minimal"`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell src/NovaTerminal.App/Core/AppPaths.cs
+git add tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell src/Ntilde.App/Core/AppPaths.cs
 git commit -m "Add PowerShell shell integration bootstrap builder"
 ```
 
 ### Task 3: Add failing parser tests for any new lifecycle markers
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/OscShellIntegrationTests.cs`
-- Modify: `src/NovaTerminal.VT/AnsiParser.cs`
+- Modify: `tests/Ntilde.Tests/OscShellIntegrationTests.cs`
+- Modify: `src/Ntilde.VT/AnsiParser.cs`
 
 **Step 1: Write the failing tests**
 
@@ -185,7 +185,7 @@ public void Osc133A_RaisesPromptReady()
 
 **Step 2: Run tests to verify they fail**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "OscShellIntegrationTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "OscShellIntegrationTests" --logger "console;verbosity=minimal"`
 
 Expected: FAIL only for newly added marker expectations.
 
@@ -201,24 +201,24 @@ Parse only the exact additional OSC markers M3 requires.
 
 **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "OscShellIntegrationTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "OscShellIntegrationTests" --logger "console;verbosity=minimal"`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/OscShellIntegrationTests.cs src/NovaTerminal.VT/AnsiParser.cs
+git add tests/Ntilde.Tests/OscShellIntegrationTests.cs src/Ntilde.VT/AnsiParser.cs
 git commit -m "Add minimal OSC shell lifecycle markers for M3"
 ```
 
 ### Task 4: Add failing shell lifecycle tracker tests
 
 **Files:**
-- Create: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Runtime/ShellIntegrationEvent.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Runtime/ShellIntegrationEventType.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Runtime/ShellLifecycleTracker.cs`
+- Create: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Runtime/ShellIntegrationEvent.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Runtime/ShellIntegrationEventType.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Runtime/ShellLifecycleTracker.cs`
 
 **Step 1: Write the failing tests**
 
@@ -249,7 +249,7 @@ public void WorkingDirectoryUpdate_ProducesCwdChangedEvent()
 
 **Step 2: Run tests to verify they fail**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "ShellLifecycleTrackerTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "ShellLifecycleTrackerTests" --logger "console;verbosity=minimal"`
 
 Expected: FAIL with missing lifecycle tracker types.
 
@@ -264,24 +264,24 @@ Normalize parser callbacks into a tracker that can hold:
 
 **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "ShellLifecycleTrackerTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "ShellLifecycleTrackerTests" --logger "console;verbosity=minimal"`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs src/NovaTerminal.App/CommandAssist/ShellIntegration/Runtime
+git add tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs src/Ntilde.App/CommandAssist/ShellIntegration/Runtime
 git commit -m "Add shell lifecycle tracker"
 ```
 
 ### Task 5: Add failing structured Command Assist controller tests
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Models/CommandCaptureSource.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Models/CommandHistoryEntry.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Models/CommandCaptureSource.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Models/CommandHistoryEntry.cs`
 
 **Step 1: Write the failing tests**
 
@@ -319,7 +319,7 @@ public async Task HandleEnterAsync_WhenShellIntegrationActive_DoesNotPersistHeur
 
 **Step 2: Run tests to verify they fail**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "CommandAssistControllerTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "CommandAssistControllerTests" --logger "console;verbosity=minimal"`
 
 Expected: FAIL on missing structured lifecycle handling and capture-source enum value.
 
@@ -343,23 +343,23 @@ long? DurationMs
 
 **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "CommandAssistControllerTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "CommandAssistControllerTests" --logger "console;verbosity=minimal"`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs src/NovaTerminal.App/CommandAssist/Models
+git add tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs src/Ntilde.App/CommandAssist/Models
 git commit -m "Add structured lifecycle capture to Command Assist controller"
 ```
 
 ### Task 6: Add failing pane integration tests and wire lifecycle into TerminalPane
 
 **Files:**
-- Create: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/TerminalPaneShellIntegrationTests.cs`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
+- Create: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/TerminalPaneShellIntegrationTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
 
 **Step 1: Write the failing tests**
 
@@ -378,7 +378,7 @@ If direct `TerminalPane` testing is too heavy, push the seam into a small adapte
 
 **Step 2: Run tests to verify they fail**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "TerminalPaneShellIntegrationTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "TerminalPaneShellIntegrationTests" --logger "console;verbosity=minimal"`
 
 Expected: FAIL with missing lifecycle wiring seam.
 
@@ -393,23 +393,23 @@ Wire `TerminalPane` to:
 
 **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "TerminalPaneShellIntegrationTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "TerminalPaneShellIntegrationTests" --logger "console;verbosity=minimal"`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/TerminalPaneShellIntegrationTests.cs src/NovaTerminal.App/Controls/TerminalPane.axaml.cs src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs
+git add tests/Ntilde.Tests/CommandAssist/ShellIntegration/TerminalPaneShellIntegrationTests.cs src/Ntilde.App/Controls/TerminalPane.axaml.cs src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs
 git commit -m "Wire shell lifecycle integration into TerminalPane"
 ```
 
 ### Task 7: Remove PTY-layer PowerShell special casing and move launch behavior behind provider
 
 **Files:**
-- Modify: `src/NovaTerminal.Pty/RustPtySession.cs`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellShellIntegrationProviderTests.cs`
+- Modify: `src/Ntilde.Pty/RustPtySession.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellShellIntegrationProviderTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -417,9 +417,9 @@ git commit -m "Wire shell lifecycle integration into TerminalPane"
 [Fact]
 public void RustPtySession_DoesNotOwnPowerShellIntegrationBootstrap()
 {
-    string source = File.ReadAllText(@"src/NovaTerminal.Pty/RustPtySession.cs");
+    string source = File.ReadAllText(@"src/Ntilde.Pty/RustPtySession.cs");
 
-    Assert.DoesNotContain("nova_init_", source);
+    Assert.DoesNotContain("ntilde_init_", source);
 }
 ```
 
@@ -427,7 +427,7 @@ If source-text tests are too brittle, replace this with a behavioral test around
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "PowerShellShellIntegrationProviderTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "PowerShellShellIntegrationProviderTests" --logger "console;verbosity=minimal"`
 
 Expected: FAIL because PTY still contains PowerShell-specific bootstrap behavior.
 
@@ -439,23 +439,23 @@ Expected: FAIL because PTY still contains PowerShell-specific bootstrap behavior
 
 **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "PowerShellShellIntegrationProviderTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "PowerShellShellIntegrationProviderTests" --logger "console;verbosity=minimal"`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Pty/RustPtySession.cs src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellShellIntegrationProviderTests.cs
+git add src/Ntilde.Pty/RustPtySession.cs src/Ntilde.App/Controls/TerminalPane.axaml.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellShellIntegrationProviderTests.cs
 git commit -m "Move PowerShell shell integration out of PTY layer"
 ```
 
 ### Task 8: Add settings and persistence hooks for shell integration toggles
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Core/TerminalSettings.cs`
-- Modify: `src/NovaTerminal.App/Core/AppJsonContext.cs`
-- Modify: `tests/NovaTerminal.Tests/Core` or create `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellIntegrationSettingsTests.cs`
+- Modify: `src/Ntilde.App/Core/TerminalSettings.cs`
+- Modify: `src/Ntilde.App/Core/AppJsonContext.cs`
+- Modify: `tests/Ntilde.Tests/Core` or create `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellIntegrationSettingsTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -472,7 +472,7 @@ public void TerminalSettings_DefaultsEnableShellIntegration()
 
 **Step 2: Run tests to verify they fail**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "ShellIntegrationSettingsTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "ShellIntegrationSettingsTests" --logger "console;verbosity=minimal"`
 
 Expected: FAIL with missing settings properties.
 
@@ -487,23 +487,23 @@ public bool CommandAssistPowerShellIntegrationEnabled { get; set; } = true;
 
 **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "ShellIntegrationSettingsTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "ShellIntegrationSettingsTests" --logger "console;verbosity=minimal"`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Core/TerminalSettings.cs src/NovaTerminal.App/Core/AppJsonContext.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration
+git add src/Ntilde.App/Core/TerminalSettings.cs src/Ntilde.App/Core/AppJsonContext.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration
 git commit -m "Add shell integration settings defaults"
 ```
 
 ### Task 9: Add fallback and duplicate-suppression tests
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
-- Create or modify: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellIntegrationFallbackTests.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- Create or modify: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellIntegrationFallbackTests.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs`
 
 **Step 1: Write the failing tests**
 
@@ -539,7 +539,7 @@ public async Task MissingMarkers_FallsBackToHeuristicCapture()
 
 **Step 2: Run tests to verify they fail**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "ShellIntegrationFallbackTests|CommandAssistControllerTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "ShellIntegrationFallbackTests|CommandAssistControllerTests" --logger "console;verbosity=minimal"`
 
 Expected: FAIL on duplicate suppression and fallback policy gaps.
 
@@ -553,14 +553,14 @@ Implement:
 
 **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "ShellIntegrationFallbackTests|CommandAssistControllerTests" --logger "console;verbosity=minimal"`
+Run: `dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "ShellIntegrationFallbackTests|CommandAssistControllerTests" --logger "console;verbosity=minimal"`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/CommandAssist src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs
+git add tests/Ntilde.Tests/CommandAssist src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs
 git commit -m "Add shell integration fallback and duplicate suppression"
 ```
 
@@ -575,7 +575,7 @@ git commit -m "Add shell integration fallback and duplicate suppression"
 Run:
 
 ```bash
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "OscShellIntegrationTests|CommandAssistControllerTests|CommandAssistSuggestionEngineTests|AlternateScreenTests|HeadlessUITests|ShellIntegration" --logger "console;verbosity=minimal"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "OscShellIntegrationTests|CommandAssistControllerTests|CommandAssistSuggestionEngineTests|AlternateScreenTests|HeadlessUITests|ShellIntegration" --logger "console;verbosity=minimal"
 ```
 
 Expected: PASS
@@ -585,7 +585,7 @@ Expected: PASS
 Run:
 
 ```bash
-dotnet msbuild src\NovaTerminal.App\NovaTerminal.App.csproj /t:Compile /p:Configuration=Release /v:minimal
+dotnet msbuild src\Ntilde.App\Ntilde.App.csproj /t:Compile /p:Configuration=Release /v:minimal
 ```
 
 Expected: success

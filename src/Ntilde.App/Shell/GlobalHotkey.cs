@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using Avalonia.Controls;
 using Avalonia.Platform;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public class GlobalHotkey : IDisposable
     {

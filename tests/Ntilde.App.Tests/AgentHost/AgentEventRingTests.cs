@@ -1,10 +1,10 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
-using NovaTerminal.AgentHost;
-using NovaTerminal.AgentHost.Contracts;
+using Ntilde.AgentHost;
+using Ntilde.AgentHost.Contracts;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>Cursor, eviction, and long-poll semantics of the A2 event ring.</summary>
 public class AgentEventRingTests

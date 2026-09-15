@@ -1,6 +1,6 @@
 # Prompt 1 — Analyze Current Memory Usage
 
-You are working on the NovaTerminal codebase.
+You are working on the Ntilde codebase.
 
 Goal:
 Identify the main sources of memory usage and allocation churn in the terminal buffer and rendering pipeline.

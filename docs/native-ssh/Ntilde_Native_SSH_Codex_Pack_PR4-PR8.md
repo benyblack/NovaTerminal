@@ -1,6 +1,6 @@
-# NovaTerminal Native SSH – Codex Execution Pack (PR4–PR8)
+# Ntilde Native SSH – Codex Execution Pack (PR4–PR8)
 
-This pack expands the native SSH execution plan for NovaTerminal into ready-to-use prompts for Codex / Antigravity.
+This pack expands the native SSH execution plan for Ntilde into ready-to-use prompts for Codex / Antigravity.
 
 These prompts assume PR1–PR3 already exist:
 - backend split foundation
@@ -43,17 +43,17 @@ Implement support for:
 - keyboard-interactive prompts
 
 ### Suggested files to add
-- `src/NovaTerminal.App/Services/Ssh/ISshInteractionService.cs`
-- `src/NovaTerminal.App/Services/Ssh/SshInteractionService.cs`
-- `src/NovaTerminal.App/Models/Ssh/SshInteractionRequest.cs`
-- `src/NovaTerminal.App/Models/Ssh/SshInteractionResponse.cs`
-- `src/NovaTerminal.App/ViewModels/Ssh/HostKeyPromptViewModel.cs`
-- `src/NovaTerminal.App/ViewModels/Ssh/AuthPromptViewModel.cs`
+- `src/Ntilde.App/Services/Ssh/ISshInteractionService.cs`
+- `src/Ntilde.App/Services/Ssh/SshInteractionService.cs`
+- `src/Ntilde.App/Models/Ssh/SshInteractionRequest.cs`
+- `src/Ntilde.App/Models/Ssh/SshInteractionResponse.cs`
+- `src/Ntilde.App/ViewModels/Ssh/HostKeyPromptViewModel.cs`
+- `src/Ntilde.App/ViewModels/Ssh/AuthPromptViewModel.cs`
 - matching views/dialogs
 
 ### Suggested files to modify
-- `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
-- `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
+- `src/Ntilde.Core/Ssh/Sessions/NativeSshSession.cs`
+- `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
 - dialog host / main window wiring as needed
 
 ## Acceptance criteria
@@ -95,16 +95,16 @@ Implement:
 - preserve backend on session restore
 
 ### Suggested files to add
-- `src/NovaTerminal.Core/Ssh/Native/NativeKnownHostsStore.cs`
-- `src/NovaTerminal.Core/Ssh/Native/HostKeyFingerprintFormatter.cs`
-- `src/NovaTerminal.Core/Ssh/Native/KnownHostEntry.cs` (optional)
+- `src/Ntilde.Core/Ssh/Native/NativeKnownHostsStore.cs`
+- `src/Ntilde.Core/Ssh/Native/HostKeyFingerprintFormatter.cs`
+- `src/Ntilde.Core/Ssh/Native/KnownHostEntry.cs` (optional)
 - tests for known host matching and mismatch
 
 ### Suggested files to modify
-- `src/NovaTerminal.Core/Ssh/Storage/JsonSshProfileStore.cs`
-- `src/NovaTerminal.Core/Ssh/Storage/SshJsonContext.cs`
-- `src/NovaTerminal.App/Core/SessionManager.cs`
-- `src/NovaTerminal.Core/Ssh/Models/SshProfile.cs` if migration or metadata is needed
+- `src/Ntilde.Core/Ssh/Storage/JsonSshProfileStore.cs`
+- `src/Ntilde.Core/Ssh/Storage/SshJsonContext.cs`
+- `src/Ntilde.App/Core/SessionManager.cs`
+- `src/Ntilde.Core/Ssh/Models/SshProfile.cs` if migration or metadata is needed
 
 ## Acceptance criteria
 - Trusted native hosts are remembered across app restarts.
@@ -132,7 +132,7 @@ Implement:
 Add the first real feature-parity capability beyond shell access: local port forwarding.
 
 ## Prompt
-Add local port forwarding to the native SSH backend in NovaTerminal. Reuse existing profile forward definitions where possible. Implement listener lifecycle, channel opening, backpressure-safe byte copying, and clean teardown. Do not implement remote forwarding, dynamic forwarding, or jump hosts in this PR. Optimize for correctness, shutdown hygiene, and observability.
+Add local port forwarding to the native SSH backend in Ntilde. Reuse existing profile forward definitions where possible. Implement listener lifecycle, channel opening, backpressure-safe byte copying, and clean teardown. Do not implement remote forwarding, dynamic forwarding, or jump hosts in this PR. Optimize for correctness, shutdown hygiene, and observability.
 
 ## Scope
 Implement:
@@ -142,13 +142,13 @@ Implement:
 - safe teardown on disconnect or close
 
 ### Suggested files to add
-- `src/NovaTerminal.Core/Ssh/Native/NativePortForwardSession.cs`
-- `src/NovaTerminal.Core/Ssh/Transport/PortForwardModels.cs` if needed
+- `src/Ntilde.Core/Ssh/Native/NativePortForwardSession.cs`
+- `src/Ntilde.Core/Ssh/Transport/PortForwardModels.cs` if needed
 - tests or harness support for forward setup validation
 
 ### Suggested files to modify
-- `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
-- `src/NovaTerminal.Core/Ssh/Models/SshProfile.cs` only if required
+- `src/Ntilde.Core/Ssh/Sessions/NativeSshSession.cs`
+- `src/Ntilde.Core/Ssh/Models/SshProfile.cs` only if required
 - Rust crate in `native/rusty_ssh/` to support direct-tcpip or equivalent forwarding channels
 
 ## Acceptance criteria
@@ -175,7 +175,7 @@ Implement:
 Reach practical workflow parity with existing Direct SSH for common bastion/jump-host setups.
 
 ## Prompt
-Add first-pass jump host support to NovaTerminal native SSH. Prefer a simple and explicit architecture rather than a clever one. One-hop support is sufficient for this PR. If multi-hop is significantly more complex, structure the code for it but do not complete it yet. Fail clearly for unsupported combinations rather than hiding them. Keep the OpenSSH backend as a fallback option.
+Add first-pass jump host support to Ntilde native SSH. Prefer a simple and explicit architecture rather than a clever one. One-hop support is sufficient for this PR. If multi-hop is significantly more complex, structure the code for it but do not complete it yet. Fail clearly for unsupported combinations rather than hiding them. Keep the OpenSSH backend as a fallback option.
 
 ## Scope
 Implement first:
@@ -184,14 +184,14 @@ Implement first:
 - clear error/fallback messaging
 
 ### Suggested files to add
-- `src/NovaTerminal.Core/Ssh/Native/NativeJumpHostConnector.cs`
-- `src/NovaTerminal.Core/Ssh/Native/JumpHostConnectPlan.cs`
+- `src/Ntilde.Core/Ssh/Native/NativeJumpHostConnector.cs`
+- `src/Ntilde.Core/Ssh/Native/JumpHostConnectPlan.cs`
 - tests around profile translation to jump-host connect plan
 
 ### Suggested files to modify
-- `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
-- `src/NovaTerminal.Core/Ssh/Sessions/SshSessionFactory.cs`
-- `src/NovaTerminal.Core/Ssh/Models/SshProfile.cs` only if native-specific metadata is required
+- `src/Ntilde.Core/Ssh/Sessions/NativeSshSession.cs`
+- `src/Ntilde.Core/Ssh/Sessions/SshSessionFactory.cs`
+- `src/Ntilde.Core/Ssh/Models/SshProfile.cs` only if native-specific metadata is required
 - Rust crate in `native/rusty_ssh/` for tunneled/chained connection support
 
 ## Acceptance criteria
@@ -217,7 +217,7 @@ Implement first:
 Make native SSH testable, operable, and safe to ship gradually.
 
 ## Prompt
-Add rollout controls, diagnostics, and hardening for NovaTerminal native SSH. Expose backend selection in profile UI, add experimental gating, collect metrics for connect/auth/output timing, classify failures, and make fallback to OpenSSH straightforward. Optimize for operability, observability, and staged rollout rather than feature creep.
+Add rollout controls, diagnostics, and hardening for Ntilde native SSH. Expose backend selection in profile UI, add experimental gating, collect metrics for connect/auth/output timing, classify failures, and make fallback to OpenSSH straightforward. Optimize for operability, observability, and staged rollout rather than feature creep.
 
 ## Scope
 Implement:
@@ -228,17 +228,17 @@ Implement:
 - clear fallback path to OpenSSH
 
 ### Suggested files to add
-- `src/NovaTerminal.Core/Ssh/Native/NativeSshMetrics.cs`
-- `src/NovaTerminal.Core/Ssh/Native/NativeSshFailureClassifier.cs`
+- `src/Ntilde.Core/Ssh/Native/NativeSshMetrics.cs`
+- `src/Ntilde.Core/Ssh/Native/NativeSshFailureClassifier.cs`
 - optional settings model additions
 - optional diagnostics view model / UI elements
 
 ### Suggested files to modify
-- `src/NovaTerminal.App/ViewModels/Ssh/*`
-- `src/NovaTerminal.App/Views/Ssh/*`
-- `src/NovaTerminal.App/SettingsWindow*` or equivalent
-- `src/NovaTerminal.Core/Ssh/Sessions/SshSessionFactory.cs`
-- `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
+- `src/Ntilde.App/ViewModels/Ssh/*`
+- `src/Ntilde.App/Views/Ssh/*`
+- `src/Ntilde.App/SettingsWindow*` or equivalent
+- `src/Ntilde.Core/Ssh/Sessions/SshSessionFactory.cs`
+- `src/Ntilde.Core/Ssh/Sessions/NativeSshSession.cs`
 
 ## Suggested metrics
 - connect latency

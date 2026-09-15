@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.Pty
+namespace Ntilde.Pty
 {
-    public class NovaSession
+    public class NtildeSession
     {
         public int ActiveTabIndex { get; set; } = 0;
         public List<TabSession> Tabs { get; set; } = new();

@@ -1,22 +1,22 @@
 # VT Report CLI Shim Design
 
-**Goal:** Make `NovaTerminal.exe --vt-report` and `NovaTerminal.exe --vt-report --json` produce visible console output from a shell without changing the GUI app's normal `WinExe` behavior.
+**Goal:** Make `Ntilde.exe --vt-report` and `Ntilde.exe --vt-report --json` produce visible console output from a shell without changing the GUI app's normal `WinExe` behavior.
 
 ## Problem
 
-`NovaTerminal.App` is built as `WinExe`. The current `--vt-report` implementation runs before Avalonia startup, but when the GUI binary is launched from PowerShell or `dotnet run`, its `Console.Out`/`Console.Error` output is not reliably visible. The feature works logically, but the primary user-facing invocation path appears silent.
+`Ntilde.App` is built as `WinExe`. The current `--vt-report` implementation runs before Avalonia startup, but when the GUI binary is launched from PowerShell or `dotnet run`, its `Console.Out`/`Console.Error` output is not reliably visible. The feature works logically, but the primary user-facing invocation path appears silent.
 
 ## Constraints
 
 - Do not change VT, parser, buffer, renderer, or runtime probing behavior.
-- Keep `NovaTerminal.App` as the GUI entry point for normal app startup.
-- Preserve `NovaTerminal.exe --vt-report` as the public command.
+- Keep `Ntilde.App` as the GUI entry point for normal app startup.
+- Preserve `Ntilde.exe --vt-report` as the public command.
 - Keep the implementation deterministic and release-friendly.
 - Avoid adding Windows-only console attach logic to the GUI app if a cleaner boundary is available.
 
 ## Recommended Approach
 
-Add a small console-side shim, `NovaTerminal.Cli`, and have `NovaTerminal.App` forward CLI-only modes to it.
+Add a small console-side shim, `Ntilde.Cli`, and have `Ntilde.App` forward CLI-only modes to it.
 
 ### Why this approach
 
@@ -40,7 +40,7 @@ This logic should be free of Avalonia dependencies and reusable from both execut
 
 ### 2. New console shim project
 
-Add `src/NovaTerminal.Cli` as a regular console app (`Exe`) that:
+Add `src/Ntilde.Cli` as a regular console app (`Exe`) that:
 
 - references the shared CLI command layer
 - runs the CLI command directly
@@ -49,10 +49,10 @@ Add `src/NovaTerminal.Cli` as a regular console app (`Exe`) that:
 
 ### 3. GUI app forwarding
 
-Update `src/NovaTerminal.App/Program.cs` so that:
+Update `src/Ntilde.App/Program.cs` so that:
 
 - if args are not a supported CLI-only mode, startup proceeds exactly as today
-- if args are a supported CLI-only mode, the app launches `NovaTerminal.Cli.exe` with the same args, waits for it to exit, and mirrors its exit code
+- if args are a supported CLI-only mode, the app launches `Ntilde.Cli.exe` with the same args, waits for it to exit, and mirrors its exit code
 
 The GUI app should not attempt to render report text itself in this path.
 
@@ -67,16 +67,16 @@ The app-side launcher should resolve the sibling CLI executable from the current
 
 ## Command Flow
 
-For `NovaTerminal.exe --vt-report`:
+For `Ntilde.exe --vt-report`:
 
-1. `NovaTerminal.App` starts.
+1. `Ntilde.App` starts.
 2. `Program.Main` checks args.
 3. The app recognizes a CLI-only mode.
-4. The app resolves and launches `NovaTerminal.Cli.exe --vt-report`.
+4. The app resolves and launches `Ntilde.Cli.exe --vt-report`.
 5. The CLI shim prints the summary to stdout.
 6. The GUI app exits with the same code.
 
-For `NovaTerminal.exe --vt-report --json`, the same flow applies, but the CLI shim prints the embedded JSON artifact.
+For `Ntilde.exe --vt-report --json`, the same flow applies, but the CLI shim prints the embedded JSON artifact.
 
 ## Error Handling
 
@@ -94,8 +94,8 @@ For `NovaTerminal.exe --vt-report --json`, the same flow applies, but the CLI sh
 
 ### CLI tests
 
-- `NovaTerminal.Cli --vt-report` prints the human-readable summary.
-- `NovaTerminal.Cli --vt-report --json` prints parseable JSON.
+- `Ntilde.Cli --vt-report` prints the human-readable summary.
+- `Ntilde.Cli --vt-report --json` prints parseable JSON.
 - Existing artifact parity test remains intact.
 
 ### App tests
@@ -116,7 +116,7 @@ Cons:
 - adds low-level console lifecycle logic to the GUI app entry path
 - more fragile around redirected output, IDE launches, and future CLI growth
 
-### Change `NovaTerminal.App` to `Exe`
+### Change `Ntilde.App` to `Exe`
 
 Pros:
 - simplest for console output visibility

@@ -1,7 +1,7 @@
 using System.Diagnostics;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // Regression for the DoS the #124 fuzzer found: a CSI sequence with an enormous numeric
 // parameter (e.g. CSI 333333261 S — scroll up 333 million lines) made the parser loop for tens

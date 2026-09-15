@@ -1,7 +1,7 @@
-using NovaTerminal.VT;
-using NovaTerminal.VT.Links;
+using Ntilde.VT;
+using Ntilde.VT.Links;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// #95 gap 2: OSC 8 hyperlink identity.

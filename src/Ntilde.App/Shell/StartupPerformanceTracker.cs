@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using NovaTerminal.Rendering;
+using Ntilde.Rendering;
 
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 public enum StartupPhase
 {

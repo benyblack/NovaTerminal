@@ -1,8 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using NovaTerminal.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Interactions;
 
-namespace NovaTerminal.Platform.Ssh.Native;
+namespace Ntilde.Platform.Ssh.Native;
 
 public static class NativeSshInteractionJson
 {

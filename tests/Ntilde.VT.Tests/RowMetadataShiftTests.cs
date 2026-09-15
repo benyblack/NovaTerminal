@@ -1,6 +1,6 @@
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // #164 item 1: ICH (CSI @), DCH (CSI P) and insert mode (IRM) shifted TerminalRow.Cells but left
 // the per-row side tables - extended graphemes and OSC 8 hyperlinks - keyed to their pre-shift
@@ -14,8 +14,8 @@ public class RowMetadataShiftTests
     private const string Uri = "https://example.com/";
     // #95 gap 2: hyperlinks are an identity now, not a bare URI. Build them through the registry, the
     // same way the parser does, rather than reaching for an internal constructor.
-    private static readonly NovaTerminal.VT.Links.HyperlinkRegistry Registry = new();
-    private static NovaTerminal.VT.Links.Hyperlink Link(string uri) => Registry.Resolve(null, uri)!;
+    private static readonly Ntilde.VT.Links.HyperlinkRegistry Registry = new();
+    private static Ntilde.VT.Links.Hyperlink Link(string uri) => Registry.Resolve(null, uri)!;
 
     private static (TerminalBuffer Buffer, AnsiParser Parser) NewTerminal(int cols = 20, int rows = 3)
     {

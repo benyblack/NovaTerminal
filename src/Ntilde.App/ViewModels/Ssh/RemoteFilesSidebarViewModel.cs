@@ -5,10 +5,10 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.Models;
-using NovaTerminal.Services.Ssh;
+using Ntilde.Models;
+using Ntilde.Services.Ssh;
 
-namespace NovaTerminal.ViewModels.Ssh;
+namespace Ntilde.ViewModels.Ssh;
 
 public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
 {

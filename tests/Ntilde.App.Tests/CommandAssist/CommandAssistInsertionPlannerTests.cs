@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using NovaTerminal.CommandAssist.Application;
+using Ntilde.CommandAssist.Application;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// The planner's contract in three parts: the suffix arithmetic (unchanged since V1), the refusals

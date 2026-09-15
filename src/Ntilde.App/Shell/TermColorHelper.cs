@@ -1,8 +1,8 @@
 using Avalonia.Media;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public static class TermColorHelper
     {

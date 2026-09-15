@@ -1,6 +1,6 @@
-# NovaTerminal External Capture Adapters
+# Ntilde External Capture Adapters
 
-This project provides automated harnesses that emit NovaTerminal `.rec`
+This project provides automated harnesses that emit Ntilde `.rec`
 (JSONL) files for deterministic regression and replay testing.
 
 These recordings are used for deterministic regression testing and
@@ -52,16 +52,16 @@ No manual `TERM` or locale exports are required.
 
 ## Setup
 
-1.  Build NovaTerminal (ensures native `rusty_pty` is available):
+1.  Build Ntilde (ensures native `rusty_pty` is available):
 
 ``` bash
-dotnet build NovaTerminal/NovaTerminal.csproj
+dotnet build Ntilde/Ntilde.csproj
 ```
 
 2.  Build the external suite:
 
 ``` bash
-dotnet build tests/NovaTerminal.ExternalSuites/NovaTerminal.ExternalSuites.csproj
+dotnet build tests/Ntilde.ExternalSuites/Ntilde.ExternalSuites.csproj
 ```
 
 ------------------------------------------------------------------------
@@ -71,7 +71,7 @@ dotnet build tests/NovaTerminal.ExternalSuites/NovaTerminal.ExternalSuites.cspro
 Generate a `.rec` file:
 
 ``` bash
-dotnet run --project tests/NovaTerminal.ExternalSuites/NovaTerminal.ExternalSuites.csproj \
+dotnet run --project tests/Ntilde.ExternalSuites/Ntilde.ExternalSuites.csproj \
   --suite vttest \
   --scenario cursor \
   --out tests/Replays/Vttest/vttest_cursor.rec
@@ -80,7 +80,7 @@ dotnet run --project tests/NovaTerminal.ExternalSuites/NovaTerminal.ExternalSuit
 Generate a deterministic native SSH transcript:
 
 ``` bash
-dotnet run --project tests/NovaTerminal.ExternalSuites/NovaTerminal.ExternalSuites.csproj \
+dotnet run --project tests/Ntilde.ExternalSuites/Ntilde.ExternalSuites.csproj \
   --suite native-ssh \
   --scenario fullscreen-exit \
   --out tests/Replays/NativeSsh/native_ssh_fullscreen_exit.rec
@@ -127,30 +127,30 @@ Dockerized OpenSSH server.
 Prerequisites:
 
 -   Docker Desktop or another local Docker engine must be running
--   Set `NOVATERM_ENABLE_DOCKER_E2E=1` to enable the live lane
--   Set `NOVATERM_REBUILD_DOCKER_E2E=1` if you want to force a Docker image rebuild
+-   Set `NTILDE_ENABLE_DOCKER_E2E=1` to enable the live lane
+-   Set `NTILDE_REBUILD_DOCKER_E2E=1` if you want to force a Docker image rebuild
 
 Run the live Docker native SSH VT tests:
 
 ``` powershell
-$env:NOVATERM_ENABLE_DOCKER_E2E='1'
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
+$env:NTILDE_ENABLE_DOCKER_E2E='1'
+dotnet test tests\Ntilde.Platform.Tests\Ntilde.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
 ```
 
 Force a rebuild of the Docker SSH fixture image before running:
 
 ``` powershell
-$env:NOVATERM_ENABLE_DOCKER_E2E='1'
-$env:NOVATERM_REBUILD_DOCKER_E2E='1'
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
+$env:NTILDE_ENABLE_DOCKER_E2E='1'
+$env:NTILDE_REBUILD_DOCKER_E2E='1'
+dotnet test tests\Ntilde.Platform.Tests\Ntilde.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
 ```
 
 Run the broader native SSH core slice, including the live Docker tests
 when enabled:
 
 ``` powershell
-$env:NOVATERM_ENABLE_DOCKER_E2E='1'
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false
+$env:NTILDE_ENABLE_DOCKER_E2E='1'
+dotnet test tests\Ntilde.Platform.Tests\Ntilde.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false
 ```
 
 Current live coverage:
@@ -163,8 +163,8 @@ Current live coverage:
 
 Deterministic VT parity coverage remains in:
 
--   `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs`
--   `tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs`
+-   `tests/Ntilde.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs`
+-   `tests/Ntilde.Tests/ReplayTests/NativeSshReplayParityTests.cs`
 
 ------------------------------------------------------------------------
 
@@ -174,12 +174,12 @@ After generating a `.rec`:
 
 1.  Move the file to:
 
-        NovaTerminal.Tests/Fixtures/Replay/
+        Ntilde.Tests/Fixtures/Replay/
 
 2.  Run replay tests.
 
 3.  Replay assertions compare against checked-in golden `.snap` files
-    in `NovaTerminal.Tests/Fixtures/Replay/`.
+    in `Ntilde.Tests/Fixtures/Replay/`.
 
 4.  For CI parity runs, set `PARITY_ARTIFACT_DIR` so each replay test
     also emits a runtime-generated `.snap` artifact.
@@ -237,5 +237,5 @@ Nightly stress lanes should target real categories (`Stress`,
 
 ## Notes
 
-This harness does not modify NovaTerminal core behavior.\
+This harness does not modify Ntilde core behavior.\
 It exists purely as an external integration regression suite.

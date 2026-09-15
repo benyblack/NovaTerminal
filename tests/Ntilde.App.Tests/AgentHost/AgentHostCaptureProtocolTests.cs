@@ -2,14 +2,14 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using NovaTerminal.AgentHost;
-using NovaTerminal.AgentHost.Contracts;
-using NovaTerminal.Shell;
-using NovaTerminal.Tests.Infra;
-using NovaTerminal.VT;
+using Ntilde.AgentHost;
+using Ntilde.AgentHost.Contracts;
+using Ntilde.Shell;
+using Ntilde.Tests.Infra;
+using Ntilde.VT;
 using SkiaSharp;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// Tests for the A5 <c>captureScreen</c> protocol surface. Captures ride the
@@ -147,7 +147,7 @@ public class AgentHostCaptureProtocolTests : IDisposable
 
         Assert.True(File.Exists(result.FilePath));
         Assert.StartsWith(Path.GetFullPath(_exportDir), Path.GetFullPath(result.FilePath), StringComparison.Ordinal);
-        Assert.StartsWith("nova_screen_", Path.GetFileName(result.FilePath), StringComparison.Ordinal);
+        Assert.StartsWith("ntilde_screen_", Path.GetFileName(result.FilePath), StringComparison.Ordinal);
         Assert.EndsWith(".png", result.FilePath, StringComparison.Ordinal);
 
         var bytes = File.ReadAllBytes(result.FilePath);
@@ -524,7 +524,7 @@ public class AgentHostCaptureProtocolTests : IDisposable
         {
             return TerminalSnapshotRenderer.Capture(buffer, Metrics, width, height, options);
         }
-        using var glyphCache = new NovaTerminal.Rendering.GlyphCache();
+        using var glyphCache = new Ntilde.Rendering.GlyphCache();
         return TerminalSnapshotRenderer.Capture(buffer, Metrics, width, height, options with { GlyphCache = glyphCache });
     }
 
@@ -552,7 +552,7 @@ public class AgentHostCaptureProtocolTests : IDisposable
         var second = AgentHostService.BuildCaptureFileName(timestamp, Guid.NewGuid().ToString("N"));
 
         Assert.NotEqual(first, second);
-        Assert.StartsWith("nova_screen_20260731_120000_", first, StringComparison.Ordinal);
+        Assert.StartsWith("ntilde_screen_20260731_120000_", first, StringComparison.Ordinal);
         Assert.EndsWith(".png", first, StringComparison.Ordinal);
     }
 }

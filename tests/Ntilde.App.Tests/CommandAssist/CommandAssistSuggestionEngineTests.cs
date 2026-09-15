@@ -1,8 +1,8 @@
 using System.Linq;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 public sealed class CommandAssistSuggestionEngineTests
 {
@@ -558,15 +558,15 @@ public sealed class CommandAssistSuggestionEngineTests
         var history = new[]
         {
             CreateEntry("dotnet build", executedAt: DateTimeOffset.Parse("2026-03-01T12:00:00+00:00")),
-            CreateRemoteEntry("systemctl status nova", "ubuntu.example", DateTimeOffset.Parse("2026-03-01T11:00:00+00:00")),
-            CreateRemoteEntry("journalctl -u nova", "other.example", DateTimeOffset.Parse("2026-03-01T11:30:00+00:00"))
+            CreateRemoteEntry("systemctl status ntilde", "ubuntu.example", DateTimeOffset.Parse("2026-03-01T11:00:00+00:00")),
+            CreateRemoteEntry("journalctl -u ntilde", "other.example", DateTimeOffset.Parse("2026-03-01T11:30:00+00:00"))
         };
 
         IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, context, maxResults: 10);
 
-        Assert.Equal("systemctl status nova", results[0].DisplayText);
+        Assert.Equal("systemctl status ntilde", results[0].DisplayText);
         Assert.Contains(results, item => item.DisplayText == "dotnet build");
-        Assert.Contains(results, item => item.DisplayText == "journalctl -u nova");
+        Assert.Contains(results, item => item.DisplayText == "journalctl -u ntilde");
     }
 
     /// <summary>
@@ -671,14 +671,14 @@ public sealed class CommandAssistSuggestionEngineTests
 
         var history = new[]
         {
-            CreateRemoteEntry("systemctl start nova", "other.example", DateTimeOffset.Parse("2026-03-01T12:00:00+00:00")),
-            CreateRemoteEntry("systemctl status nova", "ubuntu.example", DateTimeOffset.Parse("2026-03-01T09:00:00+00:00"))
+            CreateRemoteEntry("systemctl start ntilde", "other.example", DateTimeOffset.Parse("2026-03-01T12:00:00+00:00")),
+            CreateRemoteEntry("systemctl status ntilde", "ubuntu.example", DateTimeOffset.Parse("2026-03-01T09:00:00+00:00"))
         };
 
         IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, context, maxResults: 10);
 
-        Assert.Equal("systemctl status nova", results[0].DisplayText);
-        Assert.Equal("systemctl start nova", results[1].DisplayText);
+        Assert.Equal("systemctl status ntilde", results[0].DisplayText);
+        Assert.Equal("systemctl start ntilde", results[1].DisplayText);
     }
 
     /// <summary>

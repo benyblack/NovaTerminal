@@ -2,11 +2,11 @@ using System;
 using System.Collections.Concurrent;
 using Avalonia;
 using Avalonia.Media;
-using NovaTerminal.Rendering;
-using NovaTerminal.VT;
+using Ntilde.Rendering;
+using Ntilde.VT;
 using SkiaSharp;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     /// <summary>
     /// How a snapshot resolves the primary Skia font it renders with.

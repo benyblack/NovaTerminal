@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public class TerminalCommand
     {

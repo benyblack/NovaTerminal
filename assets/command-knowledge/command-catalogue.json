@@ -2,7 +2,7 @@
     "v":  1,
     "license":  "CC-BY-SA-4.0",
     "licenseUrl":  "https://creativecommons.org/licenses/by-sa/4.0/",
-    "attribution":  "Command examples from tldr-pages (https://github.com/tldr-pages/tldr), CC BY-SA 4.0. Entries marked \"o\": \"nova\" were authored for NovaTerminal and are not tldr-pages content.",
+    "attribution":  "Command examples from tldr-pages (https://github.com/tldr-pages/tldr), CC BY-SA 4.0. Entries marked \"o\": \"ntilde\" were authored for Ntilde and are not tldr-pages content.",
     "generatedFrom":  "tldr-pages @ 0c614e9c",
     "generatedBy":  "scripts/generate-command-catalogue.ps1",
     "entries":  [

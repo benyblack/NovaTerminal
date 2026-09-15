@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.ViewModels;
+namespace Ntilde.CommandAssist.ViewModels;
 
 /// <summary>
 /// How much of the shortcut hint strip the bubble has room to render.

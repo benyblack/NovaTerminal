@@ -6,12 +6,12 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using NovaTerminal.AgentHost;
-using NovaTerminal.AgentHost.Contracts;
-using NovaTerminal.Replay;
-using NovaTerminal.VT;
+using Ntilde.AgentHost;
+using Ntilde.AgentHost.Contracts;
+using Ntilde.Replay;
+using Ntilde.VT;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// Tests for the agent-host observe endpoint (PR3 of milestone A1,

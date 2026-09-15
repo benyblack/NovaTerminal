@@ -1,7 +1,7 @@
 using System;
 using System.Text.RegularExpressions;
 
-namespace NovaTerminal.CommandAssist.Domain;
+namespace Ntilde.CommandAssist.Domain;
 
 public sealed partial class SecretsFilter : ISecretsFilter
 {

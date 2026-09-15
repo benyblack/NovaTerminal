@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     /// <summary>
     /// Kitty keyboard protocol progressive-enhancement state
@@ -16,7 +16,7 @@ namespace NovaTerminal.VT
     /// editor can raise the keyboard mode inside the alternate screen without disturbing - or
     /// even knowing - the shell's mode on the main screen.
     ///
-    /// SCOPE / DEVIATION: NovaTerminal only implements the disambiguate-escape-codes tier
+    /// SCOPE / DEVIATION: Ntilde only implements the disambiguate-escape-codes tier
     /// (0b1). Unsupported bits (report event types, report alternate keys, report all keys,
     /// report associated text) are masked out on push/set, so they are never stored and never
     /// echoed by the CSI ? u query. This is deliberate: the spec's detection section tells
@@ -27,7 +27,7 @@ namespace NovaTerminal.VT
     /// </summary>
     public sealed class KittyKeyboardState
     {
-        /// <summary>0b1 - disambiguate escape codes. The only tier NovaTerminal implements.</summary>
+        /// <summary>0b1 - disambiguate escape codes. The only tier Ntilde implements.</summary>
         public const int FlagDisambiguateEscapeCodes = 0b1;
 
         /// <summary>Bit mask of the flags this terminal honors; everything else is dropped.</summary>

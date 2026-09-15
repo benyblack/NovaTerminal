@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.Storage;
+namespace Ntilde.CommandAssist.Storage;
 
 /// <summary>
 /// Source-generated serialization context for Command Assist's on-disk stores.

@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using Xunit;
 
-namespace NovaTerminal.Tests.Tools
+namespace Ntilde.Tests.Tools
 {
     public sealed class FixtureUpdatePolicyTests : IDisposable
     {

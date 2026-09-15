@@ -1,10 +1,10 @@
 using System;
 using System.IO;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.AgentHost;
-using NovaTerminal.VT;
+using Ntilde.AgentHost;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// The window half of the attention machines' focus signal.
@@ -180,20 +180,20 @@ public class AgentWindowVisibilityTests : IDisposable
     /// which loads the on-disk settings.json and calls
     /// AgentHostService.Instance.Apply(...). On a machine with observe
     /// persisted as enabled that would start a real named-pipe/Unix-socket
-    /// accept loop inside this shared test process. Point NOVATERM_APPDATA_ROOT
+    /// accept loop inside this shared test process. Point NTILDE_APPDATA_ROOT
     /// at a fresh empty directory so Load() always yields defaults and Apply()
     /// takes its no-op Stop() path. Same pattern as
     /// AgentObserveIndicatorTests.RunIsolated.
     /// </summary>
     private static void RunIsolated(Action<MainWindow> body)
     {
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"novaterm_agent_window_visibility_test_{Guid.NewGuid():N}");
-        string? previousRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_agent_window_visibility_test_{Guid.NewGuid():N}");
+        string? previousRoot = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", tempRoot);
 
             var window = TestMainWindowFactory.Create();
             window.Show();
@@ -201,7 +201,7 @@ public class AgentWindowVisibilityTests : IDisposable
         }
         finally
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previousRoot);
             try { Directory.Delete(tempRoot, recursive: true); } catch { /* best effort */ }
         }
     }

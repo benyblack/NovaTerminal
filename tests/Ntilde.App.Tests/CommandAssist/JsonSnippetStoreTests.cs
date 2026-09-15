@@ -1,7 +1,7 @@
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.Storage;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.Storage;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 public sealed class JsonSnippetStoreTests : IDisposable
 {
@@ -9,7 +9,7 @@ public sealed class JsonSnippetStoreTests : IDisposable
 
     public JsonSnippetStoreTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), $"nova_command_assist_snippets_{Guid.NewGuid():N}");
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_command_assist_snippets_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempRoot);
     }
 

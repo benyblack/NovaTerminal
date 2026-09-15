@@ -7,11 +7,11 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.AgentHost.Contracts;
-using NovaTerminal.Replay;
-using NovaTerminal.VT;
+using Ntilde.AgentHost.Contracts;
+using Ntilde.Replay;
+using Ntilde.VT;
 
-namespace NovaTerminal.AgentHost
+namespace Ntilde.AgentHost
 {
     /// <summary>
     /// Local IPC endpoint for the agent-host observe surface (milestone A1/PR3,
@@ -257,7 +257,7 @@ namespace NovaTerminal.AgentHost
                 var discoveryDir = _discoveryDirectoryOverride ?? AgentHostDiscovery.GetDefaultDirectory();
                 var discoveryPath = Path.Combine(discoveryDir, AgentHostProtocol.DiscoveryFileName);
 
-                // First instance wins: if another live NovaTerminal already
+                // First instance wins: if another live Ntilde already
                 // advertises an endpoint, leave it alone.
                 if (TryReadForeignLiveDescriptor(discoveryPath))
                 {
@@ -581,7 +581,7 @@ namespace NovaTerminal.AgentHost
                 return AgentHostProtocol.WindowsPipeNamePrefix + user;
             }
 
-            return Path.Combine(NovaTerminal.Shell.AppPaths.RootDirectory, AgentHostProtocol.UnixSocketFileName);
+            return Path.Combine(Ntilde.Shell.AppPaths.RootDirectory, AgentHostProtocol.UnixSocketFileName);
         }
 
         private static bool TryReadForeignLiveDescriptor(string discoveryPath)
@@ -594,7 +594,7 @@ namespace NovaTerminal.AgentHost
                 if (descriptor == null || descriptor.Pid == Environment.ProcessId) return false;
 
                 // Guard against PID recycling: the pid must be alive AND be a
-                // NovaTerminal process before we defer to it.
+                // Ntilde process before we defer to it.
                 var process = Process.GetProcessById(descriptor.Pid);
                 using var current = Process.GetCurrentProcess();
                 return !process.HasExited
@@ -907,7 +907,7 @@ namespace NovaTerminal.AgentHost
                 return Error(
                     request.Id,
                     AgentHostProtocol.ErrorCodes.ExportDisabled,
-                    "Replay export is disabled. Enable Settings → Agent access (observe) → Agent replay export in NovaTerminal, then retry. Exports contain terminal output and resizes only — never typed input.");
+                    "Replay export is disabled. Enable Settings → Agent access (observe) → Agent replay export in Ntilde, then retry. Exports contain terminal output and resizes only — never typed input.");
             }
 
             if (!_registry.TryGet(p.PaneId, out var registration))
@@ -924,7 +924,7 @@ namespace NovaTerminal.AgentHost
             TryNoteRead(registration);
 
             var exportDir = _exportDirectoryOverride
-                ?? Path.Combine(NovaTerminal.Shell.AppPaths.RecordingsDirectory, AgentHostProtocol.AgentExportsSubdirectory);
+                ?? Path.Combine(Ntilde.Shell.AppPaths.RecordingsDirectory, AgentHostProtocol.AgentExportsSubdirectory);
             Directory.CreateDirectory(exportDir);
             // Fresh random suffix per export (same scheme as manual recordings):
             // the timestamp alone has one-second resolution, so repeated exports
@@ -1073,7 +1073,7 @@ namespace NovaTerminal.AgentHost
                 {
                     var message = captureError == AgentCaptureError.TooLarge
                         ? $"This pane would render larger than the {AgentHostProtocol.MaxCapturePixels:N0}-pixel per-capture budget at scale {scale:0.##}. Lower the scale, make the window smaller, or raise the font size."
-                        : "This session cannot be rendered right now (the pane has not been measured yet, or is being torn down). Retry shortly; novaterminal.read_screen works regardless.";
+                        : "This session cannot be rendered right now (the pane has not been measured yet, or is being torn down). Retry shortly; ntilde.read_screen works regardless.";
                     return Error(request.Id, AgentHostProtocol.ErrorCodes.CaptureUnavailable, message);
                 }
 
@@ -1089,7 +1089,7 @@ namespace NovaTerminal.AgentHost
             try
             {
                 var exportDir = _exportDirectoryOverride
-                    ?? Path.Combine(NovaTerminal.Shell.AppPaths.RecordingsDirectory, AgentHostProtocol.AgentExportsSubdirectory);
+                    ?? Path.Combine(Ntilde.Shell.AppPaths.RecordingsDirectory, AgentHostProtocol.AgentExportsSubdirectory);
                 Directory.CreateDirectory(exportDir);
                 // Random suffix for the same reason as replay export: the timestamp
                 // has one-second resolution, and a second capture within that
@@ -1129,7 +1129,7 @@ namespace NovaTerminal.AgentHost
             var shortSuffix = normalized.Length > 6 ? normalized[..6] : normalized.PadRight(6, '0');
             return string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
-                $"nova_screen_{timestamp:yyyyMMdd_HHmmss}_{shortSuffix}.png");
+                $"ntilde_screen_{timestamp:yyyyMMdd_HHmmss}_{shortSuffix}.png");
         }
 
         private AgentHostResponse HandleSendInput(AgentHostRequest request)
@@ -1172,7 +1172,7 @@ namespace NovaTerminal.AgentHost
             {
                 return Journaled(request, AgentHostProtocol.Methods.SendInput, p.PaneId, "input",
                     Error(request.Id, AgentHostProtocol.ErrorCodes.ActDisabled,
-                        "Acting is disabled. Enable Settings → Agent access (observe) → Agent access (act) in NovaTerminal, then retry."));
+                        "Acting is disabled. Enable Settings → Agent access (observe) → Agent access (act) in Ntilde, then retry."));
             }
 
             if (!_registry.TryGet(p.PaneId, out var registration))
@@ -1446,7 +1446,7 @@ namespace NovaTerminal.AgentHost
         /// continuations, prefer the row's extended text (emoji, multi-codepoint
         /// graphemes), NUL → space, trim right.
         /// </summary>
-        private static string RenderScrollbackRow(ReadOnlySpan<TerminalCell> cells, NovaTerminal.VT.Storage.SmallMap<string>? extendedText)
+        private static string RenderScrollbackRow(ReadOnlySpan<TerminalCell> cells, Ntilde.VT.Storage.SmallMap<string>? extendedText)
         {
             var sb = new StringBuilder(cells.Length);
             for (var col = 0; col < cells.Length; col++)

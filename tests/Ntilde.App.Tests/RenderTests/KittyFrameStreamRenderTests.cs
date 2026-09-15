@@ -1,12 +1,12 @@
-using NovaTerminal.Platform;
-using NovaTerminal.Rendering;
-using NovaTerminal.Shell;
-using NovaTerminal.Tests.Infra;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.Rendering;
+using Ntilde.Shell;
+using Ntilde.Tests.Infra;
+using Ntilde.VT;
 using SkiaSharp;
 using Xunit;
 
-namespace NovaTerminal.Tests.RenderTests;
+namespace Ntilde.Tests.RenderTests;
 
 /// <summary>
 /// Isolates the kitty-image render pipeline: places bitmaps directly into the buffer and

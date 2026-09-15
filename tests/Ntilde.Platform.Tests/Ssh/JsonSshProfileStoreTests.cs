@@ -1,7 +1,7 @@
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Storage;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Storage;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public sealed class JsonSshProfileStoreTests
 {
@@ -290,7 +290,7 @@ public sealed class JsonSshProfileStoreTests
             Assert.StartsWith(localAppData, path, StringComparison.Ordinal);
         }
 
-        Assert.EndsWith(Path.Combine("NovaTerminal", "ssh", "profiles.json"), path);
+        Assert.EndsWith(Path.Combine("Ntilde", "ssh", "profiles.json"), path);
     }
 
     [Fact]

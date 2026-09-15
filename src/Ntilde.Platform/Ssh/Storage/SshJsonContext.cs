@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Native;
 
-namespace NovaTerminal.Platform.Ssh.Storage;
+namespace Ntilde.Platform.Ssh.Storage;
 
 [JsonSourceGenerationOptions(WriteIndented = true)]
 [JsonSerializable(typeof(SshStoreDocument))]

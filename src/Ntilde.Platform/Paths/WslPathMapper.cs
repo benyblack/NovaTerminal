@@ -4,9 +4,9 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.Platform.Execution;
+using Ntilde.Platform.Execution;
 
-namespace NovaTerminal.Platform.Paths
+namespace Ntilde.Platform.Paths
 {
     public class WslPathMapper : IPathMapper
     {

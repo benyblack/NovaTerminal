@@ -1,7 +1,7 @@
-using NovaTerminal.Conformance;
+using Ntilde.Conformance;
 using System.Text.Json;
 
-namespace NovaTerminal.Platform.Tests.Conformance;
+namespace Ntilde.Platform.Tests.Conformance;
 
 public sealed class VtConformanceToolTests
 {
@@ -9,8 +9,8 @@ public sealed class VtConformanceToolTests
     public void Generate_ParsesFeatureTablesAndProducesDeterministicJson()
     {
         using var repo = new TemporaryRepo();
-        repo.WriteFile("tests/NovaTerminal.Tests/ParserTests.cs", "// parser tests");
-        repo.WriteFile("tests/NovaTerminal.Tests/ReplayTests/CursorTests.cs", "// replay tests");
+        repo.WriteFile("tests/Ntilde.Tests/ParserTests.cs", "// parser tests");
+        repo.WriteFile("tests/Ntilde.Tests/ReplayTests/CursorTests.cs", "// replay tests");
         repo.WriteFile("docs/vt_coverage_matrix.md", """
 # VT Conformance Matrix
 
@@ -18,8 +18,8 @@ public sealed class VtConformanceToolTests
 
 | Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
 |---|---|---:|---|---|---|
-| CSI parser | Basic | ✅ Supported | Unit: `tests/NovaTerminal.Tests/ParserTests.cs` | `Core/AnsiParser.cs` | |
-| Cursor move | Movement | ⚠ Partial | Replay: `tests/NovaTerminal.Tests/ReplayTests/CursorTests.cs` | `Core/AnsiParser.cs` | Edge case |
+| CSI parser | Basic | ✅ Supported | Unit: `tests/Ntilde.Tests/ParserTests.cs` | `Core/AnsiParser.cs` | |
+| Cursor move | Movement | ⚠ Partial | Replay: `tests/Ntilde.Tests/ReplayTests/CursorTests.cs` | `Core/AnsiParser.cs` | Edge case |
 """);
 
         VtConformanceReport report = VtConformanceReportTool.Generate(repo.RootPath, Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
@@ -35,8 +35,8 @@ public sealed class VtConformanceToolTests
         Assert.Single(report.Sections);
         Assert.Equal("1) Parsing", report.Sections[0].Title);
         Assert.Equal("CSI parser", report.Rows[0].Feature);
-        Assert.Equal("tests/NovaTerminal.Tests/ParserTests.cs", report.Rows[0].EvidenceLinks[0].Path);
-        Assert.Equal(Path.Combine(repo.RootPath, "tests", "NovaTerminal.Tests", "ParserTests.cs"), report.Rows[0].EvidenceLinks[0].FullPath);
+        Assert.Equal("tests/Ntilde.Tests/ParserTests.cs", report.Rows[0].EvidenceLinks[0].Path);
+        Assert.Equal(Path.Combine(repo.RootPath, "tests", "Ntilde.Tests", "ParserTests.cs"), report.Rows[0].EvidenceLinks[0].FullPath);
         Assert.False(document.RootElement.GetProperty("rows")[0].GetProperty("evidenceLinks")[0].TryGetProperty("fullPath", out _));
         Assert.Empty(report.Errors);
     }
@@ -91,7 +91,7 @@ public sealed class VtConformanceToolTests
 
 | Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
 |---|---|---:|---|---|---|
-| Cursor move | Movement | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/MissingTests.cs` | `Core/AnsiParser.cs` | Edge case |
+| Cursor move | Movement | ⚠ Partial | Unit: `tests/Ntilde.Tests/MissingTests.cs` | `Core/AnsiParser.cs` | Edge case |
 """);
 
         VtConformanceReport report = VtConformanceReportTool.Generate(repo.RootPath, Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
@@ -103,7 +103,7 @@ public sealed class VtConformanceToolTests
     public void CompareReport_ReturnsMatch_WhenEmbeddedArtifactIsCurrent()
     {
         using var repo = new TemporaryRepo();
-        repo.WriteFile("tests/NovaTerminal.Tests/ParserTests.cs", "// parser tests");
+        repo.WriteFile("tests/Ntilde.Tests/ParserTests.cs", "// parser tests");
         repo.WriteFile("docs/vt_coverage_matrix.md", """
 # VT Conformance Matrix
 
@@ -111,10 +111,10 @@ public sealed class VtConformanceToolTests
 
 | Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
 |---|---|---:|---|---|---|
-| CSI parser | Basic | ✅ Supported | Unit: `tests/NovaTerminal.Tests/ParserTests.cs` | `Core/AnsiParser.cs` | |
+| CSI parser | Basic | ✅ Supported | Unit: `tests/Ntilde.Tests/ParserTests.cs` | `Core/AnsiParser.cs` | |
 """);
 
-        string reportPath = Path.Combine(repo.RootPath, "src", "NovaTerminal.App", "Resources", "vt-conformance-report.json");
+        string reportPath = Path.Combine(repo.RootPath, "src", "Ntilde.App", "Resources", "vt-conformance-report.json");
         VtConformanceReport report = VtConformanceReportTool.Generate(repo.RootPath, Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
         VtConformanceReportTool.WriteReport(report, reportPath);
 
@@ -129,7 +129,7 @@ public sealed class VtConformanceToolTests
     public void CompareReport_ReturnsMismatch_WhenEmbeddedArtifactDrifts()
     {
         using var repo = new TemporaryRepo();
-        repo.WriteFile("tests/NovaTerminal.Tests/ParserTests.cs", "// parser tests");
+        repo.WriteFile("tests/Ntilde.Tests/ParserTests.cs", "// parser tests");
         repo.WriteFile("docs/vt_coverage_matrix.md", """
 # VT Conformance Matrix
 
@@ -137,11 +137,11 @@ public sealed class VtConformanceToolTests
 
 | Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
 |---|---|---:|---|---|---|
-| CSI parser | Basic | ✅ Supported | Unit: `tests/NovaTerminal.Tests/ParserTests.cs` | `Core/AnsiParser.cs` | |
+| CSI parser | Basic | ✅ Supported | Unit: `tests/Ntilde.Tests/ParserTests.cs` | `Core/AnsiParser.cs` | |
 """);
 
-        string reportPath = Path.Combine(repo.RootPath, "src", "NovaTerminal.App", "Resources", "vt-conformance-report.json");
-        repo.WriteFile("src/NovaTerminal.App/Resources/vt-conformance-report.json", "{}");
+        string reportPath = Path.Combine(repo.RootPath, "src", "Ntilde.App", "Resources", "vt-conformance-report.json");
+        repo.WriteFile("src/Ntilde.App/Resources/vt-conformance-report.json", "{}");
         VtConformanceReport report = VtConformanceReportTool.Generate(repo.RootPath, Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
 
         VtConformanceReportComparison comparison = VtConformanceReportTool.CompareReport(report, reportPath);
@@ -164,11 +164,11 @@ public sealed class VtConformanceToolTests
 
 | Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
 |---|---|---:|---|---|---|
-| CSI parser | Basic | ✅ Supported | Unit: `tests/NovaTerminal.Tests/ParserTests.cs` | `Core/AnsiParser.cs` | |
+| CSI parser | Basic | ✅ Supported | Unit: `tests/Ntilde.Tests/ParserTests.cs` | `Core/AnsiParser.cs` | |
 """;
 
-        lfRepo.WriteFile("tests/NovaTerminal.Tests/ParserTests.cs", "// parser tests");
-        crlfRepo.WriteFile("tests/NovaTerminal.Tests/ParserTests.cs", "// parser tests");
+        lfRepo.WriteFile("tests/Ntilde.Tests/ParserTests.cs", "// parser tests");
+        crlfRepo.WriteFile("tests/Ntilde.Tests/ParserTests.cs", "// parser tests");
         lfRepo.WriteFile(relativeMatrixPath, matrix, newline: "\n");
         crlfRepo.WriteFile(relativeMatrixPath, matrix, newline: "\r\n");
 
@@ -197,7 +197,7 @@ public sealed class VtConformanceToolTests
         using var repo = new TemporaryRepo();
         repo.WriteFile("tests/CursorContractTests.cs", "// evidence");
         repo.WriteFile("docs/vt_coverage_matrix.md", MatrixRow("CHA (G)", "✅ Supported", "tests/CursorContractTests.cs"));
-        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+        repo.WriteFile("src/Ntilde.VtContract/vt-capabilities.json", CapabilityManifest(
             CapabilityEntry("CSI:E", "CNL", "supported", "CNL (E)", "tests/CursorContractTests.cs", "cursor-next-line")));
 
         VtConformanceReport report = VtConformanceReportTool.Generate(
@@ -213,7 +213,7 @@ public sealed class VtConformanceToolTests
         using var repo = new TemporaryRepo();
         repo.WriteFile("tests/CursorContractTests.cs", "// evidence");
         repo.WriteFile("docs/vt_coverage_matrix.md", MatrixRow("CNL (E)", "⚠ Partial", "tests/CursorContractTests.cs"));
-        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+        repo.WriteFile("src/Ntilde.VtContract/vt-capabilities.json", CapabilityManifest(
             CapabilityEntry("CSI:E", "CNL", "supported", "CNL (E)", "tests/CursorContractTests.cs", "cursor-next-line")));
 
         VtConformanceReport report = VtConformanceReportTool.Generate(
@@ -229,7 +229,7 @@ public sealed class VtConformanceToolTests
         using var repo = new TemporaryRepo();
         repo.WriteFile("tests/CursorContractTests.cs", "// evidence");
         repo.WriteFile("docs/vt_coverage_matrix.md", MatrixRow("CNL/CPL (E/F)", "✅ Supported", "tests/CursorContractTests.cs"));
-        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+        repo.WriteFile("src/Ntilde.VtContract/vt-capabilities.json", CapabilityManifest(
             CapabilityEntry("CSI:E", "CNL", "supported", "CNL/CPL (E/F)", "tests/CursorContractTests.cs", "cursor-next-line"),
             CapabilityEntry("CSI:F", "CPL", "supported", "CNL/CPL (E/F)", "tests/CursorContractTests.cs", "cursor-previous-line")));
 
@@ -245,7 +245,7 @@ public sealed class VtConformanceToolTests
     {
         using var repo = new TemporaryRepo();
         repo.WriteFile("docs/vt_coverage_matrix.md", MatrixRow("CNL (E)", "✅ Supported", "tests/MissingContractTests.cs"));
-        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+        repo.WriteFile("src/Ntilde.VtContract/vt-capabilities.json", CapabilityManifest(
             CapabilityEntry("CSI:E", "CNL", "supported", "CNL (E)", "tests/MissingContractTests.cs", "cursor-next-line")));
 
         VtConformanceReport report = VtConformanceReportTool.Generate(
@@ -264,7 +264,7 @@ public sealed class VtConformanceToolTests
             .Replace(featureRow, $"{featureRow}\n{featureRow}", StringComparison.Ordinal);
         repo.WriteFile("tests/CursorContractTests.cs", "// evidence");
         repo.WriteFile("docs/vt_coverage_matrix.md", matrix);
-        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+        repo.WriteFile("src/Ntilde.VtContract/vt-capabilities.json", CapabilityManifest(
             CapabilityEntry("CSI:E", "CNL", "supported", "CNL (E)", "tests/CursorContractTests.cs", "cursor-next-line")));
 
         VtConformanceReport report = VtConformanceReportTool.Generate(
@@ -279,7 +279,7 @@ public sealed class VtConformanceToolTests
     {
         using var repo = new TemporaryRepo();
         repo.WriteFile("docs/vt_coverage_matrix.md", MatrixRow("CNL (E)", "✅ Supported", "../outside.cs"));
-        repo.WriteFile("src/NovaTerminal.VtContract/vt-capabilities.json", CapabilityManifest(
+        repo.WriteFile("src/Ntilde.VtContract/vt-capabilities.json", CapabilityManifest(
             CapabilityEntry("CSI:E", "CNL", "supported", "CNL (E)", "../outside.cs", "cursor-next-line")));
 
         VtConformanceReport report = VtConformanceReportTool.Generate(
@@ -349,7 +349,7 @@ public sealed class VtConformanceToolTests
     {
         public TemporaryRepo()
         {
-            RootPath = Path.Combine(Path.GetTempPath(), $"nova_conformance_{Guid.NewGuid():N}");
+            RootPath = Path.Combine(Path.GetTempPath(), $"ntilde_conformance_{Guid.NewGuid():N}");
             Directory.CreateDirectory(RootPath);
         }
 

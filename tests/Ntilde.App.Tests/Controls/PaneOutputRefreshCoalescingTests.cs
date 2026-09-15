@@ -1,10 +1,10 @@
 using System.Reflection;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
-using NovaTerminal.Controls;
+using Ntilde.Controls;
 using Xunit;
 
-namespace NovaTerminal.Tests.Controls;
+namespace Ntilde.Tests.Controls;
 
 /// <summary>
 /// The after-output UI refresh is queued once per chunk read from the session, on the PTY/SSH read

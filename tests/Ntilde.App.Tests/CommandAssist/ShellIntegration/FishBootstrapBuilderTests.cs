@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.ShellIntegration.Fish;
+using Ntilde.CommandAssist.ShellIntegration.Fish;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 public sealed class FishBootstrapBuilderTests : IDisposable
 {
@@ -8,7 +8,7 @@ public sealed class FishBootstrapBuilderTests : IDisposable
 
     public FishBootstrapBuilderTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), $"nova_command_assist_fish_bootstrap_{Guid.NewGuid():N}");
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_command_assist_fish_bootstrap_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempRoot);
     }
 
@@ -33,12 +33,12 @@ public sealed class FishBootstrapBuilderTests : IDisposable
         // can only carry A. fish has no post-prompt event, so B is emitted by
         // re-defining fish_prompt as "copy of the user's prompt, then B" --
         // the copy keeps the user's prompt output byte-for-byte.
-        Assert.Contains("functions --copy fish_prompt __nova_user_fish_prompt", script);
+        Assert.Contains("functions --copy fish_prompt __ntilde_user_fish_prompt", script);
 
         int redefIndex = script.IndexOf("function fish_prompt\n", StringComparison.Ordinal);
         Assert.True(redefIndex > 0, "fish_prompt must be re-defined around the copied original");
 
-        int originalCallIndex = script.IndexOf("    __nova_user_fish_prompt", redefIndex, StringComparison.Ordinal);
+        int originalCallIndex = script.IndexOf("    __ntilde_user_fish_prompt", redefIndex, StringComparison.Ordinal);
         int markIndex = script.IndexOf("133;B", redefIndex, StringComparison.Ordinal);
         Assert.True(originalCallIndex > redefIndex, "the copied user prompt must run first");
         Assert.True(markIndex > originalCallIndex, "B must be emitted after the user's prompt output");
@@ -65,10 +65,10 @@ public sealed class FishBootstrapBuilderTests : IDisposable
         // `source $__fish_config_dir/config.fish`, `exec fish`, a user alias).
         // Without the second half of this condition the re-run would copy the
         // CURRENT fish_prompt -- by then our own wrapper -- into
-        // __nova_user_fish_prompt, and the redefinition would call itself
+        // __ntilde_user_fish_prompt, and the redefinition would call itself
         // forever.
         Assert.Contains(
-            "if functions -q fish_prompt; and not functions -q __nova_user_fish_prompt",
+            "if functions -q fish_prompt; and not functions -q __ntilde_user_fish_prompt",
             script);
     }
 
@@ -88,9 +88,9 @@ public sealed class FishBootstrapBuilderTests : IDisposable
         void RunBootstrapPromptSection()
         {
             if (!functions.ContainsKey("fish_prompt")) return;
-            if (functions.ContainsKey("__nova_user_fish_prompt")) return; // the fix
-            functions["__nova_user_fish_prompt"] = functions["fish_prompt"];
-            functions["fish_prompt"] = "call __nova_user_fish_prompt; print 133;B";
+            if (functions.ContainsKey("__ntilde_user_fish_prompt")) return; // the fix
+            functions["__ntilde_user_fish_prompt"] = functions["fish_prompt"];
+            functions["fish_prompt"] = "call __ntilde_user_fish_prompt; print 133;B";
         }
 
         RunBootstrapPromptSection();
@@ -99,8 +99,8 @@ public sealed class FishBootstrapBuilderTests : IDisposable
 
         // The copied "original" is still the user's function, never the wrapper --
         // which is precisely what makes the wrapper's self-call terminate.
-        Assert.Equal("user prompt body", functions["__nova_user_fish_prompt"]);
-        Assert.DoesNotContain("133;B", functions["__nova_user_fish_prompt"]);
+        Assert.Equal("user prompt body", functions["__ntilde_user_fish_prompt"]);
+        Assert.DoesNotContain("133;B", functions["__ntilde_user_fish_prompt"]);
 
         // And the guard is really the thing doing the work: drop it and the same
         // three passes produce a self-referential copy.
@@ -110,10 +110,10 @@ public sealed class FishBootstrapBuilderTests : IDisposable
         };
         for (int i = 0; i < 2; i++)
         {
-            unguarded["__nova_user_fish_prompt"] = unguarded["fish_prompt"];
-            unguarded["fish_prompt"] = "call __nova_user_fish_prompt; print 133;B";
+            unguarded["__ntilde_user_fish_prompt"] = unguarded["fish_prompt"];
+            unguarded["fish_prompt"] = "call __ntilde_user_fish_prompt; print 133;B";
         }
-        Assert.Contains("__nova_user_fish_prompt", unguarded["__nova_user_fish_prompt"]);
+        Assert.Contains("__ntilde_user_fish_prompt", unguarded["__ntilde_user_fish_prompt"]);
     }
 
     [Fact]
@@ -128,7 +128,7 @@ public sealed class FishBootstrapBuilderTests : IDisposable
         // exactly once at bootstrap, guarded against re-entry, and each prompt cycle
         // simply calls it. Pin both halves of that.
         Assert.Contains(
-            "if functions -q fish_prompt; and not functions -q __nova_user_fish_prompt",
+            "if functions -q fish_prompt; and not functions -q __ntilde_user_fish_prompt",
             script);
 
         // Exactly one B emission site, and it is inside the redefined fish_prompt.
@@ -200,7 +200,7 @@ public sealed class FishBootstrapBuilderTests : IDisposable
 
         Assert.Contains("math -s0 \"$raw / 1000000\"", script);
         Assert.Contains("math -s0 (date +%s) \"* 1000\"", script);
-        Assert.Contains("math -s0 $now_ms - $__nova_command_start_ms", script);
+        Assert.Contains("math -s0 $now_ms - $__ntilde_command_start_ms", script);
 
         // No unqualified `math` call anywhere: every one of them feeds an integer field.
         Assert.DoesNotContain("(math $", script);

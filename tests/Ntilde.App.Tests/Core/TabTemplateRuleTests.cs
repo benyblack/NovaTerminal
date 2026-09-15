@@ -1,8 +1,8 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class TabTemplateRuleTests
 {
@@ -16,7 +16,7 @@ public sealed class TabTemplateRuleTests
             new() { ProfileId = profileId, TemplateName = "dev-template", Enabled = true }
         };
 
-        var rule = NovaTerminal.MainWindow.FindTabTemplateRule(rules, profileId);
+        var rule = Ntilde.MainWindow.FindTabTemplateRule(rules, profileId);
         Assert.NotNull(rule);
         Assert.Equal("dev-template", rule!.TemplateName);
     }
@@ -31,7 +31,7 @@ public sealed class TabTemplateRuleTests
             new() { ProfileId = profileId, TemplateName = "x", Enabled = false }
         };
 
-        var rule = NovaTerminal.MainWindow.FindTabTemplateRule(rules, profileId);
+        var rule = Ntilde.MainWindow.FindTabTemplateRule(rules, profileId);
         Assert.Null(rule);
     }
 
@@ -41,12 +41,12 @@ public sealed class TabTemplateRuleTests
         Guid profileId = Guid.NewGuid();
         var rules = new List<TabTemplateRule>();
 
-        bool added = NovaTerminal.MainWindow.UpsertTabTemplateRule(rules, profileId, "first");
+        bool added = Ntilde.MainWindow.UpsertTabTemplateRule(rules, profileId, "first");
         Assert.True(added);
         Assert.Single(rules);
         Assert.Equal("first", rules[0].TemplateName);
 
-        bool updated = NovaTerminal.MainWindow.UpsertTabTemplateRule(rules, profileId, "second");
+        bool updated = Ntilde.MainWindow.UpsertTabTemplateRule(rules, profileId, "second");
         Assert.True(updated);
         Assert.Single(rules);
         Assert.Equal("second", rules[0].TemplateName);
@@ -63,7 +63,7 @@ public sealed class TabTemplateRuleTests
             new() { ProfileId = Guid.NewGuid(), TemplateName = "y", Enabled = true }
         };
 
-        bool removed = NovaTerminal.MainWindow.RemoveTabTemplateRule(rules, profileId);
+        bool removed = Ntilde.MainWindow.RemoveTabTemplateRule(rules, profileId);
         Assert.True(removed);
         Assert.Single(rules);
         Assert.DoesNotContain(rules, r => r.ProfileId == profileId);

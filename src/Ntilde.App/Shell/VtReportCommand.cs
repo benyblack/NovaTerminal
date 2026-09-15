@@ -3,13 +3,13 @@ using System.IO;
 using System.Reflection;
 using System.Text.Json;
 
-namespace NovaTerminal;
+namespace Ntilde;
 
 internal static class VtReportCommand
 {
     private const string ReportFlag = "--vt-report";
     private const string JsonFlag = "--json";
-    private const string ResourceName = "NovaTerminal.Resources.vt-conformance-report.json";
+    private const string ResourceName = "Ntilde.Resources.vt-conformance-report.json";
 
     public static bool IsSupportedCliMode(string[] args)
     {
@@ -141,7 +141,7 @@ internal static class VtReportCommand
 
     private static void WriteSummary(EmbeddedVtReportSnapshot report, TextWriter stdout)
     {
-        stdout.WriteLine("NovaTerminal VT Report");
+        stdout.WriteLine("Ntilde VT Report");
         stdout.WriteLine($"Matrix: {report.MatrixPath}");
         stdout.WriteLine($"Total: {report.TotalRows}");
         stdout.WriteLine($"Supported: {report.SupportedCount}");
@@ -156,7 +156,7 @@ internal static class VtReportCommand
 
     private static void PrintUsage(TextWriter stderr)
     {
-        stderr.WriteLine("Usage: NovaTerminal --vt-report [--json]");
+        stderr.WriteLine("Usage: Ntilde --vt-report [--json]");
     }
 
     private sealed record EmbeddedVtReportSnapshot(

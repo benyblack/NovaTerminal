@@ -1,12 +1,12 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal;
+namespace Ntilde;
 
 public partial class App : Application
 {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests build-deb.sh without needing a real NovaTerminal publish. Run inside a
+# Tests build-deb.sh without needing a real Ntilde publish. Run inside a
 # Debian-family container as root (it needs dpkg-deb, dpkg-query, file, ldd,
 # binutils' strip, an ImageMagick 'magick' or 'convert', plus 'fc-match' and
 # 'xdpyinfo' as donor ELFs that link real libfontconfig1/libx11-6 - see the
@@ -43,7 +43,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 pub="$work/publish"; out="$work/out"
 mkdir -p "$pub" "$out"
-cp /bin/true "$pub/NovaTerminal"          # a real ELF, so ldd has something to read
+cp /bin/true "$pub/Ntilde"          # a real ELF, so ldd has something to read
 mkdir -p "$pub/themes" && echo '{}' > "$pub/themes/default.json"
 
 # A dummy .so so this fast harness also exercises the lintian-fix-round path
@@ -110,34 +110,34 @@ run_script() {
 if ! run_script "$pub" "0.4.0" "amd64" "$out"; then
   fail "build-deb.sh exited non-zero"
 else
-  deb="$out/novaterminal_0.4.0-1_amd64.deb"
+  deb="$out/ntilde_0.4.0-1_amd64.deb"
   [[ -f "$deb" ]] && pass "produced $(basename "$deb")" || fail "expected $deb"
 
   if [[ -f "$deb" ]]; then
     contents="$(dpkg-deb --contents "$deb")"
     # The six hicolor icon paths are the ONLY automated coverage of spec acceptance
-    # criterion 5 ("NovaTerminal appears in the app menu with its icon"). Nothing else
+    # criterion 5 ("Ntilde appears in the app menu with its icon"). Nothing else
     # in the chain catches a package built with no icons: desktop-file-validate does
-    # not check that `Icon=novaterminal` resolves to an installed file, and lintian's
+    # not check that `Icon=ntilde` resolves to an installed file, and lintian's
     # icon-size-mismatch is a WARNING, so `--fail-on error` lets it through too.
     # Paired with build-deb.sh treating a missing icon source as fatal, these two
-    # changes are what make ci.yml's change-detection watch on nova_icon.png mean
+    # changes are what make ci.yml's change-detection watch on ntilde_icon.png mean
     # something.
     layout_missing=0
     for path in \
-      ./usr/lib/novaterminal/NovaTerminal \
-      ./usr/lib/novaterminal/themes/default.json \
-      ./usr/lib/novaterminal/libtest-fixture.so \
-      ./usr/bin/nova \
-      ./usr/share/applications/novaterminal.desktop \
-      ./usr/share/man/man1/nova.1.gz \
-      ./usr/share/doc/novaterminal/copyright \
-      ./usr/share/icons/hicolor/16x16/apps/novaterminal.png \
-      ./usr/share/icons/hicolor/32x32/apps/novaterminal.png \
-      ./usr/share/icons/hicolor/48x48/apps/novaterminal.png \
-      ./usr/share/icons/hicolor/64x64/apps/novaterminal.png \
-      ./usr/share/icons/hicolor/128x128/apps/novaterminal.png \
-      ./usr/share/icons/hicolor/256x256/apps/novaterminal.png
+      ./usr/lib/ntilde/Ntilde \
+      ./usr/lib/ntilde/themes/default.json \
+      ./usr/lib/ntilde/libtest-fixture.so \
+      ./usr/bin/ntilde \
+      ./usr/share/applications/ntilde.desktop \
+      ./usr/share/man/man1/ntilde.1.gz \
+      ./usr/share/doc/ntilde/copyright \
+      ./usr/share/icons/hicolor/16x16/apps/ntilde.png \
+      ./usr/share/icons/hicolor/32x32/apps/ntilde.png \
+      ./usr/share/icons/hicolor/48x48/apps/ntilde.png \
+      ./usr/share/icons/hicolor/64x64/apps/ntilde.png \
+      ./usr/share/icons/hicolor/128x128/apps/ntilde.png \
+      ./usr/share/icons/hicolor/256x256/apps/ntilde.png
     do
       grep -q -- "$path" <<<"$contents" || { fail "missing from package: $path"; layout_missing=$((layout_missing + 1)); }
     done
@@ -146,24 +146,24 @@ else
     # reads like the layout was checked AND fine.
     (( layout_missing )) || pass "layout checked"
 
-    # The bundle binary must be executable, and /usr/bin/nova must be a symlink to it.
-    grep -qE '^-rwxr-xr-x.* \./usr/lib/novaterminal/NovaTerminal$' <<<"$contents" \
-      || fail "NovaTerminal is not 0755 in the package"
-    grep -qE '^lrwxrwxrwx.* \./usr/bin/nova -> ' <<<"$contents" \
-      || fail "/usr/bin/nova is not a symlink"
+    # The bundle binary must be executable, and /usr/bin/ntilde must be a symlink to it.
+    grep -qE '^-rwxr-xr-x.* \./usr/lib/ntilde/Ntilde$' <<<"$contents" \
+      || fail "Ntilde is not 0755 in the package"
+    grep -qE '^lrwxrwxrwx.* \./usr/bin/ntilde -> ' <<<"$contents" \
+      || fail "/usr/bin/ntilde is not a symlink"
 
     # Lintian-fix-round assertions. The fixture .so is staged at 0755 (matching
     # how the real SkiaSharp/HarfBuzzSharp binaries actually ship) specifically so
     # this checks something: a fixture that started at 0644 would pass even if the
     # chmod-normalisation pass in build-deb.sh were deleted entirely.
-    grep -qE '^-rw-r--r--.* \./usr/lib/novaterminal/libtest-fixture\.so$' <<<"$contents" \
+    grep -qE '^-rw-r--r--.* \./usr/lib/ntilde/libtest-fixture\.so$' <<<"$contents" \
       || fail "libtest-fixture.so is not 0644 in the package (chmod-normalisation regressed)"
 
     # The lintian overrides file must ship, or every future build silently loses
     # the documented embedded-library exceptions and `lintian --fail-on error`
     # starts failing every real build again with no explanation in this fast
     # harness - only the slow, real containerised run would ever catch it.
-    grep -q -- './usr/share/lintian/overrides/novaterminal' <<<"$contents" \
+    grep -q -- './usr/share/lintian/overrides/ntilde' <<<"$contents" \
       || fail "lintian overrides file missing from package"
 
     # Every entry must be root-owned (--root-owner-group), never the invoking uid -
@@ -176,7 +176,7 @@ else
     [[ -z "$non_root" ]] || fail "package has non-root-owned entries: $non_root"
 
     info="$(dpkg-deb --field "$deb")"
-    grep -q '^Package: novaterminal$'   <<<"$info" || fail "wrong Package field"
+    grep -q '^Package: ntilde$'   <<<"$info" || fail "wrong Package field"
     grep -q '^Version: 0.4.0-1$'        <<<"$info" || fail "wrong Version field"
     grep -q '^Architecture: amd64$'     <<<"$info" || fail "wrong Architecture field"
     grep -q '^Depends: .*libc6 (>= 2.35)' <<<"$info" || fail "Depends lacks the glibc floor"

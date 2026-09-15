@@ -1,14 +1,14 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:controls="clr-namespace:NovaTerminal.Controls;assembly=NovaTerminal"
-        xmlns:shell="clr-namespace:NovaTerminal.Shell;assembly=NovaTerminal"
-        x:Class="NovaTerminal.MainWindow"
-        Title="NovaTerminal"
+        xmlns:controls="clr-namespace:Ntilde.Controls;assembly=Ntilde"
+        xmlns:shell="clr-namespace:Ntilde.Shell;assembly=Ntilde"
+        x:Class="Ntilde.MainWindow"
+        Title="Ntilde"
         Width="1200" Height="800"
         MinWidth="400" MinHeight="200"
         x:Name="RootWindow"
         ExtendClientAreaToDecorationsHint="True"
-        WindowDecorationsTheme="{StaticResource NovaWindowDecorationsTheme}"
+        WindowDecorationsTheme="{StaticResource NtildeWindowDecorationsTheme}"
         TransparencyLevelHint=""
         Background="Transparent">
     <Window.Resources>
@@ -256,7 +256,7 @@
                             <MenuItem Header="Manage Profiles..." Name="MenuManageProfiles" />
                             <MenuItem Header="Agent Activity..." Name="MenuAgentActivity" />
                             <Separator />
-                            <MenuItem Header="About NovaTerminal..." Name="MenuAbout" />
+                            <MenuItem Header="About Ntilde..." Name="MenuAbout" />
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>

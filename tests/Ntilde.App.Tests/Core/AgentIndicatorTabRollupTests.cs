@@ -4,10 +4,10 @@ using System.Linq;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.AgentHost;
-using NovaTerminal.Shell;
+using Ntilde.AgentHost;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Which attention tiers reach the tab strip (pure policy, mirroring
@@ -20,7 +20,7 @@ namespace NovaTerminal.Tests.Core;
 /// reaching the process-wide singleton. On a machine where that setting is
 /// persisted as enabled, this would start a real IPC endpoint inside the
 /// shared test process (see AgentObserveIndicatorTests, which this mirrors).
-/// Every wiring test points NOVATERM_APPDATA_ROOT at a fresh scratch
+/// Every wiring test points NTILDE_APPDATA_ROOT at a fresh scratch
 /// directory for that reason.
 ///
 /// AgentSessionRegistry.Instance is also process-wide, and nothing in this
@@ -301,13 +301,13 @@ public sealed class AgentIndicatorTabRollupTests : IDisposable
 
     private static void RunIsolated(Action<MainWindow, AgentSessionRegistration> body)
     {
-        string tempRoot = Path.Combine(Path.GetTempPath(), $"novaterm_tab_rollup_test_{Guid.NewGuid():N}");
-        string? previousRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_tab_rollup_test_{Guid.NewGuid():N}");
+        string? previousRoot = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", tempRoot);
 
             var before = AgentSessionRegistry.Instance.GetRegistrations();
             var window = TestMainWindowFactory.Create();
@@ -320,7 +320,7 @@ public sealed class AgentIndicatorTabRollupTests : IDisposable
         }
         finally
         {
-            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previousRoot);
             try { Directory.Delete(tempRoot, recursive: true); } catch { /* best effort */ }
         }
     }

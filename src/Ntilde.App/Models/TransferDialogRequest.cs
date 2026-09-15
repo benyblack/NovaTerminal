@@ -1,9 +1,9 @@
 using System;
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Models;
+namespace Ntilde.Models;
 
 public sealed class TransferDialogRequest
 {

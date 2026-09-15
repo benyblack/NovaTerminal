@@ -2,11 +2,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
-using NovaTerminal.Replay;
-using NovaTerminal.VT;
+using Ntilde.Replay;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.ReplayTests;
+namespace Ntilde.Tests.ReplayTests;
 
 /// <summary>
 /// Replay coverage for #274's CSI identity rules: a sequence is named by its final byte together
@@ -164,7 +164,7 @@ public sealed class CsiFormReplayTests
 
     private static async Task<string[]> ReplayResponsesAsync(params string[] chunks)
     {
-        string recPath = Path.Combine(Path.GetTempPath(), $"nova-csi-cpr-{Path.GetRandomFileName()}.rec");
+        string recPath = Path.Combine(Path.GetTempPath(), $"ntilde-csi-cpr-{Path.GetRandomFileName()}.rec");
 
         try
         {
@@ -202,7 +202,7 @@ public sealed class CsiFormReplayTests
 
     private static async Task<string[]> ReplayAsync(params string[] chunks)
     {
-        string recPath = Path.Combine(Path.GetTempPath(), $"nova-csi-form-{Path.GetRandomFileName()}.rec");
+        string recPath = Path.Combine(Path.GetTempPath(), $"ntilde-csi-form-{Path.GetRandomFileName()}.rec");
 
         try
         {

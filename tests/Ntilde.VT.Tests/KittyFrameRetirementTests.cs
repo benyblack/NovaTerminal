@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using NovaTerminal.VT;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// Disposal scheduling for replaced kitty video frames. At 30 fps a fixed two-second

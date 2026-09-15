@@ -1,6 +1,6 @@
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// The command-input window: <c>TerminalBuffer.IsAcceptingCommandInput</c>, moved by the parser on

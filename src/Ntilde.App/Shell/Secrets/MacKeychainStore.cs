@@ -2,12 +2,12 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace NovaTerminal.Shell.Secrets
+namespace Ntilde.Shell.Secrets
 {
     /// <summary>
     /// macOS secret store backed by Keychain Services (login keychain, per-user).
     /// Items are generic-password records keyed by
-    /// <c>kSecAttrService = "NovaTerminal"</c> and <c>kSecAttrAccount = key</c>, with
+    /// <c>kSecAttrService = "Ntilde"</c> and <c>kSecAttrAccount = key</c>, with
     /// the secret stored as the UTF-8 bytes of the value.
     /// </summary>
     /// <remarks>
@@ -32,7 +32,7 @@ namespace NovaTerminal.Shell.Secrets
     {
         private const string Sec = "/System/Library/Frameworks/Security.framework/Security";
         private const string CF = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
-        private const string ServiceName = "NovaTerminal";
+        private const string ServiceName = "Ntilde";
 
         private const int errSecSuccess = 0;
         private const int errSecItemNotFound = -25300;
@@ -71,7 +71,7 @@ namespace NovaTerminal.Shell.Secrets
                 // a present framework with nothing stored returns errSecItemNotFound,
                 // which ReadInternal maps to null without throwing. Call ReadInternal
                 // (not Read) because _available is not set yet.
-                _ = ReadInternal("__novaterminal_probe__");
+                _ = ReadInternal("__ntilde_probe__");
                 _available = true;
             }
             catch (DllNotFoundException) { _available = false; }

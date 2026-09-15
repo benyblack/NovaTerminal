@@ -19,15 +19,15 @@
 
   <ItemGroup>
     <!-- Reference every production assembly so NetArchTest can load them. -->
-    <ProjectReference Include="..\..\src\NovaTerminal.VT\NovaTerminal.VT.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Replay\NovaTerminal.Replay.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Rendering\NovaTerminal.Rendering.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Pty\NovaTerminal.Pty.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Platform\NovaTerminal.Platform.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.CommandAssist\NovaTerminal.CommandAssist.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.App\NovaTerminal.App.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Cli\NovaTerminal.Cli.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Conformance\NovaTerminal.Conformance.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.AgentHost.Contracts\NovaTerminal.AgentHost.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.VT\Ntilde.VT.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Replay\Ntilde.Replay.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Rendering\Ntilde.Rendering.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Pty\Ntilde.Pty.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Platform\Ntilde.Platform.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.CommandAssist\Ntilde.CommandAssist.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.App\Ntilde.App.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Cli\Ntilde.Cli.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Conformance\Ntilde.Conformance.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.AgentHost.Contracts\Ntilde.AgentHost.Contracts.csproj" />
   </ItemGroup>
 </Project>

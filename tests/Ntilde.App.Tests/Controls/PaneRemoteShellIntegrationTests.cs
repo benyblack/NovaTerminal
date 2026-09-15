@@ -1,13 +1,13 @@
 using System.Reflection;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.Controls;
-using NovaTerminal.Shell;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.Controls;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests.Controls;
+namespace Ntilde.Tests.Controls;
 
 /// <summary>
 /// An SSH pane whose remote shell emits OSC 133 gets the full Command Assist treatment
@@ -19,7 +19,7 @@ namespace NovaTerminal.Tests.Controls;
 /// <para>
 /// The thing being tested is the <em>arming</em>, not the mark handling. Every mechanism these
 /// tests exercise already worked; what did not exist before Phase 2b was any path that attached
-/// the OSC 133 translator to a session Nova had not injected a bootstrap into, so an instrumented
+/// the OSC 133 translator to a session Ntilde had not injected a bootstrap into, so an instrumented
 /// remote delivered no events at all. Each positive test below is therefore paired with a control
 /// that must stay degraded, because otherwise it would pass with the arming deleted (the pane's
 /// heuristic capture would quietly stand in).
@@ -27,7 +27,7 @@ namespace NovaTerminal.Tests.Controls;
 /// <para>
 /// Sibling coverage: <c>PaneMarklessCaptureTests</c> owns the un-instrumented path,
 /// <c>CapturePipelineTests</c> owns what the assist assembly does with the events, and
-/// <c>NovaTerminal.VT.Tests/Osc133AcceptedPayloadTests</c> owns which <c>133;C</c> payloads become
+/// <c>Ntilde.VT.Tests/Osc133AcceptedPayloadTests</c> owns which <c>133;C</c> payloads become
 /// command text.
 /// </para>
 /// </remarks>
@@ -502,7 +502,7 @@ public class PaneRemoteShellIntegrationTests
             // so they cannot share a history file with anything else running.
             string directory = Path.Combine(
                 Path.GetTempPath(),
-                $"nova_remote_integration_{Environment.ProcessId}_{Guid.NewGuid():N}");
+                $"ntilde_remote_integration_{Environment.ProcessId}_{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
 
             var services = new CommandAssistServices(
@@ -560,7 +560,7 @@ public class PaneRemoteShellIntegrationTests
             await SettleAsync();
         }
 
-        /// <summary>The remote shell reporting the accepted command, base64 as Nova's snippets do.</summary>
+        /// <summary>The remote shell reporting the accepted command, base64 as Ntilde's snippets do.</summary>
         public async Task AcceptAsync(string commandText)
         {
             string encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(commandText));

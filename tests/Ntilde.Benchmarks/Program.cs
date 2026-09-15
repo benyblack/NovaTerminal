@@ -1,7 +1,7 @@
 using BenchmarkDotNet.Running;
 using System;
 
-namespace NovaTerminal.Benchmarks
+namespace Ntilde.Benchmarks
 {
     class Program
     {

@@ -1,6 +1,6 @@
-using NovaTerminal.VT.Storage;
+using Ntilde.VT.Storage;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     public record struct TerminalMemoryMetrics(
         long ScrollbackBytes,

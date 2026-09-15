@@ -1,6 +1,6 @@
 
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     [System.Flags]
     public enum TerminalCellFlags : ushort

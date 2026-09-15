@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 
-namespace NovaTerminal.ExternalSuites.Vttest
+namespace Ntilde.ExternalSuites.Vttest
 {
     public sealed class VttestDriver
     {

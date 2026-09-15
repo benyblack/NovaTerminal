@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.VT.Links
+namespace Ntilde.VT.Links
 {
     /// <summary>
     /// Interns <see cref="Hyperlink"/> instances so that cells belonging to one logical link share a

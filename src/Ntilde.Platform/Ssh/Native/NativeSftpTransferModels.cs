@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace NovaTerminal.Platform.Ssh.Native;
+namespace Ntilde.Platform.Ssh.Native;
 
 public enum NativeSftpTransferDirection
 {

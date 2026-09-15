@@ -1,6 +1,6 @@
 using System.Threading;
 
-namespace NovaTerminal.Rendering
+namespace Ntilde.Rendering
 {
     public static class RendererStatistics
     {

@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     /// <summary>
     /// The debug log's destination. A thin static front for <see cref="RotatingFileLogWriter"/>,
@@ -31,7 +31,7 @@ namespace NovaTerminal.Shell
         /// Explicit rather than a static constructor, because the wiring used to happen as a side
         /// effect of whoever touched the type first — and in <c>Program.Main</c> that was
         /// <c>AppLogger.GetLogFilePath()</c> on the <em>second</em> startup log line, so the first
-        /// one ("NovaTerminal started with args: …") reached a <see cref="TerminalLogger.OnLog"/>
+        /// one ("Ntilde started with args: …") reached a <see cref="TerminalLogger.OnLog"/>
         /// that still had no subscriber and vanished. Initialization order that matters should be
         /// stated, not inferred from which member someone happens to touch first.
         /// </remarks>
@@ -48,7 +48,7 @@ namespace NovaTerminal.Shell
             // lines a crash report needs. Disposing the writer drains and flushes first.
             AppDomain.CurrentDomain.ProcessExit += (_, _) => Writer.Dispose();
 
-            Log($"=== NovaTerminal Debug Log Started: {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
+            Log($"=== Ntilde Debug Log Started: {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
         }
 
         /// <summary>

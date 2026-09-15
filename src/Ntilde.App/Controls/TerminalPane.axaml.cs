@@ -1,4 +1,4 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -6,8 +6,8 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.Media;
 using Avalonia;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using Avalonia.Controls.Presenters;
 using System;
 using System.Collections.Generic;
@@ -22,23 +22,23 @@ using Avalonia.Platform.Storage;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.ViewModels;
-using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
-using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
-using NovaTerminal.Platform.Ssh.Launch;
-using NovaTerminal.Platform.Ssh.Interactions;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Sessions;
-using NovaTerminal.Models;
-using NovaTerminal.Services.Ssh;
-using NovaTerminal.ViewModels.Ssh;
-using NovaTerminal.Pty;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.ViewModels;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.ShellIntegration.PowerShell;
+using Ntilde.CommandAssist.ShellIntegration.Runtime;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Sessions;
+using Ntilde.Models;
+using Ntilde.Services.Ssh;
+using Ntilde.ViewModels.Ssh;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Controls
+namespace Ntilde.Controls
 {
     public enum PaneAction
     {
@@ -96,7 +96,7 @@ namespace NovaTerminal.Controls
             {
                 if (_paneId == value) return;
                 var oldId = _paneId;
-                if ((_agentRegistry ?? NovaTerminal.AgentHost.AgentSessionRegistry.Instance).Rekey(oldId, value))
+                if ((_agentRegistry ?? Ntilde.AgentHost.AgentSessionRegistry.Instance).Rekey(oldId, value))
                 {
                     _paneId = value;
                 }
@@ -129,12 +129,12 @@ namespace NovaTerminal.Controls
         /// interlocked access. See <see cref="QueueOutputUiRefresh"/> for what it buys.
         /// </remarks>
         private int _outputUiRefreshQueued;
-        private NovaTerminal.AgentHost.AgentSessionRegistration? _agentRegistration;
+        private Ntilde.AgentHost.AgentSessionRegistration? _agentRegistration;
         // The registry this pane registered with, captured at SetupCommon so
         // Rekey and Unregister always target the same registry Register did —
         // even when a test redirected AgentSessionRegistry.Instance for the
         // construction (#357). Pane and registry must never disagree.
-        private NovaTerminal.AgentHost.AgentSessionRegistry? _agentRegistry;
+        private Ntilde.AgentHost.AgentSessionRegistry? _agentRegistry;
         private bool _agentActable;
         // Whether UpdateStatusBarUI has rendered the SSH forwarding half of the
         // status bar at least once. See UpdateForwardingStatus.
@@ -371,7 +371,7 @@ namespace NovaTerminal.Controls
         {
             if (_agentRegistration == null) return;
 
-            _agentRegistration.UpdateRenderParameters(new NovaTerminal.Shell.PaneRenderParameters(
+            _agentRegistration.UpdateRenderParameters(new Ntilde.Shell.PaneRenderParameters(
                 TermView.Metrics,
                 TermView.Typeface.FontFamily.Name,
                 (float)TermView.FontSize,
@@ -467,7 +467,7 @@ namespace NovaTerminal.Controls
                 ? normalizedSuffix[..6]
                 : normalizedSuffix.PadRight(6, '0');
 
-            return $"nova_rec_{timestamp:yyyyMMdd_HHmmss}_{shortSuffix}.rec";
+            return $"ntilde_rec_{timestamp:yyyyMMdd_HHmmss}_{shortSuffix}.rec";
         }
 
         public void UpdateProfile(TerminalProfile profile)
@@ -590,7 +590,7 @@ namespace NovaTerminal.Controls
             // registration holds a lock-protected metadata snapshot (never a
             // live delegate into this control), pushed from the UI thread on
             // every relevant change; the entry is removed in DetachFromUiThread.
-            _agentRegistration = new NovaTerminal.AgentHost.AgentSessionRegistration(
+            _agentRegistration = new Ntilde.AgentHost.AgentSessionRegistration(
                 PaneId,
                 Buffer!,
                 GetBaseTabTitle(),
@@ -600,7 +600,7 @@ namespace NovaTerminal.Controls
                 profileId: Profile?.Id);
             // A3 act: an agent typing into this pane is text the keyboard path never saw.
             _agentRegistration.InputInjected = NotifyExternalInputSent;
-            _agentRegistry = NovaTerminal.AgentHost.AgentSessionRegistry.Instance;
+            _agentRegistry = Ntilde.AgentHost.AgentSessionRegistry.Instance;
             _agentRegistry.Register(_agentRegistration);
             // Seed act-reachability from the registration instead of waiting for
             // the first ActabilityChanged. AgentHostService.OnSessionRegistered
@@ -881,7 +881,7 @@ namespace NovaTerminal.Controls
                         string content = await System.IO.File.ReadAllTextAsync(_pendingPasteFilePath);
                         NotifyExternalInputSent();
                         TermView.ScrollToInputLine();
-                        NovaTerminal.Platform.Input.TerminalInputSender.SendBracketedPaste(Session, content);
+                        Ntilde.Platform.Input.TerminalInputSender.SendBracketedPaste(Session, content);
                     }
                     catch (Exception ex)
                     {
@@ -1258,7 +1258,7 @@ namespace NovaTerminal.Controls
                 services.ErrorInsightService,
                 modeRouter: null,
                 resultBuilder: null,
-                // The grid-truth seam. Command Assist may not reference NovaTerminal.VT (see
+                // The grid-truth seam. Command Assist may not reference Ntilde.VT (see
                 // ProjectFileLayeringTests), so the reader's GridCommandLine is mapped to the
                 // assist assembly's own AssistQuerySnapshot right here, at the one boundary that
                 // can see both types. Everything downstream sees plain data.
@@ -2530,7 +2530,7 @@ namespace NovaTerminal.Controls
         /// </para>
         /// </remarks>
         /// <summary>
-        /// Whether Nova participates in the OSC 133 contract at all for this pane: the same switch
+        /// Whether Ntilde participates in the OSC 133 contract at all for this pane: the same switch
         /// <see cref="ApplyShellIntegrationLaunchPlan"/> and
         /// <see cref="ArmRemoteShellIntegrationTracker"/> honour, read the same way (a pane with no
         /// settings object yet is treated as enabled, which is what the arming paths do).
@@ -3063,7 +3063,7 @@ namespace NovaTerminal.Controls
 
             // Inline images (sixel / iTerm2 / Kitty) decode to the SKBitmap handles the draw
             // operation renders; without a decoder those parser paths silently no-op.
-            Parser.ImageDecoder = new NovaTerminal.Rendering.SkiaImageDecoder();
+            Parser.ImageDecoder = new Ntilde.Rendering.SkiaImageDecoder();
 
             // A device reply is text on the PTY that the keyboard path never produced: DA1, a DSR
             // cursor report, an answerback. Nothing here can promise the shell's line editor was not
@@ -4328,7 +4328,7 @@ namespace NovaTerminal.Controls
         }
 
         /// <summary>
-        /// Writes NovaTerminal-generated banner text (connection errors, disconnect/reconnect
+        /// Writes Ntilde-generated banner text (connection errors, disconnect/reconnect
         /// notices) into the terminal. Banners are routed through the ANSI parser rather than
         /// <see cref="TerminalBuffer.WriteContent"/> — which writes graphemes verbatim — so that
         /// embedded SGR color codes and CR/LF line breaks are interpreted, instead of leaving
@@ -4395,7 +4395,7 @@ namespace NovaTerminal.Controls
             if (_disposed) return null;
             _disposed = true;
 
-            (_agentRegistry ?? NovaTerminal.AgentHost.AgentSessionRegistry.Instance).Unregister(PaneId);
+            (_agentRegistry ?? Ntilde.AgentHost.AgentSessionRegistry.Instance).Unregister(PaneId);
             if (_agentRegistration != null)
             {
                 _agentRegistration.AttentionMachine.Changed -= OnAgentAttentionChanged;
@@ -4578,7 +4578,7 @@ namespace NovaTerminal.Controls
         /// republished with no tier transition — the global act toggle, or an
         /// SSH allowlist edit, on an otherwise-idle pane).
         /// </summary>
-        internal void ApplyAgentAttention(NovaTerminal.AgentHost.AgentAttentionSnapshot snapshot, bool isActable)
+        internal void ApplyAgentAttention(Ntilde.AgentHost.AgentAttentionSnapshot snapshot, bool isActable)
         {
             _agentActable = isActable;
             UpdateStatusBarVisibility();
@@ -4587,12 +4587,12 @@ namespace NovaTerminal.Controls
 
             switch (snapshot.Tier)
             {
-                case NovaTerminal.AgentHost.AgentAttentionTier.Wrote:
+                case Ntilde.AgentHost.AgentAttentionTier.Wrote:
                     AgentStatusDot.Fill = new SolidColorBrush(Color.Parse("#E8A33D"));
                     AgentStatusText.Text = "agent typed";
                     AgentStatusText.Foreground = new SolidColorBrush(Color.Parse("#F0C07A"));
                     break;
-                case NovaTerminal.AgentHost.AgentAttentionTier.Watched:
+                case Ntilde.AgentHost.AgentAttentionTier.Watched:
                     AgentStatusDot.Fill = new SolidColorBrush(Color.Parse("#4FB0D4"));
                     AgentStatusText.Text = "agent reading";
                     AgentStatusText.Foreground = new SolidColorBrush(Color.Parse("#7FC3DC"));
@@ -4614,12 +4614,12 @@ namespace NovaTerminal.Controls
         /// write from a moment ago from one they already saw. Names the method
         /// too, since sendInput and closeSession are very different events.
         /// </summary>
-        private static string BuildAgentSegmentTooltip(NovaTerminal.AgentHost.AgentAttentionSnapshot snapshot)
+        private static string BuildAgentSegmentTooltip(Ntilde.AgentHost.AgentAttentionSnapshot snapshot)
         {
             const string Suffix = " Click to open the agent activity journal.";
             switch (snapshot.Tier)
             {
-                case NovaTerminal.AgentHost.AgentAttentionTier.Wrote:
+                case Ntilde.AgentHost.AgentAttentionTier.Wrote:
                     string when = snapshot.LastWriteUtc.HasValue
                         ? snapshot.LastWriteUtc.Value.ToLocalTime().ToString(
                             "HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
@@ -4628,7 +4628,7 @@ namespace NovaTerminal.Controls
                         ? "an agent"
                         : snapshot.LastWriteMethod;
                     return $"An agent typed into this pane at {when} ({method})." + Suffix;
-                case NovaTerminal.AgentHost.AgentAttentionTier.Watched:
+                case Ntilde.AgentHost.AgentAttentionTier.Watched:
                     return "An agent is reading this pane." + Suffix;
                 default:
                     return "An agent can read this pane and type into it." + Suffix;
@@ -4642,7 +4642,7 @@ namespace NovaTerminal.Controls
         // exceptions on the calling thread, and that thread is serving a live
         // agent-host request. Guard the Post itself too — during teardown the
         // dispatcher can be gone while the endpoint is still serving requests.
-        private void OnAgentAttentionChanged(NovaTerminal.AgentHost.AgentAttentionSnapshot snapshot)
+        private void OnAgentAttentionChanged(Ntilde.AgentHost.AgentAttentionSnapshot snapshot)
         {
             var registration = _agentRegistration;
             if (registration == null) return;
@@ -4705,11 +4705,11 @@ namespace NovaTerminal.Controls
 
         /// <summary>
         /// Test-only access to the pane's agent-host registration, so tests can
-        /// flip <see cref="NovaTerminal.AgentHost.AgentSessionRegistration.IsAgentActable"/>
+        /// flip <see cref="Ntilde.AgentHost.AgentSessionRegistration.IsAgentActable"/>
         /// through the exact setter <c>AgentHostService.RefreshActability</c>
         /// uses, without a live endpoint or settings service.
         /// </summary>
-        internal NovaTerminal.AgentHost.AgentSessionRegistration? AgentRegistrationForTesting => _agentRegistration;
+        internal Ntilde.AgentHost.AgentSessionRegistration? AgentRegistrationForTesting => _agentRegistration;
 
         private void UpdateForwardingStatus()
         {
@@ -4775,7 +4775,7 @@ namespace NovaTerminal.Controls
         /// the caller here, so a live capture does not silently change resolution
         /// when the window moves between monitors.
         /// </remarks>
-        internal NovaTerminal.AgentHost.AgentLiveCapture? CaptureLiveForAgent(int maxWidth, double scale)
+        internal Ntilde.AgentHost.AgentLiveCapture? CaptureLiveForAgent(int maxWidth, double scale)
         {
             var view = TermView;
             if (view == null) return null;
@@ -4791,12 +4791,12 @@ namespace NovaTerminal.Controls
 
             double effectiveScale = scale <= 0
                 ? 1.0
-                : Math.Min(scale, NovaTerminal.AgentHost.Contracts.AgentHostProtocol.MaxCaptureScale);
+                : Math.Min(scale, Ntilde.AgentHost.Contracts.AgentHostProtocol.MaxCaptureScale);
             var pixelSize = new PixelSize(
                 (int)Math.Ceiling(width * effectiveScale),
                 (int)Math.Ceiling(height * effectiveScale));
             if (pixelSize.Width <= 0 || pixelSize.Height <= 0) return null;
-            if ((long)pixelSize.Width * pixelSize.Height > NovaTerminal.AgentHost.Contracts.AgentHostProtocol.MaxCapturePixels)
+            if ((long)pixelSize.Width * pixelSize.Height > Ntilde.AgentHost.Contracts.AgentHostProtocol.MaxCapturePixels)
             {
                 return null;
             }
@@ -4815,7 +4815,7 @@ namespace NovaTerminal.Controls
 
                 if (maxWidth <= 0 || pixelSize.Width <= maxWidth)
                 {
-                    return new NovaTerminal.AgentHost.AgentLiveCapture(png, pixelSize.Width, pixelSize.Height, Downscaled: false);
+                    return new Ntilde.AgentHost.AgentLiveCapture(png, pixelSize.Width, pixelSize.Height, Downscaled: false);
                 }
 
                 // Round-tripping through Skia to resample: RenderTargetBitmap gives
@@ -4826,15 +4826,15 @@ namespace NovaTerminal.Controls
                 using var decoded = SkiaSharp.SKBitmap.Decode(png);
                 if (decoded == null)
                 {
-                    return new NovaTerminal.AgentHost.AgentLiveCapture(png, pixelSize.Width, pixelSize.Height, Downscaled: false);
+                    return new Ntilde.AgentHost.AgentLiveCapture(png, pixelSize.Width, pixelSize.Height, Downscaled: false);
                 }
-                using var resized = NovaTerminal.Shell.TerminalSnapshotRenderer.DownscaleToWidth(decoded, maxWidth);
+                using var resized = Ntilde.Shell.TerminalSnapshotRenderer.DownscaleToWidth(decoded, maxWidth);
                 if (resized == null)
                 {
-                    return new NovaTerminal.AgentHost.AgentLiveCapture(png, pixelSize.Width, pixelSize.Height, Downscaled: false);
+                    return new Ntilde.AgentHost.AgentLiveCapture(png, pixelSize.Width, pixelSize.Height, Downscaled: false);
                 }
-                return new NovaTerminal.AgentHost.AgentLiveCapture(
-                    NovaTerminal.Shell.TerminalSnapshotRenderer.EncodePng(resized),
+                return new Ntilde.AgentHost.AgentLiveCapture(
+                    Ntilde.Shell.TerminalSnapshotRenderer.EncodePng(resized),
                     resized.Width,
                     resized.Height,
                     Downscaled: true);
@@ -4886,14 +4886,14 @@ namespace NovaTerminal.Controls
                 }
                 else if (format.Equals("ansi", StringComparison.OrdinalIgnoreCase))
                 {
-                    string data = NovaTerminal.VT.Export.TerminalExporter.ExportToAnsi(Buffer);
+                    string data = Ntilde.VT.Export.TerminalExporter.ExportToAnsi(Buffer);
                     using var stream = await file.OpenWriteAsync();
                     using var writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8);
                     await writer.WriteAsync(data);
                 }
                 else
                 {
-                    string data = NovaTerminal.VT.Export.TerminalExporter.ExportToPlainText(Buffer);
+                    string data = Ntilde.VT.Export.TerminalExporter.ExportToPlainText(Buffer);
                     using var stream = await file.OpenWriteAsync();
                     using var writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8);
                     await writer.WriteAsync(data);

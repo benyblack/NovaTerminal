@@ -2,15 +2,15 @@
 
 **Date:** 2026-06-27
 **Status:** Design approved, ready for implementation plan
-**Component:** `src/NovaTerminal.McpServer`
+**Component:** `src/Ntilde.McpServer`
 
 ## Summary
 
-Add two read-only MCP tools to the NovaTerminal MCP Dev Companion that let a
+Add two read-only MCP tools to the Ntilde MCP Dev Companion that let a
 developer or AI client discover and validate the connection-profile JSON format:
 
-- `novaterminal.get_connection_profile_schema`
-- `novaterminal.validate_connection_profile_json`
+- `ntilde.get_connection_profile_schema`
+- `ntilde.validate_connection_profile_json`
 
 These were previously deferred (see `docs/mcp/tools.md` → "Still deferred") on the
 grounds that the profile format had "no stable documented schema" and "contains a
@@ -22,8 +22,8 @@ note implied (see Background). This brings the server's tool count from **11 →
 
 There are two profile types in the codebase, and only one is persisted:
 
-- **`SshProfile`** (`src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs`) is the model
-  actually serialized to disk at `%LOCALAPPDATA%\NovaTerminal\ssh\profiles.json`. It has
+- **`SshProfile`** (`src/Ntilde.Platform/Ssh/Models/SshProfile.cs`) is the model
+  actually serialized to disk at `%LOCALAPPDATA%\Ntilde\ssh\profiles.json`. It has
   a **stable, source-generated JSON contract** (`SshJsonContext`), wrapped in an
   `SshStoreDocument` carrying a `SchemaVersion` field (current value `1`). It has **no
   `Password` field** — passwords live in the credential vault keyed by `ProfileId`
@@ -37,7 +37,7 @@ There are two profile types in the codebase, and only one is persisted:
   test writes `{ "Profiles": [ ... ] }` and the password test asserts `DoesNotContain("\"Password\":")`,
   both confirming PascalCase.) Any camelCase / string-enum examples seen elsewhere in the
   codebase come from unrelated JSON contexts and do not apply here.
-- **`TerminalProfile`** (`src/NovaTerminal.App/Shell/TerminalProfile.cs`) is the app-layer
+- **`TerminalProfile`** (`src/Ntilde.App/Shell/TerminalProfile.cs`) is the app-layer
   model that *does* declare a `Password` property, but it is `[JsonIgnore]` and never
   serialized.
 
@@ -158,16 +158,16 @@ Validity rule: zero errors → `VALID` (warnings do not fail validation); any er
 ## Placement & implementation notes
 
 - New tool class alongside the existing static tool classes in
-  `src/NovaTerminal.McpServer`, following the same `[McpServerTool]` static-method pattern
+  `src/Ntilde.McpServer`, following the same `[McpServerTool]` static-method pattern
   as the theme tools.
 - A code comment in the new tool class points at
-  `src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs` as the source of truth, noting the
+  `src/Ntilde.Platform/Ssh/Models/SshProfile.cs` as the source of truth, noting the
   drift-guard test.
 - Logging stays on stderr (stdio transport requirement); no new dependencies.
 
 ## Testing
 
-New file: `tests/NovaTerminal.McpServer.Tests/ConnectionProfileToolsTests.cs`
+New file: `tests/Ntilde.McpServer.Tests/ConnectionProfileToolsTests.cs`
 (xUnit v3, matching `ThemeToolsTests` style).
 
 - **Schema tool:** non-empty output; contains each field-group heading and each enum
@@ -189,7 +189,7 @@ New file: `tests/NovaTerminal.McpServer.Tests/ConnectionProfileToolsTests.cs`
   recognized correctly.
 
 **Drift guard:** add a **test-only** `ProjectReference` from
-`tests/NovaTerminal.McpServer.Tests` (not the server) to `NovaTerminal.Platform`, plus a
+`tests/Ntilde.McpServer.Tests` (not the server) to `Ntilde.Platform`, plus a
 reflection test asserting:
 
 - the documented field set matches `SshProfile`'s public properties (and nested types'
@@ -208,10 +208,10 @@ MCP tool to update.
 
 ## CI
 
-The `NovaTerminal.McpServer.Tests` project is already registered in the unit-test loop, so
+The `Ntilde.McpServer.Tests` project is already registered in the unit-test loop, so
 no new project registration is needed. Verify `ci.yml` needs no path changes for the new
 test file (it should not, since the project is already listed). The new test-only
-`ProjectReference` to `NovaTerminal.Platform` must build cleanly in the CI test job.
+`ProjectReference` to `Ntilde.Platform` must build cleanly in the CI test job.
 
 ## Out of scope / future
 

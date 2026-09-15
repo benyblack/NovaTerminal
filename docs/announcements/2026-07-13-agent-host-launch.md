@@ -4,7 +4,7 @@ DRAFT — publish alongside the release that actually ships the agent-host surfa
 Before publishing, verify:
   1. A release (0.4.0) is cut whose binaries contain milestones A1–A4. The
      features described here are on `main` but were NOT in v0.3.0.
-  2. `winget install benyblack.NovaTerminal` works (first-time winget-pkgs
+  2. `winget install benyblack.ntilde` works (first-time winget-pkgs
      submission merged — see packaging/winget/submit-first-time.ps1). If not,
      drop the winget line from "Install" and keep the direct download.
   3. Update every version string / URL below to the released tag.
@@ -15,12 +15,12 @@ Targets: GitHub release notes (long form), a blog post, and a shortened
 Show HN / Reddit r/commandline post. Keep the security framing first.
 -->
 
-# NovaTerminal: the terminal your AI agent can see
+# Ntilde: the terminal your AI agent can see
 
 CLI coding agents — Claude Code, Codex, Gemini CLI — now live in the terminal.
 But the terminal itself has stayed a black box to them: an agent kicks off a
 build or a migration and then squints at scraped text, guessing whether it's
-done, stuck, or waiting for input. NovaTerminal closes that gap. It's a fast,
+done, stuck, or waiting for input. Ntilde closes that gap. It's a fast,
 correct, cross-platform terminal that also exposes a **structured, permissioned
 interface to the agent running inside it** — over the Model Context Protocol,
 so any MCP-capable agent can use it today.
@@ -60,12 +60,12 @@ open a new tab from a named profile, or close a pane. Injected input flows
 through the same path as human keystrokes, so it records and replays identically.
 
 **Replay — debug what your agent did, frame by frame.** This is the part no
-other terminal does. NovaTerminal keeps a bounded flight recording of recent
+other terminal does. Ntilde keeps a bounded flight recording of recent
 session output; an agent (or you) can export it as a deterministic `.rec` file
 and re-render it headlessly:
 
 ```
-NovaTerminal.Cli --replay session.rec
+Ntilde.Cli --replay session.rec
 ```
 
 Byte-for-byte reproducible on Windows, macOS, and Linux — a real postmortem for
@@ -88,16 +88,16 @@ The agent features are only trustworthy because of what's underneath:
 
 ```
 # Windows
-winget install benyblack.NovaTerminal
+winget install benyblack.ntilde
 
 # Or download a self-contained build for your platform:
-# https://github.com/benyblack/NovaTerminal/releases/latest
+# https://github.com/benyblack/ntilde/releases/latest
 ```
 
 Point your agent at it by adding the MCP server (stdio). With Claude Code:
 
 ```
-claude mcp add novaterminal -- <path-to>/NovaTerminal.McpServer
+claude mcp add ntilde -- <path-to>/Ntilde.McpServer
 ```
 
 Then enable **Settings → Agent access (observe)** — and, only if you want the
@@ -110,10 +110,10 @@ agent to act, **Agent access (act)** — and watch the activity journal.
 
 ## Where it's going
 
-NovaTerminal is a nights-and-weekends project with a clear thesis. Next up:
+Ntilde is a nights-and-weekends project with a clear thesis. Next up:
 broader distribution (Flathub, AUR, Homebrew), OS-native completion
 notifications, and richer replay (frame stepping, image output). Issues and
-ideas welcome at https://github.com/benyblack/NovaTerminal.
+ideas welcome at https://github.com/benyblack/ntilde.
 
 It's the correct, deterministic terminal — and now, the one your agent can
 actually see.

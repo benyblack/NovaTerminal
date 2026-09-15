@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.ShellIntegration.Remote;
+using Ntilde.CommandAssist.ShellIntegration.Remote;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 /// <summary>
 /// The shipped remote snippets (V2 Phase 2b), held to the same contract as the local
@@ -27,7 +27,7 @@ public sealed class RemoteShellIntegrationSnippetTests
     // ---- shipping and packaging ---------------------------------------------------------------
 
     /// <summary>
-    /// The embedded-resource wiring in <c>NovaTerminal.CommandAssist.csproj</c> is the thing most
+    /// The embedded-resource wiring in <c>Ntilde.CommandAssist.csproj</c> is the thing most
     /// likely to break silently: the files live outside the project directory, so a rename or a
     /// LogicalName drift produces a missing resource rather than a build error.
     /// </summary>
@@ -40,7 +40,7 @@ public sealed class RemoteShellIntegrationSnippetTests
         string content = RemoteShellIntegrationSnippets.Read(shell);
 
         Assert.False(string.IsNullOrWhiteSpace(content));
-        Assert.Contains("Nova Terminal remote shell integration", content, StringComparison.Ordinal);
+        Assert.Contains("Ntilde remote shell integration", content, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -176,12 +176,12 @@ public sealed class RemoteShellIntegrationSnippetTests
         string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh);
 
         // bash: appended to PS1, wrapped in \[ \] so prompt-width arithmetic is unaffected.
-        Assert.Contains(@"__nova_ps1_mark='\[\e]133;B\a\]'", content, StringComparison.Ordinal);
-        Assert.Contains(@"PS1=""$PS1$__nova_ps1_mark""", content, StringComparison.Ordinal);
+        Assert.Contains(@"__ntilde_ps1_mark='\[\e]133;B\a\]'", content, StringComparison.Ordinal);
+        Assert.Contains(@"PS1=""$PS1$__ntilde_ps1_mark""", content, StringComparison.Ordinal);
 
         // zsh: appended to PROMPT, wrapped in %{...%} for the same reason.
-        Assert.Contains(@"__nova_prompt_mark=$'%{\e]133;B\a%}'", content, StringComparison.Ordinal);
-        Assert.Contains(@"PROMPT=""${PROMPT%$__nova_prompt_mark}$__nova_prompt_mark""", content, StringComparison.Ordinal);
+        Assert.Contains(@"__ntilde_prompt_mark=$'%{\e]133;B\a%}'", content, StringComparison.Ordinal);
+        Assert.Contains(@"PROMPT=""${PROMPT%$__ntilde_prompt_mark}$__ntilde_prompt_mark""", content, StringComparison.Ordinal);
 
         // Exactly one assignment each: no template anywhere.
         Assert.Equal(1, content.Split("PS1=\"", StringSplitOptions.None).Length - 1);
@@ -189,7 +189,7 @@ public sealed class RemoteShellIntegrationSnippetTests
     }
 
     /// <summary>
-    /// bash re-applies from <c>__nova_arm</c>, the last entry in the <c>PROMPT_COMMAND</c> chain, so
+    /// bash re-applies from <c>__ntilde_arm</c>, the last entry in the <c>PROMPT_COMMAND</c> chain, so
     /// a theme that rewrites <c>PS1</c> from inside <c>PROMPT_COMMAND</c> cannot drop the mark. zsh
     /// strips-then-appends from <c>precmd</c>, which is idempotent <em>and</em> self-correcting -
     /// zsh has no "run last" guarantee, so a hook registered after ours can bury the mark
@@ -200,17 +200,17 @@ public sealed class RemoteShellIntegrationSnippetTests
     {
         string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh);
 
-        int armIndex = content.IndexOf("__nova_arm() {", StringComparison.Ordinal);
+        int armIndex = content.IndexOf("__ntilde_arm() {", StringComparison.Ordinal);
         Assert.True(armIndex > 0, "bash arm hook must exist");
         Assert.True(
-            content.IndexOf("__nova_apply_ps1_mark", armIndex, StringComparison.Ordinal) > armIndex,
-            "__nova_arm must re-apply the PS1 mark");
+            content.IndexOf("__ntilde_apply_ps1_mark", armIndex, StringComparison.Ordinal) > armIndex,
+            "__ntilde_arm must re-apply the PS1 mark");
 
-        int precmdIndex = content.IndexOf("__nova_zsh_precmd() {", StringComparison.Ordinal);
+        int precmdIndex = content.IndexOf("__ntilde_zsh_precmd() {", StringComparison.Ordinal);
         Assert.True(precmdIndex > 0, "zsh precmd hook must exist");
         Assert.True(
-            content.IndexOf("__nova_apply_prompt_mark", precmdIndex, StringComparison.Ordinal) > precmdIndex,
-            "__nova_zsh_precmd must re-apply the PROMPT mark");
+            content.IndexOf("__ntilde_apply_prompt_mark", precmdIndex, StringComparison.Ordinal) > precmdIndex,
+            "__ntilde_zsh_precmd must re-apply the PROMPT mark");
     }
 
     /// <summary>
@@ -224,11 +224,11 @@ public sealed class RemoteShellIntegrationSnippetTests
         string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.Fish);
 
         Assert.Contains(
-            "if functions -q fish_prompt; and not functions -q __nova_user_fish_prompt",
+            "if functions -q fish_prompt; and not functions -q __ntilde_user_fish_prompt",
             content,
             StringComparison.Ordinal);
-        Assert.Contains("functions --copy fish_prompt __nova_user_fish_prompt", content, StringComparison.Ordinal);
-        Assert.Contains("__nova_user_fish_prompt", content, StringComparison.Ordinal);
+        Assert.Contains("functions --copy fish_prompt __ntilde_user_fish_prompt", content, StringComparison.Ordinal);
+        Assert.Contains("__ntilde_user_fish_prompt", content, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -241,10 +241,10 @@ public sealed class RemoteShellIntegrationSnippetTests
     {
         string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell);
 
-        Assert.Contains("Get-Variable -Name 'NovaOriginalPrompt' -Scope Script", content, StringComparison.Ordinal);
-        Assert.Contains("-notlike '*__nova_prompt_wrapper*'", content, StringComparison.Ordinal);
-        Assert.Contains("# __nova_prompt_wrapper", content, StringComparison.Ordinal);
-        Assert.Contains("(& $script:NovaOriginalPrompt) -join ''", content, StringComparison.Ordinal);
+        Assert.Contains("Get-Variable -Name 'NtildeOriginalPrompt' -Scope Script", content, StringComparison.Ordinal);
+        Assert.Contains("-notlike '*__ntilde_prompt_wrapper*'", content, StringComparison.Ordinal);
+        Assert.Contains("# __ntilde_prompt_wrapper", content, StringComparison.Ordinal);
+        Assert.Contains("(& $script:NtildeOriginalPrompt) -join ''", content, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -287,14 +287,14 @@ public sealed class RemoteShellIntegrationSnippetTests
     {
         string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh);
 
-        Assert.Contains("__nova_shell_integration_loaded", content, StringComparison.Ordinal);
+        Assert.Contains("__ntilde_shell_integration_loaded", content, StringComparison.Ordinal);
 
         // bash: the PROMPT_COMMAND chain must not gain a second copy of our hooks.
-        Assert.Contains("*__nova_precmd*) ;;", content, StringComparison.Ordinal);
+        Assert.Contains("*__ntilde_precmd*) ;;", content, StringComparison.Ordinal);
 
         // zsh: the hook arrays must not gain a second copy either.
-        Assert.Contains(@"*"" __nova_zsh_precmd ""*) ;;", content, StringComparison.Ordinal);
-        Assert.Contains(@"*"" __nova_zsh_preexec ""*) ;;", content, StringComparison.Ordinal);
+        Assert.Contains(@"*"" __ntilde_zsh_precmd ""*) ;;", content, StringComparison.Ordinal);
+        Assert.Contains(@"*"" __ntilde_zsh_preexec ""*) ;;", content, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -302,12 +302,12 @@ public sealed class RemoteShellIntegrationSnippetTests
     {
         string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.Fish);
 
-        Assert.Contains("not set -q __nova_shell_integration_loaded", content, StringComparison.Ordinal);
+        Assert.Contains("not set -q __ntilde_shell_integration_loaded", content, StringComparison.Ordinal);
     }
 
     /// <summary>
     /// An OSC written into a non-interactive shell's stdout corrupts an <c>scp</c> or <c>rsync</c>
-    /// stream, and unlike the injected bootstrap (which only ever runs in a shell Nova launched
+    /// stream, and unlike the injected bootstrap (which only ever runs in a shell Ntilde launched
     /// interactively) a snippet in <c>~/.bashrc</c> or <c>conf.d</c> will be sourced by those.
     /// </summary>
     [Fact]
@@ -360,7 +360,7 @@ public sealed class RemoteShellIntegrationSnippetTests
     /// <c>PROMPT_COMMAND</c> is captured as the accepted command.
     /// </summary>
     /// <remarks>
-    /// Only <c>__nova_*</c> is filtered by name. <c>trap*</c> and <c>PROMPT_COMMAND*</c> used to be
+    /// Only <c>__ntilde_*</c> is filtered by name. <c>trap*</c> and <c>PROMPT_COMMAND*</c> used to be
     /// filtered too, which silently dropped any user command starting with either word - and was
     /// never what kept our own hooks out anyway. The behaviour that does is asserted for real in
     /// <c>RemoteBashSnippetIntegrationTests</c>.
@@ -370,15 +370,15 @@ public sealed class RemoteShellIntegrationSnippetTests
     {
         string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh);
 
-        Assert.Contains("trap '__nova_preexec' DEBUG", content, StringComparison.Ordinal);
-        Assert.Contains("__nova_command_active=1", content, StringComparison.Ordinal);
-        Assert.Contains("__nova_command_active=0", content, StringComparison.Ordinal);
-        Assert.Contains("__nova_*) return ;;", content, StringComparison.Ordinal);
+        Assert.Contains("trap '__ntilde_preexec' DEBUG", content, StringComparison.Ordinal);
+        Assert.Contains("__ntilde_command_active=1", content, StringComparison.Ordinal);
+        Assert.Contains("__ntilde_command_active=0", content, StringComparison.Ordinal);
+        Assert.Contains("__ntilde_*) return ;;", content, StringComparison.Ordinal);
         Assert.DoesNotContain("trap*|", content, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// <c>__nova_precmd</c> raises the busy flag as its first act, which is what keeps an empty
+    /// <c>__ntilde_precmd</c> raises the busy flag as its first act, which is what keeps an empty
     /// Enter - where no user command ran, so nothing else raised it - from capturing the first
     /// entry of the user's own <c>PROMPT_COMMAND</c> chain as a phantom accepted command.
     /// </summary>
@@ -387,13 +387,13 @@ public sealed class RemoteShellIntegrationSnippetTests
     {
         string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh);
 
-        int precmdIndex = content.IndexOf("__nova_precmd() {", StringComparison.Ordinal);
+        int precmdIndex = content.IndexOf("__ntilde_precmd() {", StringComparison.Ordinal);
         Assert.True(precmdIndex > 0, "bash precmd hook must exist");
 
-        int raiseIndex = content.IndexOf("__nova_command_active=1", precmdIndex, StringComparison.Ordinal);
-        int completionIndex = content.IndexOf("__nova_emit_completion", precmdIndex, StringComparison.Ordinal);
+        int raiseIndex = content.IndexOf("__ntilde_command_active=1", precmdIndex, StringComparison.Ordinal);
+        int completionIndex = content.IndexOf("__ntilde_emit_completion", precmdIndex, StringComparison.Ordinal);
 
-        Assert.True(raiseIndex > precmdIndex, "__nova_precmd must raise the busy flag");
+        Assert.True(raiseIndex > precmdIndex, "__ntilde_precmd must raise the busy flag");
         Assert.True(raiseIndex < completionIndex, "the busy flag must be raised before anything else runs");
     }
 
@@ -408,7 +408,7 @@ public sealed class RemoteShellIntegrationSnippetTests
 
         Assert.Contains("HISTTIMEFORMAT='' builtin history 1", content, StringComparison.Ordinal);
         // ...with BASH_COMMAND kept only as the fallback for a shell with history off.
-        Assert.Contains("|| __nova_line=\"$BASH_COMMAND\"", content, StringComparison.Ordinal);
+        Assert.Contains("|| __ntilde_line=\"$BASH_COMMAND\"", content, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -439,11 +439,11 @@ public sealed class RemoteShellIntegrationSnippetTests
         string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh);
 
         Assert.Contains(
-            "precmd_functions=(__nova_zsh_status_snapshot \"${precmd_functions[@]}\")",
+            "precmd_functions=(__ntilde_zsh_status_snapshot \"${precmd_functions[@]}\")",
             content,
             StringComparison.Ordinal);
-        Assert.Contains("__nova_emit_completion \"$__nova_last_status\"", content, StringComparison.Ordinal);
-        Assert.Contains("precmd_functions+=(__nova_zsh_precmd)", content, StringComparison.Ordinal);
+        Assert.Contains("__ntilde_emit_completion \"$__ntilde_last_status\"", content, StringComparison.Ordinal);
+        Assert.Contains("precmd_functions+=(__ntilde_zsh_precmd)", content, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -458,7 +458,7 @@ public sealed class RemoteShellIntegrationSnippetTests
 
         Assert.DoesNotContain("math \"$raw", content, StringComparison.Ordinal);
         Assert.Contains("math -s0 \"$raw / 1000000\"", content, StringComparison.Ordinal);
-        Assert.Contains("math -s0 $now_ms - $__nova_command_start_ms", content, StringComparison.Ordinal);
+        Assert.Contains("math -s0 $now_ms - $__ntilde_command_start_ms", content, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -470,7 +470,7 @@ public sealed class RemoteShellIntegrationSnippetTests
     {
         string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell);
 
-        Assert.Contains("if (-not $novaPath.StartsWith('/')) { $novaPath = '/' + $novaPath }", content, StringComparison.Ordinal);
+        Assert.Contains("if (-not $ntildePath.StartsWith('/')) { $ntildePath = '/' + $ntildePath }", content, StringComparison.Ordinal);
         Assert.DoesNotContain("file://$([System.Net.Dns]::GetHostName())/$cwd", content, StringComparison.Ordinal);
     }
 
@@ -488,14 +488,14 @@ public sealed class RemoteShellIntegrationSnippetTests
     public void PowerShellSnippet_EmitsTheSameOsc7UriAsTheLocalBootstrap()
     {
         string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell);
-        string builderScript = NovaTerminal.CommandAssist.ShellIntegration.PowerShell.PowerShellBootstrapBuilder.BuildScript();
+        string builderScript = Ntilde.CommandAssist.ShellIntegration.PowerShell.PowerShellBootstrapBuilder.BuildScript();
 
         foreach (string line in new[]
                  {
-                     "$novaSegments = ((Get-Location).Path -replace '\\\\', '/') -split '/'",
-                     "$novaPath = (($novaSegments | ForEach-Object { [Uri]::EscapeDataString($_) -replace '%3A', ':' }) -join '/')",
-                     "if (-not $novaPath.StartsWith('/')) { $novaPath = '/' + $novaPath }",
-                     "Write-NovaSequence \"]7;file://$novaPath\"",
+                     "$ntildeSegments = ((Get-Location).Path -replace '\\\\', '/') -split '/'",
+                     "$ntildePath = (($ntildeSegments | ForEach-Object { [Uri]::EscapeDataString($_) -replace '%3A', ':' }) -join '/')",
+                     "if (-not $ntildePath.StartsWith('/')) { $ntildePath = '/' + $ntildePath }",
+                     "Write-NtildeSequence \"]7;file://$ntildePath\"",
                  })
         {
             Assert.Contains(line, content, StringComparison.Ordinal);
@@ -521,13 +521,13 @@ public sealed class RemoteShellIntegrationSnippetTests
         string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell);
 
         Assert.Contains("Get-PSReadLineKeyHandler -Chord 'Enter'", content, StringComparison.Ordinal);
-        Assert.Contains("$script:NovaEnterFallback", content, StringComparison.Ordinal);
+        Assert.Contains("$script:NtildeEnterFallback", content, StringComparison.Ordinal);
         Assert.Contains("-match '^[A-Za-z]+$'", content, StringComparison.Ordinal);
         Assert.Contains("SCRIPTBLOCK", content, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Every variable the snippet leaves behind is Nova-scoped. It is dot-sourced into the user's
+    /// Every variable the snippet leaves behind is Ntilde-scoped. It is dot-sourced into the user's
     /// own <c>$PROFILE</c>, so a bare <c>$esc</c> / <c>$bel</c> lands in their session.
     /// </summary>
     [Fact]
@@ -537,8 +537,8 @@ public sealed class RemoteShellIntegrationSnippetTests
 
         Assert.DoesNotContain("$esc = ", content, StringComparison.Ordinal);
         Assert.DoesNotContain("$bel = ", content, StringComparison.Ordinal);
-        Assert.Contains("$script:NovaEsc = [char]27", content, StringComparison.Ordinal);
-        Assert.Contains("$script:NovaBel = [char]7", content, StringComparison.Ordinal);
+        Assert.Contains("$script:NtildeEsc = [char]27", content, StringComparison.Ordinal);
+        Assert.Contains("$script:NtildeBel = [char]7", content, StringComparison.Ordinal);
     }
 
     /// <summary>

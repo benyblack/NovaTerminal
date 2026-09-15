@@ -1,6 +1,6 @@
-using NovaTerminal.UI.Replay;
+using Ntilde.UI.Replay;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class ReplayWindowTests
 {

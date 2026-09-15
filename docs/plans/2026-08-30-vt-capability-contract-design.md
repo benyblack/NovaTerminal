@@ -2,7 +2,7 @@
 
 ## Problem
 
-NovaTerminal describes VT support in several independent places: the hot-path
+Ntilde describes VT support in several independent places: the hot-path
 `AnsiParser` switch, the Markdown coverage matrix, the generated application
 report, and the MCP escape-sequence explainer. Those descriptions can drift.
 After CNL (`CSI E`) and CPL (`CSI F`) were implemented, the MCP explainer and

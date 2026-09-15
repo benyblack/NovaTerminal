@@ -1,8 +1,8 @@
 using System;
-using NovaTerminal.AgentOutput;
+using Ntilde.AgentOutput;
 using Xunit;
 
-namespace NovaTerminal.Tests.AgentOutput;
+namespace Ntilde.Tests.AgentOutput;
 
 /// <summary>
 /// Snapshot extraction: a recent-output tail of a terminal is rounds of prompt → response all

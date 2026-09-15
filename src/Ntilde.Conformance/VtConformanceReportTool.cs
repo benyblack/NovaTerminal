@@ -3,16 +3,16 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using NovaTerminal.VtContract;
+using Ntilde.VtContract;
 
-namespace NovaTerminal.Conformance;
+namespace Ntilde.Conformance;
 
 public static class VtConformanceReportTool
 {
     // Timeout backstop (csharpsquid:S6444); the pattern parses trusted repo markdown and
     // matches in microseconds.
     private static readonly Regex InlineCodeRegex = new("`([^`]+)`", RegexOptions.Compiled, TimeSpan.FromMilliseconds(250));
-    private const string EmbeddedReportRegenerationCommand = "dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -- --report src/NovaTerminal.App/Resources/vt-conformance-report.json";
+    private const string EmbeddedReportRegenerationCommand = "dotnet run --project src/Ntilde.Conformance/Ntilde.Conformance.csproj -- --report src/Ntilde.App/Resources/vt-conformance-report.json";
 
     public static VtConformanceReport Generate(string repositoryRoot, string matrixPath)
     {
@@ -334,7 +334,7 @@ public static class VtConformanceReportTool
         string manifestPath = Path.Combine(
             repoRoot,
             "src",
-            "NovaTerminal.VtContract",
+            "Ntilde.VtContract",
             "vt-capabilities.json");
         if (!File.Exists(manifestPath))
         {
@@ -825,7 +825,7 @@ public static class VtConformanceCli
 
     private static void PrintUsage()
     {
-        Console.WriteLine("Usage: dotnet run --project src/NovaTerminal.Conformance -- [--repo-root <path>] [--matrix <path>] [--report <path>] [--check-report <path>] [--validate]");
+        Console.WriteLine("Usage: dotnet run --project src/Ntilde.Conformance -- [--repo-root <path>] [--matrix <path>] [--report <path>] [--check-report <path>] [--validate]");
     }
 }
 

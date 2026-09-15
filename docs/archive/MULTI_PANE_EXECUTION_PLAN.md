@@ -1,4 +1,4 @@
-# NovaTerminal - Multi-Pane Execution Plan
+# Ntilde - Multi-Pane Execution Plan
 
 Date: 2026-02-14  
 Status: Executed (M1-M3 complete)
@@ -24,13 +24,13 @@ Deliver best-in-class multi-pane UX and reliability (WezTerm/Ghostty-level polis
 
 ## Baseline Architecture (Current)
 
-- Layout tree and splitters: `NovaTerminal/MainWindow.axaml.cs`
-- Session persistence: `NovaTerminal/Core/SessionManager.cs`
-- Per-pane container/session: `NovaTerminal/Controls/TerminalPane.axaml.cs`
-- Input/render/resize path: `NovaTerminal/Core/TerminalView.cs`
-- Canonical screen state: `NovaTerminal/Core/TerminalBuffer*.cs`
-- PTY bridge: `NovaTerminal/Core/RustPtySession.cs`
-- Native resize path: `NovaTerminal/native/src/lib.rs`
+- Layout tree and splitters: `Ntilde/MainWindow.axaml.cs`
+- Session persistence: `Ntilde/Core/SessionManager.cs`
+- Per-pane container/session: `Ntilde/Controls/TerminalPane.axaml.cs`
+- Input/render/resize path: `Ntilde/Core/TerminalView.cs`
+- Canonical screen state: `Ntilde/Core/TerminalBuffer*.cs`
+- PTY bridge: `Ntilde/Core/RustPtySession.cs`
+- Native resize path: `Ntilde/native/src/lib.rs`
 
 ## Release Gates (Global)
 
@@ -69,13 +69,13 @@ Eliminate pane lifecycle, focus-routing, and throughput correctness risks.
 
 ### Modules / Files
 
-- `NovaTerminal/MainWindow.axaml.cs`
-- `NovaTerminal/MainWindow.axaml`
-- `NovaTerminal/Controls/TerminalPane.axaml.cs`
-- `NovaTerminal/Core/ITerminalSession.cs`
-- `NovaTerminal/Core/RustPtySession.cs`
-- `NovaTerminal/Core/TerminalView.cs`
-- `NovaTerminal/Core/RendererStatistics.cs`
+- `Ntilde/MainWindow.axaml.cs`
+- `Ntilde/MainWindow.axaml`
+- `Ntilde/Controls/TerminalPane.axaml.cs`
+- `Ntilde/Core/ITerminalSession.cs`
+- `Ntilde/Core/RustPtySession.cs`
+- `Ntilde/Core/TerminalView.cs`
+- `Ntilde/Core/RendererStatistics.cs`
 
 ### Acceptance Criteria
 
@@ -110,11 +110,11 @@ Raise interaction quality and discoverability to best-in-class baseline.
 
 ### Modules / Files
 
-- `NovaTerminal/MainWindow.axaml.cs`
-- `NovaTerminal/MainWindow.axaml`
-- `NovaTerminal/Controls/TerminalPane.axaml`
-- `NovaTerminal/Controls/TerminalPane.axaml.cs`
-- `NovaTerminal/Core/TerminalView.cs`
+- `Ntilde/MainWindow.axaml.cs`
+- `Ntilde/MainWindow.axaml`
+- `Ntilde/Controls/TerminalPane.axaml`
+- `Ntilde/Controls/TerminalPane.axaml.cs`
+- `Ntilde/Core/TerminalView.cs`
 
 ### Acceptance Criteria
 
@@ -148,11 +148,11 @@ Introduce model-driven pane operations that enable premium features safely.
 
 ### Modules / Files
 
-- `NovaTerminal/MainWindow.axaml.cs`
-- `NovaTerminal/Core/SessionManager.cs`
-- `NovaTerminal/Core/SessionModels.cs`
-- `NovaTerminal/Core/TerminalView.cs`
-- New layout model files under `NovaTerminal/Core/` (to be introduced)
+- `Ntilde/MainWindow.axaml.cs`
+- `Ntilde/Core/SessionManager.cs`
+- `Ntilde/Core/SessionModels.cs`
+- `Ntilde/Core/TerminalView.cs`
+- New layout model files under `Ntilde/Core/` (to be introduced)
 
 ### Acceptance Criteria
 
@@ -216,7 +216,7 @@ M1 and M2 stability gates
 - PTY bridge:
   - `RustPtySession` + native bridge owners
 - Test authority:
-  - `NovaTerminal.Tests` owners
+  - `Ntilde.Tests` owners
 
 ## Open Core Feature Packaging Plan
 

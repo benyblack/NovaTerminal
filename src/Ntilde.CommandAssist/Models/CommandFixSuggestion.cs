@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace NovaTerminal.CommandAssist.Models;
+namespace Ntilde.CommandAssist.Models;
 
 /// <param name="RecognizerId">
 /// Which entry of <c>CommandErrorRecognizers.All</c> produced this, or <see langword="null"/> when it

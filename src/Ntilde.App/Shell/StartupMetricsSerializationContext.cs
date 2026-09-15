@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 [JsonSerializable(typeof(StartupMetricsSnapshot))]
 internal sealed partial class StartupMetricsSerializationContext : JsonSerializerContext

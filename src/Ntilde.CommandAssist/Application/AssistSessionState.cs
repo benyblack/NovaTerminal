@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// What the assist session is doing right now - the single value that replaces the mode and

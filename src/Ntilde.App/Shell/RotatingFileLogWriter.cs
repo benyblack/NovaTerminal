@@ -5,7 +5,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     /// <summary>
     /// A bounded queue drained by one background thread into a buffered, size-capped file.
@@ -80,7 +80,7 @@ namespace NovaTerminal.Shell
             _pump = new Thread(WriterLoop)
             {
                 IsBackground = true,
-                Name = "NovaTerminal.LogWriter",
+                Name = "Ntilde.LogWriter",
             };
             _pump.Start();
         }

@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace NovaTerminal.Platform.Ssh.Models;
+namespace Ntilde.Platform.Ssh.Models;
 
 public enum SshAuthMode
 {

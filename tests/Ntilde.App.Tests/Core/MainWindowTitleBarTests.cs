@@ -8,11 +8,11 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using NovaTerminal.Shell;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Shell;
+using Ntilde.Shell.TitleBar;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Covers MainWindow.RebuildTitleBar - the piece the plan's full-suite verification found had zero
@@ -404,7 +404,7 @@ public sealed class MainWindowTitleBarTests : IDisposable
     /// named PART_TabHeaderScrollViewer (FindTabHeaderScrollViewer) and TabItem.Bounds.Width
     /// (CountHiddenTabs).
     /// </summary>
-    private static void AddWidePlainTabs(NovaTerminal.MainWindow window, int count)
+    private static void AddWidePlainTabs(Ntilde.MainWindow window, int count)
     {
         var tabs = window.FindControl<TabControl>("Tabs");
         Assert.NotNull(tabs);
@@ -628,7 +628,7 @@ public sealed class MainWindowTitleBarTests : IDisposable
     /// pinning an extra action (or any other pinned-count change) must eventually recompute the tab
     /// header's reserved margin against the NEW width, not the width that was current before the
     /// rebuild. This drives the real <c>RebuildTitleBar</c> and asserts the resulting margin against
-    /// <see cref="NovaTerminal.MainWindow.GetTabHeaderViewportMargin"/> fed the actual post-layout
+    /// <see cref="Ntilde.MainWindow.GetTabHeaderViewportMargin"/> fed the actual post-layout
     /// <c>TitleBar.Bounds.Width</c> - not just "some margin changed" - so a version that recomputed
     /// from the stale pre-rebuild width (RebuildTitleBar's original defect) would still fail this
     /// even though it does call <c>UpdateTabHeaderViewport</c> somewhere.
@@ -664,7 +664,7 @@ public sealed class MainWindowTitleBarTests : IDisposable
         Assert.True(widthAfter > widthBefore, "Expected pinning an extra action to widen the title bar for this test to mean anything.");
 
         bool isMacOs = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
-        var expected = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(isMacOs, widthAfter, titleBar.Margin.Right);
+        var expected = Ntilde.MainWindow.GetTabHeaderViewportMargin(isMacOs, widthAfter, titleBar.Margin.Right);
         Assert.Equal(expected, scrollViewer!.Margin);
     }
 
@@ -701,7 +701,7 @@ public sealed class MainWindowTitleBarTests : IDisposable
         Assert.True(widthAfter > widthBefore, "Expected Record auto-surfacing to widen the title bar for this test to mean anything.");
 
         bool isMacOs = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
-        var expected = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(isMacOs, widthAfter, titleBar.Margin.Right);
+        var expected = Ntilde.MainWindow.GetTabHeaderViewportMargin(isMacOs, widthAfter, titleBar.Margin.Right);
         Assert.Equal(expected, scrollViewer!.Margin);
     }
 
@@ -746,7 +746,7 @@ public sealed class MainWindowTitleBarTests : IDisposable
 
         double widthAfter = titleBar!.Bounds.Width;
         bool isMacOs = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
-        var expected = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(isMacOs, widthAfter, titleBar.Margin.Right);
+        var expected = Ntilde.MainWindow.GetTabHeaderViewportMargin(isMacOs, widthAfter, titleBar.Margin.Right);
         Assert.Equal(expected, scrollViewer!.Margin);
 
         // A second, independent drain must be a no-op: a persistent handler or a self-triggering
@@ -755,21 +755,21 @@ public sealed class MainWindowTitleBarTests : IDisposable
         Assert.Equal(expected, scrollViewer.Margin);
     }
 
-    private static ScrollViewer? InvokeFindTabHeaderScrollViewer(NovaTerminal.MainWindow window)
+    private static ScrollViewer? InvokeFindTabHeaderScrollViewer(Ntilde.MainWindow window)
     {
-        var method = typeof(NovaTerminal.MainWindow).GetMethod("FindTabHeaderScrollViewer", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.MainWindow).GetMethod("FindTabHeaderScrollViewer", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         return (ScrollViewer?)method!.Invoke(window, null);
     }
 
-    private static void InvokeOnRecordingStateChanged(NovaTerminal.MainWindow window, bool isRecording)
+    private static void InvokeOnRecordingStateChanged(Ntilde.MainWindow window, bool isRecording)
     {
-        var method = typeof(NovaTerminal.MainWindow).GetMethod("OnRecordingStateChanged", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.MainWindow).GetMethod("OnRecordingStateChanged", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(window, [isRecording]);
     }
 
-    private static Button GetGeneratedButton(NovaTerminal.MainWindow window, string catalogId)
+    private static Button GetGeneratedButton(Ntilde.MainWindow window, string catalogId)
     {
         var host = GetTitleBarHost(window);
         string name = TitleBarViewFactory.ButtonName(catalogId);
@@ -778,74 +778,74 @@ public sealed class MainWindowTitleBarTests : IDisposable
         return button!;
     }
 
-    private static void InvokeUpdateRecordButtonUi(NovaTerminal.MainWindow window, bool isRecording)
+    private static void InvokeUpdateRecordButtonUi(Ntilde.MainWindow window, bool isRecording)
     {
-        var method = typeof(NovaTerminal.MainWindow).GetMethod("UpdateRecordButtonUi", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.MainWindow).GetMethod("UpdateRecordButtonUi", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(window, [isRecording]);
     }
 
-    private static void InvokePopulateTabListMenu(NovaTerminal.MainWindow window, bool showFlyout)
+    private static void InvokePopulateTabListMenu(Ntilde.MainWindow window, bool showFlyout)
     {
-        var method = typeof(NovaTerminal.MainWindow).GetMethod("PopulateTabListMenu", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.MainWindow).GetMethod("PopulateTabListMenu", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         // Reflection Invoke fills no optional parameters - the anchor override must be
         // passed explicitly (null = title-bar anchor chain, the pre-pill behavior).
         method!.Invoke(window, [showFlyout, null]);
     }
 
-    private static void InvokeUpdateTabOverflowIndicator(NovaTerminal.MainWindow window)
+    private static void InvokeUpdateTabOverflowIndicator(Ntilde.MainWindow window)
     {
-        var method = typeof(NovaTerminal.MainWindow).GetMethod("UpdateTabOverflowIndicator", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.MainWindow).GetMethod("UpdateTabOverflowIndicator", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(window, null);
     }
 
-    private static MenuFlyout? GetTabListFallbackFlyout(NovaTerminal.MainWindow window)
+    private static MenuFlyout? GetTabListFallbackFlyout(Ntilde.MainWindow window)
     {
-        var field = typeof(NovaTerminal.MainWindow).GetField("_tabListFallbackFlyout", BindingFlags.Instance | BindingFlags.NonPublic);
+        var field = typeof(Ntilde.MainWindow).GetField("_tabListFallbackFlyout", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         return (MenuFlyout?)field!.GetValue(window);
     }
 
-    private static void SetTabListFallbackFlyout(NovaTerminal.MainWindow window, MenuFlyout? value)
+    private static void SetTabListFallbackFlyout(Ntilde.MainWindow window, MenuFlyout? value)
     {
-        var field = typeof(NovaTerminal.MainWindow).GetField("_tabListFallbackFlyout", BindingFlags.Instance | BindingFlags.NonPublic);
+        var field = typeof(Ntilde.MainWindow).GetField("_tabListFallbackFlyout", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         field!.SetValue(window, value);
     }
 
-    private static void InvokeApplyThemeToUI(NovaTerminal.MainWindow window)
+    private static void InvokeApplyThemeToUI(Ntilde.MainWindow window)
     {
-        var method = typeof(NovaTerminal.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(window, null);
     }
 
-    private static StackPanel GetTitleBarHost(NovaTerminal.MainWindow window)
+    private static StackPanel GetTitleBarHost(Ntilde.MainWindow window)
     {
         var host = window.FindControl<StackPanel>("TitleBarItemsHost");
         Assert.NotNull(host);
         return host!;
     }
 
-    private static TerminalSettings GetSettings(NovaTerminal.MainWindow window)
+    private static TerminalSettings GetSettings(Ntilde.MainWindow window)
     {
-        var field = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var field = typeof(Ntilde.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         return (TerminalSettings)field!.GetValue(window)!;
     }
 
-    private static HashSet<string> GetActiveTitleBarToggles(NovaTerminal.MainWindow window)
+    private static HashSet<string> GetActiveTitleBarToggles(Ntilde.MainWindow window)
     {
-        var field = typeof(NovaTerminal.MainWindow).GetField("_activeTitleBarToggles", BindingFlags.Instance | BindingFlags.NonPublic);
+        var field = typeof(Ntilde.MainWindow).GetField("_activeTitleBarToggles", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         return (HashSet<string>)field!.GetValue(window)!;
     }
 
-    private static void InvokeRebuildTitleBar(NovaTerminal.MainWindow window)
+    private static void InvokeRebuildTitleBar(Ntilde.MainWindow window)
     {
-        var method = typeof(NovaTerminal.MainWindow).GetMethod("RebuildTitleBar", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.MainWindow).GetMethod("RebuildTitleBar", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(window, null);
     }

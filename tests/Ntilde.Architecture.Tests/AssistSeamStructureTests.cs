@@ -1,7 +1,7 @@
 using System.IO;
 using System.Linq;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 /// <summary>
 /// Structural guards for the V2 Phase 5 AI content-provider seam.
@@ -22,14 +22,14 @@ namespace NovaTerminal.Architecture.Tests;
 /// </remarks>
 public class AssistSeamStructureTests
 {
-    private const string AssistSourceRoot = "src/NovaTerminal.CommandAssist";
+    private const string AssistSourceRoot = "src/Ntilde.CommandAssist";
 
     private static string RepoRoot()
     {
         DirectoryInfo? dir = new(AppContext.BaseDirectory);
         while (dir != null)
         {
-            if (File.Exists(Path.Combine(dir.FullName, "NovaTerminal.sln")))
+            if (File.Exists(Path.Combine(dir.FullName, "Ntilde.sln")))
             {
                 return dir.FullName;
             }

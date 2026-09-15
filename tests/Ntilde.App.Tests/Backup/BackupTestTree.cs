@@ -1,10 +1,10 @@
 using System.Text.Json;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 /// <summary>
 /// A disposable temp app-data root pre-populated with realistic content, so backup tests
-/// never touch the real profile. Not tied to NOVATERM_APPDATA_ROOT — BackupService takes a
+/// never touch the real profile. Not tied to NTILDE_APPDATA_ROOT — BackupService takes a
 /// root explicitly, which keeps these tests parallel-safe.
 /// </summary>
 public sealed class BackupTestTree : IDisposable
@@ -15,7 +15,7 @@ public sealed class BackupTestTree : IDisposable
 
     public static BackupTestTree CreatePopulated()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"nova_backup_test_{Guid.NewGuid():N}");
+        string root = Path.Combine(Path.GetTempPath(), $"ntilde_backup_test_{Guid.NewGuid():N}");
         var tree = new BackupTestTree(root);
 
         tree.WriteFile("settings.json", """{"FontSize":14,"ThemeName":"Default"}""");
@@ -43,7 +43,7 @@ public sealed class BackupTestTree : IDisposable
     /// <summary>An empty root, for import-into-fresh-machine tests.</summary>
     public static BackupTestTree CreateEmpty()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"nova_backup_test_{Guid.NewGuid():N}");
+        string root = Path.Combine(Path.GetTempPath(), $"ntilde_backup_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         return new BackupTestTree(root);
     }

@@ -2,11 +2,11 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             xmlns:core="clr-namespace:NovaTerminal.Shell"
-             xmlns:assist="clr-namespace:NovaTerminal.CommandAssist.Views"
-             xmlns:controls="clr-namespace:NovaTerminal.Controls"
+             xmlns:core="clr-namespace:Ntilde.Shell"
+             xmlns:assist="clr-namespace:Ntilde.CommandAssist.Views"
+             xmlns:controls="clr-namespace:Ntilde.Controls"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
-             x:Class="NovaTerminal.Controls.TerminalPane"
+             x:Class="Ntilde.Controls.TerminalPane"
              Focusable="True"
              Background="Transparent">
     

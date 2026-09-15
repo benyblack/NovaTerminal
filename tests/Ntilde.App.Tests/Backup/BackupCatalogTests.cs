@@ -1,8 +1,8 @@
 using System.Reflection;
-using NovaTerminal.Shell;
-using NovaTerminal.Backup;
+using Ntilde.Shell;
+using Ntilde.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class BackupCatalogTests
 {

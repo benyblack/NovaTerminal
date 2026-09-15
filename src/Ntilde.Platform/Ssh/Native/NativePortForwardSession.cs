@@ -5,9 +5,9 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
-using NovaTerminal.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Models;
 
-namespace NovaTerminal.Platform.Ssh.Native;
+namespace Ntilde.Platform.Ssh.Native;
 
 public sealed class NativePortForwardSession : IDisposable
 {

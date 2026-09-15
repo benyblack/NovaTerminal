@@ -2406,7 +2406,7 @@ async fn download_file_from_remote(
         }
     }
 
-    // Download into a sibling `.novapart` file and rename on success. Writing straight
+    // Download into a sibling `.ntildepart` file and rename on success. Writing straight
     // to `local_path` would truncate an existing good copy the moment the file is
     // created — before a single byte arrives — so a cancelled or failed re-download
     // used to destroy the previous version and leave a truncated file behind.
@@ -2947,7 +2947,7 @@ fn normalize_remote_directory_path(path: &str) -> anyhow::Result<String> {
 
 /// Suffix used for in-progress downloads so a cancelled or failed transfer never
 /// leaves a truncated file at the destination path.
-const PARTIAL_DOWNLOAD_SUFFIX: &str = ".novapart";
+const PARTIAL_DOWNLOAD_SUFFIX: &str = ".ntildepart";
 
 /// Validates a **server-supplied** directory entry name before it is joined onto a
 /// local path.
@@ -3044,7 +3044,7 @@ fn partial_download_path(local_path: &Path) -> PathBuf {
 /// Uses `create_new` (`O_EXCL` / `CREATE_NEW`) rather than `create`. Beyond catching a
 /// name collision, this is what makes the write safe in a destination directory another
 /// local actor can write to: `create` follows symlinks, so a pre-created
-/// `<destination>.<pid>.<n>.novapart` symlink would redirect the downloaded bytes into
+/// `<destination>.<pid>.<n>.ntildepart` symlink would redirect the downloaded bytes into
 /// whatever it points at. `O_EXCL` refuses to open an existing path at all, symlink or
 /// not, so a planted link fails the transfer instead of being followed.
 async fn create_partial_download_file(partial_path: &Path) -> anyhow::Result<TokioFile> {
@@ -3058,7 +3058,7 @@ async fn create_partial_download_file(partial_path: &Path) -> anyhow::Result<Tok
 
 /// Best-effort removal of an abandoned partial download. Failures are ignored
 /// deliberately: the caller is already returning the original transfer error, and a
-/// leftover `.novapart` file is strictly less harmful than masking that error.
+/// leftover `.ntildepart` file is strictly less harmful than masking that error.
 async fn discard_partial_download(partial_path: &Path) {
     let _ = tokio::fs::remove_file(partial_path).await;
 }
@@ -3390,14 +3390,14 @@ fn run_session(
         }
 
         let _ = session
-            .disconnect(Disconnect::ByApplication, "Closed by NovaTerminal", "en")
+            .disconnect(Disconnect::ByApplication, "Closed by Ntilde", "en")
             .await;
         // Tear the chain down innermost-first, mirroring how it was built: each hop's transport
         // is a channel of the hop before it, so disconnecting an outer hop first would just drop
         // the inner ones mid-conversation.
         for jump in jump_sessions.into_iter().rev() {
             let _ = jump
-                .disconnect(Disconnect::ByApplication, "Closed by NovaTerminal", "en")
+                .disconnect(Disconnect::ByApplication, "Closed by Ntilde", "en")
                 .await;
         }
         Ok(())
@@ -4967,7 +4967,7 @@ mod tests {
         );
         // Prefixed with the full destination name, so a stray file is traceable to it.
         // This also pins that with_extension is not used - that would turn
-        // "archive.tar.gz" into "archive.tar.novapart" and rename to the wrong path.
+        // "archive.tar.gz" into "archive.tar.ntildepart" and rename to the wrong path.
         assert!(
             partial_name.starts_with("archive.tar.gz."),
             "unexpected partial name: {partial_name}"
@@ -5009,7 +5009,7 @@ mod tests {
                 .await
                 .expect("temp dir should be creatable");
 
-            let occupied = dir.join("already-there.novapart");
+            let occupied = dir.join("already-there.ntildepart");
             tokio::fs::write(&occupied, b"pre-existing content")
                 .await
                 .expect("pre-existing file should be writable");
@@ -5029,7 +5029,7 @@ mod tests {
             assert_eq!(b"pre-existing content".to_vec(), preserved);
 
             // A fresh path in the same directory still succeeds.
-            let fresh = dir.join("fresh.novapart");
+            let fresh = dir.join("fresh.ntildepart");
             let file = create_partial_download_file(&fresh)
                 .await
                 .expect("fresh path should be creatable");
@@ -5042,7 +5042,7 @@ mod tests {
 
     #[test]
     fn rename_replaces_an_existing_destination() {
-        // download_file_from_remote commits by renaming the `.novapart` scratch file
+        // download_file_from_remote commits by renaming the `.ntildepart` scratch file
         // over `local_path`, which assumes rename REPLACES an existing destination
         // rather than failing. That holds on all three target platforms today
         // (on Windows via SetFileInformationByHandle + FileRenameInfo.ReplaceIfExists),
@@ -5111,7 +5111,7 @@ mod tests {
             tokio::fs::create_dir_all(&dir)
                 .await
                 .expect("temp dir should be creatable");
-            let partial = dir.join("download.novapart");
+            let partial = dir.join("download.ntildepart");
             tokio::fs::write(&partial, b"partial bytes")
                 .await
                 .expect("partial file should be writable");

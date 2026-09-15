@@ -1,7 +1,7 @@
-using NovaTerminal.Rendering;
+using Ntilde.Rendering;
 using SkiaSharp;
 
-namespace NovaTerminal.Rendering.Tests;
+namespace Ntilde.Rendering.Tests;
 
 /// <summary>
 /// #172 item 3: colour-glyph detection was two codepoint ranges — <c>1F300-1FAFF</c> and

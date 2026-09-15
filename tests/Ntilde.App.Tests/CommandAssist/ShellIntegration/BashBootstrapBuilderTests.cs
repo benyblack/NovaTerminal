@@ -1,6 +1,6 @@
-using NovaTerminal.CommandAssist.ShellIntegration.Bash;
+using Ntilde.CommandAssist.ShellIntegration.Bash;
 
-namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 
 public sealed class BashBootstrapBuilderTests : IDisposable
 {
@@ -8,7 +8,7 @@ public sealed class BashBootstrapBuilderTests : IDisposable
 
     public BashBootstrapBuilderTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), $"nova_command_assist_bash_bootstrap_{Guid.NewGuid():N}");
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_command_assist_bash_bootstrap_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempRoot);
     }
 
@@ -33,8 +33,8 @@ public sealed class BashBootstrapBuilderTests : IDisposable
         // expands and prints PS1. B marks the opposite edge -- the first cell
         // of the user's input -- so it can only ride at the tail of PS1, and
         // must be wrapped in \[ \] so bash does not count it as prompt width.
-        Assert.Contains("__nova_ps1_mark='\\[\\e]133;B\\a\\]'", script);
-        Assert.Contains("PS1=\"$PS1$__nova_ps1_mark\"", script);
+        Assert.Contains("__ntilde_ps1_mark='\\[\\e]133;B\\a\\]'", script);
+        Assert.Contains("PS1=\"$PS1$__ntilde_ps1_mark\"", script);
 
         // Appended, never assigned from a template: the only PS1 assignment
         // in the script is the append form above.
@@ -47,19 +47,19 @@ public sealed class BashBootstrapBuilderTests : IDisposable
         string script = BashBootstrapBuilder.BuildScript();
 
         // Themes like starship/oh-my-posh rewrite PS1 from inside
-        // PROMPT_COMMAND, which would drop a one-shot suffix. __nova_arm is
+        // PROMPT_COMMAND, which would drop a one-shot suffix. __ntilde_arm is
         // the last entry in the PROMPT_COMMAND chain, so re-applying from
         // there gets the final word without changing the chain string (and
         // therefore without disturbing the DEBUG-trap arm/disarm ordering).
-        int armIndex = script.IndexOf("__nova_arm() {", StringComparison.Ordinal);
-        int applyIndex = script.IndexOf("    __nova_apply_ps1_mark", armIndex, StringComparison.Ordinal);
-        int clearIndex = script.IndexOf("    __nova_command_active=0", armIndex, StringComparison.Ordinal);
+        int armIndex = script.IndexOf("__ntilde_arm() {", StringComparison.Ordinal);
+        int applyIndex = script.IndexOf("    __ntilde_apply_ps1_mark", armIndex, StringComparison.Ordinal);
+        int clearIndex = script.IndexOf("    __ntilde_command_active=0", armIndex, StringComparison.Ordinal);
 
-        Assert.True(applyIndex > armIndex, "__nova_arm must re-apply the PS1 mark");
+        Assert.True(applyIndex > armIndex, "__ntilde_arm must re-apply the PS1 mark");
         Assert.True(clearIndex > applyIndex, "the active flag must still be cleared last");
 
         // Idempotent: a static PS1 must not accumulate one marker per prompt.
-        Assert.Contains("*\"$__nova_ps1_mark\"*) ;;", script);
+        Assert.Contains("*\"$__ntilde_ps1_mark\"*) ;;", script);
     }
 
     [Fact]
@@ -75,21 +75,21 @@ public sealed class BashBootstrapBuilderTests : IDisposable
     [Fact]
     public void BuildScript_ArmsActiveFlagAfterUserPromptCommandFinishes()
     {
-        // Locks in the PROMPT_COMMAND race fix: __nova_arm runs LAST in
-        // PROMPT_COMMAND (suffix), and __nova_emit_completion no longer
+        // Locks in the PROMPT_COMMAND race fix: __ntilde_arm runs LAST in
+        // PROMPT_COMMAND (suffix), and __ntilde_emit_completion no longer
         // clears the active flag itself. Without these two invariants,
         // DEBUG fires from the user's own PROMPT_COMMAND helpers would
         // masquerade as accepted commands.
         string script = BashBootstrapBuilder.BuildScript();
 
-        Assert.Contains("__nova_arm() {", script);
-        Assert.Contains("__nova_command_active=0", script);
-        Assert.Contains("__nova_precmd; __nova_arm", script);
-        Assert.Contains("__nova_precmd; $PROMPT_COMMAND; __nova_arm", script);
+        Assert.Contains("__ntilde_arm() {", script);
+        Assert.Contains("__ntilde_command_active=0", script);
+        Assert.Contains("__ntilde_precmd; __ntilde_arm", script);
+        Assert.Contains("__ntilde_precmd; $PROMPT_COMMAND; __ntilde_arm", script);
     }
 
     /// <summary>
-    /// ...and <c>__nova_precmd</c> raises it again at the top of every cycle. bash runs
+    /// ...and <c>__ntilde_precmd</c> raises it again at the top of every cycle. bash runs
     /// PROMPT_COMMAND after an EMPTY Enter too, and on that path no user command ran, so nothing
     /// else raised the flag - leaving the first entry of the user's own PROMPT_COMMAND chain to be
     /// captured as a phantom accepted command.
@@ -99,11 +99,11 @@ public sealed class BashBootstrapBuilderTests : IDisposable
     {
         string script = BashBootstrapBuilder.BuildScript();
 
-        int precmdIndex = script.IndexOf("__nova_precmd() {", StringComparison.Ordinal);
-        int raiseIndex = script.IndexOf("    __nova_command_active=1", precmdIndex, StringComparison.Ordinal);
-        int completionIndex = script.IndexOf("__nova_emit_completion", precmdIndex, StringComparison.Ordinal);
+        int precmdIndex = script.IndexOf("__ntilde_precmd() {", StringComparison.Ordinal);
+        int raiseIndex = script.IndexOf("    __ntilde_command_active=1", precmdIndex, StringComparison.Ordinal);
+        int completionIndex = script.IndexOf("__ntilde_emit_completion", precmdIndex, StringComparison.Ordinal);
 
-        Assert.True(raiseIndex > precmdIndex, "__nova_precmd must raise the active flag");
+        Assert.True(raiseIndex > precmdIndex, "__ntilde_precmd must raise the active flag");
         Assert.True(raiseIndex < completionIndex, "it must be raised before anything else in the chain runs");
     }
 
@@ -120,7 +120,7 @@ public sealed class BashBootstrapBuilderTests : IDisposable
         string script = BashBootstrapBuilder.BuildScript();
 
         Assert.Contains("HISTTIMEFORMAT='' builtin history 1", script);
-        Assert.Contains("cmd=$(__nova_history_line)", script);
+        Assert.Contains("cmd=$(__ntilde_history_line)", script);
         Assert.Contains("[ -n \"$cmd\" ] || cmd=\"$BASH_COMMAND\"", script);
     }
 
@@ -134,7 +134,7 @@ public sealed class BashBootstrapBuilderTests : IDisposable
     {
         string script = BashBootstrapBuilder.BuildScript();
 
-        Assert.Contains("__nova_*) return ;;", script);
+        Assert.Contains("__ntilde_*) return ;;", script);
         Assert.DoesNotContain("trap*|", script);
         Assert.DoesNotContain("PROMPT_COMMAND*) return", script);
     }

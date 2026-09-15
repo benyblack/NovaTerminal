@@ -1,4 +1,4 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -6,11 +6,11 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Replay;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Replay;
 
-namespace NovaTerminal.UI.Replay
+namespace Ntilde.UI.Replay
 {
     public class ReplayViewModel : INotifyPropertyChanged
     {

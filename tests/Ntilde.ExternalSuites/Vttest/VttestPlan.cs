@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.ExternalSuites.Vttest
+namespace Ntilde.ExternalSuites.Vttest
 {
     public abstract record Step;
     public record SendBytes(byte[] Bytes) : Step;

@@ -1,29 +1,29 @@
 # winget packaging
 
 Source-of-truth [winget](https://learn.microsoft.com/windows/package-manager/) manifests for
-NovaTerminal, kept in-repo so each release can regenerate and submit them.
+Ntilde, kept in-repo so each release can regenerate and submit them.
 
 The Windows release ships a self-contained, AOT-compiled **zip** *and*, since #91's packaging
-half landed, an unsigned Velopack installer (`NovaTerminal-Setup-win-x64-<tag>.exe`). Neither is
+half landed, an unsigned Velopack installer (`ntilde-Setup-win-x64-<tag>.exe`). Neither is
 code-signed. The winget manifest deliberately packages the **zip** as a **portable** app
 (`InstallerType: zip`, `NestedInstallerType: portable`) rather than pointing at the installer:
 that keeps winget's install out of Velopack's updater's way, so the two never both believe they
 own the install. Once accepted into the community repo it installs with:
 
 ```
-winget install benyblack.NovaTerminal
+winget install benyblack.ntilde
 ```
 
 ## Layout
 
 ```
 packaging/winget/<version>/
-  benyblack.NovaTerminal.yaml               # version manifest
-  benyblack.NovaTerminal.installer.yaml     # installer (zip → portable NovaTerminal.exe, alias: nova)
-  benyblack.NovaTerminal.locale.en-US.yaml  # default-locale metadata
+  benyblack.ntilde.yaml               # version manifest
+  benyblack.ntilde.installer.yaml     # installer (zip → portable Ntilde.exe, alias: ntilde)
+  benyblack.ntilde.locale.en-US.yaml  # default-locale metadata
 ```
 
-`PackageIdentifier` is `benyblack.NovaTerminal`; the portable command alias is `nova`.
+`PackageIdentifier` is `benyblack.ntilde`; the portable command alias is `ntilde`.
 
 ## Validate a manifest set locally
 
@@ -47,12 +47,12 @@ release for `vX.Y.Z` has published its assets:
 ```powershell
 # From the repo root, with the GitHub CLI authenticated.
 $ver = "X.Y.Z"
-$asset = "NovaTerminal-win-x64-v$ver.zip"
-$url = "https://github.com/benyblack/NovaTerminal/releases/download/v$ver/$asset"
+$asset = "ntilde-win-x64-v$ver.zip"
+$url = "https://github.com/benyblack/ntilde/releases/download/v$ver/$asset"
 
 # 1. Download the published asset and compute its hash.
-gh release download "v$ver" --pattern $asset --dir "$env:TEMP\nova-winget" --clobber
-$sha = (Get-FileHash "$env:TEMP\nova-winget\$asset" -Algorithm SHA256).Hash
+gh release download "v$ver" --pattern $asset --dir "$env:TEMP\ntilde-winget" --clobber
+$sha = (Get-FileHash "$env:TEMP\ntilde-winget\$asset" -Algorithm SHA256).Hash
 
 # 2. Copy the previous version's files into a new folder and update them.
 #    (Create the dir first and copy contents with a wildcard — `Copy-Item -Recurse`
@@ -65,13 +65,13 @@ Copy-Item packaging\winget\0.3.0\* packaging\winget\$ver
 #   ONLY once the release actually contains the described features.
 ```
 
-`wingetcreate update benyblack.NovaTerminal --version X.Y.Z --urls $url` automates steps 1–2
+`wingetcreate update benyblack.ntilde --version X.Y.Z --urls $url` automates steps 1–2
 (it re-downloads and re-hashes), if you prefer that tool.
 
 ## Submitting to the community repo
 
 Fork [`microsoft/winget-pkgs`](https://github.com/microsoft/winget-pkgs) and copy the version
-folder to `manifests/b/benyblack/NovaTerminal/<version>/`, or run
+folder to `manifests/b/benyblack/ntilde/<version>/`, or run
 `wingetcreate submit packaging\winget\<version>`. The repo's automation validates the schema,
 downloads the zip, verifies the hash, and installs the portable package in a sandbox. Because the
 package is portable and per-user, it needs no elevation and no signature — but SmartScreen may warn
@@ -79,7 +79,7 @@ on first launch of the unsigned exe; that resolves when code-signing lands (a se
 
 ## Notes / caveats
 
-- **Version vs. feature drift.** The `0.3.0` manifest describes NovaTerminal *as of that release*.
+- **Version vs. feature drift.** The `0.3.0` manifest describes Ntilde *as of that release*.
   The agent-host surface (observe / status / act / replay export, milestones A1–A4) landed after
   v0.3.0 and is unreleased at the time of writing; do not advertise those capabilities in a manifest
   until the release actually contains them (cut a new `vX.Y.Z` first, then a matching manifest).

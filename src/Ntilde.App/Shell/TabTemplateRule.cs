@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public class TabTemplateRule
     {

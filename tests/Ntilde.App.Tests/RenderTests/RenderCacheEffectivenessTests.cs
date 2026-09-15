@@ -1,13 +1,13 @@
 using System;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Platform;
-using NovaTerminal.Rendering;
-using NovaTerminal.Tests.Infra;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.Rendering;
+using Ntilde.Tests.Infra;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.RenderTests
+namespace Ntilde.Tests.RenderTests
 {
     /// <summary>
     /// #127: the rendering pipeline's caches were not protected by CI. A regression that silently

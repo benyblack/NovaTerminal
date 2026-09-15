@@ -97,7 +97,7 @@ function Write-MeasurementSession {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$appExe = Join-Path $repoRoot "src\NovaTerminal.App\bin\$Configuration\net10.0\NovaTerminal.exe"
+$appExe = Join-Path $repoRoot "src\Ntilde.App\bin\$Configuration\net10.0\Ntilde.exe"
 
 if (-not (Test-Path -LiteralPath $appExe)) {
     throw "App executable not found at $appExe. Build the app first."
@@ -123,9 +123,9 @@ for ($iteration = 1; $iteration -le $Iterations; $iteration++) {
     $beforeCount = Get-LineCount -Path $metricsFile
 
     $process = Start-Process -FilePath $appExe -PassThru -WindowStyle Normal -Environment @{
-        NOVATERM_APPDATA_ROOT = $appDataRoot
-        NOVATERM_STARTUP_METRICS = "1"
-        NOVATERM_STARTUP_METRICS_OUT = $metricsFile
+        NTILDE_APPDATA_ROOT = $appDataRoot
+        NTILDE_STARTUP_METRICS = "1"
+        NTILDE_STARTUP_METRICS_OUT = $metricsFile
     }
 
     $captured = $false

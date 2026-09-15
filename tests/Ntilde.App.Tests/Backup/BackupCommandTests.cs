@@ -1,7 +1,7 @@
-using NovaTerminal.Backup;
-using NovaTerminal.Shell.Backup;
+using Ntilde.Backup;
+using Ntilde.Shell.Backup;
 
-namespace NovaTerminal.Tests.Backup;
+namespace Ntilde.Tests.Backup;
 
 public sealed class BackupCommandTests
 {
@@ -17,12 +17,12 @@ public sealed class BackupCommandTests
     public void Export_WritesBundleAndReportsPath()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "cli.novabackup");
+        string bundle = Path.Combine(tree.Root, "cli.ntildebackup");
         var (code, stdout, _) = Run(tree, "backup", "export", bundle);
 
         Assert.Equal(0, code);
         Assert.True(File.Exists(bundle));
-        Assert.Contains("cli.novabackup", stdout);
+        Assert.Contains("cli.ntildebackup", stdout);
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public sealed class BackupCommandTests
     public void Import_RequiresAModeFlag()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "cli.novabackup");
+        string bundle = Path.Combine(tree.Root, "cli.ntildebackup");
         new BackupService(tree.Root).Export(bundle);
 
         var (code, _, stderr) = Run(tree, "backup", "import", bundle);
@@ -67,7 +67,7 @@ public sealed class BackupCommandTests
     public void Import_RejectsBothModeFlags()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "cli.novabackup");
+        string bundle = Path.Combine(tree.Root, "cli.ntildebackup");
         new BackupService(tree.Root).Export(bundle);
 
         var (code, _, stderr) = Run(tree, "backup", "import", bundle, "--merge", "--replace");
@@ -81,7 +81,7 @@ public sealed class BackupCommandTests
     {
         using var source = BackupTestTree.CreatePopulated();
         source.WriteFile("settings.json", """{"FontSize":33}""");
-        string bundle = Path.Combine(source.Root, "cli.novabackup");
+        string bundle = Path.Combine(source.Root, "cli.ntildebackup");
         new BackupService(source.Root).Export(bundle);
 
         using var target = BackupTestTree.CreatePopulated();
@@ -142,7 +142,7 @@ public sealed class BackupCommandTests
     public void Import_FlagInBundlePathPosition_ReturnsUsageErrorNotFileNotFound()
     {
         using var tree = BackupTestTree.CreatePopulated();
-        string bundle = Path.Combine(tree.Root, "cli.novabackup");
+        string bundle = Path.Combine(tree.Root, "cli.ntildebackup");
         new BackupService(tree.Root).Export(bundle);
 
         // args[2] is "--merge" instead of a bundle path - the real path landed one slot too

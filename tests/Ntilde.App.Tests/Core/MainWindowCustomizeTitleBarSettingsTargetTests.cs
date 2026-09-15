@@ -4,11 +4,11 @@ using System.Reflection;
 using Xunit;
 using Avalonia.Headless.XUnit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Codex round 6 on PR #342: the title bar's right-click "Customize Title Bar..." menu item must
-/// open Settings targeting <see cref="NovaTerminal.SettingsSection.TitleBar"/>, while every other
+/// open Settings targeting <see cref="Ntilde.SettingsSection.TitleBar"/>, while every other
 /// entry point that opens Settings (the gear button, Ctrl+,, the command palette "settings"
 /// action) must keep opening it with no section target.
 /// </summary>
@@ -39,38 +39,38 @@ public sealed class MainWindowCustomizeTitleBarSettingsTargetTests : IDisposable
         var (tabIndex, section) = InvokeCustomizeTitleBarSettingsTarget(window);
 
         Assert.Equal(0, tabIndex);
-        Assert.Equal(NovaTerminal.SettingsSection.TitleBar, section);
+        Assert.Equal(Ntilde.SettingsSection.TitleBar, section);
     }
 
     /// <summary>
     /// Every other Settings entry point (gear button, Ctrl+,, command palette "settings") calls
     /// <c>OpenSettings(0)</c> directly, whose <c>section</c> parameter defaults to
-    /// <see cref="NovaTerminal.SettingsSection.None"/> - confirmed here by reflecting on that
+    /// <see cref="Ntilde.SettingsSection.None"/> - confirmed here by reflecting on that
     /// default rather than duplicating a hardcoded expectation, so this fails if the default itself
     /// ever changes instead of silently agreeing with a stale constant.
     /// </summary>
     [AvaloniaFact]
     public void OpenSettings_SectionParameter_DefaultsToNone()
     {
-        var method = typeof(NovaTerminal.MainWindow).GetMethod("OpenSettings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.MainWindow).GetMethod("OpenSettings", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
 
         var sectionParameter = method!.GetParameters().Single(p => p.Name == "section");
 
         Assert.True(sectionParameter.HasDefaultValue);
-        Assert.Equal(NovaTerminal.SettingsSection.None, sectionParameter.DefaultValue);
+        Assert.Equal(Ntilde.SettingsSection.None, sectionParameter.DefaultValue);
     }
 
-    private static (int TabIndex, NovaTerminal.SettingsSection Section) InvokeCustomizeTitleBarSettingsTarget(NovaTerminal.MainWindow window)
+    private static (int TabIndex, Ntilde.SettingsSection Section) InvokeCustomizeTitleBarSettingsTarget(Ntilde.MainWindow window)
     {
-        var method = typeof(NovaTerminal.MainWindow).GetMethod("CustomizeTitleBarSettingsTarget", BindingFlags.Static | BindingFlags.NonPublic);
+        var method = typeof(Ntilde.MainWindow).GetMethod("CustomizeTitleBarSettingsTarget", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(method);
         var result = method!.Invoke(window, null);
         Assert.NotNull(result);
 
         var resultType = result!.GetType();
         int tabIndex = (int)resultType.GetField("Item1")!.GetValue(result)!;
-        var section = (NovaTerminal.SettingsSection)resultType.GetField("Item2")!.GetValue(result)!;
+        var section = (Ntilde.SettingsSection)resultType.GetField("Item2")!.GetValue(result)!;
         return (tabIndex, section);
     }
 }

@@ -6,24 +6,24 @@ using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Server;
 
-namespace NovaTerminal.McpServer.Tools;
+namespace Ntilde.McpServer.Tools;
 
 // Source of truth for field names / enum values:
-//   src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs (+ SshJumpHop, PortForward,
+//   src/Ntilde.Platform/Ssh/Models/SshProfile.cs (+ SshJumpHop, PortForward,
 //   SshMuxOptions) and SshProfileStoreSnapshot in Ssh/Storage/ISshProfileStore.cs.
-// This server has NO ProjectReference to NovaTerminal.Platform by design, so that
+// This server has NO ProjectReference to Ntilde.Platform by design, so that
 // knowledge is hand-mirrored below. A reflection drift-guard test in
-// NovaTerminal.McpServer.Tests fails if those types change. Keep both in sync.
+// Ntilde.McpServer.Tests fails if those types change. Keep both in sync.
 [McpServerToolType]
 public static class ConnectionProfileTools
 {
-    [McpServerTool(Name = "novaterminal.get_connection_profile_schema"),
-     Description("Returns the schema for a NovaTerminal SSH connection-profile JSON: PascalCase fields grouped by area, integer enum mappings, defaults, and a complete example. The on-disk format uses integer-valued enums; passwords are vault-managed and never stored in profile JSON. Use before authoring or editing a profile.")]
+    [McpServerTool(Name = "ntilde.get_connection_profile_schema"),
+     Description("Returns the schema for a Ntilde SSH connection-profile JSON: PascalCase fields grouped by area, integer enum mappings, defaults, and a complete example. The on-disk format uses integer-valued enums; passwords are vault-managed and never stored in profile JSON. Use before authoring or editing a profile.")]
     public static string GetConnectionProfileSchema() =>
         """
-        # NovaTerminal connection-profile (SSH) JSON schema
+        # Ntilde connection-profile (SSH) JSON schema
 
-        Profiles are stored at `%LOCALAPPDATA%\NovaTerminal\ssh\profiles.json`. The on-disk
+        Profiles are stored at `%LOCALAPPDATA%\Ntilde\ssh\profiles.json`. The on-disk
         format uses **PascalCase** field names and **integer-valued enums**. Passwords are
         never stored here — they live in the OS credential vault.
 
@@ -153,8 +153,8 @@ public static class ConnectionProfileTools
     internal static readonly string[] PortForwardKindNames = { "Local", "Remote", "Dynamic" };
     internal static readonly string[] RemoteShellKindNames = { "Auto", "Bash", "Zsh", "Fish", "Pwsh" };
 
-    [McpServerTool(Name = "novaterminal.validate_connection_profile_json"),
-     Description("Validates a NovaTerminal SSH connection-profile JSON string. Accepts either a single profile object or a full profiles.json document ({ \"SchemaVersion\", \"Profiles\": [...] }); auto-detects which. Reports errors (wrong types, out-of-range integer enums/ports, missing required Name/Host) and warnings (unknown fields, a stray Password field, malformed Id, etc.). Passwords are vault-managed and must never appear in profile JSON.")]
+    [McpServerTool(Name = "ntilde.validate_connection_profile_json"),
+     Description("Validates a Ntilde SSH connection-profile JSON string. Accepts either a single profile object or a full profiles.json document ({ \"SchemaVersion\", \"Profiles\": [...] }); auto-detects which. Reports errors (wrong types, out-of-range integer enums/ports, missing required Name/Host) and warnings (unknown fields, a stray Password field, malformed Id, etc.). Passwords are vault-managed and must never appear in profile JSON.")]
     public static string ValidateConnectionProfileJson(
         [Description("The connection-profile JSON to validate: a single SshProfile object or a full profiles.json document.")] string profileJson)
     {

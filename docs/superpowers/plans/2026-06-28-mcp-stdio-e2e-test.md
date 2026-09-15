@@ -2,18 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add an end-to-end test that launches the built `NovaTerminal.McpServer` over stdio and drives a real MCP handshake + tool calls, closing the protocol-level coverage gap.
+**Goal:** Add an end-to-end test that launches the built `Ntilde.McpServer` over stdio and drives a real MCP handshake + tool calls, closing the protocol-level coverage gap.
 
-**Architecture:** One new xUnit test class in `tests/NovaTerminal.McpServer.Tests` that uses the ModelContextProtocol SDK *client* to spawn the server's compiled DLL as a subprocess and exercise `tools/list` and `tools/call`. No server changes.
+**Architecture:** One new xUnit test class in `tests/Ntilde.McpServer.Tests` that uses the ModelContextProtocol SDK *client* to spawn the server's compiled DLL as a subprocess and exercise `tools/list` and `tools/call`. No server changes.
 
 **Tech Stack:** C# / .NET 10, xUnit v3, `ModelContextProtocol` 1.4.0 (client: `StdioClientTransport`, `McpClient`).
 
 ## Global Constraints
 
 - Build/test ONLY via wrappers: `scripts/build.ps1 <args>` (PowerShell) / `scripts/build.sh <args>`. Never raw `dotnet build`/`dotnet test` (hangs when stdout is captured).
-- No changes to `src/NovaTerminal.McpServer` (the server project). This is test-only.
-- The server is launched as `dotnet <NovaTerminal.McpServer.dll>` from the **test assembly's own output dir** — `Path.Combine(AppContext.BaseDirectory, "NovaTerminal.McpServer.dll")`. The `ProjectReference` copies the server dll + `runtimeconfig.json` + `deps.json` there, and CI artifacts `tests/*/bin` (but NOT `src/NovaTerminal.McpServer/bin`), so the test bin is the only location guaranteed to exist in the `--no-build` CI unit-test job.
-- Repo root is passed to the subprocess via the `NOVATERMINAL_REPO_ROOT` environment variable (found by walking up from `AppContext.BaseDirectory` to the directory containing `NovaTerminal.sln`).
+- No changes to `src/Ntilde.McpServer` (the server project). This is test-only.
+- The server is launched as `dotnet <Ntilde.McpServer.dll>` from the **test assembly's own output dir** — `Path.Combine(AppContext.BaseDirectory, "Ntilde.McpServer.dll")`. The `ProjectReference` copies the server dll + `runtimeconfig.json` + `deps.json` there, and CI artifacts `tests/*/bin` (but NOT `src/Ntilde.McpServer/bin`), so the test bin is the only location guaranteed to exist in the `--no-build` CI unit-test job.
+- Repo root is passed to the subprocess via the `NTILDE_REPO_ROOT` environment variable (found by walking up from `AppContext.BaseDirectory` to the directory containing `Ntilde.sln`).
 - Every call runs under a `CancellationTokenSource` with a 60-second hard timeout, so a hang fails fast instead of stalling CI.
 - Tests are tagged `[Trait("Category", "E2E")]` but run in the normal pass.
 - These are characterization tests of already-working behavior, so they PASS on first correct run; each task includes a "verify the test has teeth" step (make it fail on a deliberately wrong expectation, then revert) to prove the assertion is real.
@@ -25,10 +25,10 @@ using ModelContextProtocol.Protocol;
 
 var transport = new StdioClientTransport(new StdioClientTransportOptions
 {
-    Name = "novaterminal-dev-e2e",
+    Name = "ntilde-dev-e2e",
     Command = "dotnet",
     Arguments = [ serverDllPath ],
-    EnvironmentVariables = new Dictionary<string, string?> { ["NOVATERMINAL_REPO_ROOT"] = repoRoot },
+    EnvironmentVariables = new Dictionary<string, string?> { ["NTILDE_REPO_ROOT"] = repoRoot },
 });
 await using var client = await McpClient.CreateAsync(transport, cancellationToken: ct);
 IList<McpClientTool> tools = await client.ListToolsAsync(cancellationToken: ct);   // tool.Name
@@ -43,8 +43,8 @@ string text = result.Content.OfType<TextContentBlock>().First().Text;
 ### Task 1: Test harness + `tools/list` registration guard
 
 **Files:**
-- Modify: `tests/NovaTerminal.McpServer.Tests/NovaTerminal.McpServer.Tests.csproj` (add `ModelContextProtocol` package reference)
-- Create: `tests/NovaTerminal.McpServer.Tests/McpServerStdioE2ETests.cs`
+- Modify: `tests/Ntilde.McpServer.Tests/Ntilde.McpServer.Tests.csproj` (add `ModelContextProtocol` package reference)
+- Create: `tests/Ntilde.McpServer.Tests/McpServerStdioE2ETests.cs`
 
 **Interfaces:**
 - Consumes: the built server DLL (via `ProjectReference` already present; the test assembly's own output dir is the launch target).
@@ -52,7 +52,7 @@ string text = result.Content.OfType<TextContentBlock>().First().Text;
 
 - [ ] **Step 1: Add the client package reference**
 
-In `tests/NovaTerminal.McpServer.Tests/NovaTerminal.McpServer.Tests.csproj`, add `ModelContextProtocol` to the existing package `ItemGroup` so it reads:
+In `tests/Ntilde.McpServer.Tests/Ntilde.McpServer.Tests.csproj`, add `ModelContextProtocol` to the existing package `ItemGroup` so it reads:
 
 ```xml
   <ItemGroup>
@@ -69,7 +69,7 @@ In `tests/NovaTerminal.McpServer.Tests/NovaTerminal.McpServer.Tests.csproj`, add
 
 - [ ] **Step 2: Write the harness + registration-guard test**
 
-Create `tests/NovaTerminal.McpServer.Tests/McpServerStdioE2ETests.cs`:
+Create `tests/Ntilde.McpServer.Tests/McpServerStdioE2ETests.cs`:
 
 ```csharp
 using System;
@@ -81,7 +81,7 @@ using System.Threading.Tasks;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
-namespace NovaTerminal.McpServer.Tests;
+namespace Ntilde.McpServer.Tests;
 
 // End-to-end tests: launch the built server over stdio and drive a real MCP handshake.
 // These exercise what unit tests cannot — tool discovery/registration, the stdio JSON-RPC
@@ -95,19 +95,19 @@ public class McpServerStdioE2ETests
     // The 13 tools the server is expected to register (v0.3).
     private static readonly string[] ExpectedToolNames =
     {
-        "novaterminal.get_project_summary",
-        "novaterminal.get_architecture_map",
-        "novaterminal.list_docs",
-        "novaterminal.read_doc",
-        "novaterminal.get_vt_conformance_summary",
-        "novaterminal.explain_escape_sequence",
-        "novaterminal.generate_vt_test_plan",
-        "novaterminal.get_theme_schema",
-        "novaterminal.validate_theme_json",
-        "novaterminal.get_connection_profile_schema",
-        "novaterminal.validate_connection_profile_json",
-        "novaterminal.generate_codex_prompt_for_issue",
-        "novaterminal.suggest_relevant_files",
+        "ntilde.get_project_summary",
+        "ntilde.get_architecture_map",
+        "ntilde.list_docs",
+        "ntilde.read_doc",
+        "ntilde.get_vt_conformance_summary",
+        "ntilde.explain_escape_sequence",
+        "ntilde.generate_vt_test_plan",
+        "ntilde.get_theme_schema",
+        "ntilde.validate_theme_json",
+        "ntilde.get_connection_profile_schema",
+        "ntilde.validate_connection_profile_json",
+        "ntilde.generate_codex_prompt_for_issue",
+        "ntilde.suggest_relevant_files",
     };
 
     [Fact]
@@ -131,12 +131,12 @@ public class McpServerStdioE2ETests
     {
         var transport = new StdioClientTransport(new StdioClientTransportOptions
         {
-            Name = "novaterminal-dev-e2e",
+            Name = "ntilde-dev-e2e",
             Command = "dotnet",
             Arguments = [ ServerDllPath() ],
             EnvironmentVariables = new Dictionary<string, string?>
             {
-                ["NOVATERMINAL_REPO_ROOT"] = RepoRoot(),
+                ["NTILDE_REPO_ROOT"] = RepoRoot(),
             },
         });
 
@@ -144,12 +144,12 @@ public class McpServerStdioE2ETests
     }
 
     // Launch the server from THIS test assembly's output directory. The ProjectReference to
-    // the server copies NovaTerminal.McpServer.dll + .runtimeconfig.json + .deps.json here.
+    // the server copies Ntilde.McpServer.dll + .runtimeconfig.json + .deps.json here.
     // This is the only location guaranteed to exist in the CI unit-test job: that job artifacts
-    // tests/*/bin but NOT src/NovaTerminal.McpServer/bin, and runs `dotnet test --no-build`.
+    // tests/*/bin but NOT src/Ntilde.McpServer/bin, and runs `dotnet test --no-build`.
     private static string ServerDllPath()
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "NovaTerminal.McpServer.dll");
+        string path = Path.Combine(AppContext.BaseDirectory, "Ntilde.McpServer.dll");
 
         if (!File.Exists(path))
         {
@@ -163,36 +163,36 @@ public class McpServerStdioE2ETests
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "NovaTerminal.sln")))
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Ntilde.sln")))
         {
             dir = dir.Parent;
         }
 
         return dir?.FullName
             ?? throw new InvalidOperationException(
-                "Could not locate 'NovaTerminal.sln' above the test output directory.");
+                "Could not locate 'Ntilde.sln' above the test output directory.");
     }
 }
 ```
 
 - [ ] **Step 3: Run the test — expect PASS**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~McpServerStdioE2ETests"`
+Run: `scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~McpServerStdioE2ETests"`
 Expected: PASS (1 test). The server already registers all 13 tools, so the handshake completes and the names match.
 
 If it fails to compile on an SDK symbol, apply the documented equivalent from the Global Constraints SDK note (e.g. `McpClientFactory.CreateAsync` returning `IMcpClient`, or `TextContent` instead of `TextContentBlock`) and re-run.
 
 - [ ] **Step 4: Verify the test has teeth**
 
-Temporarily append a bogus name to `ExpectedToolNames` (e.g. `"novaterminal.__does_not_exist"`).
-Run: `scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~McpServerStdioE2ETests"`
+Temporarily append a bogus name to `ExpectedToolNames` (e.g. `"ntilde.__does_not_exist"`).
+Run: `scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~McpServerStdioE2ETests"`
 Expected: FAIL — `Assert.Equal` reports the set mismatch (proves the assertion isn't vacuous).
 Then **revert** the bogus name and re-run to confirm PASS again.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.McpServer.Tests/NovaTerminal.McpServer.Tests.csproj tests/NovaTerminal.McpServer.Tests/McpServerStdioE2ETests.cs
+git add tests/Ntilde.McpServer.Tests/Ntilde.McpServer.Tests.csproj tests/Ntilde.McpServer.Tests/McpServerStdioE2ETests.cs
 git commit -m "test(mcp): e2e stdio handshake + tools/list registration guard"
 ```
 
@@ -201,7 +201,7 @@ git commit -m "test(mcp): e2e stdio handshake + tools/list registration guard"
 ### Task 2: `tools/call` assertions (self-contained + repo-reading)
 
 **Files:**
-- Modify: `tests/NovaTerminal.McpServer.Tests/McpServerStdioE2ETests.cs`
+- Modify: `tests/Ntilde.McpServer.Tests/McpServerStdioE2ETests.cs`
 
 **Interfaces:**
 - Consumes: `StartClientAsync`, `Timeout` from Task 1.
@@ -232,7 +232,7 @@ Add a `ValidTheme` const and two test methods inside the `McpServerStdioE2ETests
         await using var client = await StartClientAsync(cts.Token);
 
         var result = await client.CallToolAsync(
-            "novaterminal.validate_theme_json",
+            "ntilde.validate_theme_json",
             new Dictionary<string, object?> { ["themeJson"] = ValidTheme },
             cancellationToken: cts.Token);
 
@@ -248,7 +248,7 @@ Add a `ValidTheme` const and two test methods inside the `McpServerStdioE2ETests
         await using var client = await StartClientAsync(cts.Token);
 
         var result = await client.CallToolAsync(
-            "novaterminal.list_docs",
+            "ntilde.list_docs",
             cancellationToken: cts.Token);
 
         string text = result.Content.OfType<TextContentBlock>().First().Text;
@@ -258,25 +258,25 @@ Add a `ValidTheme` const and two test methods inside the `McpServerStdioE2ETests
 
 - [ ] **Step 2: Run the tests — expect PASS**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~McpServerStdioE2ETests"`
-Expected: PASS (3 tests total). `validate_theme_json` returns a `VALID…` report for the Dracula theme; `list_docs` lists `docs/` entries including `mcp/tools.md` (resolved via `NOVATERMINAL_REPO_ROOT`).
+Run: `scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~McpServerStdioE2ETests"`
+Expected: PASS (3 tests total). `validate_theme_json` returns a `VALID…` report for the Dracula theme; `list_docs` lists `docs/` entries including `mcp/tools.md` (resolved via `NTILDE_REPO_ROOT`).
 
 - [ ] **Step 3: Verify the new tests have teeth**
 
 Temporarily change the `CallTool_ListDocs_ReadsRepoDocs` assertion to a path that does not exist (e.g. `Assert.Contains("mcp/__nope__.md", text)`).
-Run: `scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~CallTool_ListDocs_ReadsRepoDocs"`
+Run: `scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~CallTool_ListDocs_ReadsRepoDocs"`
 Expected: FAIL — substring not found (proves the repo-reading path is actually exercised, not silently empty).
 Then **revert** to `"mcp/tools.md"` and re-run to confirm PASS.
 
 - [ ] **Step 4: Run the whole test project**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests`
+Run: `scripts/build.ps1 test tests/Ntilde.McpServer.Tests`
 Expected: PASS — all existing tests plus the 3 new e2e tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.McpServer.Tests/McpServerStdioE2ETests.cs
+git add tests/Ntilde.McpServer.Tests/McpServerStdioE2ETests.cs
 git commit -m "test(mcp): e2e tools/call coverage (self-contained + repo-reading)"
 ```
 
@@ -284,8 +284,8 @@ git commit -m "test(mcp): e2e tools/call coverage (self-contained + repo-reading
 
 ## Notes for the implementer
 
-- **Why launch from the test bin, not the server's own `src/.../bin`:** running `dotnet X.dll` needs `X.runtimeconfig.json` next to `X.dll`; the `ProjectReference` copies the server dll + runtimeconfig + deps into the test bin. Critically, the CI unit-test job artifacts `tests/*/bin` and runs `dotnet test --no-build`, reconstructing only the App/Cli `src` bins — so `src/NovaTerminal.McpServer/bin` is absent there and launching from it would `FileNotFoundException`. The test bin is the CI-safe location.
+- **Why launch from the test bin, not the server's own `src/.../bin`:** running `dotnet X.dll` needs `X.runtimeconfig.json` next to `X.dll`; the `ProjectReference` copies the server dll + runtimeconfig + deps into the test bin. Critically, the CI unit-test job artifacts `tests/*/bin` and runs `dotnet test --no-build`, reconstructing only the App/Cli `src` bins — so `src/Ntilde.McpServer/bin` is absent there and launching from it would `FileNotFoundException`. The test bin is the CI-safe location.
 - **`await using var client`:** disposing the client shuts the subprocess down. Don't skip it, or you leak `dotnet` processes.
 - **Timeouts:** every SDK call takes `cts.Token`; the 60 s budget turns a hung handshake into a fast failure rather than a stalled CI job (this repo has a history of headless hangs).
-- **CI:** `NovaTerminal.McpServer.Tests` is already in CI's unit-test loop; no `ci.yml` change is needed. The new `ModelContextProtocol` package ref restores from the same pinned version already used by the server.
+- **CI:** `Ntilde.McpServer.Tests` is already in CI's unit-test loop; no `ci.yml` change is needed. The new `ModelContextProtocol` package ref restores from the same pinned version already used by the server.
 - **Pre-existing convention:** tests use xUnit v3 with the global `using Xunit;` from the csproj; `[Fact]`/`[Trait]` need no extra using.

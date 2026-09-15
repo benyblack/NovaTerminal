@@ -3,10 +3,10 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Layout;
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.Pty;
-using NovaTerminal.VT;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.Pty;
+using Ntilde.VT;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,16 +15,16 @@ using Avalonia.Threading;
 using Avalonia.Media;
 using Avalonia.Controls.Shapes;
 using Avalonia.Styling;
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.Domain;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.ShellIntegration.Remote;
-using NovaTerminal.Backup;
-using NovaTerminal.Services.Ssh;
-using NovaTerminal.Shell.Shortcuts;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.ShellIntegration.Remote;
+using Ntilde.Backup;
+using Ntilde.Services.Ssh;
+using Ntilde.Shell.Shortcuts;
+using Ntilde.Shell.TitleBar;
 
-namespace NovaTerminal
+namespace Ntilde
 {
     public partial class SettingsWindow : Window
     {
@@ -1006,7 +1006,7 @@ namespace NovaTerminal
         /// fake here instead, so both the "confirmed" and "declined" branches of the Restore click
         /// handler are covered by something that actually runs in CI, without ever touching
         /// ShowDialog. Internal rather than public: this exists solely so
-        /// NovaTerminal.App.Tests (an InternalsVisibleTo friend) can reach it - it is a test seam,
+        /// Ntilde.App.Tests (an InternalsVisibleTo friend) can reach it - it is a test seam,
         /// not new public API.
         /// </summary>
         internal Func<SnapshotRow, System.Threading.Tasks.Task<bool>>? RestoreConfirmationOverride;
@@ -1082,8 +1082,8 @@ namespace NovaTerminal
                     var file = await topLevel.StorageProvider.SaveFilePickerAsync(
                         new Avalonia.Platform.Storage.FilePickerSaveOptions
                         {
-                            Title = "Export NovaTerminal configuration",
-                            SuggestedFileName = $"novaterminal-{DateTime.Now:yyyy-MM-dd}{BackupService.BundleExtension}",
+                            Title = "Export Ntilde configuration",
+                            SuggestedFileName = $"ntilde-{DateTime.Now:yyyy-MM-dd}{BackupService.BundleExtension}",
                             DefaultExtension = BackupService.BundleExtension.TrimStart('.')
                         });
 
@@ -1104,7 +1104,7 @@ namespace NovaTerminal
                     var files = await topLevel.StorageProvider.OpenFilePickerAsync(
                         new Avalonia.Platform.Storage.FilePickerOpenOptions
                         {
-                            Title = "Import NovaTerminal configuration",
+                            Title = "Import Ntilde configuration",
                             AllowMultiple = false
                         });
 
@@ -1140,7 +1140,7 @@ namespace NovaTerminal
                     // window user ever sees that warning.
                     SetStatus(
                         outcome.Success
-                            ? $"{outcome.Message} Restart NovaTerminal to pick up all changes."
+                            ? $"{outcome.Message} Restart Ntilde to pick up all changes."
                             : outcome.Message,
                         outcome.Success);
                     RefreshSnapshots();
@@ -1178,7 +1178,7 @@ namespace NovaTerminal
 
                     SetStatus(
                         outcome.Success
-                            ? $"{outcome.Message} Restart NovaTerminal to pick up all changes."
+                            ? $"{outcome.Message} Restart Ntilde to pick up all changes."
                             : outcome.Message,
                         outcome.Success);
                     RefreshSnapshots();
@@ -2459,7 +2459,7 @@ namespace NovaTerminal
         /// the clipboard, and show what to do with it.
         /// </summary>
         /// <remarks>
-        /// No setting is read or written here - this row is an action, not a preference. Whether Nova
+        /// No setting is read or written here - this row is an action, not a preference. Whether Ntilde
         /// consumes remote marks at all is governed by the existing shell-integration setting, and
         /// whether the remote host emits them is governed by whether the user installed the snippet.
         /// Neither is something this row can toggle.

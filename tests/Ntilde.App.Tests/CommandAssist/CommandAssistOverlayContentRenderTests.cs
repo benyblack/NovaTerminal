@@ -10,14 +10,14 @@ using Avalonia.Layout;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.ViewModels;
-using NovaTerminal.CommandAssist.Views;
-using NovaTerminal.Controls;
-using NovaTerminal.Shell;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.ViewModels;
+using Ntilde.CommandAssist.Views;
+using Ntilde.Controls;
+using Ntilde.Shell;
 using SkiaSharp;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// Guards that the Command Assist overlay actually puts content on screen.

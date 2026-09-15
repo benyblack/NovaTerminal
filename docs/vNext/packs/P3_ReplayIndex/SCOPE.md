@@ -1,7 +1,7 @@
 # Pack P3 — ReplayIndex + Seek API
 
 ## Objective
-Implement a **ReplayIndex** that enables fast, deterministic seeking into `.novarec` recordings.
+Implement a **ReplayIndex** that enables fast, deterministic seeking into `.ntilderec` recordings.
 
 ## Deliverables
 - Index builder that maps:
@@ -13,7 +13,7 @@ Implement a **ReplayIndex** that enables fast, deterministic seeking into `.nova
 - Index caching:
   - write sidecar `.idx` OR cache in memory (choose minimal implementation)
 - Minimal UI or CLI hook:
-  - optional: `novaterm replay seek <t>` for testing
+  - optional: `ntilde replay seek <t>` for testing
 
 ## In Scope
 - Index data structure and builder

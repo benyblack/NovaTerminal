@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 /// <summary>What the title bar should show right now.</summary>
 public sealed record TitleBarLayout(

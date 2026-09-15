@@ -1,12 +1,12 @@
 using System;
 using System.IO;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
-/// Redirects <c>NOVATERM_APPDATA_ROOT</c> to a fresh, empty directory for as long as the scope
-/// lives, so a test that builds a real <see cref="NovaTerminal.MainWindow"/> neither reads the
+/// Redirects <c>NTILDE_APPDATA_ROOT</c> to a fresh, empty directory for as long as the scope
+/// lives, so a test that builds a real <see cref="Ntilde.MainWindow"/> neither reads the
 /// machine's persisted state nor writes into it.
 /// </summary>
 /// <remarks>
@@ -40,13 +40,13 @@ namespace NovaTerminal.Tests.Core;
 /// </remarks>
 public sealed class TestAppDataRoot : IDisposable
 {
-    private const string EnvVar = "NOVATERM_APPDATA_ROOT";
+    private const string EnvVar = "NTILDE_APPDATA_ROOT";
 
     private readonly string? _previousRoot;
 
     public TestAppDataRoot()
     {
-        RootPath = Path.Combine(Path.GetTempPath(), $"novaterm_test_root_{Guid.NewGuid():N}");
+        RootPath = Path.Combine(Path.GetTempPath(), $"ntilde_test_root_{Guid.NewGuid():N}");
         _previousRoot = Environment.GetEnvironmentVariable(EnvVar);
 
         Directory.CreateDirectory(RootPath);

@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.Providers;
+namespace Ntilde.CommandAssist.Providers;
 
 /// <summary>
 /// One provider's answer to one <see cref="AssistContentRequest"/>.

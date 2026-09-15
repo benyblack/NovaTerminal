@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace NovaTerminal.Tests.Infra;
+namespace Ntilde.Tests.Infra;
 
 [CollectionDefinition("RendererStatistics", DisableParallelization = true)]
 public sealed class RendererStatisticsCollection

@@ -1,14 +1,14 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Moq;
 using Xunit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Platform.Paths;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Platform.Paths;
 
-namespace NovaTerminal.Tests.Input
+namespace Ntilde.Tests.Input
 {
     public class DropRouterTests
     {

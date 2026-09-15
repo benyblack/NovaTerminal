@@ -1,11 +1,11 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Reflection;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Replay;
-using NovaTerminal.Tests.Tools;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Replay;
+using Ntilde.Tests.Tools;
 
-namespace NovaTerminal.Tests.ReplayTests;
+namespace Ntilde.Tests.ReplayTests;
 
 public sealed class NativeSshReplayParityTests
 {

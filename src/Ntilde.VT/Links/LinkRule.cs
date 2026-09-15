@@ -1,7 +1,7 @@
 using System;
 using System.Text.RegularExpressions;
 
-namespace NovaTerminal.VT.Links
+namespace Ntilde.VT.Links
 {
     /// <summary>
     /// One link-detection rule. Adding a new kind of clickable text = appending a LinkRule

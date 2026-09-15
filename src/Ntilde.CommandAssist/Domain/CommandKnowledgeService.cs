@@ -6,10 +6,10 @@ using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.Storage;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.Storage;
 
-namespace NovaTerminal.CommandAssist.Domain;
+namespace Ntilde.CommandAssist.Domain;
 
 /// <summary>
 /// The command knowledge catalogue: Help docs and Recipe rows for ~585 commands, served out of the
@@ -55,10 +55,10 @@ namespace NovaTerminal.CommandAssist.Domain;
 public sealed class CommandKnowledgeService : ICommandDocsProvider, IRecipeProvider, ICommandKnowledgeAttributionSource
 {
     /// <summary>
-    /// The embedded asset's logical name, pinned in <c>NovaTerminal.CommandAssist.csproj</c>.
+    /// The embedded asset's logical name, pinned in <c>Ntilde.CommandAssist.csproj</c>.
     /// </summary>
     internal const string CatalogueResourceName =
-        "NovaTerminal.CommandAssist.CommandKnowledge.command-catalogue.json";
+        "Ntilde.CommandAssist.CommandKnowledge.command-catalogue.json";
 
     /// <summary>
     /// Command names that are not the command - an elevation or environment wrapper the real token
@@ -399,7 +399,7 @@ public sealed class CommandKnowledgeService : ICommandDocsProvider, IRecipeProvi
 #if DEBUG
                 throw new InvalidOperationException(
                     $"Embedded command catalogue '{CatalogueResourceName}' is missing. It is embedded " +
-                    "from assets/command-knowledge/ by NovaTerminal.CommandAssist.csproj and generated " +
+                    "from assets/command-knowledge/ by Ntilde.CommandAssist.csproj and generated " +
                     "by scripts/generate-command-catalogue.ps1.");
 #else
                 return null;

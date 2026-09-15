@@ -1,15 +1,15 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using NovaTerminal.VT;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     /// <summary>
-    /// The built-in themes ship as JSON files under src/NovaTerminal.App/themes and are seeded
+    /// The built-in themes ship as JSON files under src/Ntilde.App/themes and are seeded
     /// into the user's theme directory by AppPaths migration. A malformed or misnamed file would
     /// fail silently (the loader logs and skips, the color converter falls back to Transparent),
     /// so the expectations are asserted here instead.
@@ -94,7 +94,7 @@ namespace NovaTerminal.Tests
             DirectoryInfo? directory = new(AppContext.BaseDirectory);
             while (directory != null)
             {
-                string candidate = Path.Combine(directory.FullName, "src", "NovaTerminal.App", "themes");
+                string candidate = Path.Combine(directory.FullName, "src", "Ntilde.App", "themes");
                 if (Directory.Exists(candidate) && Directory.GetFiles(candidate, "*.json").Length > 0)
                 {
                     return candidate;

@@ -1,15 +1,15 @@
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Rendering;
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Rendering;
 using System;
 using System.Diagnostics;
 using System.Text;
-using NovaTerminal.Tests.Infra;
+using Ntilde.Tests.Infra;
 using Xunit;
 
 
-namespace NovaTerminal.Tests.Performance
+namespace Ntilde.Tests.Performance
 {
     [Collection("RendererStatistics")]
     public class PerformanceTests
@@ -27,7 +27,7 @@ namespace NovaTerminal.Tests.Performance
         {
             const double defaultThresholdMbPerSec = 1.75;
             double thresholdMbPerSec = defaultThresholdMbPerSec;
-            string? thresholdOverride = Environment.GetEnvironmentVariable("NOVATERM_PERF_THROUGHPUT_MBPS");
+            string? thresholdOverride = Environment.GetEnvironmentVariable("NTILDE_PERF_THROUGHPUT_MBPS");
             if (!string.IsNullOrWhiteSpace(thresholdOverride) &&
                 double.TryParse(thresholdOverride, out double parsedThreshold) &&
                 parsedThreshold > 0)
@@ -67,7 +67,7 @@ namespace NovaTerminal.Tests.Performance
             _output.WriteLine($"Threshold: {thresholdMbPerSec:F2} MB/s");
 
             // Default threshold is tuned for reliability across dev/CI hosts.
-            // For stricter perf gating, set NOVATERM_PERF_THROUGHPUT_MBPS in the environment.
+            // For stricter perf gating, set NTILDE_PERF_THROUGHPUT_MBPS in the environment.
             Assert.True(
                 mbPerSec > thresholdMbPerSec,
                 $"Performance regression! Throughput {mbPerSec:F2} MB/s is below threshold ({thresholdMbPerSec:F2} MB/s)");

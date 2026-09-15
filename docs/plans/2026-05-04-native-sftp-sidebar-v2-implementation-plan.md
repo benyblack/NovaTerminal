@@ -13,9 +13,9 @@
 ### Task 1: Compact the Remote Files sidebar layout
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml`
-- Modify: `src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Core/RemoteFilesSidebarTests.cs`
+- Modify: `src/Ntilde.App/Controls/RemoteFilesSidebar.axaml`
+- Modify: `src/Ntilde.App/Controls/RemoteFilesSidebar.axaml.cs`
+- Test: `tests/Ntilde.Tests/Core/RemoteFilesSidebarTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -39,7 +39,7 @@ Add a second test that asserts the footer exposes `BtnUpload`, `BtnDownload`, an
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~RemoteFilesSidebarTests" -c Release -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~RemoteFilesSidebarTests" -c Release -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the current control is still the wider multi-row layout.
@@ -63,16 +63,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml src/NovaTerminal.App/Controls/RemoteFilesSidebar.axaml.cs tests/NovaTerminal.Tests/Core/RemoteFilesSidebarTests.cs
+git add src/Ntilde.App/Controls/RemoteFilesSidebar.axaml src/Ntilde.App/Controls/RemoteFilesSidebar.axaml.cs tests/Ntilde.Tests/Core/RemoteFilesSidebarTests.cs
 git commit -m "feat: compact remote files sidebar layout"
 ```
 
 ### Task 2: Route sidebar uploads directly through local pickers
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Test: `tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -107,7 +107,7 @@ Add a second test for folder upload using a local folder picker.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~MainWindowTransferFlowTests.SidebarUpload" -c Release -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~MainWindowTransferFlowTests.SidebarUpload" -c Release -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because sidebar upload still routes through `TransferDialog`.
@@ -130,16 +130,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml.cs src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml.cs src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs
 git commit -m "feat: route sidebar uploads through local pickers"
 ```
 
 ### Task 3: Route sidebar downloads directly through save and folder pickers
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Test: `tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -175,7 +175,7 @@ Add a second test for folder download using a local folder picker.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~MainWindowTransferFlowTests.SidebarDownload" -c Release -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~MainWindowTransferFlowTests.SidebarDownload" -c Release -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because sidebar download still routes through `TransferDialog`.
@@ -198,19 +198,19 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml.cs src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml.cs src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs
 git commit -m "feat: route sidebar downloads through local pickers"
 ```
 
 ### Task 4: Remove pane-context SFTP transfer commands and keep manual dialog coverage
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `src/NovaTerminal.App/Models/TransferDialogRequest.cs`
-- Modify: `src/NovaTerminal.App/Controls/TransferDialog.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs`
-- Test: `tests/NovaTerminal.Tests/Core/TransferDialogRequestTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `src/Ntilde.App/Models/TransferDialogRequest.cs`
+- Modify: `src/Ntilde.App/Controls/TransferDialog.axaml.cs`
+- Test: `tests/Ntilde.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs`
+- Test: `tests/Ntilde.Tests/Core/TransferDialogRequestTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -235,7 +235,7 @@ Add a second test that still verifies manual `TransferDialogRequest.ForAction(..
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~TerminalPaneRemoteFilesSidebarTests|FullyQualifiedName~TransferDialogRequestTests" -c Release -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~TerminalPaneRemoteFilesSidebarTests|FullyQualifiedName~TransferDialogRequestTests" -c Release -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the pane context menu still includes the older transfer commands and sidebar-specific dialog request code still exists.
@@ -258,7 +258,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml src/NovaTerminal.App/Controls/TerminalPane.axaml.cs src/NovaTerminal.App/Models/TransferDialogRequest.cs src/NovaTerminal.App/Controls/TransferDialog.axaml.cs tests/NovaTerminal.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs tests/NovaTerminal.Tests/Core/TransferDialogRequestTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml src/Ntilde.App/Controls/TerminalPane.axaml.cs src/Ntilde.App/Models/TransferDialogRequest.cs src/Ntilde.App/Controls/TransferDialog.axaml.cs tests/Ntilde.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs tests/Ntilde.Tests/Core/TransferDialogRequestTests.cs
 git commit -m "refactor: keep manual sftp dialog flow separate"
 ```
 
@@ -267,9 +267,9 @@ git commit -m "refactor: keep manual sftp dialog flow separate"
 **Files:**
 - Modify: `docs/USER_MANUAL.md`
 - Modify: `docs/plans/2026-05-04-native-sftp-sidebar-v2-design.md`
-- Test: `tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs`
-- Test: `tests/NovaTerminal.Tests/Core/RemoteFilesSidebarTests.cs`
-- Test: `tests/NovaTerminal.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs`
+- Test: `tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs`
+- Test: `tests/Ntilde.Tests/Core/RemoteFilesSidebarTests.cs`
+- Test: `tests/Ntilde.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -297,7 +297,7 @@ public async Task ManualTransferFlow_StillUsesTransferDialog_WhenSidebarFlowDoes
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "FullyQualifiedName~MainWindowTransferFlowTests|FullyQualifiedName~RemoteFilesSidebarTests|FullyQualifiedName~TerminalPaneRemoteFilesSidebarTests" -c Release -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "FullyQualifiedName~MainWindowTransferFlowTests|FullyQualifiedName~RemoteFilesSidebarTests|FullyQualifiedName~TerminalPaneRemoteFilesSidebarTests" -c Release -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL until the docs and regression surface fully match the new picker-only sidebar flow.
@@ -318,6 +318,6 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add docs/USER_MANUAL.md docs/plans/2026-05-04-native-sftp-sidebar-v2-design.md tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs tests/NovaTerminal.Tests/Core/RemoteFilesSidebarTests.cs tests/NovaTerminal.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs
+git add docs/USER_MANUAL.md docs/plans/2026-05-04-native-sftp-sidebar-v2-design.md tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs tests/Ntilde.Tests/Core/RemoteFilesSidebarTests.cs tests/Ntilde.Tests/Core/TerminalPaneRemoteFilesSidebarTests.cs
 git commit -m "docs: describe compact picker-first sftp sidebar"
 ```

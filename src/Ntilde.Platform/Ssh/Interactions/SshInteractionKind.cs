@@ -1,4 +1,4 @@
-namespace NovaTerminal.Platform.Ssh.Interactions;
+namespace Ntilde.Platform.Ssh.Interactions;
 
 public enum SshInteractionKind
 {

@@ -2,7 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     /// <summary>
     /// A generic circular buffer with O(1) push and eviction.

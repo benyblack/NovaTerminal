@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
-using NovaTerminal.CommandAssist.Models;
+using Ntilde.CommandAssist.Models;
 
-namespace NovaTerminal.CommandAssist.Storage;
+namespace Ntilde.CommandAssist.Storage;
 
 /// <summary>
 /// Source-generated deserialization context for the bundled command-knowledge catalogue (V2 Phase 4b).

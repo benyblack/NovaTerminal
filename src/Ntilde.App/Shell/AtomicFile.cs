@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     /// <summary>
     /// Crash-safe file persistence: write to a temp sibling, then atomically move it

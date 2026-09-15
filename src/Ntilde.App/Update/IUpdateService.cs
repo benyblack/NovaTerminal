@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Update
+namespace Ntilde.Update
 {
     /// <summary>
     /// What an update host can do, expressed without reference to Velopack, Avalonia or the

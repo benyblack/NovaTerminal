@@ -1,12 +1,12 @@
 using System.Reflection;
 using System.Text;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Controls;
+using Ntilde.Shell;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.Controls;
+namespace Ntilde.Tests.Controls;
 
 /// <summary>
 /// The pane's half of V2 Phase 4a task 1: capturing a failing command's output at the
@@ -15,7 +15,7 @@ namespace NovaTerminal.Tests.Controls;
 /// <remarks>
 /// <para>
 /// Extraction semantics are covered exhaustively in
-/// <c>NovaTerminal.VT.Tests.CommandOutputReaderTests</c>. What is pinned here is the wiring, and
+/// <c>Ntilde.VT.Tests.CommandOutputReaderTests</c>. What is pinned here is the wiring, and
 /// specifically the three things that are properties of the <em>call site</em> rather than of the
 /// reader:
 /// </para>
@@ -291,7 +291,7 @@ public class PaneCommandOutputCaptureTests
             // file with whatever else is running.
             string directory = Path.Combine(
                 Path.GetTempPath(),
-                $"nova_output_capture_{Environment.ProcessId}_{Guid.NewGuid():N}");
+                $"ntilde_output_capture_{Environment.ProcessId}_{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
 
             var services = new CommandAssistServices(

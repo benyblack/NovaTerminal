@@ -1,15 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Shell;
+namespace Ntilde.Shell;
 
 public sealed record StartupRestoreTab(int OriginalIndex, TabSession Tab);
 
 public sealed record StartupRestorePlan(StartupRestoreTab ImmediateTab, IReadOnlyList<StartupRestoreTab> DeferredTabs)
 {
-    public static StartupRestorePlan Create(NovaSession session)
+    public static StartupRestorePlan Create(NtildeSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
         if (session.Tabs.Count == 0)

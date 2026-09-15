@@ -1,8 +1,8 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
-using NovaTerminal.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Models;
 
-namespace NovaTerminal.Platform.Ssh.Launch;
+namespace Ntilde.Platform.Ssh.Launch;
 
 public static class SshArgBuilder
 {
@@ -73,7 +73,7 @@ public static class SshArgBuilder
             return commandLine;
         }
 
-        bool showFullArgs = Environment.GetEnvironmentVariable("NOVA_SSH_FULL_ARGS") == "1";
+        bool showFullArgs = Environment.GetEnvironmentVariable("NTILDE_SSH_FULL_ARGS") == "1";
         if (showFullArgs)
         {
             // Just scrub identity paths if enabled, but full args requested
@@ -87,7 +87,7 @@ public static class SshArgBuilder
 
         // Standard sanitization: Only show config file and alias. Redact ExtraSshArgs and other flags.
         // The command line has a known structure built by SshLaunchPlanner: "-F config_path alias [extra_args...]"
-        var match = Regex.Match(commandLine, @"-F\s+("".*?""|\S+)\s+(nova_[a-fA-F0-9]+)", RegexOptions.CultureInvariant, RegexTimeout);
+        var match = Regex.Match(commandLine, @"-F\s+("".*?""|\S+)\s+(ntilde_[a-fA-F0-9]+)", RegexOptions.CultureInvariant, RegexTimeout);
         if (match.Success)
         {
             return $"-F {match.Groups[1].Value} {match.Groups[2].Value} <args-redacted>";

@@ -1,14 +1,14 @@
 using System.Xml;
 using System.Xml.Linq;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 /// <summary>
 /// Guards every shipped .axaml against runtime (reflection) bindings.
 /// </summary>
 /// <remarks>
 /// Releases publish with NativeAOT (see <c>publish_aot</c> in <c>.github/workflows/release.yml</c>,
-/// and <c>PublishAot</c> in <c>NovaTerminal.App.csproj</c>). A reflection binding -
+/// and <c>PublishAot</c> in <c>Ntilde.App.csproj</c>). A reflection binding -
 /// <c>{Binding SomePath}</c> evaluated at runtime rather than compiled - resolves its path with
 /// <c>Type.GetProperty</c>, and ILC has already trimmed away any property getter no compiled code
 /// calls. The binding then silently produces nothing: no exception, no visible error, just a
@@ -39,7 +39,7 @@ public class CompiledBindingTests
         DirectoryInfo? dir = new(AppContext.BaseDirectory);
         while (dir != null)
         {
-            if (File.Exists(Path.Combine(dir.FullName, "NovaTerminal.sln")))
+            if (File.Exists(Path.Combine(dir.FullName, "Ntilde.sln")))
             {
                 return dir.FullName;
             }
@@ -151,12 +151,12 @@ public class CompiledBindingTests
     [Fact]
     public void App_must_compile_bindings_by_default()
     {
-        var csproj = XDocument.Load(Path.Combine(RepoRoot(), "src", "NovaTerminal.App", "NovaTerminal.App.csproj"));
+        var csproj = XDocument.Load(Path.Combine(RepoRoot(), "src", "Ntilde.App", "Ntilde.App.csproj"));
         var value = csproj.Descendants("AvaloniaUseCompiledBindingsByDefault").Select(e => e.Value).FirstOrDefault();
 
         Assert.True(
             string.Equals(value?.Trim(), "true", StringComparison.OrdinalIgnoreCase),
-            "NovaTerminal.App.csproj must set <AvaloniaUseCompiledBindingsByDefault>true</...>. It is " +
+            "Ntilde.App.csproj must set <AvaloniaUseCompiledBindingsByDefault>true</...>. It is " +
             "the only thing that turns a forgotten x:DataType into a build error rather than a binding " +
             "that resolves by reflection, works in every dev build and test, and renders blank in the " +
             $"NativeAOT release. Found: {value ?? "(property absent)"}.");
@@ -178,7 +178,7 @@ public class CompiledBindingTests
     [Fact]
     public void App_must_fail_the_publish_on_trim_and_aot_warnings()
     {
-        var csproj = XDocument.Load(Path.Combine(RepoRoot(), "src", "NovaTerminal.App", "NovaTerminal.App.csproj"));
+        var csproj = XDocument.Load(Path.Combine(RepoRoot(), "src", "Ntilde.App", "Ntilde.App.csproj"));
         var value = csproj.Descendants("WarningsAsErrors").Select(e => e.Value).FirstOrDefault() ?? string.Empty;
 
         var promoted = value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -187,7 +187,7 @@ public class CompiledBindingTests
         {
             Assert.True(
                 promoted.Contains(code, StringComparer.OrdinalIgnoreCase),
-                $"NovaTerminal.App.csproj must promote {code} to an error via <WarningsAsErrors>. It is " +
+                $"Ntilde.App.csproj must promote {code} to an error via <WarningsAsErrors>. It is " +
                 "what makes `dotnet publish -p:PublishAot=true` refuse to produce a bundle whose " +
                 "reflection has been trimmed away - a failure that is silent in the installed app and " +
                 "invisible in every dev build and test. ILC's targets forward this property as " +

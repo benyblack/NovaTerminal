@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Xml.Linq;
 using Avalonia.Media;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Shell.ThemeImporters
+namespace Ntilde.Shell.ThemeImporters
 {
     public class ITerm2Importer : IThemeImporter
     {

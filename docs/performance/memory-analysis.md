@@ -1,4 +1,4 @@
-# NovaTerminal Memory Analysis
+# Ntilde Memory Analysis
 
 _Generated: 2026-03-05_
 

@@ -1,11 +1,11 @@
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// What the shell's line editor currently holds, as read out of the terminal grid: the V2 query.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is Command Assist's own shape for <c>NovaTerminal.VT.GridCommandLine</c>. The two records
+/// This is Command Assist's own shape for <c>Ntilde.VT.GridCommandLine</c>. The two records
 /// carry the same facts, but this assembly may not reference VT (the layering tests forbid it), so
 /// the App maps one to the other at its boundary and the grid crosses into Command Assist as plain
 /// data. The fields are deliberately the ones a consumer has to branch on, not the ones the reader
@@ -43,7 +43,7 @@ namespace NovaTerminal.CommandAssist.Application;
 /// The characters between <paramref name="CursorOffset"/> and the end of <paramref name="Text"/> are a
 /// shell's inline prediction painted past the cursor (PSReadLine's <c>InlineView</c>, fish's
 /// autosuggestion), not text the user typed. They are still present in <paramref name="Text"/> - this
-/// says what they are. See <c>NovaTerminal.VT.GridQueryReader.IsGhostSuffix</c> for the rule that sets
+/// says what they are. See <c>Ntilde.VT.GridQueryReader.IsGhostSuffix</c> for the rule that sets
 /// it and <see cref="TypedPrefix"/> for the projection that acts on it.
 /// </param>
 public readonly record struct AssistQuerySnapshot(
@@ -104,7 +104,7 @@ public readonly record struct AssistQuerySnapshot(
     /// refusing both was the only safe answer - which on pwsh with predictions on (the default) meant
     /// refusing on every prompt, i.e. accept never worked. The proof, and the argument for why the
     /// classification errs towards <see langword="false"/>, are on
-    /// <c>NovaTerminal.VT.GridQueryReader.IsGhostSuffix</c>. When the reader is not sure, the flag is
+    /// <c>Ntilde.VT.GridQueryReader.IsGhostSuffix</c>. When the reader is not sure, the flag is
     /// clear and this refuses exactly as it always did.
     /// </para>
     /// </remarks>

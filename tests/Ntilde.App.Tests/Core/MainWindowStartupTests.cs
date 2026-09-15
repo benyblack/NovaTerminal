@@ -1,21 +1,21 @@
 using System;
-using NovaTerminal.Shell;
-using NovaTerminal.Pty;
+using Ntilde.Shell;
+using Ntilde.Pty;
 using Avalonia.Headless.XUnit;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
-using NovaTerminal.Controls;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Shell.Shortcuts;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Controls;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Shell.Shortcuts;
+using Ntilde.Shell.TitleBar;
 using System.Reflection;
 
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <remarks>
 /// The <see cref="TestAppDataRoot"/> class fixture is taken for its lifetime, not its value,
@@ -55,20 +55,20 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     public void MainWindow_IgnoresOnDiskSettings_UsesBundleDefaults()
     {
         string tempRoot = System.IO.Path.Combine(
-            System.IO.Path.GetTempPath(), $"novaterm_settings_bleed_guard_{System.Guid.NewGuid():N}");
-        string? previousRoot = System.Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+            System.IO.Path.GetTempPath(), $"ntilde_settings_bleed_guard_{System.Guid.NewGuid():N}");
+        string? previousRoot = System.Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
         System.IO.Directory.CreateDirectory(tempRoot);
 
         try
         {
-            System.Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+            System.Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", tempRoot);
             System.IO.File.WriteAllText(
                 System.IO.Path.Combine(tempRoot, "settings.json"),
                 """{"TabStripOrientation":"Vertical","FontSize":99}""");
 
             var window = TestMainWindowFactory.Create();
 
-            var settings = (TerminalSettings)typeof(NovaTerminal.MainWindow)
+            var settings = (TerminalSettings)typeof(Ntilde.MainWindow)
                 .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .GetValue(window)!;
 
@@ -77,7 +77,7 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         }
         finally
         {
-            System.Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
+            System.Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previousRoot);
             try { System.IO.Directory.Delete(tempRoot, recursive: true); } catch { /* best effort */ }
         }
     }
@@ -86,7 +86,7 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     public void MainWindow_LoadsWindowIconOnlyAfterDeferredHookRuns()
     {
         var window = TestMainWindowFactory.Create();
-        var ensureWindowIconLoadedMethod = typeof(NovaTerminal.MainWindow).GetMethod("EnsureWindowIconLoaded", BindingFlags.Instance | BindingFlags.NonPublic);
+        var ensureWindowIconLoadedMethod = typeof(Ntilde.MainWindow).GetMethod("EnsureWindowIconLoaded", BindingFlags.Instance | BindingFlags.NonPublic);
 
         Assert.NotNull(ensureWindowIconLoadedMethod);
         Assert.Null(window.Icon);
@@ -126,10 +126,10 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         // capture below would be asserting on nothing.
         Assert.Equal(2, tabs.Items.Count);
         var placeholder = (TabItem)tabs.Items[1]!;
-        Assert.IsNotType<NovaTerminal.Controls.TerminalPane>(placeholder.Content);
+        Assert.IsNotType<Ntilde.Controls.TerminalPane>(placeholder.Content);
         Assert.IsNotType<Grid>(placeholder.Content);
 
-        NovaSession captured = SessionManager.CaptureSession(window, tabs);
+        NtildeSession captured = SessionManager.CaptureSession(window, tabs);
 
         Assert.Equal(2, captured.Tabs.Count);
         TabSession capturedPlaceholder = captured.Tabs[1];
@@ -153,9 +153,9 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         var window = TestMainWindowFactory.Create();
         var tabs = window.FindControl<TabControl>("Tabs")!;
         var live = (TabItem)tabs.Items[0]!;
-        var pane = Assert.IsType<NovaTerminal.Controls.TerminalPane>(live.Content);
+        var pane = Assert.IsType<Ntilde.Controls.TerminalPane>(live.Content);
 
-        NovaSession captured = SessionManager.CaptureSession(window, tabs);
+        NtildeSession captured = SessionManager.CaptureSession(window, tabs);
 
         // The live pane's own id, which restore assigned from the file - so this also pins that the
         // capture read the control rather than the Tag.
@@ -185,17 +185,17 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         var window = TestMainWindowFactory.Create();
         var tabs = window.FindControl<TabControl>("Tabs")!;
         var placeholder = (TabItem)tabs.Items[1]!;
-        Assert.IsNotType<NovaTerminal.Controls.TerminalPane>(placeholder.Content);
+        Assert.IsNotType<Ntilde.Controls.TerminalPane>(placeholder.Content);
         Assert.False(window.IsBroadcastEnabledForTab(placeholder));
 
         // The user's toggle, through the same set ToggleBroadcastForCurrentTab drives.
-        var broadcastTabs = (System.Collections.Generic.HashSet<TabItem>)typeof(NovaTerminal.MainWindow)
+        var broadcastTabs = (System.Collections.Generic.HashSet<TabItem>)typeof(Ntilde.MainWindow)
             .GetField("_broadcastEnabledTabs", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(window)!;
         broadcastTabs.Add(placeholder);
         Assert.True(window.IsBroadcastEnabledForTab(placeholder));
 
-        NovaSession captured = SessionManager.CaptureSession(window, tabs);
+        NtildeSession captured = SessionManager.CaptureSession(window, tabs);
 
         Assert.True(captured.Tabs[1].BroadcastInputEnabled);
         // ...and the panes are still carried through, so this is not passing by skipping the fallback.
@@ -227,9 +227,9 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     /// materializer that does nothing leaves the queued callback inert - and builds no pane and no
     /// shell at all, which is strictly less to reap than hydrating would have been.
     /// </remarks>
-    private static void DrainDeferredRestorePlan(NovaTerminal.MainWindow window)
+    private static void DrainDeferredRestorePlan(Ntilde.MainWindow window)
     {
-        var startup = (StartupOrchestrator)typeof(NovaTerminal.MainWindow)
+        var startup = (StartupOrchestrator)typeof(Ntilde.MainWindow)
             .GetField("_startup", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(window)!;
 
@@ -250,7 +250,7 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     private static void WriteSavedSession(string appDataRoot, string secondTabPaneId)
     {
         string shell = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh";
-        var session = new NovaSession
+        var session = new NtildeSession
         {
             ActiveTabIndex = 0,
             Tabs =
@@ -265,7 +265,7 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         System.IO.File.WriteAllText(
             System.IO.Path.Combine(sessionsDirectory, "last_session.json"),
             System.Text.Json.JsonSerializer.Serialize(
-                session, SessionSerializationContext.Default.NovaSession));
+                session, SessionSerializationContext.Default.NtildeSession));
     }
 
     private static TabSession NewTab(string title, string paneId, string shell) => new()
@@ -286,9 +286,9 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     public void RegisterPaneOwners_TraversesDecoratorWrappedPane()
     {
         var window = TestMainWindowFactory.Create();
-        var registerPaneOwnersMethod = typeof(NovaTerminal.MainWindow).GetMethod("RegisterPaneOwners", BindingFlags.Instance | BindingFlags.NonPublic);
-        var paneOwnerField = typeof(NovaTerminal.MainWindow).GetField("_paneOwnerTab", BindingFlags.Instance | BindingFlags.NonPublic);
-        var pane = new NovaTerminal.Controls.TerminalPane();
+        var registerPaneOwnersMethod = typeof(Ntilde.MainWindow).GetMethod("RegisterPaneOwners", BindingFlags.Instance | BindingFlags.NonPublic);
+        var paneOwnerField = typeof(Ntilde.MainWindow).GetField("_paneOwnerTab", BindingFlags.Instance | BindingFlags.NonPublic);
+        var pane = new Ntilde.Controls.TerminalPane();
         var tab = new TabItem { Content = new Border { Child = pane } };
 
         try
@@ -314,7 +314,7 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     {
         CommandRegistry.Clear();
         var window = TestMainWindowFactory.Create();
-        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
+        var toggleMethod = typeof(Ntilde.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
 
         Assert.Null(window.FindControl<Button>("SettingsBtn"));
         Assert.Null(window.FindControl<Button>("BtnOpenRec"));
@@ -334,7 +334,7 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     {
         CommandRegistry.Clear();
         var window = TestMainWindowFactory.Create();
-        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
+        var toggleMethod = typeof(Ntilde.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
 
         toggleMethod!.Invoke(window, null);
 
@@ -347,7 +347,7 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     {
         CommandRegistry.Clear();
         var window = TestMainWindowFactory.Create();
-        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
+        var toggleMethod = typeof(Ntilde.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
 
         toggleMethod!.Invoke(window, null);
 
@@ -359,8 +359,8 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     {
         CommandRegistry.Clear();
         var window = TestMainWindowFactory.Create();
-        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
-        var usageField = typeof(NovaTerminal.MainWindow).GetField("_commandPaletteUsage", BindingFlags.Instance | BindingFlags.NonPublic);
+        var toggleMethod = typeof(Ntilde.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
+        var usageField = typeof(Ntilde.MainWindow).GetField("_commandPaletteUsage", BindingFlags.Instance | BindingFlags.NonPublic);
 
         Assert.NotNull(usageField);
 
@@ -383,8 +383,8 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     public async Task MainWindow_CustomCommandAssistHelpShortcut_UsesConfiguredBinding()
     {
         var window = TestMainWindowFactory.Create();
-        var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
-        var currentPaneField = typeof(NovaTerminal.MainWindow).GetField("_currentPaneValue", BindingFlags.Instance | BindingFlags.NonPublic);
+        var settingsField = typeof(Ntilde.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var currentPaneField = typeof(Ntilde.MainWindow).GetField("_currentPaneValue", BindingFlags.Instance | BindingFlags.NonPublic);
 
         Assert.NotNull(settingsField);
         Assert.NotNull(currentPaneField);
@@ -444,8 +444,8 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     public async Task ExecuteCommand_DefersActionUntilAfterPaletteCloses()
     {
         var window = TestMainWindowFactory.Create();
-        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
-        var executeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ExecuteCommand", BindingFlags.Instance | BindingFlags.NonPublic);
+        var toggleMethod = typeof(Ntilde.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
+        var executeMethod = typeof(Ntilde.MainWindow).GetMethod("ExecuteCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
         toggleMethod!.Invoke(window, null);
         var overlay = window.FindControl<Grid>("CommandPaletteOverlay");
@@ -481,8 +481,8 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     {
         CommandRegistry.Clear();
         var window = new RecordingCommandProbeWindow();
-        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
-        var executeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ExecuteCommand", BindingFlags.Instance | BindingFlags.NonPublic);
+        var toggleMethod = typeof(Ntilde.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
+        var executeMethod = typeof(Ntilde.MainWindow).GetMethod("ExecuteCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
         toggleMethod!.Invoke(window, null);
         var command = CommandRegistry.GetCommands().Single(c => c.Title == "Open Recording...");
@@ -494,9 +494,9 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     }
 
     [Theory]
-    [InlineData(true, @"C:\Users\behna\AppData\Local\NovaTerminal\recordings\nova.rec", @"C:\Users\behna\AppData\Local\NovaTerminal\recordings", "explorer.exe", "/select,")]
-    [InlineData(true, null, @"C:\Users\behna\AppData\Local\NovaTerminal\recordings", @"C:\Users\behna\AppData\Local\NovaTerminal\recordings", "")]
-    [InlineData(false, "/tmp/nova/recordings/nova.rec", "/tmp/nova/recordings", "/tmp/nova/recordings", "")]
+    [InlineData(true, @"C:\Users\behna\AppData\Local\Ntilde\recordings\ntilde.rec", @"C:\Users\behna\AppData\Local\Ntilde\recordings", "explorer.exe", "/select,")]
+    [InlineData(true, null, @"C:\Users\behna\AppData\Local\Ntilde\recordings", @"C:\Users\behna\AppData\Local\Ntilde\recordings", "")]
+    [InlineData(false, "/tmp/ntilde/recordings/ntilde.rec", "/tmp/ntilde/recordings", "/tmp/ntilde/recordings", "")]
     public void ResolveRecordingRevealRequest_PrefersExactFileOnWindows(
         bool isWindows,
         string? filePath,
@@ -504,7 +504,7 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         string expectedFileName,
         string expectedArgumentsPrefix)
     {
-        var request = NovaTerminal.MainWindow.ResolveRecordingRevealRequest(filePath, recordingsDirectory, isWindows);
+        var request = Ntilde.MainWindow.ResolveRecordingRevealRequest(filePath, recordingsDirectory, isWindows);
 
         Assert.Equal(expectedFileName, request.FileName);
         if (string.IsNullOrEmpty(expectedArgumentsPrefix))
@@ -514,7 +514,7 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         else
         {
             Assert.StartsWith(expectedArgumentsPrefix, request.Arguments, StringComparison.Ordinal);
-            Assert.Contains("nova.rec", request.Arguments, StringComparison.Ordinal);
+            Assert.Contains("ntilde.rec", request.Arguments, StringComparison.Ordinal);
         }
     }
 
@@ -522,8 +522,8 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     public void ApplyThemeToUi_LightTheme_UpdatesTabListForeground()
     {
         var window = TestMainWindowFactory.Create();
-        var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
-        var applyThemeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
+        var settingsField = typeof(Ntilde.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var applyThemeMethod = typeof(Ntilde.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
         var settings = (TerminalSettings)settingsField!.GetValue(window)!;
 
         settings.ThemeName = "Test Light";
@@ -557,9 +557,9 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     public void ApplyThemeToUi_LightTheme_UpdatesIdleRecordForeground_WhenPinned()
     {
         var window = TestMainWindowFactory.Create();
-        var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
-        var applyThemeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
-        var rebuildTitleBarMethod = typeof(NovaTerminal.MainWindow).GetMethod("RebuildTitleBar", BindingFlags.Instance | BindingFlags.NonPublic);
+        var settingsField = typeof(Ntilde.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var applyThemeMethod = typeof(Ntilde.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
+        var rebuildTitleBarMethod = typeof(Ntilde.MainWindow).GetMethod("RebuildTitleBar", BindingFlags.Instance | BindingFlags.NonPublic);
         var settings = (TerminalSettings)settingsField!.GetValue(window)!;
 
         settings.TitleBarItems["toggle_recording"] = "Pinned";
@@ -598,7 +598,7 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     /// production-code impact this uncovered (ApplyThemeToUI's and UpdateRecordButtonUi's own
     /// internal FindControl calls silently no-op the same way).
     /// </summary>
-    private static Button? FindTitleBarButton(NovaTerminal.MainWindow window, string id)
+    private static Button? FindTitleBarButton(Ntilde.MainWindow window, string id)
     {
         var host = window.FindControl<StackPanel>("TitleBarItemsHost");
         return host?.Children.OfType<Button>().SingleOrDefault(b => b.Name == TitleBarViewFactory.ButtonName(id));
@@ -608,9 +608,9 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     public void ApplyThemeToUi_LightTheme_UpdatesCommandPaletteSearchForeground()
     {
         var window = TestMainWindowFactory.Create();
-        var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
-        var applyThemeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
-        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
+        var settingsField = typeof(Ntilde.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var applyThemeMethod = typeof(Ntilde.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
+        var toggleMethod = typeof(Ntilde.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
         var settings = (TerminalSettings)settingsField!.GetValue(window)!;
 
         settings.ThemeName = "Test Light";
@@ -634,8 +634,8 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     public void ApplySplitterVisualState_LightTheme_StrengthensLineOnHoverAndDrag()
     {
         var window = TestMainWindowFactory.Create();
-        var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
-        var applySplitterVisualStateMethod = typeof(NovaTerminal.MainWindow).GetMethod("ApplySplitterVisualState", BindingFlags.Instance | BindingFlags.NonPublic);
+        var settingsField = typeof(Ntilde.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var applySplitterVisualStateMethod = typeof(Ntilde.MainWindow).GetMethod("ApplySplitterVisualState", BindingFlags.Instance | BindingFlags.NonPublic);
         var settings = (TerminalSettings)settingsField!.GetValue(window)!;
 
         settings.ThemeName = "Test Light";
@@ -779,14 +779,14 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
         Tag = session
     };
 
-    private static void HydrateDeferred(NovaTerminal.MainWindow window, TabControl tabs, StartupRestoreTab deferredTab)
+    private static void HydrateDeferred(Ntilde.MainWindow window, TabControl tabs, StartupRestoreTab deferredTab)
     {
-        typeof(NovaTerminal.MainWindow)
+        typeof(Ntilde.MainWindow)
             .GetMethod("HydrateDeferredStartupTab", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(window, [tabs, deferredTab]);
     }
 
-    private sealed class RecordingCommandProbeWindow : NovaTerminal.MainWindow
+    private sealed class RecordingCommandProbeWindow : Ntilde.MainWindow
     {
         public bool WasOpenRecordingInvoked { get; private set; }
 

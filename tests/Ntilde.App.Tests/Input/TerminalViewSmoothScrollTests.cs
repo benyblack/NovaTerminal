@@ -1,11 +1,11 @@
 using Avalonia.Headless.XUnit;
 using Moq;
-using NovaTerminal.Pty;
-using NovaTerminal.Shell;
-using NovaTerminal.VT;
+using Ntilde.Pty;
+using Ntilde.Shell;
+using Ntilde.VT;
 using Xunit;
 
-namespace NovaTerminal.Tests.Input
+namespace Ntilde.Tests.Input
 {
     /// <summary>
     /// Smooth wheel scrolling eases the viewport toward a target over several frames. The

@@ -1,11 +1,11 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using Xunit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 using Avalonia.Media;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class SurrogateTests
     {

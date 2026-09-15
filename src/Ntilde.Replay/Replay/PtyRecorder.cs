@@ -7,9 +7,9 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Replay
+namespace Ntilde.Replay
 {
     public class PtyRecorder : IDisposable
     {
@@ -27,7 +27,7 @@ namespace NovaTerminal.Replay
 
             _header = new ReplayHeader
             {
-                Type = "novarec",
+                Type = "ntilderec",
                 Cols = cols,
                 Rows = rows,
                 Shell = shell
@@ -260,7 +260,7 @@ namespace NovaTerminal.Replay
                 _queue.CompleteAdding();
             }
 
-            int flushMs = ReadEnvInt("NOVATERM_RECORDER_FLUSH_MS", 10000);
+            int flushMs = ReadEnvInt("NTILDE_RECORDER_FLUSH_MS", 10000);
             try
             {
                 if (!_writeTask.Wait(flushMs))

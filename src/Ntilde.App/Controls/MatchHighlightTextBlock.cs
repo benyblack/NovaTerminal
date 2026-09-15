@@ -3,7 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
 
-namespace NovaTerminal.Controls
+namespace Ntilde.Controls
 {
     /// <summary>
     /// A single-line <see cref="TextBlock"/> that paints one run of its text in a second brush.

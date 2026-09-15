@@ -1,7 +1,7 @@
 using BenchmarkDotNet.Attributes;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Benchmarks
+namespace Ntilde.Benchmarks
 {
     [MemoryDiagnoser]
     public class ReflowBenchmarks

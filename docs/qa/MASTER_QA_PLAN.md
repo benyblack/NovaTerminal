@@ -1,6 +1,6 @@
-# Nova Terminal: Master QA Index
+# Ntilde: Master QA Index
 
-This document is the central hub for all testing activities. It links to specialized documentation for each major component of Nova Terminal.
+This document is the central hub for all testing activities. It links to specialized documentation for each major component of Ntilde.
 
 ## 1. Component Testing
 - [Core VT/ANSI Correctness](file:///d:/projects/nova2/docs/qa/QA_CORE.md) `[Automated]`
@@ -25,7 +25,7 @@ This document is the central hub for all testing activities. It links to special
 ---
 
 ## 3. Exit Criteria
-Nova Terminal is considered "Production Grade" when:
+Ntilde is considered "Production Grade" when:
 - 0 Flicker during standard operations.
 - 0 Buffer corruption in all tested TUI applications.
 - Behavioral identity across Windows and Linux versions.

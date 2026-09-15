@@ -1,16 +1,16 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Platform.Ssh.Launch;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.OpenSsh;
-using NovaTerminal.Platform.Ssh.Storage;
-using NovaTerminal.ViewModels.Ssh;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.OpenSsh;
+using Ntilde.Platform.Ssh.Storage;
+using Ntilde.ViewModels.Ssh;
 
-namespace NovaTerminal.Services.Ssh;
+namespace Ntilde.Services.Ssh;
 
 public sealed class SshLaunchDetails
 {

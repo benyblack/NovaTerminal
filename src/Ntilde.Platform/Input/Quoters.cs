@@ -1,4 +1,4 @@
-namespace NovaTerminal.Platform
+namespace Ntilde.Platform
 {
     public class PwshQuoter : IShellQuoter
     {

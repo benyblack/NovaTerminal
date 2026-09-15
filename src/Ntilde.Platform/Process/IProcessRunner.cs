@@ -3,7 +3,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Platform.Execution
+namespace Ntilde.Platform.Execution
 {
     public interface IProcessRunner
     {

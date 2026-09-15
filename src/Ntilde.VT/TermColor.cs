@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     /// <summary>
     /// Platform-independent color representation using RGBA components.

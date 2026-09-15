@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 /// <summary>
 /// The grid-truth query reader: the text between the last <c>OSC 133;B</c> mark and the cursor.
@@ -424,7 +424,7 @@ public class GridQueryReaderTests
     {
         var s = new Session();
         s.Prompt().Write("stale text");
-        s.Write("\r\x1b[K").Prompt("nova> ").Write("ls -la");
+        s.Write("\r\x1b[K").Prompt("ntilde> ").Write("ls -la");
 
         Assert.Equal(2, s.Marks.Count);
         Assert.Equal("ls -la", s.Read().Text);
@@ -584,7 +584,7 @@ public class GridQueryReaderTests
         // a resize repaints the *input line* and does not re-run the prompt function, so no
         // fresh B arrives and the session stays markless for the rest of that command line. The
         // fix is to re-anchor the buffer's own copy inside the reflow rather than to relax
-        // anything here; see NovaTerminal.VT.Tests.ShellMarkReflowTests.
+        // anything here; see Ntilde.VT.Tests.ShellMarkReflowTests.
         var s = new Session(cols: 40, rows: 6).Prompt().Write("git status");
 
         s.Buffer.Resize(24, 6);

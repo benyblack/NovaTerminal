@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.AgentOutput.Fences;
+namespace Ntilde.AgentOutput.Fences;
 
 /// <summary>Maps a fence info string to a body handler, or to null for "leave it alone".</summary>
 /// <remarks>

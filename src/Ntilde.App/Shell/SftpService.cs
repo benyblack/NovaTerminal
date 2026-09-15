@@ -10,11 +10,11 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
-using NovaTerminal.Platform.Ssh.Launch;
-using NovaTerminal.Platform.Ssh.Native;
-using NovaTerminal.Services.Ssh;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Platform.Ssh.Native;
+using Ntilde.Services.Ssh;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public enum TransferDirection
     {
@@ -421,7 +421,7 @@ namespace NovaTerminal.Shell
         {
             ArgumentNullException.ThrowIfNull(profile);
 
-            return profile.SshBackendKind == NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native
+            return profile.SshBackendKind == Ntilde.Platform.Ssh.Models.SshBackendKind.Native
                 ? SftpTransferBackend.NativeSftp
                 : SftpTransferBackend.ExternalScp;
         }
@@ -640,7 +640,7 @@ namespace NovaTerminal.Shell
                 UseAgent = baseOptions.UseAgent,
                 KnownHostsFilePath = effectiveKnownHostsPath,
                 JumpHops = baseOptions.JumpHops
-                    .Select(hop => new NovaTerminal.Platform.Ssh.Models.SshJumpHop
+                    .Select(hop => new Ntilde.Platform.Ssh.Models.SshJumpHop
                     {
                         Host = hop.Host,
                         User = hop.User,

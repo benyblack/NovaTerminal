@@ -1,9 +1,9 @@
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Controls;
-using NovaTerminal.Shell;
-using NovaTerminal.Tests.Infra;
+using Ntilde.Controls;
+using Ntilde.Shell;
+using Ntilde.Tests.Infra;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// #311: a local pane whose shell died must say so, and must say how to get it back — Enter

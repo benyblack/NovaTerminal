@@ -2,7 +2,7 @@
 
 ## Required
 1. **Index build test**
-   - Index built from `.novarec` produces monotonically increasing (t_us, offset) pairs.
+   - Index built from `.ntilderec` produces monotonically increasing (t_us, offset) pairs.
 
 2. **Seek determinism tests**
    - Given a baseline recording, seek to:

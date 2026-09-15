@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
-using NovaTerminal.AgentHost;
-using NovaTerminal.AgentHost.Contracts;
+using Ntilde.AgentHost;
+using Ntilde.AgentHost.Contracts;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// Tests for the A3 act surface — <c>sendInput</c> gating and journaling
@@ -21,7 +21,7 @@ public class AgentHostActProtocolTests
         AgentSessionRegistry registry, string kind, InputStubSession session, Guid? profileId = null)
     {
         var reg = new AgentSessionRegistration(
-            Guid.NewGuid(), new NovaTerminal.VT.TerminalBuffer(80, 24),
+            Guid.NewGuid(), new Ntilde.VT.TerminalBuffer(80, 24),
             "title", "Profile", kind, isActive: true, profileId: profileId);
         reg.SetLifecycle(session);
         registry.Register(reg);

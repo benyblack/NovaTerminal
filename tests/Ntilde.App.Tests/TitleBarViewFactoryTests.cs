@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Shell.TitleBar;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class TitleBarViewFactoryTests
     {

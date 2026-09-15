@@ -1,9 +1,9 @@
 using Avalonia;
 using Avalonia.Headless;
-using NovaTerminal;
+using Ntilde;
 
 // Global configuration for Avalonia Headless testing
-[assembly: AvaloniaTestApplication(typeof(NovaTerminal.Tests.TestAppBuilder))]
+[assembly: AvaloniaTestApplication(typeof(Ntilde.Tests.TestAppBuilder))]
 
 // Deliberately NOT AvaloniaTestIsolationLevel.PerAssembly, tempting though it looks: it would
 // give one application, set up once on the session's dispatch thread and never torn down, which
@@ -14,7 +14,7 @@ using NovaTerminal;
 // resets the dispatcher around every [AvaloniaFact], which is what lets those tests be their own
 // UI thread and run the marshalled work inline.
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class TestAppBuilder
     {

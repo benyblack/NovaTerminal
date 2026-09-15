@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics;
 
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// Works out what the terminal must be sent to turn what is already on the command line into the

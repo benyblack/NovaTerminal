@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using NovaTerminal.Pty;
+using Ntilde.Pty;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     /// <summary>
     /// #120 item 3: a failed spawn used to throw a bare "Failed to create Rust PTY session." — the
@@ -16,7 +16,7 @@ namespace NovaTerminal.Tests
     [Collection(PtyRealShellCollection.Name)]
     public class PtySpawnFailureTests
     {
-        private const string MissingShell = "novaterminal-no-such-shell-3d81ac.exe";
+        private const string MissingShell = "ntilde-no-such-shell-3d81ac.exe";
 
         [Fact]
         public void Spawning_a_missing_shell_reports_the_command_in_the_exception()

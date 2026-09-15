@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace NovaTerminal.Shell.Secrets
+namespace Ntilde.Shell.Secrets
 {
     /// <summary>
     /// Process-local secret store for tests. Not used in production.

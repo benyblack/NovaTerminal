@@ -1,6 +1,6 @@
-using NovaTerminal.Platform.Input;
+using Ntilde.Platform.Input;
 
-namespace NovaTerminal.Platform.Tests.Input;
+namespace Ntilde.Platform.Tests.Input;
 
 public sealed class ClipboardImageTests
 {
@@ -11,7 +11,7 @@ public sealed class ClipboardImageTests
 
         Assert.StartsWith(System.IO.Path.GetTempPath(), path);
         Assert.EndsWith(".png", path);
-        Assert.Contains("nova-clip-", path);
+        Assert.Contains("ntilde-clip-", path);
     }
 
     [Fact]
@@ -48,9 +48,9 @@ public sealed class ClipboardImageTests
     public void ToWslMountPath_WindowsDrivePath_MapsToMntWithLowercaseDrive()
     {
         string bs = ((char)92).ToString(); // backslash, avoiding escaping in the literal
-        string windows = "C:" + bs + "Users" + bs + "me" + bs + "nova-clip-x.png";
+        string windows = "C:" + bs + "Users" + bs + "me" + bs + "ntilde-clip-x.png";
 
-        Assert.Equal("/mnt/c/Users/me/nova-clip-x.png", ClipboardImage.ToWslMountPath(windows));
+        Assert.Equal("/mnt/c/Users/me/ntilde-clip-x.png", ClipboardImage.ToWslMountPath(windows));
     }
 
     [Fact]

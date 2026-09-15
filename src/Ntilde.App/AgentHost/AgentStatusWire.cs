@@ -1,7 +1,7 @@
 using System;
-using NovaTerminal.AgentHost.Contracts;
+using Ntilde.AgentHost.Contracts;
 
-namespace NovaTerminal.AgentHost
+namespace Ntilde.AgentHost
 {
     /// <summary>
     /// Maps the app-internal status types onto the wire strings defined in

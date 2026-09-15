@@ -7,7 +7,7 @@ using Velopack;
 using Velopack.Locators;
 using Velopack.Sources;
 
-namespace NovaTerminal.Update
+namespace Ntilde.Update
 {
     /// <summary>
     /// <see cref="IUpdateService"/> over Velopack, reading releases straight off this repo's
@@ -27,7 +27,7 @@ namespace NovaTerminal.Update
         // the analyzer while making the code worse, so suppress it here with the reason attached.
         [SuppressMessage("Minor Code Smell", "S1075:URIs should not be hardcoded",
             Justification = "The update feed's origin is a trust anchor and must not be configurable.")]
-        public const string DefaultRepoUrl = "https://github.com/benyblack/NovaTerminal";
+        public const string DefaultRepoUrl = "https://github.com/benyblack/ntilde";
 
         private readonly Action<string> _log;
         private readonly UpdateManager _manager;

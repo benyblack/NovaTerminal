@@ -1,9 +1,9 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using System.Linq;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.VT;
 
-namespace NovaTerminal.Tests;
+namespace Ntilde.Tests;
 
 public sealed class TabSystemTests
 {

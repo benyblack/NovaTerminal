@@ -1,7 +1,7 @@
 using System;
 using Avalonia.Controls;
 
-namespace NovaTerminal.AgentOutput.Fences;
+namespace Ntilde.AgentOutput.Fences;
 
 /// <summary>Renders a nested markdown document at the given depth.</summary>
 internal delegate Control NestedMarkdownRenderer(string markdown, int depth);

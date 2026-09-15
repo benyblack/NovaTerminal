@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.AgentHost;
+using Ntilde.AgentHost;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// Deterministic tests for the A2 status state machine
@@ -93,7 +93,7 @@ public class AgentSessionStatusMachineTests
     {
         // No session yet → the probe answers "unknown", never a hard false.
         var registration = new AgentSessionRegistration(
-            Guid.NewGuid(), new NovaTerminal.VT.TerminalBuffer(80, 24), "t", "p", "local", isActive: false);
+            Guid.NewGuid(), new Ntilde.VT.TerminalBuffer(80, 24), "t", "p", "local", isActive: false);
         Assert.Null(registration.ProbeHasActiveChildProcesses());
     }
 
@@ -257,7 +257,7 @@ public class AgentSessionStatusMachineTests
     public void Registration_exposes_a_status_machine()
     {
         var registration = new AgentSessionRegistration(
-            Guid.NewGuid(), new NovaTerminal.VT.TerminalBuffer(80, 24), "t", "p", "local", isActive: false);
+            Guid.NewGuid(), new Ntilde.VT.TerminalBuffer(80, 24), "t", "p", "local", isActive: false);
         Assert.NotNull(registration.StatusMachine);
         Assert.Equal(AgentSessionStatusKind.AwaitingInput, registration.StatusMachine.Snapshot().Kind);
     }

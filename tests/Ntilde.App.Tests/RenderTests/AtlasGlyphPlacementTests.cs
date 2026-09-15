@@ -1,16 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Platform;
-using NovaTerminal.Rendering;
-using NovaTerminal.Tests.Infra;
-using NovaTerminal.VT;
+using Ntilde.Platform;
+using Ntilde.Rendering;
+using Ntilde.Tests.Infra;
+using Ntilde.VT;
 using SkiaSharp;
 using Xunit;
 
-namespace NovaTerminal.Tests.RenderTests
+namespace Ntilde.Tests.RenderTests
 {
     /// <summary>
     /// #172 item 2, end to end: the glyph atlas is a cache, so a frame drawn through it must look like

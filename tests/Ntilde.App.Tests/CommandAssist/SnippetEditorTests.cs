@@ -1,8 +1,8 @@
-using NovaTerminal.CommandAssist.Application;
-using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.CommandAssist.Storage;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.Storage;
 
-namespace NovaTerminal.Tests.CommandAssist;
+namespace Ntilde.Tests.CommandAssist;
 
 /// <summary>
 /// The rules behind the Settings snippet manager (V2 Phase 4b, Phase 4 task 4).
@@ -22,7 +22,7 @@ public sealed class SnippetEditorTests : IDisposable
 
     public SnippetEditorTests()
     {
-        _directory = Path.Combine(Path.GetTempPath(), "nova_snippet_editor_tests_" + Guid.NewGuid().ToString("N"));
+        _directory = Path.Combine(Path.GetTempPath(), "ntilde_snippet_editor_tests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_directory);
         _store = new JsonSnippetStore(Path.Combine(_directory, "snippets.json"));
     }

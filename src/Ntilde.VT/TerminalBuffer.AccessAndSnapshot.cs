@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using NovaTerminal.VT;
-using NovaTerminal.VT.Storage;
+using Ntilde.VT;
+using Ntilde.VT.Storage;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     public partial class TerminalBuffer
     {

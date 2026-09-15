@@ -1,13 +1,13 @@
 using System;
 using System.Text;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.VT.Tests;
+namespace Ntilde.VT.Tests;
 
 // Deterministic, seeded counterpart to the SharpFuzz harness (#124). The nightly fuzzer explores
 // inputs continuously; these tests pin a handful of seeds so the same parse + resize robustness
 // guarantee (never throw, buffer invariants always hold) is checked on every commit. They mirror
-// the logic in NovaTerminal.Benchmarks/FuzzTarget.cs but stay self-contained (no SharpFuzz dep).
+// the logic in Ntilde.Benchmarks/FuzzTarget.cs but stay self-contained (no SharpFuzz dep).
 public class FuzzSmokeTests
 {
     [Theory]

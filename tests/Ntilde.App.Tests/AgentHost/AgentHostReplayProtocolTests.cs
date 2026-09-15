@@ -3,12 +3,12 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
-using NovaTerminal.AgentHost;
-using NovaTerminal.AgentHost.Contracts;
-using NovaTerminal.Replay;
-using NovaTerminal.VT;
+using Ntilde.AgentHost;
+using Ntilde.AgentHost.Contracts;
+using Ntilde.Replay;
+using Ntilde.VT;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// Tests for the A4 <c>exportReplay</c> protocol surface and its flight-recorder
@@ -61,7 +61,7 @@ public class AgentHostReplayProtocolTests : IDisposable
 
     // ── Stub session with a real ring ────────────────────────────────────────
 
-    private sealed class FlightStubSession : NovaTerminal.Pty.ITerminalSession
+    private sealed class FlightStubSession : Ntilde.Pty.ITerminalSession
     {
         private FlightRecordingBuffer? _ring;
 
@@ -252,13 +252,13 @@ public class AgentHostReplayProtocolTests : IDisposable
         Assert.False(result.TruncatedAtStart);
         Assert.True(File.Exists(result.FilePath));
         Assert.StartsWith(Path.GetFullPath(_exportDir), Path.GetFullPath(result.FilePath), StringComparison.Ordinal);
-        Assert.StartsWith("nova_rec_", Path.GetFileName(result.FilePath), StringComparison.Ordinal);
+        Assert.StartsWith("ntilde_rec_", Path.GetFileName(result.FilePath), StringComparison.Ordinal);
         Assert.EndsWith(".rec", result.FilePath, StringComparison.Ordinal);
 
         string[] lines = File.ReadAllLines(result.FilePath).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
         var header = JsonSerializer.Deserialize(lines[0], ReplayJsonContext.Default.ReplayHeader);
         Assert.NotNull(header);
-        Assert.Equal("novarec", header!.Type);
+        Assert.Equal("ntilderec", header!.Type);
         Assert.Equal(2, header.Version);
 
         // Privacy invariant: output + resize only, never input.

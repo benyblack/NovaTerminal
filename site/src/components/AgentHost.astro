@@ -1,5 +1,5 @@
 ---
-const repoUrl = 'https://github.com/benyblack/NovaTerminal';
+const repoUrl = 'https://github.com/benyblack/ntilde';
 
 const tiers = [
   {
@@ -61,7 +61,7 @@ const tiers = [
       <p class="lede mt-4 max-w-2xl">
         A local, stdio
         <a href="https://modelcontextprotocol.io" rel="noopener">Model Context Protocol</a>
-        server (<code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">NovaTerminal.McpServer</code>) exposes NovaTerminal to Claude Code, Claude Desktop, VS Code, and other MCP clients. The default surface is read-only; everything
+        server (<code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-ntilde-200">Ntilde.McpServer</code>) exposes Ntilde to Claude Code, Claude Desktop, VS Code, and other MCP clients. The default surface is read-only; everything
         that touches a live session is opt-in, layered, and journaled.
       </p>
     </div>
@@ -99,7 +99,7 @@ const tiers = [
               {tier.capabilities.map((cap) => (
                 <li class="flex items-start gap-2 text-ink-200">
                   <span
-                    class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-nova-400"
+                    class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-ntilde-400"
                     aria-hidden="true"
                   />
                   <span class="font-mono text-xs">{cap}</span>
@@ -120,18 +120,18 @@ const tiers = [
         </h3>
         <p class="mt-2 text-sm leading-relaxed text-ink-300">
           Build the server first, then point your MCP client at the compiled
-          DLL — never <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">dotnet run</code>, which corrupts the stdio stream.
+          DLL — never <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-ntilde-200">dotnet run</code>, which corrupts the stdio stream.
         </p>
         <pre class="code-block mt-4"><code><span class="text-ink-500"># Build</span>
-scripts/build.ps1 build -c Release src/NovaTerminal.McpServer
+scripts/build.ps1 build -c Release src/Ntilde.McpServer
 
 <span class="text-ink-500"># Register with Claude Code</span>
-claude mcp add novaterminal -- \
-  dotnet "&lt;path-to-repo&gt;/src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll"</code></pre>
+claude mcp add ntilde -- \
+  dotnet "&lt;path-to-repo&gt;/src/Ntilde.McpServer/bin/Release/net10.0/Ntilde.McpServer.dll"</code></pre>
         <p class="mt-3 text-xs text-ink-500">
           For Claude Desktop or VS Code, add the same
-          <code class="text-nova-300">command</code>/<code
-            class="text-nova-300">args</code
+          <code class="text-ntilde-300">command</code>/<code
+            class="text-ntilde-300">args</code
           > to the client's MCP config.
         </p>
       </div>
@@ -143,25 +143,25 @@ claude mcp add novaterminal -- \
         </h3>
         <ul class="mt-4 space-y-3 text-sm text-ink-200">
           <li class="flex items-start gap-2.5">
-            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-nova-400" aria-hidden="true"></span>
+            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-ntilde-400" aria-hidden="true"></span>
             <span>
               Both opt-in toggles off ⇒ no live endpoint at all.
             </span>
           </li>
           <li class="flex items-start gap-2.5">
-            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-nova-400" aria-hidden="true"></span>
+            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-ntilde-400" aria-hidden="true"></span>
             <span>
               Acting on SSH requires a per-profile allowlist.
             </span>
           </li>
           <li class="flex items-start gap-2.5">
-            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-nova-400" aria-hidden="true"></span>
+            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-ntilde-400" aria-hidden="true"></span>
             <span>
               Every acting call — allowed or denied — is journaled in-app.
             </span>
           </li>
           <li class="flex items-start gap-2.5">
-            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-nova-400" aria-hidden="true"></span>
+            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-ntilde-400" aria-hidden="true"></span>
             <span>
               Replay exports never include input — typed keys are not retained.
             </span>
@@ -169,7 +169,7 @@ claude mcp add novaterminal -- \
         </ul>
         <a
           href={`${repoUrl}/blob/main/docs/agent-host/2026-07-12-acting-threat-model.md`}
-          class="mt-4 inline-flex items-center gap-1.5 text-sm text-nova-300 hover:text-nova-200"
+          class="mt-4 inline-flex items-center gap-1.5 text-sm text-ntilde-300 hover:text-ntilde-200"
         >
           Read the acting threat model
           <span aria-hidden="true">→</span>

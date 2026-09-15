@@ -7,13 +7,13 @@ using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia;
-using NovaTerminal.Controls;
-using NovaTerminal.CommandAssist.ShellIntegration;
-using NovaTerminal.Services.Ssh;
-using NovaTerminal.Rendering;
-using NovaTerminal.Pty;
+using Ntilde.Controls;
+using Ntilde.CommandAssist.ShellIntegration;
+using Ntilde.Services.Ssh;
+using Ntilde.Rendering;
+using Ntilde.Pty;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public static class SessionManager
     {
@@ -27,7 +27,7 @@ namespace NovaTerminal.Shell
             {
                 var session = CaptureSession(window, tabs);
 
-                var json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NovaSession);
+                var json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NtildeSession);
                 payloadBytes = System.Text.Encoding.UTF8.GetByteCount(json);
                 Directory.CreateDirectory(Path.GetDirectoryName(SessionPath)!);
                 // Atomic write with .bak (#167): SaveSession runs on shutdown — a crash
@@ -46,9 +46,9 @@ namespace NovaTerminal.Shell
             }
         }
 
-        public static NovaSession CaptureSession(Window window, TabControl tabs)
+        public static NtildeSession CaptureSession(Window window, TabControl tabs)
         {
-            var session = new NovaSession
+            var session = new NtildeSession
             {
                 ActiveTabIndex = tabs.SelectedIndex
             };
@@ -222,7 +222,7 @@ namespace NovaTerminal.Shell
             int payloadBytes = 0;
             try
             {
-                if (!TryLoadSavedSession(out NovaSession? session, out payloadBytes) ||
+                if (!TryLoadSavedSession(out NtildeSession? session, out payloadBytes) ||
                     session == null ||
                     session.Tabs.Count == 0)
                 {
@@ -242,14 +242,14 @@ namespace NovaTerminal.Shell
             }
         }
 
-        public static void RestoreSession(Window window, TabControl tabs, TerminalSettings settings, NovaSession session)
+        public static void RestoreSession(Window window, TabControl tabs, TerminalSettings settings, NtildeSession session)
         {
             var sw = Stopwatch.StartNew();
             int payloadBytes = 0;
             try
             {
                 payloadBytes = System.Text.Encoding.UTF8.GetByteCount(
-                    JsonSerializer.Serialize(session, SessionSerializationContext.Default.NovaSession));
+                    JsonSerializer.Serialize(session, SessionSerializationContext.Default.NtildeSession));
                 RestoreSessionCore(window, tabs, settings, session);
             }
             catch (Exception ex)
@@ -263,7 +263,7 @@ namespace NovaTerminal.Shell
             }
         }
 
-        public static bool TryLoadSavedSession(out NovaSession? session)
+        public static bool TryLoadSavedSession(out NtildeSession? session)
         {
             return TryLoadSavedSession(out session, out _);
         }
@@ -292,7 +292,7 @@ namespace NovaTerminal.Shell
             return RestorePaneTree(tabSession.Root, settings);
         }
 
-        private static void RestoreSessionCore(Window window, TabControl tabs, TerminalSettings settings, NovaSession session)
+        private static void RestoreSessionCore(Window window, TabControl tabs, TerminalSettings settings, NtildeSession session)
         {
             _ = window;
             if (session == null || session.Tabs.Count == 0) return;
@@ -313,7 +313,7 @@ namespace NovaTerminal.Shell
             }
         }
 
-        private static bool TryLoadSavedSession(out NovaSession? session, out int payloadBytes)
+        private static bool TryLoadSavedSession(out NtildeSession? session, out int payloadBytes)
         {
             session = null;
             payloadBytes = 0;
@@ -325,7 +325,7 @@ namespace NovaTerminal.Shell
 
             var json = File.ReadAllText(SessionPath);
             payloadBytes = System.Text.Encoding.UTF8.GetByteCount(json);
-            session = JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NovaSession);
+            session = JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NtildeSession);
             return session != null;
         }
 

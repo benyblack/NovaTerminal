@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.CommandAssist.Models;
+namespace Ntilde.CommandAssist.Models;
 
 /// <param name="IsInvalidCommand">
 /// Whether this command failed because the shell could not resolve its name - a typo, in practice.

@@ -1,8 +1,8 @@
 using Avalonia.Input;
-using NovaTerminal.Controls;
+using Ntilde.Controls;
 using Xunit;
 
-namespace NovaTerminal.Tests.Controls;
+namespace Ntilde.Tests.Controls;
 
 /// <summary>
 /// The accumulator's own rules, away from the pane. <c>PaneMarklessCaptureTests</c> covers the

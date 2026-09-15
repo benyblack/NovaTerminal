@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace NovaTerminal.AgentHost.Contracts;
+namespace Ntilde.AgentHost.Contracts;
 
 /// <summary>One live terminal session (pane) as reported by <c>listSessions</c>.</summary>
 public sealed record SessionInfo
@@ -71,7 +71,7 @@ public sealed record ReadScreenParams
 
 /// <summary>
 /// Result payload for <c>readScreen</c>: a 1:1 projection of the deterministic
-/// <c>NovaTerminal.Replay.BufferSnapshot</c> capture plus cursor state. The A1
+/// <c>Ntilde.Replay.BufferSnapshot</c> capture plus cursor state. The A1
 /// parity test asserts this equals a direct <c>BufferSnapshot.Capture</c> of
 /// the same buffer.
 /// </summary>

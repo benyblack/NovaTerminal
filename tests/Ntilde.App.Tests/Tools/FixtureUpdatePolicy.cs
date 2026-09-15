@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace NovaTerminal.Tests.Tools
+namespace Ntilde.Tests.Tools
 {
     public static class FixtureUpdatePolicy
     {

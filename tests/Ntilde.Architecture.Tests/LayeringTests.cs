@@ -1,17 +1,17 @@
 using System.Reflection;
 using NetArchTest.Rules;
 
-namespace NovaTerminal.Architecture.Tests;
+namespace Ntilde.Architecture.Tests;
 
 public class LayeringTests
 {
-    private static Assembly Vt => typeof(global::NovaTerminal.VT.AnsiParser).Assembly;
-    private static Assembly Replay => typeof(global::NovaTerminal.Replay.ReplayReader).Assembly;
-    private static Assembly Rendering => typeof(global::NovaTerminal.Rendering.GlyphAtlas).Assembly;
-    private static Assembly Pty => typeof(global::NovaTerminal.Pty.ITerminalSession).Assembly;
-    private static Assembly Platform => typeof(global::NovaTerminal.Platform.Input.TerminalInputSender).Assembly;
-    private static Assembly AgentHostContracts => typeof(global::NovaTerminal.AgentHost.Contracts.AgentHostProtocol).Assembly;
-    private static Assembly CommandAssist => typeof(global::NovaTerminal.CommandAssist.Application.CommandAssistAnchorCalculator).Assembly;
+    private static Assembly Vt => typeof(global::Ntilde.VT.AnsiParser).Assembly;
+    private static Assembly Replay => typeof(global::Ntilde.Replay.ReplayReader).Assembly;
+    private static Assembly Rendering => typeof(global::Ntilde.Rendering.GlyphAtlas).Assembly;
+    private static Assembly Pty => typeof(global::Ntilde.Pty.ITerminalSession).Assembly;
+    private static Assembly Platform => typeof(global::Ntilde.Platform.Input.TerminalInputSender).Assembly;
+    private static Assembly AgentHostContracts => typeof(global::Ntilde.AgentHost.Contracts.AgentHostProtocol).Assembly;
+    private static Assembly CommandAssist => typeof(global::Ntilde.CommandAssist.Application.CommandAssistAnchorCalculator).Assembly;
 
     [Fact]
     public void Vt_must_be_a_leaf_assembly()
@@ -19,11 +19,11 @@ public class LayeringTests
         var result = Types.InAssembly(Vt)
             .Should()
             .NotHaveDependencyOnAny(
-                "NovaTerminal.Replay",
-                "NovaTerminal.Rendering",
-                "NovaTerminal.Pty",
-                "NovaTerminal.Platform",
-                "NovaTerminal.App",
+                "Ntilde.Replay",
+                "Ntilde.Rendering",
+                "Ntilde.Pty",
+                "Ntilde.Platform",
+                "Ntilde.App",
                 "Avalonia",
                 "SkiaSharp")
             .GetResult();
@@ -38,10 +38,10 @@ public class LayeringTests
         var result = Types.InAssembly(Rendering)
             .Should()
             .NotHaveDependencyOnAny(
-                "NovaTerminal.Replay",
-                "NovaTerminal.Pty",
-                "NovaTerminal.Platform",
-                "NovaTerminal.App",
+                "Ntilde.Replay",
+                "Ntilde.Pty",
+                "Ntilde.Platform",
+                "Ntilde.App",
                 "Avalonia")
             .GetResult();
 
@@ -55,10 +55,10 @@ public class LayeringTests
         var result = Types.InAssembly(Replay)
             .Should()
             .NotHaveDependencyOnAny(
-                "NovaTerminal.Rendering",
-                "NovaTerminal.Pty",
-                "NovaTerminal.Platform",
-                "NovaTerminal.App",
+                "Ntilde.Rendering",
+                "Ntilde.Pty",
+                "Ntilde.Platform",
+                "Ntilde.App",
                 "Avalonia",
                 "SkiaSharp")
             .GetResult();
@@ -72,7 +72,7 @@ public class LayeringTests
     {
         var result = Types.InAssembly(Pty)
             .Should()
-            .NotHaveDependencyOn("NovaTerminal.VT")
+            .NotHaveDependencyOn("Ntilde.VT")
             .GetResult();
 
         Assert.True(result.IsSuccessful,
@@ -85,12 +85,12 @@ public class LayeringTests
         var result = Types.InAssembly(AgentHostContracts)
             .Should()
             .NotHaveDependencyOnAny(
-                "NovaTerminal.VT",
-                "NovaTerminal.Replay",
-                "NovaTerminal.Rendering",
-                "NovaTerminal.Pty",
-                "NovaTerminal.Platform",
-                "NovaTerminal.App",
+                "Ntilde.VT",
+                "Ntilde.Replay",
+                "Ntilde.Rendering",
+                "Ntilde.Pty",
+                "Ntilde.Platform",
+                "Ntilde.App",
                 "Avalonia",
                 "SkiaSharp")
             .GetResult();
@@ -115,18 +115,18 @@ public class LayeringTests
             .NotHaveDependencyOnAny(
                 "Avalonia",
                 "SkiaSharp",
-                // The App assembly is named "NovaTerminal" and its types live under the bare root,
+                // The App assembly is named "Ntilde" and its types live under the bare root,
                 // so it cannot be named by assembly name here without matching CommandAssist itself.
                 // Its two real buckets are enough to catch a reach back into the UI project.
-                "NovaTerminal.Shell",
-                "NovaTerminal.Controls",
-                "NovaTerminal.Rendering",
-                "NovaTerminal.Replay",
-                "NovaTerminal.Pty",
+                "Ntilde.Shell",
+                "Ntilde.Controls",
+                "Ntilde.Rendering",
+                "Ntilde.Replay",
+                "Ntilde.Pty",
                 // CommandAssist references neither today; naming them keeps the allowlist
                 // complete so a future "just grab the parser" shortcut fails here first.
-                "NovaTerminal.VT",
-                "NovaTerminal.Platform")
+                "Ntilde.VT",
+                "Ntilde.Platform")
             .GetResult();
 
         Assert.True(result.IsSuccessful,

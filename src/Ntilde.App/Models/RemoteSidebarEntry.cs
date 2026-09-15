@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.Models;
+namespace Ntilde.Models;
 
 public sealed record RemoteSidebarEntry(
     string Name,

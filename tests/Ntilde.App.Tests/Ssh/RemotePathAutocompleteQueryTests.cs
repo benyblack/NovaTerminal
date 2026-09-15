@@ -1,7 +1,7 @@
-using NovaTerminal.Models;
-using NovaTerminal.Services.Ssh;
+using Ntilde.Models;
+using Ntilde.Services.Ssh;
 
-namespace NovaTerminal.Tests.Ssh;
+namespace Ntilde.Tests.Ssh;
 
 public sealed class RemotePathAutocompleteQueryTests
 {

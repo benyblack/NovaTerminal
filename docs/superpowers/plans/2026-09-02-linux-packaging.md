@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship NovaTerminal on Linux as an auto-updating AppImage plus a system-integrated `.deb`, for `linux-x64` and `linux-arm64`, replacing today's single broken portable zip.
+**Goal:** Ship Ntilde on Linux as an auto-updating AppImage plus a system-integrated `.deb`, for `linux-x64` and `linux-arm64`, replacing today's single broken portable zip.
 
 **Architecture:** `vpk pack` (Velopack 1.2.0, already used for Windows and macOS) builds the AppImage and a per-architecture update feed; a plain `dpkg-deb` script builds the `.deb` from the same NativeAOT publish directory. Both are gated by a two-container smoke test that installs into a pristine `ubuntu:22.04` and proves the artifacts launch. One C# file changes, to give each architecture its own update channel.
 
@@ -18,13 +18,13 @@ Every task's requirements implicitly include these. Values are copied verbatim f
   > **SUPERSEDED IN IMPLEMENTATION — the mechanism, not the floor.** `actions/runner-images#14254` deprecates the `ubuntu-22.04` runner image from 2026-09-17 (fully unsupported 2027-04-17), so the constraint above was inverted during implementation: every Linux publishing job runs `runs-on: ubuntu-latest` / `ubuntu-24.04-arm` **with `container: ubuntu:22.04`**, which is what now pins the floor. Read the "Never `ubuntu-latest`" rule as "never without `container: ubuntu:22.04`". **The glibc 2.35 floor itself is unchanged**, along with every downstream value in this plan (`libc6 (>= 2.35)`, the supported-distro list, the derived `Depends:`). The one job that cannot be containerised is the smoke gate (`release_linux` / ci.yml's `linux_packaging_smoke`) — a `container:` job has no docker daemon — and it compiles nothing, so it sets no floor. Every `ubuntu-22.04`/`ubuntu-22.04-arm` runner label elsewhere in this plan, including the step snippets, is superseded the same way.
 - **`vpk` is pinned to `1.2.0`** and must stay in lockstep with the `Velopack` `PackageVersion` in `Directory.Packages.props` and the two existing `dotnet tool install -g vpk --version 1.2.0` call sites.
 - **Update channels are `linux-x64` and `linux-arm64`.** Never the platform-default `linux`. Both `vpk pack` and `vpk download github` must be passed `--channel`.
-- **Debian package name is `novaterminal`**; bundle installs to `/usr/lib/novaterminal/`; PATH entry is `/usr/bin/nova`.
+- **Debian package name is `ntilde`**; bundle installs to `/usr/lib/ntilde/`; PATH entry is `/usr/bin/ntilde`.
 - **`.deb` has no maintainer scripts.** No `postinst`, `prerm`, `postrm`. dpkg triggers from `desktop-file-utils` and `hicolor-icon-theme` handle cache refreshes.
 - **`dpkg-deb --build --root-owner-group`** — never `fakeroot`, never `dpkg-buildpackage`.
 - **Archives use `tar`, never `Compress-Archive`.** `Compress-Archive` cannot write Unix mode bits, which is the bug being fixed.
 - **Builds go through the wrapper scripts** (`scripts/build.ps1` / `scripts/build.sh`), never raw `dotnet build`, per `CLAUDE.md`. `dotnet publish` in CI is the documented exception and already carries `-nodeReuse:false` via workflow-level env.
 - **Windows and macOS behaviour must not change.** Their assets, channels, and update paths are regression surfaces, not deliverables.
-- **Icons derive from `src/NovaTerminal.App/Assets/nova_icon.png`** at packaging time. Never commit pre-scaled PNGs.
+- **Icons derive from `src/Ntilde.App/Assets/ntilde_icon.png`** at packaging time. Never commit pre-scaled PNGs.
 - **No new `TerminalSettings` field is introduced.** (If a later change adds one, it must also be added to `TerminalPane.ApplySettings`'s `effectiveSettings` whitelist and registered in `McpServer` `SettingsTools`, or gating drift-guard tests fail.)
 
 ---
@@ -70,17 +70,17 @@ Record whether the `[linux]` directive accepts `--runtime linux-arm64`. If **bot
 On x64, pack a throwaway release and inspect what the client would ask for:
 
 ```bash
-mkdir -p /tmp/vpkprobe/app && cp /bin/true /tmp/vpkprobe/app/NovaTerminal
-vpk pack --packId NovaTerminalApp --packVersion 0.0.1-ci \
-  --packDir /tmp/vpkprobe/app --mainExe NovaTerminal \
+mkdir -p /tmp/vpkprobe/app && cp /bin/true /tmp/vpkprobe/app/Ntilde
+vpk pack --packId NtildeApp --packVersion 0.0.1-ci \
+  --packDir /tmp/vpkprobe/app --mainExe Ntilde \
   --channel linux-x64 -o /tmp/vpkprobe/out
 ls /tmp/vpkprobe/out
 ```
 
-Expected: `releases.linux-x64.json` and `NovaTerminalApp-0.0.1-ci-linux-x64-full.nupkg` exist. Then unpack the nupkg and find where the channel is recorded:
+Expected: `releases.linux-x64.json` and `NtildeApp-0.0.1-ci-linux-x64-full.nupkg` exist. Then unpack the nupkg and find where the channel is recorded:
 
 ```bash
-cd /tmp/vpkprobe && unzip -o out/NovaTerminalApp-0.0.1-ci-linux-x64-full.nupkg -d unpacked
+cd /tmp/vpkprobe && unzip -o out/NtildeApp-0.0.1-ci-linux-x64-full.nupkg -d unpacked
 grep -ri "linux-x64" unpacked/ | head -20
 ```
 
@@ -91,15 +91,15 @@ Record whether the channel is baked into the package metadata. This determines w
 The smoke test needs a headless probe. `VtReportCommand.Execute` does its own argument parsing, so do not assume the bare flag suffices:
 
 ```bash
-sed -n '1,80p' src/NovaTerminal.App/Shell/VtReportCommand.cs
+sed -n '1,80p' src/Ntilde.App/Shell/VtReportCommand.cs
 ```
 
 Read `TryParse`/the `seenReportFlag` logic, then confirm against a real build:
 
 ```bash
-./scripts/build.sh build src/NovaTerminal.App
+./scripts/build.sh build src/Ntilde.App
 # then run the built binary with the flag shape the source requires, e.g.
-#   <bin>/NovaTerminal --vt-report
+#   <bin>/Ntilde --vt-report
 # and record the exit code
 ```
 
@@ -116,7 +116,7 @@ Append to the spec:
 2. **Cross-pack fallback:** <needed? / accepts --runtime linux-arm64?>
 3. **Channel metadata:** <baked into the package? where?> — so `ExplicitChannel` is
    <a no-op safety net / a load-bearing fix>.
-4. **Headless probe:** `nova <exact args>` exits <code>.
+4. **Headless probe:** `ntilde <exact args>` exits <code>.
 ```
 
 - [ ] **Step 6: Commit**
@@ -135,19 +135,19 @@ and the exact --vt-report invocation the smoke test can rely on."
 ### Task 1: Per-architecture update channel
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Update/VelopackUpdateService.cs`
-- Modify: `src/NovaTerminal.App/Update/IUpdateService.cs` (doc comment only)
-- Test: `tests/NovaTerminal.App.Tests/Update/VelopackUpdateServiceTests.cs`
+- Modify: `src/Ntilde.App/Update/VelopackUpdateService.cs`
+- Modify: `src/Ntilde.App/Update/IUpdateService.cs` (doc comment only)
+- Test: `tests/Ntilde.App.Tests/Update/VelopackUpdateServiceTests.cs`
 
 **Interfaces:**
 - Consumes: Task 0 finding (3).
 - Produces: `internal static string? VelopackUpdateService.ResolveExplicitChannel(bool isLinux, Architecture architecture)` — returns `"linux-x64"`, `"linux-arm64"`, or `null`. Tasks 4 and 5 must pack with channel names matching this exactly.
 
-`NovaTerminal.App` already declares `<InternalsVisibleTo Include="NovaTerminal.App.Tests" />` (`NovaTerminal.App.csproj:508`), so an `internal static` member is directly testable. `App.Tests` has `<Using Include="Xunit" />` as a global using, so test files need no `using Xunit;`.
+`Ntilde.App` already declares `<InternalsVisibleTo Include="Ntilde.App.Tests" />` (`Ntilde.App.csproj:508`), so an `internal static` member is directly testable. `App.Tests` has `<Using Include="Xunit" />` as a global using, so test files need no `using Xunit;`.
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `tests/NovaTerminal.App.Tests/Update/VelopackUpdateServiceTests.cs`:
+Append to `tests/Ntilde.App.Tests/Update/VelopackUpdateServiceTests.cs`:
 
 ```csharp
     // Channel resolution is a pure function taking isLinux and architecture explicitly,
@@ -195,14 +195,14 @@ Add `using System.Runtime.InteropServices;` to the file's using block.
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-./scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~VelopackUpdateServiceTests"
+./scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~VelopackUpdateServiceTests"
 ```
 
 Expected: compile failure — `'VelopackUpdateService' does not contain a definition for 'ResolveExplicitChannel'`.
 
 - [ ] **Step 3: Implement the resolution and wire it into the constructor**
 
-In `src/NovaTerminal.App/Update/VelopackUpdateService.cs`, add `using System.Runtime.InteropServices;` and insert:
+In `src/Ntilde.App/Update/VelopackUpdateService.cs`, add `using System.Runtime.InteropServices;` and insert:
 
 ```csharp
         /// <summary>
@@ -267,7 +267,7 @@ to:
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-./scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~VelopackUpdateServiceTests"
+./scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~VelopackUpdateServiceTests"
 ```
 
 Expected: PASS, including the three pre-existing tests in that class (they assert an unsupported host stays inert, which the new options argument must not disturb).
@@ -280,7 +280,7 @@ the Linux leg rather than duplicating it.
 
 - [ ] **Step 5: Extend the `IUpdateService` doc comment to name system packages**
 
-In `src/NovaTerminal.App/Update/IUpdateService.cs`, change:
+In `src/Ntilde.App/Update/IUpdateService.cs`, change:
 
 ```csharp
         /// False when this process was not installed by Velopack - a portable zip, a winget
@@ -299,9 +299,9 @@ to:
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Update/VelopackUpdateService.cs \
-        src/NovaTerminal.App/Update/IUpdateService.cs \
-        tests/NovaTerminal.App.Tests/Update/VelopackUpdateServiceTests.cs
+git add src/Ntilde.App/Update/VelopackUpdateService.cs \
+        src/Ntilde.App/Update/IUpdateService.cs \
+        tests/Ntilde.App.Tests/Update/VelopackUpdateServiceTests.cs
 git commit -m "feat(update): resolve a per-architecture Velopack channel on Linux
 
 Linux publishes x64 and arm64 into the same GitHub release, but a
@@ -320,21 +320,21 @@ installed clients in the field - resolve exactly as before."
 
 **Files:**
 - Create: `packaging/linux/build-deb.sh`
-- Create: `packaging/linux/nova.desktop`
-- Create: `packaging/linux/nova.1`
+- Create: `packaging/linux/ntilde.desktop`
+- Create: `packaging/linux/ntilde.1`
 - Create: `packaging/linux/test-build-deb.sh`
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
-- Produces: `packaging/linux/build-deb.sh <publish-dir> <version> <debarch> <out-dir>` writing `<out-dir>/novaterminal_<debver>_<debarch>.deb`. Tasks 3, 4 and 5 invoke it with exactly this argument order.
+- Produces: `packaging/linux/build-deb.sh <publish-dir> <version> <debarch> <out-dir>` writing `<out-dir>/ntilde_<debver>_<debarch>.deb`. Tasks 3, 4 and 5 invoke it with exactly this argument order.
 
 - [ ] **Step 1: Write the failing test**
 
-`packaging/linux/test-build-deb.sh` — a self-contained harness that needs no real NovaTerminal build. It fabricates a publish directory whose "binary" is a real ELF (`/bin/true`), so `ldd`-derived dependency detection exercises its real code path:
+`packaging/linux/test-build-deb.sh` — a self-contained harness that needs no real Ntilde build. It fabricates a publish directory whose "binary" is a real ELF (`/bin/true`), so `ldd`-derived dependency detection exercises its real code path:
 
 ```bash
 #!/usr/bin/env bash
-# Tests build-deb.sh without needing a real NovaTerminal publish. Run inside a
+# Tests build-deb.sh without needing a real Ntilde publish. Run inside a
 # Debian-family container (it needs dpkg-deb, dpkg-query and file):
 #   docker run --rm -v "$PWD:/w" -w /w ubuntu:22.04 \
 #     bash -c 'apt-get update -qq && apt-get install -y -qq file binutils >/dev/null &&
@@ -367,41 +367,41 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 pub="$work/publish"; out="$work/out"
 mkdir -p "$pub" "$out"
-cp /bin/true "$pub/NovaTerminal"          # a real ELF, so ldd has something to read
-echo "placeholder" > "$pub/nova_icon.png" # icon scaling must tolerate a bad PNG (warn, not die)
+cp /bin/true "$pub/Ntilde"          # a real ELF, so ldd has something to read
+echo "placeholder" > "$pub/ntilde_icon.png" # icon scaling must tolerate a bad PNG (warn, not die)
 mkdir -p "$pub/themes" && echo '{}' > "$pub/themes/default.json"
 
 if ! "$script" "$pub" "0.4.0" "amd64" "$out"; then
   fail "build-deb.sh exited non-zero"
 else
-  deb="$out/novaterminal_0.4.0-1_amd64.deb"
+  deb="$out/ntilde_0.4.0-1_amd64.deb"
   [[ -f "$deb" ]] && pass "produced $(basename "$deb")" || fail "expected $deb"
 
   if [[ -f "$deb" ]]; then
     contents="$(dpkg-deb --contents "$deb")"
     for path in \
-      ./usr/lib/novaterminal/NovaTerminal \
-      ./usr/lib/novaterminal/themes/default.json \
-      ./usr/bin/nova \
-      ./usr/share/applications/novaterminal.desktop \
-      ./usr/share/man/man1/nova.1.gz \
-      ./usr/share/doc/novaterminal/copyright
+      ./usr/lib/ntilde/Ntilde \
+      ./usr/lib/ntilde/themes/default.json \
+      ./usr/bin/ntilde \
+      ./usr/share/applications/ntilde.desktop \
+      ./usr/share/man/man1/ntilde.1.gz \
+      ./usr/share/doc/ntilde/copyright
     do
       grep -q -- "$path" <<<"$contents" || fail "missing from package: $path"
     done
     pass "layout checked"
 
-    # The bundle binary must be executable, and /usr/bin/nova must be a symlink to it.
-    grep -qE '^-rwxr-xr-x.* \./usr/lib/novaterminal/NovaTerminal$' <<<"$contents" \
-      || fail "NovaTerminal is not 0755 in the package"
-    grep -qE '^lrwxrwxrwx.* \./usr/bin/nova -> ' <<<"$contents" \
-      || fail "/usr/bin/nova is not a symlink"
+    # The bundle binary must be executable, and /usr/bin/ntilde must be a symlink to it.
+    grep -qE '^-rwxr-xr-x.* \./usr/lib/ntilde/Ntilde$' <<<"$contents" \
+      || fail "Ntilde is not 0755 in the package"
+    grep -qE '^lrwxrwxrwx.* \./usr/bin/ntilde -> ' <<<"$contents" \
+      || fail "/usr/bin/ntilde is not a symlink"
 
     # Files must be root-owned (--root-owner-group), never the CI user's uid.
     grep -q 'root/root' <<<"$contents" || fail "package files are not root-owned"
 
     info="$(dpkg-deb --field "$deb")"
-    grep -q '^Package: novaterminal$'   <<<"$info" || fail "wrong Package field"
+    grep -q '^Package: ntilde$'   <<<"$info" || fail "wrong Package field"
     grep -q '^Version: 0.4.0-1$'        <<<"$info" || fail "wrong Version field"
     grep -q '^Architecture: amd64$'     <<<"$info" || fail "wrong Architecture field"
     grep -q '^Depends: .*libc6 (>= 2.35)' <<<"$info" || fail "Depends lacks the glibc floor"
@@ -436,35 +436,35 @@ Expected: fails immediately — `build-deb.sh` does not exist.
 
 - [ ] **Step 3: Write the `.desktop` entry and man page**
 
-`packaging/linux/nova.desktop`:
+`packaging/linux/ntilde.desktop`:
 
 ```ini
 [Desktop Entry]
 Type=Application
-Name=NovaTerminal
+Name=Ntilde
 GenericName=Terminal Emulator
 Comment=A modern terminal emulator
-Exec=/usr/bin/nova
-Icon=novaterminal
+Exec=/usr/bin/ntilde
+Icon=ntilde
 Terminal=false
 Categories=System;TerminalEmulator;
 Keywords=shell;prompt;command;commandline;terminal;
 StartupNotify=true
-StartupWMClass=NovaTerminal
+StartupWMClass=Ntilde
 ```
 
-`packaging/linux/nova.1`:
+`packaging/linux/ntilde.1`:
 
 ```roff
-.TH NOVA 1 "2026-09-02" "NovaTerminal" "User Commands"
+.TH NTILDE 1 "2026-09-02" "Ntilde" "User Commands"
 .SH NAME
-nova \- NovaTerminal, a modern terminal emulator
+ntilde \- Ntilde, a modern terminal emulator
 .SH SYNOPSIS
-.B nova
+.B ntilde
 .RI [ options ]
 .SH DESCRIPTION
-.B nova
-launches the NovaTerminal graphical terminal emulator. Run with no arguments to
+.B ntilde
+launches the Ntilde graphical terminal emulator. Run with no arguments to
 open a window with your default shell.
 .PP
 The same executable also serves several headless command modes, used by CI and by
@@ -481,24 +481,24 @@ and 2 on a usage error.
 .TP
 .B backup
 Configuration backup and restore. See
-.B nova backup \-\-help
+.B ntilde backup \-\-help
 for its own subcommands.
 .TP
 .B \-\-ssh-askpass
 Act as an SSH_ASKPASS helper. Invoked by ssh, not normally by hand.
 .SH FILES
 .TP
-.I ~/.local/share/NovaTerminal
+.I ~/.local/share/Ntilde
 Configuration, themes, and session state. Never modified by package upgrades or removal.
 .SH NOTES
-This package does not register NovaTerminal as the system
+This package does not register Ntilde as the system
 .BR x-terminal-emulator (1).
 To do so yourself:
 .PP
 .RS
 .nf
 sudo update\-alternatives \-\-install /usr/bin/x\-terminal\-emulator \\
-    x\-terminal\-emulator /usr/bin/nova 40
+    x\-terminal\-emulator /usr/bin/ntilde 40
 .fi
 .RE
 .PP
@@ -507,17 +507,17 @@ Note that callers of
 pass
 .BI \-e " command"
 to run a single command, which
-.B nova
+.B ntilde
 does not yet implement.
 .SH SEE ALSO
-Project homepage: https://github.com/benyblack/NovaTerminal
+Project homepage: https://github.com/benyblack/ntilde
 ```
 
 - [ ] **Step 4: Write `build-deb.sh`**
 
 ```bash
 #!/usr/bin/env bash
-# Build a NovaTerminal .deb from a NativeAOT publish directory.
+# Build a Ntilde .deb from a NativeAOT publish directory.
 #
 # Usage: build-deb.sh <publish-dir> <version> <debarch> <out-dir>
 #        build-deb.sh --print-debian-version <version>
@@ -557,7 +557,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$here/../.." && pwd)"
 
 [[ -d "$publish_dir" ]] || { echo "publish dir not found: $publish_dir" >&2; exit 1; }
-[[ -f "$publish_dir/NovaTerminal" ]] || { echo "no NovaTerminal binary in $publish_dir" >&2; exit 1; }
+[[ -f "$publish_dir/Ntilde" ]] || { echo "no Ntilde binary in $publish_dir" >&2; exit 1; }
 
 debver="$(print_debian_version "$version")"
 stage="$(mktemp -d)"
@@ -621,27 +621,27 @@ done
 
 # --- stage the tree --------------------------------------------------------
 install -d "$stage/DEBIAN"
-install -d "$stage/usr/lib/novaterminal"
+install -d "$stage/usr/lib/ntilde"
 install -d "$stage/usr/bin"
 install -d "$stage/usr/share/applications"
 install -d "$stage/usr/share/man/man1"
-install -d "$stage/usr/share/doc/novaterminal"
+install -d "$stage/usr/share/doc/ntilde"
 
-cp -a "$publish_dir/." "$stage/usr/lib/novaterminal/"
-chmod 0755 "$stage/usr/lib/novaterminal/NovaTerminal"
+cp -a "$publish_dir/." "$stage/usr/lib/ntilde/"
+chmod 0755 "$stage/usr/lib/ntilde/Ntilde"
 # A .deb ships no build leftovers; the AOT publish can contain debug symbols.
-find "$stage/usr/lib/novaterminal" -name '*.pdb' -delete
-find "$stage/usr/lib/novaterminal" -name '*.dbg' -delete
+find "$stage/usr/lib/ntilde" -name '*.pdb' -delete
+find "$stage/usr/lib/ntilde" -name '*.dbg' -delete
 
-ln -s /usr/lib/novaterminal/NovaTerminal "$stage/usr/bin/nova"
-install -m 0644 "$here/nova.desktop" "$stage/usr/share/applications/novaterminal.desktop"
-gzip -9nc "$here/nova.1" > "$stage/usr/share/man/man1/nova.1.gz"
-chmod 0644 "$stage/usr/share/man/man1/nova.1.gz"
+ln -s /usr/lib/ntilde/Ntilde "$stage/usr/bin/ntilde"
+install -m 0644 "$here/ntilde.desktop" "$stage/usr/share/applications/ntilde.desktop"
+gzip -9nc "$here/ntilde.1" > "$stage/usr/share/man/man1/ntilde.1.gz"
+chmod 0644 "$stage/usr/share/man/man1/ntilde.1.gz"
 
 # --- icons -----------------------------------------------------------------
 # Derived at packaging time from the one committed PNG, which stays the single
 # cross-platform source of truth (same principle as packaging/macos/make-icns.sh).
-icon_src="$repo_root/src/NovaTerminal.App/Assets/nova_icon.png"
+icon_src="$repo_root/src/Ntilde.App/Assets/ntilde_icon.png"
 if command -v magick >/dev/null 2>&1; then
   resize() { magick "$1" -resize "$2x$2" "$3"; }        # ImageMagick 7
 elif command -v convert >/dev/null 2>&1; then
@@ -654,11 +654,11 @@ if [[ -f "$icon_src" ]]; then
   for size in 16 32 48 64 128 256; do
     dir="$stage/usr/share/icons/hicolor/${size}x${size}/apps"
     install -d "$dir"
-    if resize "$icon_src" "$size" "$dir/novaterminal.png" 2>/dev/null; then
-      chmod 0644 "$dir/novaterminal.png"
+    if resize "$icon_src" "$size" "$dir/ntilde.png" 2>/dev/null; then
+      chmod 0644 "$dir/ntilde.png"
     else
       echo "warning: could not scale icon to ${size}x${size}; installing unscaled" >&2
-      install -m 0644 "$icon_src" "$dir/novaterminal.png"
+      install -m 0644 "$icon_src" "$dir/ntilde.png"
     fi
   done
 else
@@ -669,41 +669,41 @@ fi
 installed_kb="$(du -sk "$stage/usr" | cut -f1)"
 
 cat > "$stage/DEBIAN/control" <<EOF
-Package: novaterminal
+Package: ntilde
 Version: $debver
 Section: utils
 Priority: optional
 Architecture: $debarch
 Depends: $depends
 Maintainer: benyblack <noreply@github.com>
-Homepage: https://github.com/benyblack/NovaTerminal
+Homepage: https://github.com/benyblack/ntilde
 Installed-Size: $installed_kb
 Description: Modern terminal emulator
- NovaTerminal is a cross-platform terminal emulator with GPU-accelerated
+ Ntilde is a cross-platform terminal emulator with GPU-accelerated
  rendering, native SSH support, and tight shell integration.
  .
  This package installs the graphical application and the "nova" command. It does
- not register NovaTerminal as the system x-terminal-emulator; see nova(1) for how
+ not register Ntilde as the system x-terminal-emulator; see ntilde(1) for how
  to do that yourself.
  .
  Updates are delivered through your package manager. The in-app updater is
  inactive for package installs, and applies only to the AppImage build.
 EOF
 
-install -m 0644 "$repo_root/LICENSE" "$stage/usr/share/doc/novaterminal/copyright"
+install -m 0644 "$repo_root/LICENSE" "$stage/usr/share/doc/ntilde/copyright"
 
-printf 'novaterminal (%s) unstable; urgency=low\n\n  * Release %s. See %s\n\n -- %s  %s\n' \
+printf 'ntilde (%s) unstable; urgency=low\n\n  * Release %s. See %s\n\n -- %s  %s\n' \
   "$debver" "${version#v}" \
-  "https://github.com/benyblack/NovaTerminal/releases/tag/${version}" \
+  "https://github.com/benyblack/ntilde/releases/tag/${version}" \
   "benyblack <noreply@github.com>" "$(date -R)" \
-  | gzip -9nc > "$stage/usr/share/doc/novaterminal/changelog.Debian.gz"
-chmod 0644 "$stage/usr/share/doc/novaterminal/changelog.Debian.gz"
+  | gzip -9nc > "$stage/usr/share/doc/ntilde/changelog.Debian.gz"
+chmod 0644 "$stage/usr/share/doc/ntilde/changelog.Debian.gz"
 
 # --- build -----------------------------------------------------------------
 # --root-owner-group so files are root-owned without fakeroot; otherwise every path
 # in the package carries the CI runner's uid.
 mkdir -p "$out_dir"
-deb="$out_dir/novaterminal_${debver}_${debarch}.deb"
+deb="$out_dir/ntilde_${debver}_${debarch}.deb"
 dpkg-deb --build --root-owner-group "$stage" "$deb"
 
 echo "built $deb"
@@ -732,7 +732,7 @@ Fix anything at `warning` or above. Note the tilde in `${v/-/\~}` MUST be escape
 
 ```bash
 git add packaging/linux/build-deb.sh packaging/linux/test-build-deb.sh \
-        packaging/linux/nova.desktop packaging/linux/nova.1
+        packaging/linux/ntilde.desktop packaging/linux/ntilde.1
 git commit -m "feat(linux): build a .deb from the AOT publish directory
 
 dpkg-deb over a staged tree: there is nothing to compile, so debhelper and
@@ -772,7 +772,7 @@ The phase ordering is the whole point and must not be rearranged — the comment
 # machine rather than the build runner.
 #
 # Usage: smoke-test.sh <artifact-dir>
-#   <artifact-dir> must contain novaterminal_*.deb and may contain *.AppImage.
+#   <artifact-dir> must contain ntilde_*.deb and may contain *.AppImage.
 #
 # Requires Docker on the host. Runs two containers, and THE ORDER MATTERS - see the
 # warnings below before editing.
@@ -782,8 +782,8 @@ artifact_dir="${1:?usage: smoke-test.sh <artifact-dir>}"
 artifact_dir="$(cd "$artifact_dir" && pwd)"
 image="${SMOKE_IMAGE:-ubuntu:22.04}"
 
-ls "$artifact_dir"/novaterminal_*.deb >/dev/null 2>&1 \
-  || { echo "no novaterminal_*.deb in $artifact_dir" >&2; exit 1; }
+ls "$artifact_dir"/ntilde_*.deb >/dev/null 2>&1 \
+  || { echo "no ntilde_*.deb in $artifact_dir" >&2; exit 1; }
 
 echo "=== Container 1: dependency completeness (pristine $image, no X11) ==="
 docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
@@ -797,10 +797,10 @@ docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
   # If you need a tool, put it in phase B.
   # ---------------------------------------------------------------------------
   apt-get update -qq
-  apt-get install -y -qq /art/novaterminal_*.deb    # fails if Depends are incomplete
+  apt-get install -y -qq /art/ntilde_*.deb    # fails if Depends are incomplete
   echo "  ok: .deb installed with its declared Depends only"
 
-  if ldd /usr/lib/novaterminal/NovaTerminal | grep "not found"; then
+  if ldd /usr/lib/ntilde/Ntilde | grep "not found"; then
     echo "  FAIL: unresolved linked libraries above" >&2; exit 1
   fi
   echo "  ok: no unresolved linked libraries"
@@ -814,27 +814,27 @@ docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
   done
   echo "  ok: every dlopen d library resolves"
 
-  test -x /usr/lib/novaterminal/NovaTerminal || { echo "  FAIL: bundle binary not executable" >&2; exit 1; }
-  test -L /usr/bin/nova                      || { echo "  FAIL: /usr/bin/nova is not a symlink" >&2; exit 1; }
-  test -f /usr/share/man/man1/nova.1.gz      || { echo "  FAIL: man page not installed" >&2; exit 1; }
+  test -x /usr/lib/ntilde/Ntilde || { echo "  FAIL: bundle binary not executable" >&2; exit 1; }
+  test -L /usr/bin/ntilde                      || { echo "  FAIL: /usr/bin/ntilde is not a symlink" >&2; exit 1; }
+  test -f /usr/share/man/man1/ntilde.1.gz      || { echo "  FAIL: man page not installed" >&2; exit 1; }
   echo "  ok: layout"
 
   # Headless CLI mode: exercises the AOT binary and the VT core with no X server.
   # Argument shape confirmed by the Task 0 spike - adjust there, not here.
-  nova --vt-report > /tmp/vt-report.txt
+  ntilde --vt-report > /tmp/vt-report.txt
   test -s /tmp/vt-report.txt || { echo "  FAIL: --vt-report produced no output" >&2; exit 1; }
-  echo "  ok: nova --vt-report ran headless"
+  echo "  ok: ntilde --vt-report ran headless"
 
   # ---------------------------------------------------------------------------
   # PHASE B - validators. Tooling may be installed now: every assertion above has
   # already passed, so later installs cannot invalidate them.
   # ---------------------------------------------------------------------------
   apt-get install -y -qq lintian desktop-file-utils man-db
-  desktop-file-validate /usr/share/applications/novaterminal.desktop
+  desktop-file-validate /usr/share/applications/ntilde.desktop
   echo "  ok: desktop entry validates"
-  lintian --fail-on error /art/novaterminal_*.deb
+  lintian --fail-on error /art/ntilde_*.deb
   echo "  ok: lintian clean at error level"
-  man nova > /dev/null
+  man ntilde > /dev/null
   echo "  ok: man page renders"
 '
 
@@ -843,7 +843,7 @@ echo "=== Container 2: GUI launch (xvfb permitted) ==="
 docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y -qq /art/novaterminal_*.deb
+  apt-get install -y -qq /art/ntilde_*.deb
   apt-get install -y -qq xvfb xdotool
 
   launches() {                     # launches <label> <command...>
@@ -854,7 +854,7 @@ docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
     for _ in $(seq 1 20); do
       sleep 1
       kill -0 "$pid" 2>/dev/null || { echo "  FAIL: $label exited early" >&2; return 1; }
-      if DISPLAY=:99 xdotool search --class -- NovaTerminal >/dev/null 2>&1; then
+      if DISPLAY=:99 xdotool search --class -- Ntilde >/dev/null 2>&1; then
         echo "  ok: $label mapped a window"; kill "$pid" 2>/dev/null || true; return 0
       fi
     done
@@ -863,17 +863,17 @@ docker run --rm -v "$artifact_dir:/art:ro" "$image" bash -euo pipefail -c '
     return 1
   }
 
-  launches "deb install (/usr/bin/nova)" nova
+  launches "deb install (/usr/bin/ntilde)" ntilde
 
   # The AppImage is tested TWICE on purpose. Ubuntu 22.04+ ships no libfuse2, so a
   # stock type-2 AppImage fails there with a confusing FUSE error - users hit the
   # mounted path, CI must cover both.
   shopt -s nullglob
   for img in /art/*.AppImage; do
-    cp "$img" /tmp/nova.AppImage && chmod +x /tmp/nova.AppImage
-    launches "AppImage (extracted, no FUSE)" /tmp/nova.AppImage --appimage-extract-and-run
+    cp "$img" /tmp/ntilde.AppImage && chmod +x /tmp/ntilde.AppImage
+    launches "AppImage (extracted, no FUSE)" /tmp/ntilde.AppImage --appimage-extract-and-run
     apt-get install -y -qq libfuse2
-    launches "AppImage (FUSE-mounted)" /tmp/nova.AppImage
+    launches "AppImage (FUSE-mounted)" /tmp/ntilde.AppImage
   done
 '
 
@@ -888,7 +888,7 @@ A `.deb` whose binary is `/bin/true` cannot map a window, so Container 2 must fa
 ```bash
 work=$(mktemp -d) && docker run --rm -v "$PWD:/w" -w /w -v "$work:/out" ubuntu:22.04 bash -c \
   'apt-get update -qq && apt-get install -y -qq file imagemagick >/dev/null
-   mkdir -p /tmp/pub && cp /bin/true /tmp/pub/NovaTerminal
+   mkdir -p /tmp/pub && cp /bin/true /tmp/pub/Ntilde
    packaging/linux/build-deb.sh /tmp/pub 0.0.1-ci amd64 /out'
 chmod +x packaging/linux/smoke-test.sh
 packaging/linux/smoke-test.sh "$work"; echo "exit=$?"
@@ -904,21 +904,21 @@ docker run --rm -v "$PWD:/w" -w /w koalaman/shellcheck:stable packaging/linux/sm
 
 Fix anything at `warning` or above.
 
-Note what `xdotool search --class -- NovaTerminal` is doing beyond "did a window appear":
-it is also the spec's `StartupWMClass` verification. `nova.desktop` declares
-`StartupWMClass=NovaTerminal`, and if Avalonia sets a different WM class the search finds
+Note what `xdotool search --class -- Ntilde` is doing beyond "did a window appear":
+it is also the spec's `StartupWMClass` verification. `ntilde.desktop` declares
+`StartupWMClass=Ntilde`, and if Avalonia sets a different WM class the search finds
 nothing and the launch check fails — which is the same mismatch that would break app-menu
 icon association on GNOME and KDE. If it fails here, confirm the real class before
 changing the assertion:
 
 ```bash
 docker run --rm -v "$PWD:/w" -w /w ubuntu:22.04 bash -c \
-  'apt-get update -qq && apt-get install -y -qq /w/artifacts/linux/novaterminal_*.deb x11-utils xvfb >/dev/null
-   xvfb-run -a nova & sleep 8; DISPLAY=:99 xprop -root _NET_CLIENT_LIST
+  'apt-get update -qq && apt-get install -y -qq /w/artifacts/linux/ntilde_*.deb x11-utils xvfb >/dev/null
+   xvfb-run -a ntilde & sleep 8; DISPLAY=:99 xprop -root _NET_CLIENT_LIST
    DISPLAY=:99 xprop -id $(DISPLAY=:99 xprop -root _NET_ACTIVE_WINDOW | awk "{print \$NF}") WM_CLASS'
 ```
 
-Then fix `StartupWMClass` in `nova.desktop` to match what Avalonia actually sets — do not
+Then fix `StartupWMClass` in `ntilde.desktop` to match what Avalonia actually sets — do not
 relax the smoke assertion to paper over it.
 
 - [ ] **Step 4: Commit**
@@ -1006,7 +1006,7 @@ Add at the end of `.github/workflows/ci.yml`, matching the file's existing two-s
 
       - name: Build Rust native
         run: |
-          cd src/NovaTerminal.App/native
+          cd src/Ntilde.App/native
           cargo build --release
           mkdir -p target_linux/release
           cp target/release/librusty_pty.so target_linux/release/
@@ -1022,7 +1022,7 @@ Add at the end of `.github/workflows/ci.yml`, matching the file's existing two-s
         env:
           SKIP_RUST_NATIVE_BUILD: "1"
         run: >-
-          dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj
+          dotnet publish src/Ntilde.App/Ntilde.App.csproj
           -c ${{ env.CONFIGURATION }} -r linux-x64 --self-contained true
           -p:PublishAot=true -p:SkipCliShim=true
           -p:Version=0.0.1-ci -p:InformationalVersion=0.0.1-ci
@@ -1056,14 +1056,14 @@ Add at the end of `.github/workflows/ci.yml`, matching the file's existing two-s
         run: |
           rm -f artifacts/publish/linux-x64/*.pdb
           vpk pack \
-            --packId NovaTerminalApp \
+            --packId NtildeApp \
             --packVersion 0.0.1-ci \
             --packDir artifacts/publish/linux-x64 \
-            --mainExe NovaTerminal \
-            --packTitle NovaTerminal \
+            --mainExe Ntilde \
+            --packTitle Ntilde \
             --packAuthors benyblack \
             --channel linux-x64 \
-            --icon src/NovaTerminal.App/Assets/nova_icon.png \
+            --icon src/Ntilde.App/Assets/ntilde_icon.png \
             --exclude '.*\.pdb' \
             -o artifacts/linux
 
@@ -1074,10 +1074,10 @@ Add at the end of `.github/workflows/ci.yml`, matching the file's existing two-s
           cd artifacts/linux
           ls -la
           test -n "$(ls ./*.AppImage 2>/dev/null)" || { echo "vpk pack produced no .AppImage" >&2; exit 1; }
-          test -f novaterminal_0.0.1~ci-1_amd64.deb || { echo "no .deb (or wrong prerelease version mapping)" >&2; exit 1; }
-          test -f NovaTerminalApp-0.0.1-ci-linux-x64-full.nupkg || { echo "no linux-x64 full nupkg" >&2; exit 1; }
+          test -f ntilde_0.0.1~ci-1_amd64.deb || { echo "no .deb (or wrong prerelease version mapping)" >&2; exit 1; }
+          test -f NtildeApp-0.0.1-ci-linux-x64-full.nupkg || { echo "no linux-x64 full nupkg" >&2; exit 1; }
           test -f releases.linux-x64.json || { echo "no releases.linux-x64.json" >&2; exit 1; }
-          dpkg-deb --contents novaterminal_0.0.1~ci-1_amd64.deb
+          dpkg-deb --contents ntilde_0.0.1~ci-1_amd64.deb
 
       - name: Smoke test (bare containers)
         run: packaging/linux/smoke-test.sh artifacts/linux
@@ -1095,7 +1095,7 @@ Add at the end of `.github/workflows/ci.yml`, matching the file's existing two-s
             artifacts/linux/releases.*.json
 ```
 
-Note the `.deb` filename in the assertions is `novaterminal_0.0.1~ci-1_amd64.deb` — the `~` is the prerelease mapping from Task 2, and asserting it here is what pins that behaviour in CI.
+Note the `.deb` filename in the assertions is `ntilde_0.0.1~ci-1_amd64.deb` — the `~` is the prerelease mapping from Task 2, and asserting it here is what pins that behaviour in CI.
 
 - [ ] **Step 3: Validate the workflow parses**
 
@@ -1198,7 +1198,7 @@ In `build_native`, the `Build Rust (Linux)` step (line ~127) becomes:
       - name: Build Rust (Linux)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
-          cd src/NovaTerminal.App/native
+          cd src/Ntilde.App/native
           cargo build --release
           mkdir -p ../native/target_linux/release
           cp target/release/librusty_pty.so ../native/target_linux/release/
@@ -1265,7 +1265,7 @@ Then add the Linux lane after the existing macOS Velopack steps, so the whole Li
         if: startsWith(matrix.os, 'ubuntu')
         shell: bash
         # tar, not Compress-Archive. System.IO.Compression cannot write Unix mode
-        # bits, so the zip this replaces shipped a NovaTerminal binary with no
+        # bits, so the zip this replaces shipped a Ntilde binary with no
         # executable bit and every user had to chmod +x before first launch.
         # RELEASE_TAG through env, never interpolated into script source - same
         # injection reasoning as every other run block in this file.
@@ -1275,11 +1275,11 @@ Then add the Linux lane after the existing macOS Velopack steps, so the whole Li
         run: |
           set -euo pipefail
           mkdir -p artifacts/release
-          tar -czf "artifacts/release/NovaTerminal-$RID-$RELEASE_TAG.tar.gz" \
+          tar -czf "artifacts/release/ntilde-$RID-$RELEASE_TAG.tar.gz" \
             -C "artifacts/publish/$RID" .
-          tar -tvzf "artifacts/release/NovaTerminal-$RID-$RELEASE_TAG.tar.gz" \
-            | grep -E '^-rwxr-xr-x.* \./NovaTerminal$' \
-            || { echo "tarball lost the executable bit on NovaTerminal" >&2; exit 1; }
+          tar -tvzf "artifacts/release/ntilde-$RID-$RELEASE_TAG.tar.gz" \
+            | grep -E '^-rwxr-xr-x.* \./Ntilde$' \
+            || { echo "tarball lost the executable bit on Ntilde" >&2; exit 1; }
 
       - name: Install vpk (Linux)
         if: startsWith(matrix.os, 'ubuntu')
@@ -1301,7 +1301,7 @@ Then add the Linux lane after the existing macOS Velopack steps, so the whole Li
           set -euo pipefail
           mkdir -p artifacts/linux
           vpk download github \
-            --repoUrl https://github.com/benyblack/NovaTerminal \
+            --repoUrl https://github.com/benyblack/ntilde \
             --token "$GH_TOKEN" \
             --channel "$RID" \
             --outputDir artifacts/linux
@@ -1321,7 +1321,7 @@ Then add the Linux lane after the existing macOS Velopack steps, so the whole Li
           # Same guard as the win and osx lanes: if a prior release exists on this
           # channel but the download did not succeed, packing now would publish a
           # full-only release and silently drop delta updates for everyone.
-          prior="$(ls artifacts/linux/NovaTerminalApp-*-"$channel"-full.nupkg 2>/dev/null | wc -l)"
+          prior="$(ls artifacts/linux/NtildeApp-*-"$channel"-full.nupkg 2>/dev/null | wc -l)"
           if [ "$prior" -gt 0 ] && [ "$DOWNLOAD_OUTCOME" != "success" ]; then
             echo "A prior Velopack $channel release exists, but 'vpk download github' did not succeed (outcome: $DOWNLOAD_OUTCOME). Re-run this workflow for this tag once GitHub is reachable." >&2
             exit 1
@@ -1329,38 +1329,38 @@ Then add the Linux lane after the existing macOS Velopack steps, so the whole Li
 
           # Re-run idempotency: vpk hard-fails if the full nupkg for THIS version is
           # already in the output directory (as it would be after a partial re-run).
-          rm -f "artifacts/linux/NovaTerminalApp-$ver-$channel-full.nupkg"
+          rm -f "artifacts/linux/NtildeApp-$ver-$channel-full.nupkg"
 
           # Strip debug symbols at the source as well as excluding them: the AOT
           # .pdb rivals the binary's own size.
           rm -f "artifacts/publish/$RID"/*.pdb
 
           vpk pack \
-            --packId NovaTerminalApp \
+            --packId NtildeApp \
             --packVersion "$ver" \
             --packDir "artifacts/publish/$RID" \
-            --mainExe NovaTerminal \
-            --packTitle NovaTerminal \
+            --mainExe Ntilde \
+            --packTitle Ntilde \
             --packAuthors benyblack \
             --channel "$channel" \
-            --icon src/NovaTerminal.App/Assets/nova_icon.png \
+            --icon src/Ntilde.App/Assets/ntilde_icon.png \
             --exclude '.*\.pdb' \
             -o artifacts/linux
 
           test -n "$(ls artifacts/linux/*.AppImage 2>/dev/null)" \
             || { echo "vpk pack produced no .AppImage" >&2; exit 1; }
-          test -f "artifacts/linux/NovaTerminalApp-$ver-$channel-full.nupkg" \
-            || { echo "vpk pack produced no NovaTerminalApp-$ver-$channel-full.nupkg - the $channel update feed would be unusable." >&2; exit 1; }
+          test -f "artifacts/linux/NtildeApp-$ver-$channel-full.nupkg" \
+            || { echo "vpk pack produced no NtildeApp-$ver-$channel-full.nupkg - the $channel update feed would be unusable." >&2; exit 1; }
           test -f "artifacts/linux/releases.$channel.json" \
             || { echo "vpk pack produced no releases.$channel.json" >&2; exit 1; }
-          if [ "$prior" -gt 0 ] && [ ! -f "artifacts/linux/NovaTerminalApp-$ver-$channel-delta.nupkg" ]; then
+          if [ "$prior" -gt 0 ] && [ ! -f "artifacts/linux/NtildeApp-$ver-$channel-delta.nupkg" ]; then
             echo "A prior Velopack $channel release exists but vpk pack produced no delta nupkg - delta generation silently failed." >&2
             exit 1
           fi
 
           # Rename to read consistently on the release page, as the osx lane does.
           appimage="$(ls artifacts/linux/*.AppImage | head -1)"
-          mv "$appimage" "artifacts/release/NovaTerminal-$RID-${{ needs.release_metadata.outputs.release_tag }}.AppImage"
+          mv "$appimage" "artifacts/release/ntilde-$RID-${{ needs.release_metadata.outputs.release_tag }}.AppImage"
           cp artifacts/linux/*.deb artifacts/release/
 
       # THE GATE. Everything above produced artifacts; nothing has been published.
@@ -1374,11 +1374,11 @@ Then add the Linux lane after the existing macOS Velopack steps, so the whole Li
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: |
-            artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.AppImage
-            artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.tar.gz
+            artifacts/release/ntilde-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.AppImage
+            artifacts/release/ntilde-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.tar.gz
             artifacts/release/*.deb
-            artifacts/linux/NovaTerminalApp-*-${{ matrix.rid }}-full.nupkg
-            artifacts/linux/NovaTerminalApp-*-${{ matrix.rid }}-delta.nupkg
+            artifacts/linux/NtildeApp-*-${{ matrix.rid }}-full.nupkg
+            artifacts/linux/NtildeApp-*-${{ matrix.rid }}-delta.nupkg
             artifacts/linux/releases.${{ matrix.rid }}.json
 ```
 
@@ -1394,7 +1394,7 @@ docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest -color .github/
 - [ ] **Step 6: Confirm nothing references the retired zip**
 
 ```bash
-grep -rn "linux-x64.*\.zip\|NovaTerminal-linux" --include='*.md' --include='*.yml' --include='*.yaml' . | grep -v '\.git/'
+grep -rn "linux-x64.*\.zip\|Ntilde-linux" --include='*.md' --include='*.yml' --include='*.yaml' . | grep -v '\.git/'
 ```
 
 Update any hit to the new `.tar.gz` / `.AppImage` names. Expect hits in `README.md` — Task 6 rewrites that section, so note them and move on.
@@ -1441,15 +1441,15 @@ Mirror `packaging/macos/README.md`'s structure (read it first: `cat packaging/ma
 
 This folder holds the Linux packaging pieces used by the release workflow:
 
-- `build-deb.sh` — builds `novaterminal_<ver>_<arch>.deb` from a NativeAOT publish
+- `build-deb.sh` — builds `ntilde_<ver>_<arch>.deb` from a NativeAOT publish
   directory. `dpkg-deb` over a staged tree; nothing is compiled here.
 - `smoke-test.sh` — installs and launches the artifacts in bare `ubuntu:22.04`
   containers. The release gate.
 - `test-build-deb.sh` — unit-ish tests for `build-deb.sh` (version mapping, layout,
-  control fields), needing no real NovaTerminal build.
-- `nova.desktop`, `nova.1` — the desktop entry and man page source.
+  control fields), needing no real Ntilde build.
+- `ntilde.desktop`, `ntilde.1` — the desktop entry and man page source.
 
-Icons are derived at packaging time from `src/NovaTerminal.App/Assets/nova_icon.png`,
+Icons are derived at packaging time from `src/Ntilde.App/Assets/ntilde_icon.png`,
 which stays the single cross-platform source of truth. No scaled PNGs are committed.
 
 The AppImage and update feed are built by [Velopack](https://velopack.io) (`vpk pack`)
@@ -1457,10 +1457,10 @@ in `.github/workflows/release.yml`, mirroring the Windows and macOS lanes.
 
 | Release asset | Produced by | Notes |
 |---|---|---|
-| `NovaTerminal-linux-<arch>-<tag>.AppImage` | `vpk pack` (renamed) | Portable, self-updating |
-| `novaterminal_<ver>_<debarch>.deb` | `build-deb.sh` | System install; updates via your package manager |
-| `NovaTerminal-linux-<arch>-<tag>.tar.gz` | `tar` in `release.yml` | Portable, no integration |
-| `NovaTerminalApp-<ver>-linux-<arch>-full.nupkg` / `-delta.nupkg` | `vpk pack` | The update feed the in-app updater consumes |
+| `ntilde-linux-<arch>-<tag>.AppImage` | `vpk pack` (renamed) | Portable, self-updating |
+| `ntilde_<ver>_<debarch>.deb` | `build-deb.sh` | System install; updates via your package manager |
+| `ntilde-linux-<arch>-<tag>.tar.gz` | `tar` in `release.yml` | Portable, no integration |
+| `NtildeApp-<ver>-linux-<arch>-full.nupkg` / `-delta.nupkg` | `vpk pack` | The update feed the in-app updater consumes |
 | `releases.linux-<arch>.json` | `vpk pack` | Feed index resolved by `VelopackUpdateService` |
 
 ## Facts worth knowing
@@ -1479,7 +1479,7 @@ in `.github/workflows/release.yml`, mirroring the Windows and macOS lanes.
   `--channel` is passed. Both Linux lanes pass it explicitly; without it, delta
   generation silently degrades to full-only.
 - **User data is never touched** by updates or uninstall. It lives in
-  `~/.local/share/NovaTerminal` via `AppPaths`.
+  `~/.local/share/Ntilde` via `AppPaths`.
 - **No maintainer scripts.** `desktop-file-utils` and `hicolor-icon-theme` ship dpkg
   triggers that refresh the desktop and icon caches, so the package needs no
   `postinst`/`prerm`.
@@ -1488,20 +1488,20 @@ in `.github/workflows/release.yml`, mirroring the Windows and macOS lanes.
 
 - **AppImage needs FUSE.** Ubuntu 22.04+ ships no `libfuse2`, so a stock AppImage
   fails with a confusing FUSE error. Either `sudo apt install libfuse2`, or run it
-  as `./NovaTerminal-*.AppImage --appimage-extract-and-run`. CI tests both paths.
+  as `./Ntilde-*.AppImage --appimage-extract-and-run`. CI tests both paths.
 - **The AppImage self-updates in place**, so it must live somewhere the user can
   write. Parked in `/opt` or `/usr/local/bin` it cannot update itself. `~/Applications`
   is the right home.
 - **A `.deb` install does not auto-update.** It is not a Velopack install, so
   `IUpdateService.IsSupported` is false and the in-app updater stays silent by
   design. Update through your package manager or reinstall a newer `.deb`.
-- **NovaTerminal is not registered as `x-terminal-emulator`.** That is deliberate:
+- **Ntilde is not registered as `x-terminal-emulator`.** That is deliberate:
   callers pass `-e <command>`, which the app does not yet implement, so registering
   would make "Open in Terminal" silently discard the command. To opt in anyway:
 
   ```sh
   sudo update-alternatives --install /usr/bin/x-terminal-emulator \
-      x-terminal-emulator /usr/bin/nova 40
+      x-terminal-emulator /usr/bin/ntilde 40
   ```
 
 ## Dry run without cutting a release
@@ -1540,10 +1540,10 @@ rolling distro. Debian 11 and RHEL 8/9 are not supported.
 
 ```sh
 # Replace <tag> with the latest release, and x64 with arm64 on ARM machines.
-curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/NovaTerminal-linux-x64-<tag>.AppImage
-chmod +x NovaTerminal-linux-x64-<tag>.AppImage
-mkdir -p ~/Applications && mv NovaTerminal-linux-x64-<tag>.AppImage ~/Applications/
-~/Applications/NovaTerminal-linux-x64-<tag>.AppImage
+curl -LO https://github.com/benyblack/ntilde/releases/download/<tag>/ntilde-linux-x64-<tag>.AppImage
+chmod +x ntilde-linux-x64-<tag>.AppImage
+mkdir -p ~/Applications && mv ntilde-linux-x64-<tag>.AppImage ~/Applications/
+~/Applications/ntilde-linux-x64-<tag>.AppImage
 ```
 
 Keep it somewhere you can write, such as `~/Applications` — the app updates itself by
@@ -1555,23 +1555,23 @@ Ubuntu 22.04 and later ship no `libfuse2`, which AppImages need. Either install 
 **Debian / Ubuntu package** (system integration; update via your package manager):
 
 ```sh
-curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/novaterminal_<version>_amd64.deb
-sudo apt install ./novaterminal_<version>_amd64.deb
-nova
+curl -LO https://github.com/benyblack/ntilde/releases/download/<tag>/ntilde_<version>_amd64.deb
+sudo apt install ./ntilde_<version>_amd64.deb
+ntilde
 ```
 
-Installs `nova` on your PATH, an app-menu entry, and `man nova`. The in-app updater is
+Installs `ntilde` on your PATH, an app-menu entry, and `man ntilde`. The in-app updater is
 inactive for package installs by design.
 
 **Portable tarball** (no integration):
 
 ```sh
-curl -LO https://github.com/benyblack/NovaTerminal/releases/download/<tag>/NovaTerminal-linux-x64-<tag>.tar.gz
-tar -xzf NovaTerminal-linux-x64-<tag>.tar.gz && ./NovaTerminal
+curl -LO https://github.com/benyblack/ntilde/releases/download/<tag>/ntilde-linux-x64-<tag>.tar.gz
+tar -xzf ntilde-linux-x64-<tag>.tar.gz && ./Ntilde
 ```
 
-NovaTerminal is not registered as your default terminal. To do that yourself after
-installing the `.deb`, see `man nova`.
+Ntilde is not registered as your default terminal. To do that yourself after
+installing the `.deb`, see `man ntilde`.
 ````
 
 - [ ] **Step 3: Verify no stale asset names remain**
@@ -1612,7 +1612,7 @@ deliberately never sees update UI."
 rtk gh issue create --title "[linux] Signed APT repository on GitHub Pages" --body 'Deferred from the Linux packaging project (`docs/superpowers/specs/2026-09-02-linux-packaging-design.md`).
 
 ## Goal
-`.deb` users get NovaTerminal in normal `apt upgrade` runs instead of manually reinstalling a newer `.deb`.
+`.deb` users get Ntilde in normal `apt upgrade` runs instead of manually reinstalling a newer `.deb`.
 
 ## Scope
 - Publish a signed apt repo to the existing GitHub Pages site (`pages.yml`).
@@ -1624,27 +1624,27 @@ rtk gh issue create --title "[linux] Signed APT repository on GitHub Pages" --bo
 An apt feed is a long-term commitment: once users add it, breaking it breaks their package manager. The plain `.deb` is a complete distribution in the meantime.
 
 ## Acceptance
-`apt update && apt install novaterminal` works from a clean machine after adding the keyring and source line, and a subsequent release is picked up by `apt upgrade`.'
+`apt update && apt install ntilde` works from a clean machine after adding the keyring and source line, and a subsequent release is picked up by `apt upgrade`.'
 ```
 
 - [ ] **Step 2: File the terminal-emulator contract issue**
 
 ```bash
-rtk gh issue create --title "[app] nova -e <cmd> and --working-directory, then register as x-terminal-emulator" --body 'Deferred from the Linux packaging project (`docs/superpowers/specs/2026-09-02-linux-packaging-design.md`).
+rtk gh issue create --title "[app] ntilde -e <cmd> and --working-directory, then register as x-terminal-emulator" --body 'Deferred from the Linux packaging project (`docs/superpowers/specs/2026-09-02-linux-packaging-design.md`).
 
 ## Why this is app work, not packaging
-`x-terminal-emulator` is a contract, not a label: callers invoke `x-terminal-emulator -e <command>`, usually with a working directory. `Program.Main` implements four CLI modes (`--vt-report`, `--ssh-askpass`, `--replay`, `backup`) and passes everything else to `StartWithClassicDesktopLifetime(args)`, which ignores unrecognised arguments. Registering today would make a file manager'"'"'s "Open in Terminal" launch Nova in `$HOME` and silently discard the command — worse than not registering.
+`x-terminal-emulator` is a contract, not a label: callers invoke `x-terminal-emulator -e <command>`, usually with a working directory. `Program.Main` implements four CLI modes (`--vt-report`, `--ssh-askpass`, `--replay`, `backup`) and passes everything else to `StartWithClassicDesktopLifetime(args)`, which ignores unrecognised arguments. Registering today would make a file manager'"'"'s "Open in Terminal" launch Ntilde in `$HOME` and silently discard the command — worse than not registering.
 
 ## Scope
-- `nova -e <cmd> [args...]` — run one command in a new session. Settle: exit when it exits? hold the pane open on nonzero exit? `shell -c` or direct exec?
-- `nova --working-directory <dir>`.
+- `ntilde -e <cmd> [args...]` — run one command in a new session. Settle: exit when it exits? hold the pane open on nonzero exit? `shell -c` or direct exec?
+- `ntilde --working-directory <dir>`.
 - Tests for argument parsing and spawn behaviour.
-- Then, in `packaging/linux/build-deb.sh`, add `postinst`/`prerm` maintainer scripts registering `update-alternatives --install /usr/bin/x-terminal-emulator x-terminal-emulator /usr/bin/nova 40`.
+- Then, in `packaging/linux/build-deb.sh`, add `postinst`/`prerm` maintainer scripts registering `update-alternatives --install /usr/bin/x-terminal-emulator x-terminal-emulator /usr/bin/ntilde 40`.
 
 This is cross-platform app behaviour and wants its own brainstorm before implementation.
 
 ## Acceptance
-"Open in Terminal" from a file manager opens Nova in the right directory, and `x-terminal-emulator -e ls` runs `ls` in a Nova session.'
+"Open in Terminal" from a file manager opens Ntilde in the right directory, and `x-terminal-emulator -e ls` runs `ls` in a Ntilde session.'
 ```
 
 - [ ] **Step 3: File the remaining formats issue**
@@ -1694,13 +1694,13 @@ git commit -m "docs(linux): link the deferred packaging follow-ups to their issu
 - [ ] **The full gating unit lane passes**, run per project rather than solution-wide (a whole-solution run takes ~20–30 minutes):
   ```bash
   for p in VT Rendering Architecture Platform McpServer; do
-    ./scripts/build.sh test "tests/NovaTerminal.$p.Tests" \
+    ./scripts/build.sh test "tests/Ntilde.$p.Tests" \
       --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
   done
   ```
 - [ ] **`App.Tests` passes** with the hang guard, logged to a file, never concurrently with another run:
   ```bash
-  ./scripts/build.sh test tests/NovaTerminal.App.Tests --blame-hang-timeout 5m > D:/tmp/apptests.log 2>&1
+  ./scripts/build.sh test tests/Ntilde.App.Tests --blame-hang-timeout 5m > D:/tmp/apptests.log 2>&1
   grep -c '\[FAIL\]' D:/tmp/apptests.log
   ```
 - [ ] **A real tag produces all eight assets.** Cut a prerelease tag (e.g. `v0.4.0-rc.1`) and confirm the release page carries, per architecture: `.AppImage`, `.deb`, `.tar.gz`, full nupkg, delta nupkg (second release onward), and `releases.linux-<arch>.json`.

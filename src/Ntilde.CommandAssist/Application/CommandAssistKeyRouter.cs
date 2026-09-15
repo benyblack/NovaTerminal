@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.Application;
+namespace Ntilde.CommandAssist.Application;
 
 /// <summary>
 /// What the assist surface is doing, reduced to the two facts key routing branches on.

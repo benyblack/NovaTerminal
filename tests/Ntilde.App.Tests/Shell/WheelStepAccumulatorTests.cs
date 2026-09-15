@@ -1,6 +1,6 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Shell;
+namespace Ntilde.Tests.Shell;
 
 // Regression tests for the touchpad "runaway scroll" bug.
 // Precision touchpads / hi-res wheels emit a flood of sub-notch wheel events

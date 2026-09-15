@@ -1,10 +1,10 @@
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
-using NovaTerminal.Models;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Models;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class MainWindowTransferFlowTests
 {
@@ -24,7 +24,7 @@ public sealed class MainWindowTransferFlowTests
                 Id = Guid.Parse("4f13d6d8-ea72-4d88-9430-fc5d5f2490c7"),
                 Name = "server3",
                 Type = ConnectionType.SSH,
-                SshBackendKind = NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native,
+                SshBackendKind = Ntilde.Platform.Ssh.Models.SshBackendKind.Native,
                 DefaultRemoteDir = "~/downloads"
             },
             Guid.Parse("35ef4c9d-8cc3-4a4f-a2f1-ef7e5215ad7d"),
@@ -179,12 +179,12 @@ public sealed class MainWindowTransferFlowTests
             Id = Guid.Parse("4f13d6d8-ea72-4d88-9430-fc5d5f2490c7"),
             Name = "server3",
             Type = ConnectionType.SSH,
-            SshBackendKind = NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native,
+            SshBackendKind = Ntilde.Platform.Ssh.Models.SshBackendKind.Native,
             DefaultRemoteDir = "~/downloads"
         };
     }
 
-    private sealed class TestMainWindow : NovaTerminal.MainWindow
+    private sealed class TestMainWindow : Ntilde.MainWindow
     {
         public TransferDialogResult? NextTransferDialogResult { get; set; }
         public string? NextPickedLocalFilePath { get; set; }

@@ -1,7 +1,7 @@
 using Avalonia.Input;
-using NovaTerminal.Shell.Shortcuts;
+using Ntilde.Shell.Shortcuts;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class ShortcutMatcherTests
 {

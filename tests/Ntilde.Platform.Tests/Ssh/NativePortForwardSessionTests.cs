@@ -4,10 +4,10 @@ using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Native;
 
-namespace NovaTerminal.Platform.Tests.Ssh;
+namespace Ntilde.Platform.Tests.Ssh;
 
 public sealed class NativePortForwardSessionTests
 {

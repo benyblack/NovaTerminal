@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using Avalonia.Input;
 
-namespace NovaTerminal.Controls
+namespace Ntilde.Controls
 {
     /// <summary>
     /// What the user typed on the current command line, for the sessions where nobody can read it
@@ -67,7 +67,7 @@ namespace NovaTerminal.Controls
         /// <para>
         /// <strong>This split is the fix for the owner's "Enter puts nothing in the terminal on
         /// cmd.exe" report, and the asymmetry is the whole of it.</strong> A device reply is bytes
-        /// Nova wrote to the PTY that no keystroke produced. In the ordinary case the program that
+        /// Ntilde wrote to the PTY that no keystroke produced. In the ordinary case the program that
         /// issued the query reads them back - that is why it asked - and the command line is
         /// untouched. In the pathological case (a query printed by something that then stopped
         /// reading, the classic <c>cat</c> of a crafted file) they land in the shell's line editor as

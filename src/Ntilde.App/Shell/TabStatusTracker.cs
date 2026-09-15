@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     internal enum TabTrackerStatus
     {

@@ -104,7 +104,7 @@ git commit -m "ci: rebalance pull request coverage"
 **Files:**
 - Create: `.github/workflows/release.yml`
 - Reference: `.github/workflows/ci.yml`
-- Reference: `src/NovaTerminal.App/NovaTerminal.App.csproj`
+- Reference: `src/Ntilde.App/Ntilde.App.csproj`
 
 **Step 1: Create the release workflow shell**
 
@@ -166,7 +166,7 @@ strategy:
 Publish with:
 
 ```yaml
-run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}
+run: dotnet publish src/Ntilde.App/Ntilde.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}
 ```
 
 **Step 4: Archive each publish folder into a release asset**
@@ -179,7 +179,7 @@ Use `pwsh` so the archive step stays consistent across runners:
         run: |
           $rid = "${{ matrix.rid }}"
           $source = "artifacts/publish/$rid"
-          $dest = "artifacts/release/NovaTerminal-$rid-${{ github.ref_name }}.zip"
+          $dest = "artifacts/release/ntilde-$rid-${{ github.ref_name }}.zip"
           New-Item -ItemType Directory -Force -Path "artifacts/release" | Out-Null
           if (Test-Path $dest) { Remove-Item $dest -Force }
           Compress-Archive -Path "$source/*" -DestinationPath $dest
@@ -193,7 +193,7 @@ Use `softprops/action-gh-release@v2` in the publish job after the archive step:
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ github.ref_name }}.zip
+          files: artifacts/release/ntilde-${{ matrix.rid }}-${{ github.ref_name }}.zip
 ```
 
 This workflow assumes the release tag already exists because it is triggered by tag push.
@@ -231,7 +231,7 @@ git commit -m "ci: publish release artifacts from tags"
 
 In the existing build/test area, ensure the README states:
 
-- Native AOT is configured in `src/NovaTerminal.App/NovaTerminal.App.csproj`
+- Native AOT is configured in `src/Ntilde.App/Ntilde.App.csproj`
 - the project supports `win-x64`, `linux-x64`, and `osx-arm64` publish targets
 - tag-driven GitHub releases attach publish bundles for those targets
 

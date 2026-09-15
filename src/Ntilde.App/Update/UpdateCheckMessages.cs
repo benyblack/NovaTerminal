@@ -1,4 +1,4 @@
-namespace NovaTerminal.Update
+namespace Ntilde.Update
 {
     /// <summary>
     /// The words every surface that answers "is there an update?" uses. The palette path shows
@@ -20,10 +20,10 @@ namespace NovaTerminal.Update
         public static string OutcomeMessage(UpdateCheckOutcome outcome, string? stagedVersion) => outcome switch
         {
             UpdateCheckOutcome.UpdateReady =>
-                $"NovaTerminal {stagedVersion ?? "(unknown version)"} is downloaded and will be applied when you restart.",
+                $"Ntilde {stagedVersion ?? "(unknown version)"} is downloaded and will be applied when you restart.",
             UpdateCheckOutcome.UpToDate => "You are running the newest version.",
             UpdateCheckOutcome.Unsupported =>
-                "This build was not installed by the NovaTerminal installer, so it cannot update itself. " +
+                "This build was not installed by the Ntilde installer, so it cannot update itself. " +
                 "Download the installer from the releases page to get automatic updates.",
             UpdateCheckOutcome.Failed => "Could not reach GitHub. See the debug log for details.",
 

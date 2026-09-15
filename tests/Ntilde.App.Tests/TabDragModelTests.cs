@@ -1,8 +1,8 @@
 using System.Collections.Generic;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public sealed class TabDragModelTests
     {

@@ -1,4 +1,4 @@
-namespace NovaTerminal.CommandAssist.Domain;
+namespace Ntilde.CommandAssist.Domain;
 
 public interface ISecretsFilter
 {

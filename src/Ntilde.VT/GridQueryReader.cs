@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace NovaTerminal.VT
+namespace Ntilde.VT
 {
     /// <summary>
     /// Reads the live command line out of the terminal grid: the cells from an
@@ -10,11 +10,11 @@ namespace NovaTerminal.VT
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Placement.</b> This lives in <c>NovaTerminal.VT</c> rather than in
-    /// <c>NovaTerminal.CommandAssist</c> (where the V2 plan first sketched it) because the
+    /// <b>Placement.</b> This lives in <c>Ntilde.VT</c> rather than in
+    /// <c>Ntilde.CommandAssist</c> (where the V2 plan first sketched it) because the
     /// extraction is pure buffer walking — wrap flags, paged scrollback, wide-cell
     /// continuations, the deferred-autowrap cursor — and the layering tests forbid
-    /// <c>NovaTerminal.CommandAssist</c> from referencing <c>NovaTerminal.VT</c>. Command
+    /// <c>Ntilde.CommandAssist</c> from referencing <c>Ntilde.VT</c>. Command
     /// Assist consumes the result through the App boundary.
     /// </para>
     /// <para>

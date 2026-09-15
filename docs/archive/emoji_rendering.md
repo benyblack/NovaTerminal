@@ -1,11 +1,11 @@
 # Emoji and Text Rendering: GPU-Accelerated Architecture
 
-This document outlines the high-performance implementation of text and emoji rendering in NovaTerminal, achieving "Physics-Perfect" clarity and extreme throughput.
+This document outlines the high-performance implementation of text and emoji rendering in Ntilde, achieving "Physics-Perfect" clarity and extreme throughput.
 
 ## Current Architecture
 
 ### 1. Hybrid Rendering Pipeline
-NovaTerminal uses a multi-layered approach to balance quality and performance:
+Ntilde uses a multi-layered approach to balance quality and performance:
 - **Phase 1 (HarfBuzz)**: Complex clusters (emojis, ZWJ sequences, ligatures) are shaped as single units using `SKShaper`.
 - **Phase 3 (GPU Cache)**: Standard glyphs are cached in a specialized **Dual-Atlas** system and rendered using hardware-accelerated batching.
 

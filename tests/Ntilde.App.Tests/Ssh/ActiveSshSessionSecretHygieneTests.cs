@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using NovaTerminal.Platform.Ssh.Models;
-using NovaTerminal.Services.Ssh;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Services.Ssh;
 using Xunit;
 
-namespace NovaTerminal.Tests.Ssh;
+namespace Ntilde.Tests.Ssh;
 
 /// <summary>
 /// #121: <c>ActiveSshSessionRegistry</c> retains the session password so the remote file browser and

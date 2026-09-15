@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using NovaTerminal.AgentHost;
+using Ntilde.AgentHost;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// Deterministic tests for the per-pane agent attention tiers
