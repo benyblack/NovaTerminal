@@ -19,7 +19,7 @@ public class AgentHostAttentionProtocolTests : IDisposable
 
     public AgentHostAttentionProtocolTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "nova-agentattention-tests-" + Guid.NewGuid().ToString("N"));
+        _tempDir = AgentHostTestEndpoint.CreateTempDir("attn");
         Directory.CreateDirectory(_tempDir);
     }
 
@@ -47,9 +47,7 @@ public class AgentHostAttentionProtocolTests : IDisposable
     /// </summary>
     private AgentHostService NewStoppedService(AgentSessionRegistry registry)
     {
-        var endpoint = OperatingSystem.IsWindows()
-            ? "novaterminal-agent-attention-test-" + Guid.NewGuid().ToString("N")
-            : Path.Combine(_tempDir, Guid.NewGuid().ToString("N")[..8] + ".sock");
+        var endpoint = AgentHostTestEndpoint.CreateEndpoint(_tempDir);
         return new AgentHostService(registry, endpoint, _tempDir);
     }
 
@@ -456,9 +454,7 @@ public class AgentHostAttentionProtocolTests : IDisposable
         // attempt that genuinely happened.
         var registry = new AgentSessionRegistry();
         var journal = new AgentActivityJournal();
-        var endpoint = OperatingSystem.IsWindows()
-            ? "novaterminal-agent-attention-test-" + Guid.NewGuid().ToString("N")
-            : Path.Combine(_tempDir, Guid.NewGuid().ToString("N")[..8] + ".sock");
+        var endpoint = AgentHostTestEndpoint.CreateEndpoint(_tempDir);
         using var service = new AgentHostService(registry, endpoint, _tempDir, journal: journal);
         service.ActEnabled = true;
         service.Start();

@@ -24,7 +24,7 @@ public class AgentHostReplayProtocolTests : IDisposable
 
     public AgentHostReplayProtocolTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "nova-agentreplay-tests-" + Guid.NewGuid().ToString("N"));
+        _tempDir = AgentHostTestEndpoint.CreateTempDir("replay");
         _exportDir = Path.Combine(_tempDir, "agent-exports");
         Directory.CreateDirectory(_tempDir);
     }
@@ -37,9 +37,7 @@ public class AgentHostReplayProtocolTests : IDisposable
 
     private AgentHostService NewService(AgentSessionRegistry registry)
     {
-        var endpoint = OperatingSystem.IsWindows()
-            ? "novaterminal-agent-test-" + Guid.NewGuid().ToString("N")
-            : Path.Combine(_tempDir, Guid.NewGuid().ToString("N")[..8] + ".sock");
+        var endpoint = AgentHostTestEndpoint.CreateEndpoint(_tempDir);
         return new AgentHostService(registry, endpoint, _tempDir, _exportDir);
     }
 

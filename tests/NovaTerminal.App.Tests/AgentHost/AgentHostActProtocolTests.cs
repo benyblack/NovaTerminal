@@ -30,9 +30,13 @@ public class AgentHostActProtocolTests
 
     private static AgentHostService NewService(AgentSessionRegistry registry, AgentActivityJournal journal)
     {
-        var endpoint = OperatingSystem.IsWindows()
-            ? "novaterminal-agent-test-" + Guid.NewGuid().ToString("N")
-            : System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid().ToString("N")[..8] + ".sock");
+        // Straight into GetTempPath, unchanged: this class is the one that kept working on
+        // macOS while its four siblings failed, precisely because it never nested the socket
+        // under a long per-class directory. Routed through the helper anyway so every socket
+        // path in these tests is length-checked in one place, including the one that is
+        // already fine - a check that skips the passing case stops being a check the moment
+        // the passing case changes.
+        var endpoint = AgentHostTestEndpoint.CreateEndpoint(System.IO.Path.GetTempPath());
         return new AgentHostService(registry, endpoint, System.IO.Path.GetTempPath(), null, journal);
     }
 

@@ -26,7 +26,7 @@ public class AgentHostServiceTests : IDisposable
 
     public AgentHostServiceTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "nova-agenthost-tests-" + Guid.NewGuid().ToString("N"));
+        _tempDir = AgentHostTestEndpoint.CreateTempDir("svc");
         Directory.CreateDirectory(_tempDir);
     }
 
@@ -38,9 +38,7 @@ public class AgentHostServiceTests : IDisposable
 
     private string NewEndpointName()
     {
-        return OperatingSystem.IsWindows()
-            ? "novaterminal-agent-test-" + Guid.NewGuid().ToString("N")
-            : Path.Combine(_tempDir, Guid.NewGuid().ToString("N")[..8] + ".sock");
+        return AgentHostTestEndpoint.CreateEndpoint(_tempDir);
     }
 
     private AgentHostService NewService(AgentSessionRegistry registry)
