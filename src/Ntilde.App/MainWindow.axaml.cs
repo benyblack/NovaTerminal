@@ -3021,14 +3021,14 @@ namespace Ntilde
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel?.StorageProvider == null) return;
 
-            string suggestedFileName = $"{name.Trim()}.ntildews.json";
+            string suggestedFileName = WorkspaceBundleNaming.SuggestedFileName(name);
             var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
                 Title = "Export Workspace Bundle",
                 SuggestedFileName = suggestedFileName,
                 FileTypeChoices = new[]
                 {
-                    new FilePickerFileType("Ntilde Workspace Bundle") { Patterns = new[] { "*.ntildews.json", "*.json" } }
+                    new FilePickerFileType("Ntilde Workspace Bundle") { Patterns = WorkspaceBundleNaming.PickerPatterns }
                 }
             });
 
@@ -3059,14 +3059,14 @@ namespace Ntilde
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel?.StorageProvider == null) return;
 
-            string suggestedFileName = $"{label.Trim()}.ntildews.json";
+            string suggestedFileName = WorkspaceBundleNaming.SuggestedFileName(label);
             var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
                 Title = "Export Session Bundle",
                 SuggestedFileName = suggestedFileName,
                 FileTypeChoices = new[]
                 {
-                    new FilePickerFileType("Ntilde Workspace Bundle") { Patterns = new[] { "*.ntildews.json", "*.json" } }
+                    new FilePickerFileType("Ntilde Workspace Bundle") { Patterns = WorkspaceBundleNaming.PickerPatterns }
                 }
             });
 
@@ -3097,18 +3097,14 @@ namespace Ntilde
                 AllowMultiple = false,
                 FileTypeFilter = new[]
                 {
-                    new FilePickerFileType("Ntilde Workspace Bundle") { Patterns = new[] { "*.ntildews.json", "*.json" } }
+                    new FilePickerFileType("Ntilde Workspace Bundle") { Patterns = WorkspaceBundleNaming.PickerPatterns }
                 }
             });
 
             if (files.Count == 0) return;
 
             string bundlePath = files[0].Path.LocalPath;
-            string suggestedName = Path.GetFileNameWithoutExtension(bundlePath);
-            if (suggestedName.EndsWith(".ntildews", StringComparison.OrdinalIgnoreCase))
-            {
-                suggestedName = Path.GetFileNameWithoutExtension(suggestedName);
-            }
+            string suggestedName = WorkspaceBundleNaming.SuggestedWorkspaceName(bundlePath);
 
             string? name = await ShowTextPromptAsync("Import Workspace Bundle", "Workspace name", suggestedName);
             if (string.IsNullOrWhiteSpace(name)) return;
@@ -3143,7 +3139,7 @@ namespace Ntilde
                 AllowMultiple = false,
                 FileTypeFilter = new[]
                 {
-                    new FilePickerFileType("Ntilde Workspace Bundle") { Patterns = new[] { "*.ntildews.json", "*.json" } }
+                    new FilePickerFileType("Ntilde Workspace Bundle") { Patterns = WorkspaceBundleNaming.PickerPatterns }
                 }
             });
 
@@ -3154,7 +3150,7 @@ namespace Ntilde
             if (ok && snapshot != null)
             {
                 // This spawns the bundle's stored commands immediately — confirm first
-                // for a foreign .ntildews.json opened from disk (#171).
+                // for a foreign bundle (.ntildews.json or legacy .novaws.json) opened from disk (#171).
                 if (!await ConfirmBundleCommandsAsync(snapshot, _workspaceName ?? "workspace"))
                 {
                     return;
