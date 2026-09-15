@@ -133,7 +133,7 @@ version — see "Dry run without cutting a release" below.
   because the package name is version-pinned per distro and `InvariantGlobalization`
   is unset, so the app genuinely needs ICU. Hard-depending on one version would
   refuse to install across most of the supported distro range.
-- **`WM_CLASS` is `"nova", "Ntilde"`** on the real Avalonia binary — verified
+- **`WM_CLASS` is `"ntilde", "Ntilde"`** on the real Avalonia binary — verified
   against a genuine GUI launch, not inferred from source — so `StartupWMClass=Ntilde`
   in `ntilde.desktop` is correct.
 - **`libSkiaSharp.so` embeds freetype, libjpeg and libpng, and the AOT binary embeds

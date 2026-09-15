@@ -42,7 +42,7 @@ public sealed record CommandKnowledgeCatalogue(
 /// for a portable tool. Derived from which tldr page directory the entry came from.
 /// </param>
 /// <param name="Origin">
-/// <c>"nova"</c> for the handful of entries hand-authored for Ntilde because tldr-pages has no
+/// <c>"ntilde"</c> for the handful of entries hand-authored for Ntilde because tldr-pages has no
 /// page for them; absent for everything derived from tldr-pages. This is what keeps the CC-BY-SA
 /// attribution in <see cref="CommandKnowledgeCatalogue.Attribution"/> a true statement about exactly
 /// the rows it covers.

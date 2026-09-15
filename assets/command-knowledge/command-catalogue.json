@@ -3198,7 +3198,7 @@
                                       "d":  "Include the owning user (requires an elevated session)"
                                   }
                               ],
-                        "o":  "nova"
+                        "o":  "ntilde"
                     },
                     {
                         "t":  "Get-Service",
@@ -3230,7 +3230,7 @@
                                       "d":  "Show the services that depend on a service"
                                   }
                               ],
-                        "o":  "nova"
+                        "o":  "ntilde"
                     },
                     {
                         "t":  "gh",
