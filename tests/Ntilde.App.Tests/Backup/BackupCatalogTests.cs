@@ -112,6 +112,8 @@ public sealed class BackupCatalogTests
         {
             if (property.PropertyType != typeof(string)) continue;
             if (property.Name == nameof(AppPaths.RootDirectory)) continue;
+            // Pre-rebrand data folder: a one-time migration source outside the root, never part of a bundle.
+            if (property.Name == nameof(AppPaths.LegacyRootDirectory)) continue;
 
             string value = Path.GetFullPath((string)property.GetValue(null)!);
             string relative = Path.GetRelativePath(root, value);
