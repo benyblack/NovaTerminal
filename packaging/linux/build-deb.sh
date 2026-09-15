@@ -383,6 +383,8 @@ Section: utils
 Priority: optional
 Architecture: $debarch
 Depends: $depends
+Replaces: novaterminal
+Conflicts: novaterminal
 Maintainer: benyblack <noreply@github.com>
 Homepage: https://github.com/benyblack/ntilde
 Installed-Size: $installed_kb

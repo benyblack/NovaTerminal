@@ -357,7 +357,8 @@ optdepends=('xorg-xwayland: run under a Wayland compositor (the app uses Avaloni
             'kwallet: store SSH passwords via the Secret Service')
 makedepends=('imagemagick')
 provides=('ntilde')
-conflicts=('ntilde')
+conflicts=('ntilde' 'novaterminal' 'novaterminal-bin')
+replaces=('novaterminal-bin')
 # !strip: the payload is a NativeAOT binary. build-deb.sh strips the bundled native
 # libraries but pointedly not the AOT binary itself; makepkg's default strip pass
 # makes no such distinction, so it is disabled here and package() does the same

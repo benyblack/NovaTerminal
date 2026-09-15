@@ -14,13 +14,17 @@ own the install. Once accepted into the community repo it installs with:
 winget install benyblack.ntilde
 ```
 
+`benyblack.NovaTerminal` remains in winget-pkgs as an orphan; winget cannot rename identifiers, so
+`benyblack.ntilde` is a first-time submission (`submit-first-time.ps1`) on the first Ntilde release.
+
 ## Layout
 
 ```
-packaging/winget/<version>/
-  benyblack.ntilde.yaml               # version manifest
-  benyblack.ntilde.installer.yaml     # installer (zip → portable Ntilde.exe, alias: ntilde)
+packaging/winget/template/
+  benyblack.ntilde.yaml               # version manifest   (__VERSION__ placeholder)
+  benyblack.ntilde.installer.yaml     # installer          (__VERSION__, __SHA256__)
   benyblack.ntilde.locale.en-US.yaml  # default-locale metadata
+packaging/winget/<version>/            # rendered set, created by the recipe below, committed per release
 ```
 
 `PackageIdentifier` is `benyblack.ntilde`; the portable command alias is `ntilde`.
@@ -30,9 +34,9 @@ packaging/winget/<version>/
 On a Windows machine with the winget client:
 
 ```powershell
-winget validate --manifest packaging\winget\0.3.0
+winget validate --manifest packaging\winget\<version>
 # Optional end-to-end install test in a throwaway context:
-winget install --manifest packaging\winget\0.3.0
+winget install --manifest packaging\winget\<version>
 ```
 
 `winget validate` checks schema and required fields offline. `winget install --manifest` downloads
@@ -54,15 +58,14 @@ $url = "https://github.com/benyblack/ntilde/releases/download/v$ver/$asset"
 gh release download "v$ver" --pattern $asset --dir "$env:TEMP\ntilde-winget" --clobber
 $sha = (Get-FileHash "$env:TEMP\ntilde-winget\$asset" -Algorithm SHA256).Hash
 
-# 2. Copy the previous version's files into a new folder and update them.
-#    (Create the dir first and copy contents with a wildcard — `Copy-Item -Recurse`
-#    onto an existing dir nests the source folder instead of copying its contents.)
+# 2. Render the template into a versioned folder.
 New-Item -ItemType Directory -Force -Path packaging\winget\$ver | Out-Null
-Copy-Item packaging\winget\0.3.0\* packaging\winget\$ver
-# In each file: set PackageVersion: X.Y.Z
-# In the installer file: set the new InstallerUrl and InstallerSha256 ($url / $sha)
-# In the locale file: update ReleaseNotesUrl to the vX.Y.Z tag and refresh the description
-#   ONLY once the release actually contains the described features.
+Get-ChildItem packaging\winget\template\*.yaml | ForEach-Object {
+    (Get-Content $_ -Raw).Replace('__VERSION__', $ver).Replace('__SHA256__', $sha) |
+        Set-Content -NoNewline (Join-Path packaging\winget\$ver $_.Name)
+}
+# In the locale file: refresh the description ONLY once the release actually contains the
+#   described features (the agent-host surface note below still applies).
 ```
 
 `wingetcreate update benyblack.ntilde --version X.Y.Z --urls $url` automates steps 1–2
@@ -79,9 +82,9 @@ on first launch of the unsigned exe; that resolves when code-signing lands (a se
 
 ## Notes / caveats
 
-- **Version vs. feature drift.** The `0.3.0` manifest describes Ntilde *as of that release*.
-  The agent-host surface (observe / status / act / replay export, milestones A1–A4) landed after
-  v0.3.0 and is unreleased at the time of writing; do not advertise those capabilities in a manifest
+- **Version vs. feature drift.** The rendered manifest for a given release must describe Ntilde
+  *as of that release*. The agent-host surface (observe / status / act / replay export, milestones
+  A1–A4) is unreleased at the time of writing; do not advertise those capabilities in a manifest
   until the release actually contains them (cut a new `vX.Y.Z` first, then a matching manifest).
 - **x64 only.** Releases currently publish `win-x64`. Add an `arm64` installer entry when the
   release workflow starts producing a `win-arm64` bundle.

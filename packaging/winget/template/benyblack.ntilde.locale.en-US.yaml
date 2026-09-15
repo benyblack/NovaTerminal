@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: benyblack.ntilde
-PackageVersion: 0.3.0
+PackageVersion: __VERSION__
 PackageLocale: en-US
 Publisher: Behnam Yousefi
 PublisherUrl: https://github.com/benyblack
@@ -28,6 +28,6 @@ Tags:
   - ansi
   - developer-tools
   - avalonia
-ReleaseNotesUrl: https://github.com/benyblack/ntilde/releases/tag/v0.3.0
+ReleaseNotesUrl: https://github.com/benyblack/ntilde/releases/tag/v__VERSION__
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0

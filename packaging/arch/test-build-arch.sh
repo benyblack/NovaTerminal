@@ -129,8 +129,9 @@ else
   grep -q "^_tag=v0.8.0$"              "$pkgbuild" && pass "_tag"    || fail "_tag"
   grep -q "^arch=('x86_64')$"          "$pkgbuild" && pass "arch is x86_64 only" || fail "arch"
   grep -q "^options=('!strip' '!debug')$" "$pkgbuild" && pass "options disable makepkg's blanket strip" || fail "options"
-  grep -q "^provides=('ntilde')$"   "$pkgbuild" && pass "provides" || fail "provides"
-  grep -q "^conflicts=('ntilde')$"  "$pkgbuild" && pass "conflicts" || fail "conflicts"
+  grep -q "^provides=('ntilde')$"                                    "$pkgbuild" && pass "provides"  || fail "provides"
+  grep -q "^conflicts=('ntilde' 'novaterminal' 'novaterminal-bin')$" "$pkgbuild" && pass "conflicts" || fail "conflicts"
+  grep -q "^replaces=('novaterminal-bin')$"                          "$pkgbuild" && pass "replaces"  || fail "replaces"
   grep -q "sha256sums_x86_64=('$fake_sha')" "$pkgbuild" && pass "tarball sha256 is the real digest" || fail "tarball sha256"
 
   # No placeholder may survive: makepkg would treat a leftover @TOKEN@ as a literal,

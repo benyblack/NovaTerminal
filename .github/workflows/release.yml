@@ -877,23 +877,18 @@ jobs:
           # defensive.
           Get-ChildItem artifacts/velopack -Filter "NtildeApp-$ver-*.nupkg" -ErrorAction SilentlyContinue | Remove-Item -Force
 
-          # --packId is deliberately NOT "Ntilde", and this must not be "tidied" back.
-          # Velopack installs to %LocalAppData%\<packId> and its uninstall routine deletes
-          # that ENTIRE directory ("any data stored within it, such as settings or logs, will
-          # be lost" - Velopack's own uninstalling docs). AppPaths.RootDirectory is
-          # %LocalAppData%\Ntilde, so a packId of "Ntilde" makes the install root
-          # and the config root the same folder: uninstalling would silently destroy
-          # settings.json, ssh/profiles.json, native_known_hosts.json, command-assist history,
-          # workspaces, themes and recordings. Updates alone are safe (only `current` is
-          # replaced) - it is uninstall that is destructive, which is why testing never
-          # surfaced it.
+          # --packId is deliberately NOT "ntilde" (the data folder name), and this must not be
+          # "tidied" to match. Velopack installs to %LocalAppData%\<packId> and its uninstall
+          # routine deletes that directory. Settings, themes, sessions and logs live in
+          # %LocalAppData%\ntilde, and Windows paths are case-insensitive, so a packId of
+          # "ntilde" or "Ntilde" makes the install root and the data root the same directory:
+          # uninstall would wipe user data. "NtildeApp" keeps them apart.
           #
           # Only the nupkg file names and the install directory derive from packId; --packTitle
-          # below is what the user actually sees in shortcuts and Add/Remove Programs, and the
-          # config root is left exactly where every existing 0.4.0 user already has it, so no
-          # migration is needed. Changing packId AFTER a stable release ships would orphan
-          # every installed client (a different packId is a different app to the updater), so
-          # this had to land before v0.5.0 or not at all.
+          # is what users see. Changing packId AFTER a stable release ships orphans every
+          # installed client (a different packId is a different app to the updater), so the
+          # NovaTerminalApp -> NtildeApp change at the rebrand was the one allowed break and
+          # is documented in README "Coming from NovaTerminal".
           vpk pack `
             --packId NtildeApp `
             --packVersion $ver `
@@ -1033,9 +1028,10 @@ jobs:
           # packId matches the Windows lane deliberately: it is the updater's application
           # identity. On macOS it only names the update cache
           # (~/Library/Caches/velopack/NtildeApp); the app itself installs as
-          # /Applications/Ntilde.app, so the Windows uninstall-hazard (packId == the
-          # config root) does not apply here. --bundleId: vpk's default would be
-          # com.benyblack.NtildeApp; this matches the public identity (winget:
+          # /Applications/Ntilde.app, so the Windows case-insensitivity hazard (a packId of
+          # "ntilde" or "Ntilde" colliding with the %LocalAppData%\ntilde data folder) does
+          # not apply here - macOS's filesystem is case-sensitive. --bundleId: vpk's default
+          # would be com.benyblack.NtildeApp; this matches the public identity (winget:
           # benyblack.ntilde) instead.
           #
           # Signing is secret-gated (the keychain is set up at the top of this job):
