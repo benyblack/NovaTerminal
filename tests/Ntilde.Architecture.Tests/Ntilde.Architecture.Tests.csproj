@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!-- Ratchet (#108): reached zero by hoisting two constant array arguments (CA1861) in
+         ProjectFileLayeringTests. See the repo-wide default in Directory.Build.props. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reference every production assembly so NetArchTest can load them. -->
+    <ProjectReference Include="..\..\src\Ntilde.VT\Ntilde.VT.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Replay\Ntilde.Replay.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Rendering\Ntilde.Rendering.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Pty\Ntilde.Pty.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Platform\Ntilde.Platform.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.CommandAssist\Ntilde.CommandAssist.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.App\Ntilde.App.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Cli\Ntilde.Cli.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.Conformance\Ntilde.Conformance.csproj" />
+    <ProjectReference Include="..\..\src\Ntilde.AgentHost.Contracts\Ntilde.AgentHost.Contracts.csproj" />
+  </ItemGroup>
+</Project>

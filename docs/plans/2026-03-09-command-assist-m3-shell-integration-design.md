@@ -56,10 +56,10 @@ The main architectural gap is that shell integration is not modeled explicitly. 
 
 Add a new App-side shell integration subsystem under:
 
-- `src/NovaTerminal.App/CommandAssist/ShellIntegration/Contracts`
-- `src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell`
-- `src/NovaTerminal.App/CommandAssist/ShellIntegration/Runtime`
-- `src/NovaTerminal.App/CommandAssist/ShellIntegration/Assets`
+- `src/Ntilde.App/CommandAssist/ShellIntegration/Contracts`
+- `src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell`
+- `src/Ntilde.App/CommandAssist/ShellIntegration/Runtime`
+- `src/Ntilde.App/CommandAssist/ShellIntegration/Assets`
 
 Recommended core types:
 

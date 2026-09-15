@@ -6,11 +6,11 @@ Windows was regression-checked separately (see the appendix) and shows no regres
 that does **not** cover the gate. Run the checks below on real hardware before merging.
 
 Target/attribute scheme (for verification commands):
-- Service/label: `NovaTerminal`
+- Service/label: `Ntilde`
 - Key per credential: `SSH:PROFILE:<profile-guid>` or `SSH:<user@host>`
-- App-data dir (where `settings.json` lives): `~/.local/share/NovaTerminal` on Linux;
-  **`~/Library/Application Support/NovaTerminal` on macOS** (confirmed 2026-07-16).
-  Overridable via `NOVATERM_APPDATA_ROOT`.
+- App-data dir (where `settings.json` lives): `~/.local/share/Ntilde` on Linux;
+  **`~/Library/Application Support/Ntilde` on macOS** (confirmed 2026-07-16).
+  Overridable via `NTILDE_APPDATA_ROOT`.
 
 ## Fastest keychain-store check (recommended, no SSH needed)
 
@@ -19,7 +19,7 @@ unreliable, so don't gate on a live connection. Instead run the shipped integrat
 which does a real `MacKeychainStore` / `LinuxSecretStore` write→update→read→delete round-trip:
 
 ```sh
-scripts/build.sh test tests/NovaTerminal.App.Tests/NovaTerminal.App.Tests.csproj \
+scripts/build.sh test tests/Ntilde.App.Tests/Ntilde.App.Tests.csproj \
   --filter "FullyQualifiedName~KeychainSecretStoreIntegrationTests"
 ```
 
@@ -48,8 +48,8 @@ export PATH="$HOME/.dotnet:$PATH"
 dotnet --version    # compare against global.json's pinned SDK
 
 # 4) Source + branch
-git clone https://github.com/benyblack/NovaTerminal.git
-cd NovaTerminal
+git clone https://github.com/benyblack/ntilde.git
+cd Ntilde
 git checkout fix/issue-100-vault-keychain-security
 ```
 
@@ -62,7 +62,7 @@ throw-guard tweak (skip-guard `return;` → `throw new System.InvalidOperationEx
 so a skip can't masquerade as a pass, then:
 
 ```sh
-scripts/build.sh test tests/NovaTerminal.App.Tests/NovaTerminal.App.Tests.csproj \
+scripts/build.sh test tests/Ntilde.App.Tests/Ntilde.App.Tests.csproj \
   --filter "FullyQualifiedName~KeychainSecretStoreIntegrationTests"
 ```
 
@@ -71,32 +71,32 @@ scripts/build.sh test tests/NovaTerminal.App.Tests/NovaTerminal.App.Tests.csproj
   sure you're in the desktop session (not a bare SSH/tty) with the login keyring unlocked.
 
 Independently confirm an entry is visible (from the same session):
-`secret-tool search service NovaTerminal` (after a save).
+`secret-tool search service Ntilde` (after a save).
 
 ### Linux GUI checks (run the app)
 
 ```sh
-dotnet src/NovaTerminal.App/bin/Debug/net10.0/NovaTerminal.dll
+dotnet src/Ntilde.App/bin/Debug/net10.0/Ntilde.dll
 ```
 
 - **§3 startup probe:** with the keyring **unlocked**, launch — window appears promptly, no
   hang, no unexpected keyring-unlock dialog on startup (the `LinuxSecretStore` ctor does a
   synchronous Secret Service lookup on the UI thread).
 - **§4 disabled-mode/locked-keyring:** launch with no secrets provider —
-  `dbus-run-session -- dotnet src/NovaTerminal.App/bin/Debug/net10.0/NovaTerminal.dll` —
+  `dbus-run-session -- dotnet src/Ntilde.App/bin/Debug/net10.0/Ntilde.dll` —
   expect the app to launch, show the one-time "Credential storage unavailable" toast, and
   still let SSH connect (password just isn't persisted). No crash, no silent swallow.
-- **§6 legacy `vault.dat`:** `printf x > ~/.local/share/NovaTerminal/vault.dat`, launch,
-  then confirm it's gone (`ls -l ~/.local/share/NovaTerminal/vault.dat` → No such file).
+- **§6 legacy `vault.dat`:** `printf x > ~/.local/share/Ntilde/vault.dat`, launch,
+  then confirm it's gone (`ls -l ~/.local/share/Ntilde/vault.dat` → No such file).
 
 ## 0. Build & run the PR branch
 
 ```sh
 git fetch origin fix/issue-100-vault-keychain-security
 git checkout fix/issue-100-vault-keychain-security
-scripts/build.sh build src/NovaTerminal.App        # wrapper; or: dotnet build -nodeReuse:false
+scripts/build.sh build src/Ntilde.App        # wrapper; or: dotnet build -nodeReuse:false
 # run the built app (adjust net10.0 path if needed):
-dotnet src/NovaTerminal.App/bin/Debug/net10.0/NovaTerminal.dll
+dotnet src/Ntilde.App/bin/Debug/net10.0/Ntilde.dll
 ```
 
 Use a **password-based** SSH profile (not agent/key) — only password auth exercises the
@@ -107,9 +107,9 @@ keychain. Create a throwaway profile against any host that accepts password auth
 ## 1. macOS — keychain round-trip
 
 1. Connect the password profile; enter the password with **remember** on.
-2. **Verify it was written:** Keychain Access → search `NovaTerminal` → an item whose
-   service is `NovaTerminal` and account/key is `SSH:PROFILE:<guid>` exists.
-   CLI equivalent: `security find-generic-password -s "NovaTerminal" -a "SSH:PROFILE:<guid>"`
+2. **Verify it was written:** Keychain Access → search `Ntilde` → an item whose
+   service is `Ntilde` and account/key is `SSH:PROFILE:<guid>` exists.
+   CLI equivalent: `security find-generic-password -s "Ntilde" -a "SSH:PROFILE:<guid>"`
 3. Quit the app fully, relaunch, reconnect the same profile.
 
 **Pass:** step 3 connects with **no** password prompt (read from Keychain); step 2 item present.
@@ -119,7 +119,7 @@ keychain. Create a throwaway profile against any host that accepts password auth
 
 1. Same connect-with-remember as above.
 2. **Verify write:** `secret-tool search key "SSH:PROFILE:<guid>"`
-   (or `secret-tool search service NovaTerminal`) returns the item.
+   (or `secret-tool search service Ntilde`) returns the item.
 3. Quit fully, relaunch, reconnect.
 
 **Pass:** step 3 no re-prompt; `secret-tool` shows the entry.
@@ -140,7 +140,7 @@ Simulate no usable keychain, e.g. run without a Secret Service provider:
 
 ```sh
 # a session with no keyring daemon / D-Bus secrets service, or lock the keyring first
-dbus-run-session -- dotnet src/NovaTerminal.App/bin/Debug/net10.0/NovaTerminal.dll
+dbus-run-session -- dotnet src/Ntilde.App/bin/Debug/net10.0/Ntilde.dll
 ```
 
 **Pass:** app launches; shows the one-time **"Credential storage unavailable"** toast;
@@ -160,10 +160,10 @@ With a password saved (from #1/#2), trigger a flow that invokes the `ssh-askpass
 
 ```sh
 # with the app closed, plant a dummy in the app-data dir:
-printf 'legacy junk' > ~/.local/share/NovaTerminal/vault.dat
-ls -l ~/.local/share/NovaTerminal/vault.dat   # exists
+printf 'legacy junk' > ~/.local/share/Ntilde/vault.dat
+ls -l ~/.local/share/Ntilde/vault.dat   # exists
 # launch the app, then re-check:
-ls -l ~/.local/share/NovaTerminal/vault.dat   # should be GONE
+ls -l ~/.local/share/Ntilde/vault.dat   # should be GONE
 ```
 
 **Pass:** `vault.dat` is deleted on launch **without being read/migrated**.
@@ -177,7 +177,7 @@ Validated on a #132 worktree build (`ba4bea8`), Debug, Windows 11:
 - Builds clean; launches with no crash (no new `startup_error.txt`).
 - "Credentials stored in OS keychain" UI text renders (new store wired in).
 - **Write:** creating profile `vw2` with a saved password created a fresh
-  `NovaTerminal:SSH:PROFILE:<guid>` entry in Credential Manager, stamped that day
+  `Ntilde:SSH:PROFILE:<guid>` entry in Credential Manager, stamped that day
   (verified via `CredEnumerate` `LastWritten`).
 - **Read across restart:** after a full app restart, `vw2` reconnected with no password
   prompt — password read back from Credential Manager.

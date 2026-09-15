@@ -7,13 +7,13 @@ This PR adds a focused validator/report generator for `docs/vt_coverage_matrix.m
 Generate a deterministic JSON report and fail on validation errors:
 
 ```powershell
-dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -- --validate --report artifacts/vt-conformance/vt-conformance-report.json
+dotnet run --project src/Ntilde.Conformance/Ntilde.Conformance.csproj -- --validate --report artifacts/vt-conformance/vt-conformance-report.json
 ```
 
 Validate that the shipped embedded app artifact is still current:
 
 ```powershell
-dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -- --validate --check-report src/NovaTerminal.App/Resources/vt-conformance-report.json
+dotnet run --project src/Ntilde.Conformance/Ntilde.Conformance.csproj -- --validate --check-report src/Ntilde.App/Resources/vt-conformance-report.json
 ```
 
 Defaults:
@@ -67,7 +67,7 @@ Warnings are included in the report but do not fail CI.
 
 ## Capability Contract
 
-`src/NovaTerminal.VtContract/vt-capabilities.json` is the machine-readable source
+`src/Ntilde.VtContract/vt-capabilities.json` is the machine-readable source
 of truth for sequences promoted into the capability contract. Each supported
 entry names:
 
@@ -76,7 +76,7 @@ entry names:
 - a repository evidence path
 - an executable contract-case identifier
 
-`tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs` maps those case
+`tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs` maps those case
 identifiers to parser assertions. A supported entry without an executable case
 fails the VT test suite. The conformance tool independently rejects missing or
 duplicated matrix rows, status mismatches, missing evidence files, and matrix
@@ -93,8 +93,8 @@ not yet been promoted into this executable contract.
 `.github/workflows/vt-conformance.yml` runs the validator on:
 
 - `docs/vt_coverage_matrix.md`
-- `src/NovaTerminal.VtContract/vt-capabilities.json`
-- `tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs`
+- `src/Ntilde.VtContract/vt-capabilities.json`
+- `tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs`
 - conformance tooling source changes
 - workflow/doc updates for this tooling
 
@@ -102,20 +102,20 @@ It uploads the JSON report as an artifact for PR review and push runs.
 
 ## Shipped App Artifact
 
-NovaTerminal ships an embedded copy of the generated report at:
+Ntilde ships an embedded copy of the generated report at:
 
-- `src/NovaTerminal.App/Resources/vt-conformance-report.json`
+- `src/Ntilde.App/Resources/vt-conformance-report.json`
 
 Regenerate it from the canonical matrix with:
 
 ```powershell
-dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -c Release -- --report src/NovaTerminal.App/Resources/vt-conformance-report.json
+dotnet run --project src/Ntilde.Conformance/Ntilde.Conformance.csproj -c Release -- --report src/Ntilde.App/Resources/vt-conformance-report.json
 ```
 
 Verify that it has not drifted with:
 
 ```powershell
-dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -c Release -- --validate --check-report src/NovaTerminal.App/Resources/vt-conformance-report.json
+dotnet run --project src/Ntilde.Conformance/Ntilde.Conformance.csproj -c Release -- --validate --check-report src/Ntilde.App/Resources/vt-conformance-report.json
 ```
 
 This keeps the main app lightweight:
@@ -134,8 +134,8 @@ The CI workflow also runs the `--check-report` command, so a stale embedded arti
 User-facing commands:
 
 ```powershell
-NovaTerminal.Cli --vt-report
-NovaTerminal.Cli --vt-report --json
+Ntilde.Cli --vt-report
+Ntilde.Cli --vt-report --json
 ```
 
 Default output is a short summary:
@@ -149,9 +149,9 @@ Default output is a short summary:
 
 Implementation note:
 
-- `NovaTerminal.exe` is the normal GUI entry point
-- `NovaTerminal.Cli.exe` is the console-side executable for VT-report and other headless tooling
-- on Windows, interactive shell use should prefer `NovaTerminal.Cli.exe` rather than the GUI binary
+- `Ntilde.exe` is the normal GUI entry point
+- `Ntilde.Cli.exe` is the console-side executable for VT-report and other headless tooling
+- on Windows, interactive shell use should prefer `Ntilde.Cli.exe` rather than the GUI binary
 
 ## Intentional Limitations
 

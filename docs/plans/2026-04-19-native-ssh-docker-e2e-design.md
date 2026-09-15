@@ -33,7 +33,7 @@ Add a real end-to-end native SSH verification lane that connects to a Dockerized
   - real auth flow
   - real shell startup
   - real command execution over native SSH
-- The current external suite already provides an executable harness project in `tests/NovaTerminal.ExternalSuites`, but it is transcript-driven rather than live-SSH-driven.
+- The current external suite already provides an executable harness project in `tests/Ntilde.ExternalSuites`, but it is transcript-driven rather than live-SSH-driven.
 
 ## Problem
 

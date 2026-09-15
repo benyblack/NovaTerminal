@@ -13,11 +13,11 @@
 ### Task 1: Lock Key Arbitration To Shell-First Tab
 
 **Files:**
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistKeyRouter.cs`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistBubbleViewModel.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistKeyRouterTests.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistKeyRouter.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Modify: `src/Ntilde.App/CommandAssist/ViewModels/CommandAssistBubbleViewModel.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/CommandAssistKeyRouterTests.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs`
 
 **Step 1: Write failing tests for new key ownership contract**
 
@@ -28,7 +28,7 @@ Add tests that assert:
 
 **Step 2: Run tests to verify failure**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistKeyRouterTests"`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistKeyRouterTests"`
 
 Expected: FAIL on new assertions until router logic is updated.
 
@@ -48,34 +48,34 @@ Update bubble hint text to reflect the new default keys (`Ctrl+Enter` accept, `C
 **Step 4: Run tests to verify pass**
 
 Run:
-- `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistKeyRouterTests"`
-- `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~TerminalPaneCommandAssistShortcutTests"`
+- `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistKeyRouterTests"`
+- `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~TerminalPaneCommandAssistShortcutTests"`
 
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/Application/CommandAssistKeyRouter.cs \
-        src/NovaTerminal.App/Controls/TerminalPane.axaml.cs \
-        src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistBubbleViewModel.cs \
-        tests/NovaTerminal.Tests/CommandAssist/CommandAssistKeyRouterTests.cs \
-        tests/NovaTerminal.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs
+git add src/Ntilde.App/CommandAssist/Application/CommandAssistKeyRouter.cs \
+        src/Ntilde.App/Controls/TerminalPane.axaml.cs \
+        src/Ntilde.App/CommandAssist/ViewModels/CommandAssistBubbleViewModel.cs \
+        tests/Ntilde.Tests/CommandAssist/CommandAssistKeyRouterTests.cs \
+        tests/Ntilde.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs
 git commit -m "Make Tab shell-owned and move assist accept to Ctrl+Enter"
 ```
 
 ### Task 2: Add Local Path Suggestion Provider For Command Assist
 
 **Files:**
-- Create: `src/NovaTerminal.App/CommandAssist/Domain/IPathSuggestionProvider.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/Domain/FileSystemPathSuggestionProvider.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Domain/CommandAssistSuggestionEngine.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Models/AssistSuggestionType.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Models/CommandAssistQueryContext.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistSuggestionEngineTests.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/FileSystemPathSuggestionProviderTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/Domain/IPathSuggestionProvider.cs`
+- Create: `src/Ntilde.App/CommandAssist/Domain/FileSystemPathSuggestionProvider.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Domain/CommandAssistSuggestionEngine.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Models/AssistSuggestionType.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Models/CommandAssistQueryContext.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/CommandAssistSuggestionEngineTests.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/FileSystemPathSuggestionProviderTests.cs`
 
 **Step 1: Write failing tests for path suggestion behavior**
 
@@ -90,8 +90,8 @@ Use temp directories/files in tests to avoid machine-specific dependencies.
 **Step 2: Run tests to verify failure**
 
 Run:
-- `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~FileSystemPathSuggestionProviderTests"`
-- `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistSuggestionEngineTests"`
+- `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~FileSystemPathSuggestionProviderTests"`
+- `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistSuggestionEngineTests"`
 
 Expected: FAIL until provider + integration are implemented.
 
@@ -111,46 +111,46 @@ Pass remote-session flag by extending `CommandAssistQueryContext` and wiring `_i
 **Step 4: Run tests to verify pass**
 
 Run:
-- `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~FileSystemPathSuggestionProviderTests"`
-- `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistSuggestionEngineTests"`
+- `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~FileSystemPathSuggestionProviderTests"`
+- `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistSuggestionEngineTests"`
 
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/Domain/IPathSuggestionProvider.cs \
-        src/NovaTerminal.App/CommandAssist/Domain/FileSystemPathSuggestionProvider.cs \
-        src/NovaTerminal.App/CommandAssist/Domain/CommandAssistSuggestionEngine.cs \
-        src/NovaTerminal.App/CommandAssist/Models/AssistSuggestionType.cs \
-        src/NovaTerminal.App/CommandAssist/Models/CommandAssistQueryContext.cs \
-        src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs \
-        src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs \
-        tests/NovaTerminal.Tests/CommandAssist/FileSystemPathSuggestionProviderTests.cs \
-        tests/NovaTerminal.Tests/CommandAssist/CommandAssistSuggestionEngineTests.cs
+git add src/Ntilde.App/CommandAssist/Domain/IPathSuggestionProvider.cs \
+        src/Ntilde.App/CommandAssist/Domain/FileSystemPathSuggestionProvider.cs \
+        src/Ntilde.App/CommandAssist/Domain/CommandAssistSuggestionEngine.cs \
+        src/Ntilde.App/CommandAssist/Models/AssistSuggestionType.cs \
+        src/Ntilde.App/CommandAssist/Models/CommandAssistQueryContext.cs \
+        src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs \
+        src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs \
+        tests/Ntilde.Tests/CommandAssist/FileSystemPathSuggestionProviderTests.cs \
+        tests/Ntilde.Tests/CommandAssist/CommandAssistSuggestionEngineTests.cs
 git commit -m "Add local path suggestions to command assist without Tab hijacking"
 ```
 
 ### Task 3: Verify End-To-End Behavior And AOT Safety
 
 **Files:**
-- Verify only: `src/NovaTerminal.App/CommandAssist/**`, `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
+- Verify only: `src/Ntilde.App/CommandAssist/**`, `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
 
 **Step 1: Run focused command-assist suite**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssist"`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssist"`
 
 Expected: PASS.
 
 **Step 2: Run PTY smoke lane**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "Category=PtySmoke"`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "Category=PtySmoke"`
 
 Expected: PASS.
 
 **Step 3: Run AOT publish verification**
 
-Run: `dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -o artifacts/publish/win-x64`
+Run: `dotnet publish src/Ntilde.App/Ntilde.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -o artifacts/publish/win-x64`
 
 Expected: publish succeeds and no new Command Assist trim regressions.
 

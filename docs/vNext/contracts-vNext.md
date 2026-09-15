@@ -1,4 +1,4 @@
-# NovaTerminal vNext — Contracts (Events, Recording, Index)
+# Ntilde vNext — Contracts (Events, Recording, Index)
 
 This document defines **data contracts** for vNext features:
 - deterministic replay seek + timeline
@@ -8,8 +8,8 @@ This document defines **data contracts** for vNext features:
 
 It is intentionally **implementation-agnostic** (C#/Rust friendly) and focuses on:
 - event schemas
-- `.novarec` container layout
-- `.novarec.idx` index layout (binary sketch)
+- `.ntilderec` container layout
+- `.ntilderec.idx` index layout (binary sketch)
 - versioning + compatibility rules
 
 ---
@@ -17,7 +17,7 @@ It is intentionally **implementation-agnostic** (C#/Rust friendly) and focuses o
 ## 0. Versioning & Compatibility Rules
 
 ### Schema versions
-- `recordingSchemaVersion`: integer, increments on **breaking** changes to `.novarec`.
+- `recordingSchemaVersion`: integer, increments on **breaking** changes to `.ntilderec`.
 - `indexSchemaVersion`: integer, increments on **breaking** changes to `.idx`.
 - Consumers MUST:
   - reject unknown major schema versions
@@ -137,7 +137,7 @@ Optional:
 
 ---
 
-## 2. `.novarec` Container Layout (Binary)
+## 2. `.ntilderec` Container Layout (Binary)
 
 Goal: simple append-only container.
 
@@ -150,7 +150,7 @@ EventRecord*
 ### FileHeader (fixed 64 bytes)
 | Field | Type | Notes |
 |---|---|---|
-| magic | 8 bytes | ASCII `NOVAREC1` |
+| magic | 8 bytes | ASCII `NTILDEREC1` |
 | header_len | u32 | bytes, including this field |
 | recordingSchemaVersion | u32 | must match metadata |
 | flags | u32 | reserved |
@@ -173,7 +173,7 @@ Notes:
 
 ---
 
-## 3. `.novarec.idx` Index Layout (Binary Sketch)
+## 3. `.ntilderec.idx` Index Layout (Binary Sketch)
 
 Goal: fast seek + marker queries without scanning the entire recording.
 
@@ -189,7 +189,7 @@ Footer
 ### IndexHeader
 | Field | Type | Notes |
 |---|---|---|
-| magic | 8 bytes | ASCII `NOVAIDX1` |
+| magic | 8 bytes | ASCII `NTILDEIDX1` |
 | indexSchemaVersion | u32 | |
 | flags | u32 | |
 | t0_us | u64 | usually 0 |
@@ -201,7 +201,7 @@ Footer
 ### TimeToOffsetTable
 Array of entries:
 - `t_us: u64`
-- `offset: u64` (byte offset into `.novarec`)
+- `offset: u64` (byte offset into `.ntilderec`)
 
 Density:
 - either every N milliseconds (e.g., 50ms)
@@ -259,7 +259,7 @@ Message format: length-prefixed binary frames.
 
 ### Frame types
 - `0x01`: `Metadata` JSON
-- `0x02`: `EventRecord` (same as `.novarec` event record without file header)
+- `0x02`: `EventRecord` (same as `.ntilderec` event record without file header)
 - `0x03`: `Heartbeat` (optional)
 - `0x04`: `Control` (server → client: revoke, rotate token)
 
@@ -272,7 +272,7 @@ Security v1:
 
 ## 6. Backward Compatibility Strategy
 
-- `.novarec` reader must ignore unknown event types if it can skip by `len`.
+- `.ntilderec` reader must ignore unknown event types if it can skip by `len`.
 - `.idx` is optional; if missing, reader can scan and build cache.
 - When adding new event types:
   - bump schema only if existing parsers cannot safely skip.

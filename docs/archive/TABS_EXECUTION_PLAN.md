@@ -1,4 +1,4 @@
-# NovaTerminal Tabs Execution Plan
+# Ntilde Tabs Execution Plan
 
 Date: 2026-02-14  
 Status: In Execution (M1/M2 complete; M3 foundation implemented; nightly stability gate pending)
@@ -65,14 +65,14 @@ Out of scope until Free gates pass:
 
 ## Current Baseline (Code Areas)
 
-- `NovaTerminal/MainWindow.axaml.cs`: tab lifecycle, switching, keybindings, tab visuals, restore wiring
-- `NovaTerminal/MainWindow.axaml`: tab host UI/template
-- `NovaTerminal/App.axaml`: global `TabItem` style/template
-- `NovaTerminal/Core/SessionManager.cs`: save/restore tab+pane session state
-- `NovaTerminal/Core/SessionModels.cs`: persisted tab/pane schema
-- `NovaTerminal/Controls/TerminalPane.axaml.cs`: title sources (OSC/CWD/profile), PTY pane lifecycle
-- `NovaTerminal/Core/TerminalView.cs`: per-pane rendering, timers, invalidation/resize path
-- `NovaTerminal/Core/RustPtySession.cs`: PTY output/input lifecycle
+- `Ntilde/MainWindow.axaml.cs`: tab lifecycle, switching, keybindings, tab visuals, restore wiring
+- `Ntilde/MainWindow.axaml`: tab host UI/template
+- `Ntilde/App.axaml`: global `TabItem` style/template
+- `Ntilde/Core/SessionManager.cs`: save/restore tab+pane session state
+- `Ntilde/Core/SessionModels.cs`: persisted tab/pane schema
+- `Ntilde/Controls/TerminalPane.axaml.cs`: title sources (OSC/CWD/profile), PTY pane lifecycle
+- `Ntilde/Core/TerminalView.cs`: per-pane rendering, timers, invalidation/resize path
+- `Ntilde/Core/RustPtySession.cs`: PTY output/input lifecycle
 
 ## Release Gates (Global)
 
@@ -115,11 +115,11 @@ Guarantee deterministic tab behavior and stable performance under load.
 
 ### Files
 
-- `NovaTerminal/MainWindow.axaml.cs`
-- `NovaTerminal/MainWindow.axaml`
-- `NovaTerminal/Core/SessionModels.cs`
-- `NovaTerminal/Core/SessionManager.cs`
-- `NovaTerminal/Core/TerminalView.cs`
+- `Ntilde/MainWindow.axaml.cs`
+- `Ntilde/MainWindow.axaml`
+- `Ntilde/Core/SessionModels.cs`
+- `Ntilde/Core/SessionManager.cs`
+- `Ntilde/Core/TerminalView.cs`
 
 ### Acceptance Criteria
 
@@ -163,10 +163,10 @@ Deliver best-in-class usability without violating M1 perf budgets.
 
 ### Files
 
-- `NovaTerminal/MainWindow.axaml.cs`
-- `NovaTerminal/MainWindow.axaml`
-- `NovaTerminal/App.axaml`
-- `NovaTerminal/Controls/TerminalPane.axaml.cs`
+- `Ntilde/MainWindow.axaml.cs`
+- `Ntilde/MainWindow.axaml`
+- `Ntilde/App.axaml`
+- `Ntilde/Controls/TerminalPane.axaml.cs`
 
 ### Acceptance Criteria
 
@@ -207,10 +207,10 @@ Add paid workflow leverage with zero regression to Free tab quality.
 
 ### Files
 
-- `NovaTerminal/Core/SessionModels.cs`
-- `NovaTerminal/Core/SessionManager.cs`
-- `NovaTerminal/MainWindow.axaml.cs`
-- new workspace/policy services under `NovaTerminal/Core/`
+- `Ntilde/Core/SessionModels.cs`
+- `Ntilde/Core/SessionManager.cs`
+- `Ntilde/MainWindow.axaml.cs`
+- new workspace/policy services under `Ntilde/Core/`
 
 ### Acceptance Criteria
 

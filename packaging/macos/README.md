@@ -2,7 +2,7 @@
 
 This folder holds the macOS packaging pieces used by the release workflow:
 
-- `make-icns.sh` — derives `nova_icon.icns` from `src/NovaTerminal.App/Assets/nova_icon.png`
+- `make-icns.sh` — derives `ntilde_icon.icns` from `src/Ntilde.App/Assets/ntilde_icon.png`
   at packaging time (`sips` + `iconutil`). The PNG stays the single source of truth across
   platforms; no `.icns` binary is committed.
 
@@ -11,22 +11,22 @@ The actual bundling is done by [Velopack](https://velopack.io) (`vpk pack`) in
 
 | Release asset | Produced by | Notes |
 |---|---|---|
-| `NovaTerminal-Setup-osx-arm64-<tag>.pkg` | `vpk pack` (renamed from `*-osx-Setup.pkg`) | Standard macOS installer; offers /Applications or ~/Applications |
-| `NovaTerminal-osx-arm64-<tag>.zip` | `vpk pack` (renamed from `*-osx-Portable.zip`) | Same file name the raw loose-files zip always used; now contains the `NovaTerminal.app` bundle |
-| `NovaTerminalApp-<ver>-osx-full.nupkg` / `-osx-delta.nupkg` | `vpk pack` | The osx update channel consumed by the in-app updater |
+| `ntilde-Setup-osx-arm64-<tag>.pkg` | `vpk pack` (renamed from `*-osx-Setup.pkg`) | Standard macOS installer; offers /Applications or ~/Applications |
+| `ntilde-osx-arm64-<tag>.zip` | `vpk pack` (renamed from `*-osx-Portable.zip`) | Same file name the raw loose-files zip always used; now contains the `Ntilde.app` bundle |
+| `NtildeApp-<ver>-osx-full.nupkg` / `-osx-delta.nupkg` | `vpk pack` | The osx update channel consumed by the in-app updater |
 | `releases.osx.json` | `vpk pack` | The osx feed index (`GithubSource` in `VelopackUpdateService` resolves it) |
 
 Facts worth knowing (all verified against the vpk 1.2.0 source, see
 `docs/superpowers/specs/2026-08-28-macos-installer-velopack-design.md`):
 
 - The default macOS channel is `osx`, and its assets carry an `-osx` suffix
-  (`NovaTerminalApp-<ver>-osx-full.nupkg`). Only the *win* default channel omits the
+  (`NtildeApp-<ver>-osx-full.nupkg`). Only the *win* default channel omits the
   suffix, so the two lanes never collide inside one GitHub release.
 - `vpk download github` resolves its channel from the runner's OS, so each lane only ever
   downloads its own channel's prior full package for delta generation.
-- The app bundle installs as `/Applications/NovaTerminal.app`; Velopack's update cache
-  lives at `~/Library/Caches/velopack/NovaTerminalApp`. User data stays where it always
-  was (`~/.local/share/NovaTerminal` via `AppPaths`) and is never touched by updates or
+- The app bundle installs as `/Applications/Ntilde.app`; Velopack's update cache
+  lives at `~/Library/Caches/velopack/NtildeApp`. User data stays where it always
+  was (`~/.local/share/ntilde` via `AppPaths`) and is never touched by updates or
   uninstall.
 
 ## Dry run without cutting a release
@@ -79,8 +79,8 @@ Passwords).
   into a Windows path; it is inert on macOS/Linux:
 
   ```bash
-  MSYS_NO_PATHCONV=1 openssl req -new -newkey rsa:2048 -nodes -keyout app.key -out app.csr -subj "/CN=NovaTerminal"
-  MSYS_NO_PATHCONV=1 openssl req -new -newkey rsa:2048 -nodes -keyout installer.key -out installer.csr -subj "/CN=NovaTerminal"
+  MSYS_NO_PATHCONV=1 openssl req -new -newkey rsa:2048 -nodes -keyout app.key -out app.csr -subj "/CN=Ntilde"
+  MSYS_NO_PATHCONV=1 openssl req -new -newkey rsa:2048 -nodes -keyout installer.key -out installer.csr -subj "/CN=Ntilde"
   ```
 
   Upload `app.csr` for the Developer ID Application certificate, `installer.csr` for
@@ -128,7 +128,7 @@ imports one or two accordingly.
 | `MAC_CERT_PASSWORD` | the `.p12` export password (use the same password for both files on the openssl route) |
 | `MAC_SIGN_APP_IDENTITY` | `Developer ID Application: <legal name> (TEAMID)` — the CN, verbatim |
 | `MAC_SIGN_INSTALL_IDENTITY` | `Developer ID Installer: <legal name> (TEAMID)` — the CN, verbatim |
-| `MAC_NOTARY_PROFILE` | any profile name, e.g. `nova-notary` |
+| `MAC_NOTARY_PROFILE` | any profile name, e.g. `ntilde-notary` |
 | `MAC_APPLE_ID` | the Apple ID |
 | `MAC_TEAM_ID` | the 10-character team ID (Membership page) |
 | `MAC_APP_SPECIFIC_PASSWORD` | the app-specific password |
@@ -147,7 +147,7 @@ unsigned builds; drop that section from `README.md` when the first signed releas
   governs what actually runs. If an explicit floor is ever needed, pass a fully specified
   plist via `--plist` (mutually exclusive with `--bundleId`) — note the plist must then
   carry the version strings per release itself.
-- The bundle carries ~600 KB of `NovaTerminal.*.pdb` files beside the binary (the IL
+- The bundle carries ~600 KB of `Ntilde.*.pdb` files beside the binary (the IL
   project symbols the AOT publish emits). vpk's documented `.pdb` default exclusion does
   not strip these from the macOS bundle contents; harmless, kept rather than spending a
   release-lane iteration on it.

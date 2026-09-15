@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Ntilde
+GenericName=Terminal Emulator
+Comment=A modern terminal emulator
+Exec=/usr/bin/ntilde
+Icon=ntilde
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=shell;prompt;command;commandline;terminal;
+StartupNotify=true
+StartupWMClass=Ntilde

@@ -1,0 +1,547 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using Avalonia.Controls;
+using Avalonia.Layout;
+using Avalonia;
+using Ntilde.Controls;
+using Ntilde.CommandAssist.ShellIntegration;
+using Ntilde.Services.Ssh;
+using Ntilde.Rendering;
+using Ntilde.Pty;
+
+namespace Ntilde.Shell
+{
+    public static class SessionManager
+    {
+        private static string SessionPath => AppPaths.SessionFilePath;
+
+        public static void SaveSession(Window window, TabControl tabs)
+        {
+            var sw = Stopwatch.StartNew();
+            int payloadBytes = 0;
+            try
+            {
+                var session = CaptureSession(window, tabs);
+
+                var json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NtildeSession);
+                payloadBytes = System.Text.Encoding.UTF8.GetByteCount(json);
+                Directory.CreateDirectory(Path.GetDirectoryName(SessionPath)!);
+                // Atomic write with .bak (#167): SaveSession runs on shutdown — a crash
+                // mid-write previously corrupted the session and lost the restore state.
+                AtomicFile.WriteAllText(SessionPath, json);
+            }
+            catch (Exception ex)
+            {
+                // Silent failure or log to debug console
+                System.Diagnostics.Debug.WriteLine($"[SessionManager] Failed to save session: {ex}");
+            }
+            finally
+            {
+                sw.Stop();
+                RendererStatistics.RecordSessionSave(sw.ElapsedMilliseconds, payloadBytes);
+            }
+        }
+
+        public static NtildeSession CaptureSession(Window window, TabControl tabs)
+        {
+            var session = new NtildeSession
+            {
+                ActiveTabIndex = tabs.SelectedIndex
+            };
+
+            foreach (var item in tabs.Items)
+            {
+                if (item is not TabItem tabItem) continue;
+
+                Control? rootControl = tabItem.Content as Control;
+                if (window is MainWindow mw)
+                {
+                    rootControl = mw.GetLayoutRootForTab(tabItem);
+                }
+
+                var tabSession = new TabSession
+                {
+                    TabId = (window as MainWindow)?.GetPersistentTabId(tabItem).ToString(),
+                    Title = (window as MainWindow)?.GetTabPersistedTitle(tabItem) ??
+                            (tabItem.Header as TextBlock)?.Text ??
+                            "Terminal",
+                    UserTitle = (window as MainWindow)?.GetTabUserTitle(tabItem),
+                    IsPinned = (window as MainWindow)?.IsTabPinned(tabItem) ?? false,
+                    IsProtected = (window as MainWindow)?.IsTabProtected(tabItem) ?? false,
+                    Root = BuildPaneTree(rootControl)
+                };
+
+                if (window is MainWindow mainWindow)
+                {
+                    var activePaneId = mainWindow.GetActivePaneIdForTab(tabItem);
+                    var zoomedPaneId = mainWindow.GetZoomedPaneIdForTab(tabItem);
+                    tabSession.ActivePaneId = activePaneId?.ToString();
+                    tabSession.ZoomedPaneId = zoomedPaneId?.ToString();
+                    tabSession.BroadcastInputEnabled = mainWindow.IsBroadcastEnabledForTab(tabItem);
+                }
+
+                // A tab that cannot produce a pane tree keeps the one it was restored with, rather
+                // than persisting BuildPaneTree's null over it (#327).
+                //
+                // Startup restore materializes every saved tab up front - the selected one live,
+                // the rest as placeholders whose Content is a bare Border - and hydrates the
+                // placeholders on a later Background-priority pass (MainWindow's
+                // CreateStartupPlaceholderTab / HydrateDeferredStartupTab). BuildPaneTree returns
+                // null for anything that is neither a TerminalPane nor a split Grid, so a capture
+                // inside that window wrote one real tab and N tabs saying "no panes" - and because
+                // the write replaces the previous session, the layout it erased was not
+                // recoverable. Quitting straight after launch is enough to reach it, since the
+                // close path saves the session.
+                //
+                // Only the fields that describe the pane tree are carried through, because they are
+                // the only ones that lose anything. Everything else already round-trips: GetTabId
+                // and GetOrCreateTabState both seed from this same Tag, a placeholder's header text
+                // is the saved title, and InitializeRestoredTabs applies the saved broadcast flag to
+                // the placeholder itself - its Content is a Border, which passes that loop's
+                // "is Control" guard - so IsBroadcastEnabledForTab above is already right and must
+                // win. Overwriting it here would silently discard a toggle the user made on a tab
+                // that never finished hydrating, which hydration would otherwise have kept (the
+                // restore path only ever adds to the broadcast set, never removes).
+                //
+                // ActivePaneId and ZoomedPaneId do need the fallback: both are resolved by finding
+                // a pane inside the tab's content, which a placeholder has none of, so the live
+                // values are null and would otherwise be persisted against a restored tree that
+                // names real panes.
+                //
+                // Deliberately keyed on "no pane tree" rather than on a startup phase - a failed
+                // hydration leaves the same blank tab long after restore is over, and keeping what
+                // was restored is right whenever the live tree cannot say otherwise. There is no
+                // competing case to protect: closing a tab's last pane closes the tab
+                // (ClosePaneAsync falls back to CloseTabAsync) instead of leaving an empty one.
+                if (tabSession.Root == null && tabItem.Tag is TabSession restored && restored.Root != null)
+                {
+                    tabSession.Root = restored.Root;
+                    tabSession.ActivePaneId = restored.ActivePaneId;
+                    tabSession.ZoomedPaneId = restored.ZoomedPaneId;
+                }
+
+                session.Tabs.Add(tabSession);
+            }
+
+            return session;
+        }
+
+        private static PaneNode? BuildPaneTree(Control? control)
+        {
+            if (control == null) return null;
+
+            // Base case: Leaf Node (TerminalPane)
+            if (control is TerminalPane pane)
+            {
+                return new PaneNode
+                {
+                    Type = NodeType.Leaf,
+                    ProfileId = pane.Profile?.Id.ToString(),
+                    SshProfileId = pane.Profile?.Type == ConnectionType.SSH ? pane.Profile.Id.ToString() : null,
+                    PaneId = pane.PaneId.ToString(),
+                    // Never persist a blank command. A pane that has not started a session
+                    // yet reports ShellCommand == string.Empty, and writing that out produced
+                    // a session file whose leaf said "run nothing" — which the restore below
+                    // then faithfully tried to run, spawning an empty command on every
+                    // subsequent launch and re-saving the same blank on exit. Storing null
+                    // instead makes the leaf explicitly command-less, which restore reads as
+                    // "use the default shell".
+                    Command = string.IsNullOrWhiteSpace(pane.ShellCommand) ? null : pane.ShellCommand,
+                    Arguments = pane.ShellArgs
+                };
+            }
+
+            // Recursive case: Grid (Split)
+            if (control is Grid /*grid*/) // Wait, Grid is too generic. We need to be sure it's OUR split grid.
+            {
+                // In MainWindow.SplitPane, we create a Grid with 3 columns/rows (Pane, Splitter, Pane)
+                // We can detect this structure.
+                var grid = (Grid)control;
+
+                // If it has children that are TerminalPane or Grid, treating it as a split node.
+                // NOTE: Our splitter adds a GridSplitter between children.
+
+                // Determine orientation
+                bool isHorizontal = grid.ColumnDefinitions.Count > 1; // Horizontal Split (Cols)
+
+                var node = new PaneNode
+                {
+                    Type = NodeType.Split,
+                    SplitOrientation = isHorizontal ? 0 : 1
+                };
+
+                // Collect children, SKIPPING GridSplitters
+                foreach (var child in grid.Children)
+                {
+                    if (child is GridSplitter) continue;
+
+                    var childNode = BuildPaneTree(child as Control);
+                    if (childNode != null)
+                    {
+                        node.Children.Add(childNode);
+                    }
+                }
+
+                // Collect Layout Sizes (GridLength)
+                // We need to store these to restore the ratio (e.g. 2* vs 1*)
+                if (isHorizontal)
+                {
+                    foreach (var cd in grid.ColumnDefinitions)
+                    {
+                        // Skip the fixed splitter column (usually 3px)
+                        if (cd.Width.IsAbsolute && cd.Width.Value <= 5) continue;
+
+                        node.Sizes.Add(cd.Width.ToString());
+                    }
+                }
+                else
+                {
+                    foreach (var rd in grid.RowDefinitions)
+                    {
+                        // Skip splitter
+                        if (rd.Height.IsAbsolute && rd.Height.Value <= 5) continue;
+
+                        node.Sizes.Add(rd.Height.ToString());
+                    }
+                }
+
+                return node;
+            }
+
+
+            return null; // Unknown control type
+        }
+
+        public static void RestoreSession(Window window, TabControl tabs, TerminalSettings settings)
+        {
+            var sw = Stopwatch.StartNew();
+            int payloadBytes = 0;
+            try
+            {
+                if (!TryLoadSavedSession(out NtildeSession? session, out payloadBytes) ||
+                    session == null ||
+                    session.Tabs.Count == 0)
+                {
+                    return;
+                }
+
+                RestoreSessionCore(window, tabs, settings, session);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to restore session: {ex}");
+            }
+            finally
+            {
+                sw.Stop();
+                RendererStatistics.RecordSessionRestore(sw.ElapsedMilliseconds, payloadBytes);
+            }
+        }
+
+        public static void RestoreSession(Window window, TabControl tabs, TerminalSettings settings, NtildeSession session)
+        {
+            var sw = Stopwatch.StartNew();
+            int payloadBytes = 0;
+            try
+            {
+                payloadBytes = System.Text.Encoding.UTF8.GetByteCount(
+                    JsonSerializer.Serialize(session, SessionSerializationContext.Default.NtildeSession));
+                RestoreSessionCore(window, tabs, settings, session);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to restore session: {ex}");
+            }
+            finally
+            {
+                sw.Stop();
+                RendererStatistics.RecordSessionRestore(sw.ElapsedMilliseconds, payloadBytes);
+            }
+        }
+
+        public static bool TryLoadSavedSession(out NtildeSession? session)
+        {
+            return TryLoadSavedSession(out session, out _);
+        }
+
+        public static TabItem? CreateRestoredTabItem(TabSession tabSession, TerminalSettings settings)
+        {
+            ArgumentNullException.ThrowIfNull(tabSession);
+            var content = CreateRestoredTabContent(tabSession, settings);
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("SessionManager.CreateRestoredTabItem.ContentCreated");
+            if (content == null)
+            {
+                return null;
+            }
+
+            return new TabItem
+            {
+                Header = new TextBlock { Text = tabSession.Title, Foreground = Avalonia.Media.Brushes.White, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(10, 4) },
+                Content = content,
+                Tag = tabSession
+            };
+        }
+
+        public static Control? CreateRestoredTabContent(TabSession tabSession, TerminalSettings settings)
+        {
+            ArgumentNullException.ThrowIfNull(tabSession);
+            return RestorePaneTree(tabSession.Root, settings);
+        }
+
+        private static void RestoreSessionCore(Window window, TabControl tabs, TerminalSettings settings, NtildeSession session)
+        {
+            _ = window;
+            if (session == null || session.Tabs.Count == 0) return;
+
+            tabs.Items.Clear();
+            foreach (var tabSession in session.Tabs)
+            {
+                var tabItem = CreateRestoredTabItem(tabSession, settings);
+                if (tabItem != null)
+                {
+                    tabs.Items.Add(tabItem);
+                }
+            }
+
+            if (session.ActiveTabIndex >= 0 && session.ActiveTabIndex < tabs.Items.Count)
+            {
+                tabs.SelectedIndex = session.ActiveTabIndex;
+            }
+        }
+
+        private static bool TryLoadSavedSession(out NtildeSession? session, out int payloadBytes)
+        {
+            session = null;
+            payloadBytes = 0;
+
+            if (!File.Exists(SessionPath))
+            {
+                return false;
+            }
+
+            var json = File.ReadAllText(SessionPath);
+            payloadBytes = System.Text.Encoding.UTF8.GetByteCount(json);
+            session = JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NtildeSession);
+            return session != null;
+        }
+
+        // Single source of truth for how a leaf resolves to a profile at restore time.
+        // RestorePaneTree only falls back to the leaf's raw Command/Arguments when this
+        // returns null, so the bundle-command confirmation (#171) uses this to list only
+        // the panes that will actually run an ad-hoc command — and to avoid prompting for
+        // locally-saved panes that store both a ProfileId and a ShellCommand.
+        internal static TerminalProfile? TryResolvePaneProfile(PaneNode node, TerminalSettings settings)
+        {
+            TerminalProfile? profile = ResolveSshProfile(node.SshProfileId);
+            if (profile == null && !string.IsNullOrEmpty(node.ProfileId) && Guid.TryParse(node.ProfileId, out var profileGuid))
+            {
+                profile = settings.Profiles?.Find(p => p.Id == profileGuid);
+            }
+            return profile;
+        }
+
+        /// <summary>
+        /// Returns a profile whose command can be spawned on this machine, substituting the default
+        /// shell when it cannot.
+        /// </summary>
+        /// <remarks>
+        /// The raw-command path below has done this since a Windows workspace restored as
+        /// <c>cmd.exe</c> on Linux, but a profile-backed pane never reached it, and normal capture
+        /// writes a <c>ProfileId</c> for every profile-backed pane - so the common case was the
+        /// uncovered one. Settings validation does not close the gap either: opening Windows
+        /// settings on Linux *adds* this platform's defaults but leaves the imported profiles
+        /// alone, so the pane's ProfileId still resolves to the profile holding <c>cmd.exe</c>. The
+        /// pane failed to spawn and re-persisted the same ProfileId on every launch, exactly the
+        /// self-sustaining loop the raw-command fix was for.
+        ///
+        /// Copies rather than edits. <see cref="TryResolvePaneProfile"/> hands back the instance
+        /// living in <see cref="TerminalSettings.Profiles"/>, so assigning to its Command would
+        /// rewrite the user's stored profile - and persist that rewrite the next time settings are
+        /// saved. Restoring a session must not quietly edit someone's profile.
+        /// </remarks>
+        private static TerminalProfile ResolveProfileForThisPlatform(TerminalProfile profile)
+        {
+            // SSH panes get their command built for them (ssh/ssh.exe plus generated arguments), so
+            // there is no local executable here to check and nothing this should touch.
+            if (profile.Type != ConnectionType.Local)
+            {
+                return profile;
+            }
+
+            string resolved = ShellHelper.ResolveExecutableOrDefault(profile.Command);
+            if (string.Equals(resolved, (profile.Command ?? string.Empty).Trim(), StringComparison.Ordinal))
+            {
+                return profile;
+            }
+
+            TerminalProfile local = profile.ShallowCopy();
+            local.Command = resolved;
+
+            // Dropped for the same reason as the raw-command path: they were written for the
+            // command that has just been replaced, so `cmd.exe /c ...` would reach bash as `/c ...`.
+            local.Arguments = "";
+            return local;
+        }
+
+        private static Control? RestorePaneTree(PaneNode? node, TerminalSettings settings)
+        {
+            if (node == null) return null;
+
+            if (node.Type == NodeType.Leaf)
+            {
+                StartupPerformanceTracker.Current?.TryMarkCheckpoint("SessionManager.RestorePaneTree.LeafStart");
+                // Reconstruct TerminalPane
+                TerminalProfile? profile = TryResolvePaneProfile(node, settings);
+
+                TerminalPane pane;
+                if (profile != null)
+                {
+                    pane = new TerminalPane(ResolveProfileForThisPlatform(profile), settings);
+                }
+                else
+                {
+                    // Fallback to command args if profile missing.
+                    //
+                    // ResolveExecutableOrDefault, not a blank check: session files written
+                    // before the capture above learned to skip blanks contain "Command": "",
+                    // and a `??` does not fire for an empty string — so the pane was
+                    // constructed with "" and spawned nothing. Those files are still on disk,
+                    // so this reads them correctly rather than relying on the capture fix
+                    // alone. It also covers the command being non-blank but unrunnable here:
+                    // a session saved on Windows restores "cmd.exe", which spawns nothing on
+                    // Linux and gets re-persisted, so every later launch failed the same way.
+                    string restoredCommand = ShellHelper.ResolveExecutableOrDefault(node.Command);
+
+                    // Arguments belong to the command that was saved. Once that command has been
+                    // swapped for this platform's shell they are the wrong shell's flags - a
+                    // persisted `cmd.exe /c ...` would reach bash as `/c ...` - so drop them,
+                    // the same way the profile-launch path does when it substitutes.
+                    bool commandSubstituted = !string.Equals(
+                        restoredCommand,
+                        (node.Command ?? string.Empty).Trim(),
+                        StringComparison.Ordinal);
+
+                    pane = new TerminalPane(
+                        restoredCommand,
+                        // Sanitized, not taken verbatim. Sessions saved before the pane
+                        // stopped persisting its merged command line carry the shell-
+                        // integration bootstrap in these arguments; restoring them makes the
+                        // provider see its own -File / -EncodedCommand, take the "user
+                        // supplied a script" bail-out, and relaunch the stale bootstrap
+                        // forever. That fix cannot reach sessions already on disk; this can.
+                        commandSubstituted
+                            ? ""
+                            : ShellIntegrationArguments.StripInjected(node.Arguments, AppPaths.CommandAssistDirectory),
+                        settings);
+                }
+
+                if (!string.IsNullOrWhiteSpace(node.PaneId) && Guid.TryParse(node.PaneId, out var paneId))
+                {
+                    pane.PaneId = paneId;
+                }
+
+                StartupPerformanceTracker.Current?.TryMarkCheckpoint("SessionManager.RestorePaneTree.LeafCreated");
+                return pane;
+            }
+            else if (node.Type == NodeType.Split)
+            {
+                // Reconstruct Grid Split
+                var grid = new Grid
+                {
+                    Background = Avalonia.Media.Brushes.Transparent,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Stretch
+                };
+
+                var dividerBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(35, 35, 35));
+
+                bool isHorizontal = (node.SplitOrientation == 0); // 0=Horizontal (Cols)
+
+                for (int i = 0; i < node.Children.Count; i++)
+                {
+                    // Add Splitter if not first item
+                    if (i > 0)
+                    {
+                        var splitter = new GridSplitter
+                        {
+                            Background = dividerBrush,
+                            Focusable = false
+                        };
+
+                        if (isHorizontal)
+                        {
+                            grid.ColumnDefinitions.Add(new ColumnDefinition(3, GridUnitType.Pixel));
+                            splitter.Width = 3;
+                            splitter.ResizeDirection = GridResizeDirection.Columns;
+                            splitter.VerticalAlignment = VerticalAlignment.Stretch;
+                            Grid.SetColumn(splitter, grid.ColumnDefinitions.Count - 1);
+                            grid.Children.Add(splitter);
+                        }
+                        else
+                        {
+                            grid.RowDefinitions.Add(new RowDefinition(3, GridUnitType.Pixel));
+                            splitter.Height = 3;
+                            splitter.ResizeDirection = GridResizeDirection.Rows;
+                            splitter.HorizontalAlignment = HorizontalAlignment.Stretch;
+                            Grid.SetRow(splitter, grid.RowDefinitions.Count - 1);
+                            grid.Children.Add(splitter);
+                        }
+                    }
+
+                    // Add Child Pane
+                    var childControl = RestorePaneTree(node.Children[i], settings);
+                    if (childControl != null)
+                    {
+                        // Parse metrics
+                        GridLength length = new GridLength(1, GridUnitType.Star);
+                        if (i < node.Sizes.Count)
+                        {
+                            try { length = GridLength.Parse(node.Sizes[i]); } catch { }
+                        }
+
+                        if (isHorizontal)
+                        {
+                            grid.ColumnDefinitions.Add(new ColumnDefinition(length));
+                            Grid.SetColumn(childControl, grid.ColumnDefinitions.Count - 1);
+                            Grid.SetRow(childControl, 0); // Should be explicitly set?
+                        }
+                        else
+                        {
+                            grid.RowDefinitions.Add(new RowDefinition(length));
+                            Grid.SetRow(childControl, grid.RowDefinitions.Count - 1);
+                            Grid.SetColumn(childControl, 0);
+                        }
+
+                        grid.Children.Add(childControl);
+                    }
+                }
+
+                return grid;
+            }
+
+            return null;
+        }
+
+        private static TerminalProfile? ResolveSshProfile(string? sshProfileId)
+        {
+            if (string.IsNullOrWhiteSpace(sshProfileId) || !Guid.TryParse(sshProfileId, out Guid parsedId))
+            {
+                return null;
+            }
+
+            try
+            {
+                var service = new SshConnectionService();
+                return service.GetConnectionProfile(parsedId);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+}

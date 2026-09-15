@@ -1,6 +1,6 @@
 # Configuration storage contract
 
-Where NovaTerminal keeps user state, what survives an update or an uninstall, and the
+Where Ntilde keeps user state, what survives an update or an uninstall, and the
 constraints any feature that reads or writes that state has to respect.
 
 Written for anyone building backup/restore, export/import, profile sync, or a settings
@@ -10,8 +10,8 @@ migration. Every claim below cites its source so it can be re-checked rather tha
 
 | | Path | Owner | Deleted by uninstall? |
 |---|---|---|---|
-| **Config root** | `%LocalAppData%\NovaTerminal` | the app (`AppPaths`) | **No** |
-| **Install root** | `%LocalAppData%\NovaTerminalApp` | Velopack (`--packId`) | **Yes — entirely** |
+| **Config root** | `%LocalAppData%\Ntilde` | the app (`AppPaths`) | **No** |
+| **Install root** | `%LocalAppData%\NtildeApp` | Velopack (`--packId`) | **Yes — entirely** |
 
 Velopack installs to `%LocalAppData%\<packId>` and its uninstall routine deletes that whole
 directory: *"any data stored within it, such as settings or logs, will be lost"*
@@ -20,7 +20,7 @@ narrower — only the `current\` subdirectory is replaced — so **uninstall is 
 path, not update.**
 
 This is why `--packId` in [`.github/workflows/release.yml`](../.github/workflows/release.yml) is
-`NovaTerminalApp` and not `NovaTerminal`. Aligning it with the app name would make the install
+`NtildeApp` and not `Ntilde`. Aligning it with the app name would make the install
 root and the config root the same folder, and uninstalling would silently destroy every setting,
 SSH profile, known-host entry, command history and workspace.
 
@@ -54,12 +54,12 @@ releases, which is exactly the case that got missed.
 
 ## Secrets live outside the config root
 
-Passwords and passphrases are **not** in `%LocalAppData%\NovaTerminal`. They go to the OS
+Passwords and passphrases are **not** in `%LocalAppData%\Ntilde`. They go to the OS
 credential store, selected per platform in
-[`SecretStore.cs`](../src/NovaTerminal.App/Shell/Secrets/SecretStore.cs):
+[`SecretStore.cs`](../src/Ntilde.App/Shell/Secrets/SecretStore.cs):
 
 - Windows — Win32 Credential Manager, per-user and DPAPI-protected
-  ([`WindowsCredentialStore.cs`](../src/NovaTerminal.App/Shell/Secrets/WindowsCredentialStore.cs))
+  ([`WindowsCredentialStore.cs`](../src/Ntilde.App/Shell/Secrets/WindowsCredentialStore.cs))
 - macOS — Keychain (`MacKeychainStore`)
 - Linux — Secret Service (`LinuxSecretStore`)
 
@@ -68,12 +68,12 @@ Consequences for anything that copies the config folder:
 - **A folder copy silently omits every credential.** Restoring it elsewhere yields SSH profiles
   that look complete but cannot authenticate — a silent partial failure, not an error.
 - **The Windows store cannot be enumerated.**
-  [`Win32CredentialManager`](../src/NovaTerminal.App/Shell/Native/Win32CredentialManager.cs) binds
+  [`Win32CredentialManager`](../src/Ntilde.App/Shell/Native/Win32CredentialManager.cs) binds
   only `CredReadW`, `CredWriteW` and `CredDeleteW` — there is no `CredEnumerateW`. You cannot ask
-  "what secrets does NovaTerminal hold?"; you can only derive the key set from
+  "what secrets does Ntilde hold?"; you can only derive the key set from
   `ssh\profiles.json` and read each key by name.
-- **Keys are namespaced** `NovaTerminal:...`, in practice `NovaTerminal:SSH:User@Host` or
-  `NovaTerminal:SSH:ProfileName:User@Host` (`WindowsCredentialStore.ToTarget` / `ExtractUsername`).
+- **Keys are namespaced** `Ntilde:...`, in practice `Ntilde:SSH:User@Host` or
+  `Ntilde:SSH:ProfileName:User@Host` (`WindowsCredentialStore.ToTarget` / `ExtractUsername`).
 - **DPAPI blobs are not portable** across users or machines, so a credential cannot be moved by
   copying ciphertext. Exporting secrets means reading plaintext out of the store and taking on
   responsibility for encrypting the export.
@@ -81,7 +81,7 @@ Consequences for anything that copies the config folder:
 ## Inventory
 
 All paths are properties of
-[`AppPaths`](../src/NovaTerminal.App/Shell/AppPaths.cs), relative to the config root:
+[`AppPaths`](../src/Ntilde.App/Shell/AppPaths.cs), relative to the config root:
 
 | Path | Contents |
 |---|---|
@@ -101,8 +101,8 @@ All paths are properties of
 
 ## Constraints
 
-**Resolve paths through `AppPaths`, never a hardcoded `%LocalAppData%\NovaTerminal`.**
-`AppPaths.RootDirectory` honours the `NOVATERM_APPDATA_ROOT` environment variable as a root
+**Resolve paths through `AppPaths`, never a hardcoded `%LocalAppData%\Ntilde`.**
+`AppPaths.RootDirectory` honours the `NTILDE_APPDATA_ROOT` environment variable as a root
 override; tests and portable setups depend on it. Hardcoding the path makes a feature
 untestable and breaks portable installs.
 

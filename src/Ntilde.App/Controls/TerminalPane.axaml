@@ -1,0 +1,259 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:core="clr-namespace:Ntilde.Shell"
+             xmlns:assist="clr-namespace:Ntilde.CommandAssist.Views"
+             xmlns:controls="clr-namespace:Ntilde.Controls"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="Ntilde.Controls.TerminalPane"
+             Focusable="True"
+             Background="Transparent">
+    
+    <UserControl.Styles>
+        <Style Selector="ScrollBar">
+            <Setter Property="Opacity" Value="0.6"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ScrollBar:pointerover">
+            <Setter Property="Opacity" Value="1.0"/>
+        </Style>
+        <!-- Agent Output toggle. Hidden at rest (opacity 0, no hit testing - an invisible
+            button must not catch clicks meant for the terminal); hovering anywhere over the pane
+            reveals it, and an open panel keeps it lit and clickable regardless (the :checked
+            pseudo-class), so the affordance that closes it is always findable. The custom
+            template exists because the default Fluent ToggleButton chrome carries MinHeight=32
+            and padding that rendered the 18px button half-clipped. -->
+        <Style Selector="ToggleButton#AgentOutputToggle">
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Grid:pointerover ToggleButton#AgentOutputToggle">
+            <Setter Property="Opacity" Value="1"/>
+            <Setter Property="IsHitTestVisible" Value="True"/>
+        </Style>
+        <Style Selector="ToggleButton#AgentOutputToggle:checked">
+            <Setter Property="Opacity" Value="1"/>
+            <Setter Property="IsHitTestVisible" Value="True"/>
+            <Setter Property="Background" Value="#2B4C6F"/>
+            <Setter Property="Foreground" Value="#CFE3F7"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Border Padding="0">
+        <Grid x:Name="RootGrid" Background="Transparent" RowDefinitions="*,Auto">
+            <!-- Context Menu for SFTP Actions -->
+            <Grid.ContextMenu>
+                <ContextMenu Name="PaneContextMenu">
+                    <MenuItem Header="Pane">
+                        <MenuItem Header="Split Vertical" Name="MenuPaneSplitVertical" />
+                        <MenuItem Header="Split Horizontal" Name="MenuPaneSplitHorizontal" />
+                        <MenuItem Header="Equalize Siblings" Name="MenuPaneEqualize" />
+                        <MenuItem Header="Toggle Zoom" Name="MenuPaneToggleZoom" />
+                        <MenuItem Header="Toggle Broadcast Input (Tab)" Name="MenuPaneToggleBroadcast" />
+                        <Separator />
+                        <MenuItem Header="Close Pane" Name="MenuPaneClose" />
+                    </MenuItem>
+                    <MenuItem Header="SFTP">
+                        <MenuItem Header="Remote Files" Name="MenuToggleRemoteFilesSidebar" />
+                    </MenuItem>
+                    <MenuItem Header="Explain Selection" Name="MenuExplainSelection" IsVisible="False" />
+                </ContextMenu>
+            </Grid.ContextMenu>
+
+            <Grid x:Name="PaneContentGrid"
+                  Grid.Row="0"
+                  ColumnDefinitions="*,Auto,Auto">
+                <Grid x:Name="TerminalLayerHost"
+                      Grid.Column="0">
+                    <!-- Terminal View Layer -->
+                    <core:TerminalView x:Name="TermView" Grid.Row="0" />
+                    <Border Name="InactiveOverlay"
+                            Background="#66000000"
+                            IsVisible="False"
+                            IsHitTestVisible="False"
+                            ZIndex="20"
+                            Grid.Row="0" />
+
+                    <!-- ScrollBar Overlay -->
+                    <ScrollBar x:Name="TermScrollBar"
+                               Grid.Row="0"
+                               Orientation="Vertical"
+                               AllowAutoHide="True"
+                               Visibility="Visible"
+                               HorizontalAlignment="Right"
+                               Width="10"
+                               Minimum="0" Maximum="0"
+                               ViewportSize="20"/>
+
+                    <!-- Action Toast Panel -->
+                    <Border Name="ToastPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Center"
+                            Margin="0,20,0,0" Background="#383838" CornerRadius="6" Padding="12,8"
+                            BorderBrush="#505050" BorderThickness="1" ZIndex="250" Grid.Row="0">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="8" Opacity="0.5" OffsetY="2" Color="Black" />
+                        </Border.Effect>
+                        <Grid ColumnDefinitions="Auto, *, Auto, Auto, Auto">
+                            <TextBlock Grid.Column="0" Text="📄" Foreground="#AAA" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBlock Name="ToastMessageText" Grid.Column="1" Text="Paste contents of filename.txt?" 
+                                       Foreground="White" VerticalAlignment="Center" Margin="0,0,16,0" />
+                            <Button Name="ToastPastePathBtn" Grid.Column="2" Content="Paste path" 
+                                    Background="#333" Foreground="White" BorderThickness="1" BorderBrush="#555" CornerRadius="4" Padding="8,4" Margin="0,0,8,0" Cursor="Hand" />
+                            <Button Name="ToastActionBtn" Grid.Column="3" Content="Paste contents" 
+                                    Background="#0078D7" Foreground="White" BorderThickness="0" CornerRadius="4" Padding="8,4" Margin="0,0,8,0" Cursor="Hand" />
+                            <Button Name="ToastCloseBtn" Grid.Column="4" Content="✕" 
+                                    Background="Transparent" Foreground="#AAA" BorderThickness="0" VerticalAlignment="Center" Padding="4" Cursor="Hand" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Search Overlay -->
+                    <Border Name="SearchPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Right" 
+                            Margin="0,10,24,0" Background="#383838" CornerRadius="4" Padding="6" Width="400"
+                            BorderBrush="#505050" BorderThickness="1" ZIndex="200"
+                            Grid.Row="0">
+                        <Border.Resources>
+                            <SolidColorBrush x:Key="TextControlBackground">#1a1a1a</SolidColorBrush>
+                            <SolidColorBrush x:Key="TextControlForeground">White</SolidColorBrush>
+                        </Border.Resources>
+                        <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto, Auto, Auto">
+                            <TextBox Name="SearchBox" PlaceholderText="Search..." 
+                                     BorderThickness="1" BorderBrush="#505050" 
+                                     VerticalContentAlignment="Center" 
+                                     Padding="8,4" Margin="2"/>
+                            
+                            <ToggleButton Name="SearchCaseSensitive" Grid.Column="1" Content="Aa" 
+                                          Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
+                                          ToolTip.Tip="Match Case"/>
+                            <ToggleButton Name="SearchRegex" Grid.Column="2" Content=".*" 
+                                          Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
+                                          ToolTip.Tip="Use Regular Expression"/>
+
+                            <TextBlock Name="SearchCount" Grid.Column="3" Text="0/0" Foreground="#AAA" 
+                                       VerticalAlignment="Center" Margin="8,0" FontSize="12"/>
+                            <Button Name="SearchPrev" Grid.Column="4" Content="▲" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                            <Button Name="SearchNext" Grid.Column="5" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                            <Button Name="SearchClose" Grid.Column="6" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Agent Output toggle: the activation surface for the markdown side panel.
+                        It lives here rather than in the context menu because local (non-SSH) panes
+                        have their context menu detached entirely (InitializeSessionCore), and
+                        agent CLIs run overwhelmingly in local panes. Visibility is owned by the
+                        tracker's markdown-presence detection (hidden until the recent on-screen
+                        output looks like markdown); opacity/hit-testing ride the styles. -->
+                    <ToggleButton x:Name="AgentOutputToggle"
+                                  Grid.Row="0"
+                                  ZIndex="60"
+                                  IsVisible="False"
+                                  HorizontalAlignment="Right"
+                                  VerticalAlignment="Top"
+                                  Margin="0,8,18,0"
+                                  Width="30"
+                                  Height="18"
+                                  Content="MD"
+                                  FontSize="9"
+                                  FontWeight="SemiBold"
+                                  CornerRadius="3"
+                                  Background="#2A2D33"
+                                  Foreground="#96A0AE"
+                                  BorderThickness="0"
+                                  Focusable="False"
+                                  Cursor="Hand"
+                                  ToolTip.Tip="Render agent output as markdown"/>
+
+                    <!--
+                        The host itself has no Background, so it is transparent to hit testing and a
+                        click anywhere except on a child still reaches the terminal underneath. It used
+                        to set IsHitTestVisible="False", which excludes the whole subtree and is why the
+                        popup rows could not be clicked at all (V2 Phase 3a): a child cannot opt back
+                        into hit testing its parent has switched off. The bubble opts out individually
+                        instead - it is a status readout with nothing to click, and it sits directly over
+                        the prompt row the user selects text on.
+                    -->
+                    <Grid x:Name="CommandAssistOverlayHost"
+                          Grid.Row="0"
+                          ZIndex="150"
+                          IsVisible="False">
+                        <assist:CommandAssistPopupView x:Name="CommandAssistPopup"
+                                                       HorizontalAlignment="Left"
+                                                       VerticalAlignment="Top"
+                                                       Margin="16,16,16,84" />
+                        <assist:CommandAssistBubbleView x:Name="CommandAssistBubble"
+                                                        HorizontalAlignment="Left"
+                                                        VerticalAlignment="Top"
+                                                        IsHitTestVisible="False"
+                                                        Margin="16,16,16,24" />
+                    </Grid>
+                </Grid>
+
+                <!-- Agent Output markdown panel. Sits between the terminal and the SFTP sidebar
+                    so both can be open at once; lazy-hosted like the sidebar, visibility owned
+                    by AgentOutputViewModel.IsShown (user toggle minus alt-screen suppression). -->
+                <ContentControl x:Name="AgentOutputPanelPresenter"
+                                Grid.Column="1"
+                                IsVisible="False" />
+
+                <ContentControl x:Name="RemoteFilesSidebarPresenter"
+                                Grid.Column="2"
+                                IsVisible="False" />
+            </Grid>
+
+            <!-- Port Forwarding Status Bar -->
+            <Border Name="StatusBar" VerticalAlignment="Bottom" Height="22" Background="#CC1A1A1A" 
+                    BorderBrush="#333" BorderThickness="0,1,0,0" IsVisible="False" ZIndex="100" Grid.Row="1">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0" Spacing="10">
+                    <TextBlock Name="StatusBarLabel" Foreground="#AAA" FontSize="10" VerticalAlignment="Center"/>
+                    <StackPanel Name="StatusBarRules" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"/>
+                    <!-- Flat, chrome-free button so the segment is clickable (it opens the
+                         Agent Activity journal, like the window-level AgentObserveIndicator)
+                         without looking like a control in a 22px status bar. Focusable=False:
+                         it must never take keyboard focus from the terminal. Visibility of
+                         both this and the inner segment is owned solely by
+                         TerminalPane.UpdateStatusBarVisibility. -->
+                    <Button Name="AgentStatusButton"
+                            IsVisible="False"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Padding="0"
+                            MinWidth="0"
+                            MinHeight="0"
+                            Focusable="False"
+                            Cursor="Hand"
+                            VerticalAlignment="Center">
+                        <StackPanel Name="AgentStatusSegment" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center" IsVisible="False">
+                            <Ellipse Name="AgentStatusDot" Width="6" Height="6" Fill="#6B737F" VerticalAlignment="Center"/>
+                            <TextBlock Name="AgentStatusText" Foreground="#AAA" FontSize="10" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Separator Width="1" Height="12" Background="#444" Margin="4,0" VerticalAlignment="Center"/>
+                    <StackPanel Name="SftpStatus" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center" IsVisible="False">
+                        <TextBlock Name="SftpIcon" Text="⬇" Foreground="#AAA" FontSize="10" VerticalAlignment="Center"/>
+                        <TextBlock Name="SftpText" Foreground="White" FontSize="10" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+
+            <!-- Focus Indicator Border -->
+            <Border Name="FocusBorder" BorderThickness="1" BorderBrush="Transparent" IsHitTestVisible="False" ZIndex="300" Grid.RowSpan="2" />
+        </Grid>
+    </Border>
+</UserControl>

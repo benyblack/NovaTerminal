@@ -13,7 +13,7 @@
 ### Task 1: Reproduce the missing CNL/CPL behavior
 
 **Files:**
-- Create: `tests/NovaTerminal.VT.Tests/CursorLinePositioningTests.cs`
+- Create: `tests/Ntilde.VT.Tests/CursorLinePositioningTests.cs`
 
 **Step 1: Write the failing cursor-command tests**
 
@@ -28,7 +28,7 @@ Process an initial progress row followed by repeated `\x1b[1F\r\n\x1b[K...\r\n` 
 Run:
 
 ```powershell
-rtk pwsh -NoProfile -File scripts/build.ps1 test tests/NovaTerminal.VT.Tests/NovaTerminal.VT.Tests.csproj -nologo --filter FullyQualifiedName~CursorLinePositioningTests
+rtk pwsh -NoProfile -File scripts/build.ps1 test tests/Ntilde.VT.Tests/Ntilde.VT.Tests.csproj -nologo --filter FullyQualifiedName~CursorLinePositioningTests
 ```
 
 Expected: failures showing that CSI `E` and `F` leave the cursor row/column unchanged and that the refresh stream consumes extra rows.
@@ -36,7 +36,7 @@ Expected: failures showing that CSI `E` and `F` leave the cursor row/column unch
 ### Task 2: Implement standard CSI E/F handling
 
 **Files:**
-- Modify: `src/NovaTerminal.VT/AnsiParser.cs`
+- Modify: `src/Ntilde.VT/AnsiParser.cs`
 
 **Step 1: Implement CSI E**
 
@@ -55,13 +55,13 @@ Expected: all `CursorLinePositioningTests` pass.
 ### Task 3: Verify and commit the fix
 
 **Files:**
-- Test: `tests/NovaTerminal.VT.Tests/CursorLinePositioningTests.cs`
-- Modify: `src/NovaTerminal.VT/AnsiParser.cs`
+- Test: `tests/Ntilde.VT.Tests/CursorLinePositioningTests.cs`
+- Modify: `src/Ntilde.VT/AnsiParser.cs`
 
 **Step 1: Run the complete VT test project**
 
 ```powershell
-rtk pwsh -NoProfile -File scripts/build.ps1 test tests/NovaTerminal.VT.Tests/NovaTerminal.VT.Tests.csproj -nologo --no-restore
+rtk pwsh -NoProfile -File scripts/build.ps1 test tests/Ntilde.VT.Tests/Ntilde.VT.Tests.csproj -nologo --no-restore
 ```
 
 Expected: zero failed tests.
@@ -69,7 +69,7 @@ Expected: zero failed tests.
 **Step 2: Build the VT project**
 
 ```powershell
-rtk pwsh -NoProfile -File scripts/build.ps1 build src/NovaTerminal.VT/NovaTerminal.VT.csproj -nologo --no-restore
+rtk pwsh -NoProfile -File scripts/build.ps1 build src/Ntilde.VT/Ntilde.VT.csproj -nologo --no-restore
 ```
 
 Expected: exit code zero; any analyzer warnings match the clean baseline.

@@ -1,4 +1,4 @@
-# NovaTerminal — Production Roadmap
+# Ntilde — Production Roadmap
 
 > **Goal**: Production-ready, monetization-ready terminal. Keep revenue model options open until the product is solid.
 > **Baseline**: Architectural review completed 2026-02-13. Current state: functional prototype with working VT parser, Reflow, replay infra, glyph atlas rendering, and cross-platform PTY.
@@ -17,7 +17,7 @@
 | **M4.5** Production Hardening | **Merged** | `1fabee7`, `5ed9993`, `e50013f`, `25344d9` | Removed password injection, canonicalized vault keys, moved writable paths to LocalAppData, switched parity to runtime artifacts, corrected nightly stress filters, synced execution docs |
 | **M5** Ship | **Not started** | n/a | Beta program, launch docs/site, and release motion still pending |
 
-**Latest verification (2026-02-13):** `dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release` passed (`159/159`), plus replay and stress/perf/latency filtered runs passed; `tests/NovaTerminal.ExternalSuites` builds in Release.
+**Latest verification (2026-02-13):** `dotnet test Ntilde.Tests/Ntilde.Tests.csproj -c Release` passed (`159/159`), plus replay and stress/perf/latency filtered runs passed; `tests/Ntilde.ExternalSuites` builds in Release.
 
 ---
 
@@ -25,7 +25,7 @@
 
 ```mermaid
 gantt
-    title NovaTerminal Production Roadmap
+    title Ntilde Production Roadmap
     dateFormat  YYYY-MM-DD
     axisFormat  %b %Y
 
@@ -120,7 +120,7 @@ gantt
 - ⬇️ ~100 call sites to update. Mechanical but tedious
 - ⚠️ Must not regress color fidelity (ensure lossless roundtrip)
 
-**Exit criteria**: `NovaTerminal.Core` namespace compiles without `using Avalonia.Media` (except `TerminalView` and `TerminalDrawOperation` which remain in the renderer layer).
+**Exit criteria**: `Ntilde.Core` namespace compiles without `using Avalonia.Media` (except `TerminalView` and `TerminalDrawOperation` which remain in the renderer layer).
 
 ---
 
@@ -268,7 +268,7 @@ gantt
 ### M2.3 — Stress Testing Framework *(2 weeks)*
 
 **Tasks**:
-- [ ] Create `NovaTerminal.Benchmarks` project using BenchmarkDotNet
+- [ ] Create `Ntilde.Benchmarks` project using BenchmarkDotNet
 - [ ] Benchmarks: `ParseThroughput`, `ReflowLargeBuffer`, `RenderFrameTime`, `ScrollbackEviction`
 - [ ] Integrate `dotnet-counters` for GC metrics
 - [ ] Add CI performance regression gate: fail if any benchmark regresses > 10%
@@ -291,7 +291,7 @@ gantt
 
 **v2 format**:
 ```
-# NOVA-REPLAY v2
+# NTILDE-REPLAY v2
 # cols=120 rows=30
 # recorded=2026-02-13T12:00:00Z
 # shell=pwsh.exe
@@ -347,13 +347,13 @@ gantt
 ### M3.4 — Replay Viewer UI *(2 weeks)*
 
 **Tasks**:
-- [ ] Add "Replay" tab/mode in NovaTerminal: load `.novarec` file, play back with timeline scrubber
+- [ ] Add "Replay" tab/mode in Ntilde: load `.ntilderec` file, play back with timeline scrubber
 - [ ] Play/pause/seek/speed controls
 - [ ] Export replay to GIF/MP4 (via Skia frame capture)
 - [ ] Share replay file via drag-and-drop or menu
 
 **Trade-offs**:
-- ⬆️ Transforms NovaTerminal from "terminal" to "terminal + DevOps collaboration tool"
+- ⬆️ Transforms Ntilde from "terminal" to "terminal + DevOps collaboration tool"
 - ⬇️ Significant UI work (2 weeks)
 - ⚠️ Must handle seeks correctly — requires re-parsing from start to seek point (no random access in byte-stream format)
 
@@ -421,7 +421,7 @@ gantt
 - ⬇️ Large surface area, high test burden
 - ⚠️ Each feature is small but they compound. Timebox strictly.
 
-**Exit criteria for M4**: NovaTerminal runs identically on Win/Lin/Mac. A new user can install, configure, and use it for daily development work without hitting missing features.
+**Exit criteria for M4**: Ntilde runs identically on Win/Lin/Mac. A new user can install, configure, and use it for daily development work without hitting missing features.
 
 ---
 

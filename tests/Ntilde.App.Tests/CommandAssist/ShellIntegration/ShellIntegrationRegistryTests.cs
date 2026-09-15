@@ -1,0 +1,99 @@
+using Ntilde.Shell;
+using Ntilde.CommandAssist.ShellIntegration.Bash;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.ShellIntegration.Fish;
+using Ntilde.CommandAssist.ShellIntegration.PowerShell;
+using Ntilde.CommandAssist.ShellIntegration.Runtime;
+using Ntilde.CommandAssist.ShellIntegration.Zsh;
+using Ntilde.Controls;
+
+namespace Ntilde.Tests.CommandAssist.ShellIntegration;
+
+public sealed class ShellIntegrationRegistryTests
+{
+    [Theory]
+    [InlineData("pwsh.exe", "pwsh")]
+    [InlineData("powershell.exe", "pwsh")]
+    [InlineData("cmd.exe", "cmd")]
+    [InlineData("/bin/bash", "bash")]
+    [InlineData("bash.exe", "bash")]
+    [InlineData("/usr/bin/zsh", "zsh")]
+    [InlineData("zsh", "zsh")]
+    [InlineData("/usr/local/bin/fish", "fish")]
+    [InlineData("fish", "fish")]
+    [InlineData("/bin/sh", "sh")]
+    [InlineData("sh", "sh")]
+    [InlineData("", "unknown")]
+    [InlineData(null, "unknown")]
+    public void DetermineShellKind_ReturnsSpecificShellKinds(string? shellCommand, string expected)
+    {
+        Assert.Equal(expected, TerminalPane.DetermineShellKind(shellCommand));
+    }
+
+    [Fact]
+    public void GetProvider_ForPwshProfile_ReturnsPowerShellProvider()
+    {
+        var registry = new ShellIntegrationRegistry(new IShellIntegrationProvider[]
+        {
+            new PowerShellShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller())
+        });
+
+        IShellIntegrationProvider? provider = registry.GetProvider(
+            shellKind: "pwsh",
+            shellCommand: "pwsh.exe");
+
+        Assert.NotNull(provider);
+        Assert.IsType<PowerShellShellIntegrationProvider>(provider);
+    }
+
+    [Fact]
+    public void GetProvider_ForUnsupportedShell_ReturnsNull()
+    {
+        var registry = new ShellIntegrationRegistry(new IShellIntegrationProvider[]
+        {
+            new PowerShellShellIntegrationProvider(() => BootstrapTestDirectory.ForCaller())
+        });
+
+        IShellIntegrationProvider? provider = registry.GetProvider(
+            shellKind: "posix",
+            shellCommand: "/bin/bash");
+
+        Assert.Null(provider);
+    }
+
+    [Fact]
+    public void GetProvider_ForBashProfile_ReturnsBashProvider()
+    {
+        ShellIntegrationRegistry registry = CommandAssistServices.CreateDefault().ShellIntegrationRegistry;
+
+        IShellIntegrationProvider? provider = registry.GetProvider(
+            shellKind: "bash",
+            shellCommand: "/bin/bash");
+
+        Assert.IsType<BashShellIntegrationProvider>(provider);
+    }
+
+    [Fact]
+    public void GetProvider_ForZshProfile_ReturnsZshProvider()
+    {
+        ShellIntegrationRegistry registry = CommandAssistServices.CreateDefault().ShellIntegrationRegistry;
+
+        IShellIntegrationProvider? provider = registry.GetProvider(
+            shellKind: "zsh",
+            shellCommand: "/bin/zsh");
+
+        Assert.IsType<ZshShellIntegrationProvider>(provider);
+    }
+
+    [Fact]
+    public void GetProvider_ForFishProfile_ReturnsFishProvider()
+    {
+        ShellIntegrationRegistry registry = CommandAssistServices.CreateDefault().ShellIntegrationRegistry;
+
+        IShellIntegrationProvider? provider = registry.GetProvider(
+            shellKind: "fish",
+            shellCommand: "/usr/local/bin/fish");
+
+        Assert.IsType<FishShellIntegrationProvider>(provider);
+    }
+}

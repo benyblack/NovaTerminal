@@ -32,7 +32,7 @@ Out of scope:
 ## Recommended Approach
 Preserve the current architecture and harden it.
 
-The PowerShell bootstrap should wrap the user's prompt instead of replacing it with Nova-owned rendering. Structured markers should remain additive: emit cwd and prompt-ready markers, then invoke the original prompt logic and return its rendered value unchanged.
+The PowerShell bootstrap should wrap the user's prompt instead of replacing it with Ntilde-owned rendering. Structured markers should remain additive: emit cwd and prompt-ready markers, then invoke the original prompt logic and return its rendered value unchanged.
 
 Command completion must be tied to an active accepted command. If no command has been accepted, the bootstrap should not emit a finish marker on idle. That keeps `CommandAccepted` and `CommandFinished` paired and prevents synthetic completion events from idle transitions.
 
@@ -103,13 +103,13 @@ The known-gaps note should explicitly state:
 ## Files Expected To Change
 
 Code:
-- `src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs`
+- `src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs`
 
 Likely tests:
-- `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs`
-- `tests/NovaTerminal.Tests/OscShellIntegrationTests.cs`
-- `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
-- `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs`
+- `tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs`
+- `tests/Ntilde.Tests/OscShellIntegrationTests.cs`
+- `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs`
 
 Docs:
 - `docs/command-assist/CommandAssist_PowerShell_Integration.md`

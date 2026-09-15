@@ -1,6 +1,6 @@
 # VT Conformance Matrix
 
-This document is the **single source of truth** for what NovaTerminal supports (and intentionally does not) in terms of VT/xterm/DEC behavior.
+This document is the **single source of truth** for what Ntilde supports (and intentionally does not) in terms of VT/xterm/DEC behavior.
 
 It is designed to be:
 - **Actionable**: each row maps to code areas + tests.
@@ -53,12 +53,12 @@ It is designed to be:
 
 | Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
 |---|---|---:|---|---|---|
-| C0 controls (BEL, BS, HT, LF, CR) | Basic control chars | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/TabSystemTests.cs`; Replay: `tests/Replays/...` | `Core/AnsiParser.cs`, `Core/TerminalBuffer.cs` | HT now follows stored tab stops instead of inserting spaces; broader C0 coverage is still only partially audited |
-| C1 via 7-bit ESC (ESC @.._) | “7-bit C1” translation | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | Recognizes CSI/OSC/DCS/APC plus IND/NEL/RI; unsupported `ESC @.._` controls are ignored with recovery rather than fully implemented |
+| C0 controls (BEL, BS, HT, LF, CR) | Basic control chars | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/TabSystemTests.cs`; Replay: `tests/Replays/...` | `Core/AnsiParser.cs`, `Core/TerminalBuffer.cs` | HT now follows stored tab stops instead of inserting spaces; broader C0 coverage is still only partially audited |
+| C1 via 7-bit ESC (ESC @.._) | “7-bit C1” translation | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | Recognizes CSI/OSC/DCS/APC plus IND/NEL/RI; unsupported `ESC @.._` controls are ignored with recovery rather than fully implemented |
 | 8-bit C1 bytes (0x80–0x9F) | If supported, must be explicit | ❌ Not supported | — | `Core/AnsiParser.cs` | (fill) |
-| String terminators (ST = ESC \\, BEL) | OSC/APC termination rules | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | OSC accepts BEL and ST; DCS/APC also accept BEL as permissive recovery behavior, not strict spec compliance |
-| Unknown sequence handling | Ignore/print/strict? | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | Unknown `ESC @.._` sequences are ignored and parser resumes on the next valid escape or printable content |
-| Error recovery on malformed sequences | Robustness | ⚠ Partial | Fuzz/Unit: `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs`, `tests/NovaTerminal.App.Tests/AnsiCorpusReplayTests.cs` | `Core/AnsiParser.cs` | Malformed OSC/CSI/DCS/APC recover across chunk boundaries and nested ESC, but this is a best-effort parser policy rather than full conformance coverage |
+| String terminators (ST = ESC \\, BEL) | OSC/APC termination rules | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | OSC accepts BEL and ST; DCS/APC also accept BEL as permissive recovery behavior, not strict spec compliance |
+| Unknown sequence handling | Ignore/print/strict? | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | Unknown `ESC @.._` sequences are ignored and parser resumes on the next valid escape or printable content |
+| Error recovery on malformed sequences | Robustness | ⚠ Partial | Fuzz/Unit: `tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs`, `tests/Ntilde.App.Tests/AnsiCorpusReplayTests.cs` | `Core/AnsiParser.cs` | Malformed OSC/CSI/DCS/APC recover across chunk boundaries and nested ESC, but this is a best-effort parser policy rather than full conformance coverage |
 
 ---
 
@@ -66,15 +66,15 @@ It is designed to be:
 
 | Feature / CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| CUU/CUD/CUF/CUB (A/B/C/D) | Cursor up/down/forward/back | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/PendingWrapTests.cs` | Parser+Buffer | Explicit CUF movement is covered via pending-wrap reset; dedicated CUU/CUD/CUB targeted coverage is still missing |
-| CUP / HVP (H/f) | Positioning, default params | ✅ Supported | Unit + Replay: `tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs`, `tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs` | Parser+Buffer | |
-| CHA (G) | Horizontal absolute | ✅ Supported | Unit: `tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs` | Parser+Buffer | |
-| CPL (F) | Previous line and column reset | ✅ Supported | Unit: `tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs` | Parser+Buffer | |
-| CNL (E) | Next line and column reset | ✅ Supported | Unit: `tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs` | Parser+Buffer | |
-| CHT (I) | Cursor forward tabulation | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/TabSystemTests.cs` | Parser+Buffer | |
-| CBT (Z) | Cursor backward tabulation | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/TabSystemTests.cs` | Parser+Buffer | |
-| VPA/HPA (d/G/`) | Absolute row/col | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |
-| HPR/VPR (a/e) | Relative row/col | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |
+| CUU/CUD/CUF/CUB (A/B/C/D) | Cursor up/down/forward/back | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/PendingWrapTests.cs` | Parser+Buffer | Explicit CUF movement is covered via pending-wrap reset; dedicated CUU/CUD/CUB targeted coverage is still missing |
+| CUP / HVP (H/f) | Positioning, default params | ✅ Supported | Unit + Replay: `tests/Ntilde.App.Tests/CursorPositioningCompletionTests.cs`, `tests/Ntilde.App.Tests/ReplayTests/RegressionTests.cs` | Parser+Buffer | |
+| CHA (G) | Horizontal absolute | ✅ Supported | Unit: `tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs` | Parser+Buffer | |
+| CPL (F) | Previous line and column reset | ✅ Supported | Unit: `tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs` | Parser+Buffer | |
+| CNL (E) | Next line and column reset | ✅ Supported | Unit: `tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs` | Parser+Buffer | |
+| CHT (I) | Cursor forward tabulation | ✅ Supported | Unit: `tests/Ntilde.App.Tests/TabSystemTests.cs` | Parser+Buffer | |
+| CBT (Z) | Cursor backward tabulation | ✅ Supported | Unit: `tests/Ntilde.App.Tests/TabSystemTests.cs` | Parser+Buffer | |
+| VPA/HPA (d/G/`) | Absolute row/col | ✅ Supported | Unit: `tests/Ntilde.App.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |
+| HPR/VPR (a/e) | Relative row/col | ✅ Supported | Unit: `tests/Ntilde.App.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |
 
 ---
 
@@ -82,13 +82,13 @@ It is designed to be:
 
 | Feature / CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| ED (J) | 0/1/2 erase display | ✅ Supported | Replay: `tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs`, `tests/NovaTerminal.App.Tests/Fixtures/Replay/vttest_cursor.rec`; Unit: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
-| EL (K) | 0/1/2 erase line | ✅ Supported | Unit: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
+| ED (J) | 0/1/2 erase display | ✅ Supported | Replay: `tests/Ntilde.App.Tests/ReplayTests/RegressionTests.cs`, `tests/Ntilde.App.Tests/Fixtures/Replay/vttest_cursor.rec`; Unit: `tests/Ntilde.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
+| EL (K) | 0/1/2 erase line | ✅ Supported | Unit: `tests/Ntilde.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
 | ICH ( @ ) | Insert chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
 | DCH (P) | Delete chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
 | IL (L) / DL (M) | Insert/delete lines | ⚠ Partial | Replay | Buffer | Scroll region interactions |
 | ECH (X) | Erase chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
-| REP (b) | Repeat preceding graphic character | ✅ Supported | Unit: `tests/NovaTerminal.VT.Tests/RepeatCharacterTests.cs` | Parser+Buffer | Repeats only an immediately preceding graphic character (xterm rule); count clamped to one line |
+| REP (b) | Repeat preceding graphic character | ✅ Supported | Unit: `tests/Ntilde.VT.Tests/RepeatCharacterTests.cs` | Parser+Buffer | Repeats only an immediately preceding graphic character (xterm rule); count clamped to one line |
 
 ---
 
@@ -98,7 +98,7 @@ It is designed to be:
 |---|---|---:|---|---|---|
 | DECSTBM (CSI t;b r) | Set top/bottom margins | ⚠ Partial | VTTEST: scroll scenario | Parser+Buffer | |
 | IND (ESC D) / RI (ESC M) | Index / Reverse index | ⚠ Partial | Replay | Parser+Buffer | |
-| DECOM (origin mode) | Cursor relative to margins | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/DecModeTests.cs` | Parser+Buffer | |
+| DECOM (origin mode) | Cursor relative to margins | ✅ Supported | Unit: `tests/Ntilde.App.Tests/DecModeTests.cs` | Parser+Buffer | |
 | Wraparound DECAWM | Auto wrap | ⚠ Partial | Replay | Buffer | Wide glyph edge cases |
 | Smooth scroll | Not required for correctness | 🚫 Won’t support | — | — | Renderer concern |
 
@@ -108,17 +108,17 @@ It is designed to be:
 
 | Mode | CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---|---:|---|---|---|
-| Alternate screen | ?1049 / ?47 / ?1047 | Switch + save/restore cursor | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/AlternateScreenTests.cs`; Replay: `tests/NovaTerminal.App.Tests/ReplayTests/AlternateScreenReplayTests.cs`, `tests/NovaTerminal.App.Tests/ReplayTests/NativeSshReplayParityTests.cs` | Buffer | Main scrollback is preserved and alt-screen output never enters scrollback. `?47` reuses the existing alternate buffer/state without clearing; `?1047` and `?1049` clear and home the alternate buffer on entry. Nested/redundant alt-screen enters are treated as no-op, and a `?1049` save is consumed by the first exit from alt-screen regardless of whether that exit uses `?47l`, `?1047l`, or `?1049l`. |
-| Show cursor | ?25 | | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/DecModeTests.cs`; Replay: `tests/NovaTerminal.App.Tests/ReplayTests/ReplayV2Tests.cs` | Buffer+Renderer | |
+| Alternate screen | ?1049 / ?47 / ?1047 | Switch + save/restore cursor | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/AlternateScreenTests.cs`; Replay: `tests/Ntilde.App.Tests/ReplayTests/AlternateScreenReplayTests.cs`, `tests/Ntilde.App.Tests/ReplayTests/NativeSshReplayParityTests.cs` | Buffer | Main scrollback is preserved and alt-screen output never enters scrollback. `?47` reuses the existing alternate buffer/state without clearing; `?1047` and `?1049` clear and home the alternate buffer on entry. Nested/redundant alt-screen enters are treated as no-op, and a `?1049` save is consumed by the first exit from alt-screen regardless of whether that exit uses `?47l`, `?1047l`, or `?1049l`. |
+| Show cursor | ?25 | | ✅ Supported | Unit: `tests/Ntilde.App.Tests/DecModeTests.cs`; Replay: `tests/Ntilde.App.Tests/ReplayTests/ReplayV2Tests.cs` | Buffer+Renderer | |
 | Application cursor keys | ?1 | Impacts input mapping | ⚠ Partial | Unit/Code: `ReplayV2Tests`, app input paths | Parser+Input | Parser/UI wiring exists; needs targeted key-mapping tests |
 | Focus event reporting | ?1004 | Emits `CSI I` / `CSI O` on focus transitions | ⚠ Partial | Unit/Code: `DecModeTests`, `TerminalView` | Parser+Input | Mode flag tested; focus emission covered by app path, not headless UI test |
 | Bracketed paste | ?2004 | Input feature | ⚠ Partial | Unit | Input layer | |
-| Mouse reporting | ?1000/1002/1003/1006 etc | Click (`?1000`) and drag-motion (`?1002`) tracking, plus hover motion with no buttons held under any-event tracking (`?1003`, issue #269); SGR (`?1006`) and legacy X10 coordinate encodings both supported. Motion reports are coalesced to at most one per distinct terminal cell (tracked last-reported cell, reset on buffer attach/resize, alternate-screen switch, pointer exit, and `?1002`/`?1003` mode changes observed between two motion events) so a stationary-but-jittery pointer or a TUI toggling tracking modes doesn't flood the PTY | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/Input/TerminalInputModeEncoderTests.cs`, `tests/NovaTerminal.App.Tests/Input/TerminalViewMouseMotionTests.cs` | Input layer | `?1001` (highlight tracking) and urxvt (`?1015`)/pixel-position (`?1016`) mouse coordinate encodings are not implemented; only X10 and SGR (`?1006`) coordinate encodings are supported. Coordinates are viewport-relative and 1-based on every report path (motion, press, release, wheel); the legacy X10 encoding clamps coordinates to its 223 ceiling rather than promoting the report to the SGR form the application never requested |
-| Cursor style | CSI Ps SP q | DECSCUSR block/beam/underline + blink state | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+Renderer | |
-| Kitty keyboard protocol | CSI ? u / CSI > Pm u / CSI < Pm u / CSI = Pm ; Pm u | Progressive-enhancement flags: query, push, pop, set. Per-screen-buffer flag stacks (depth 32, oldest evicted on overflow); RIS clears both | ⚠ Partial | Unit: `tests/NovaTerminal.VT.Tests/KittyKeyboardProtocolTests.cs`, `tests/NovaTerminal.App.Tests/Input/KittyKeyboardEncodingTests.cs`, `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs`, `tests/NovaTerminal.App.Tests/CommandAssist/TerminalViewKeyHandlingTests.cs` | Parser+Input | Scope: disambiguate-escape-codes tier (`0b1`) only. Bits `0b10`/`0b100`/`0b1000`/`0b10000` (event types, alternate keys, all-keys, associated text) are accepted but masked out on push/set, so the `CSI ? u` reply only advertises flags actually honored. Key encoding covers Esc, modified Enter/Tab/Backspace, and ctrl/alt/super combinations on the spec's legacy-text keys; keypad and functional keys keep their legacy encodings (including modified arrows/Home/End/PgUp/PgDn - the spec's `CSI 1;mod <letter>` form is not emitted, so e.g. Ctrl+Left stays an unmodified `CSI D`). AltGr on Windows non-US layouts is reported as Control+Alt; the encoder carves that combination out (falls through to legacy/text) so composed characters are not swallowed - the accepted trade-off is that literal Ctrl+Alt+&lt;key&gt; shortcuts on US layouts also lose kitty encoding, same as the pre-existing Alt-sends-ESC carve-out. Gated end-to-end by `TerminalSettings.EnableKittyKeyboardProtocol` (default on): when off, the App-side encoder is skipped unconditionally and the `CSI ? u` reply always reports flags 0 regardless of the pushed stack state. The tab-broadcast path in `MainWindow` builds its own input independently of this encoder and always sends legacy encoding to broadcast targets regardless of their own flag state. |
-| DECRQM / DECRPM (mode query) | CSI Ps $ p / CSI ? Ps $ p → CSI [?] Ps ; Pm $ y | Reports live set/reset state for private modes 1, 6, 7, 25, 47, 1000, 1002, 1003, 1004, 1006, 1047, 1049, 2004, 2026 and ANSI modes 4 (IRM), 12 (SRM), 20 (LNM); unrecognized modes report `Pm=0`. Lets apps (e.g. probing `?2026` synchronized output) detect real support instead of assuming it from unanswered queries | ✅ Supported | Unit: `tests/NovaTerminal.VT.Tests/DecrqmTests.cs` | Parser | `?9001` (ConPTY passthrough) is accepted by `CSI ? Ps h/l` but has no tracked boolean state, so DECRQM reports it as `Pm=0` (not recognized) rather than guessing. Dispatch keys on the `$` intermediate exactly, so `CSI ! p` (DECSTR, not implemented) and bare `CSI p` are unaffected. |
-| Kitty in-band resize / CSI 14 t / CSI 16 t | Mode 2048, `CSI 48 ; rows ; cols ; heightPx ; widthPx t`, `CSI 14 t` -> `CSI 4 ; heightPx ; widthPx t`, `CSI 16 t` -> `CSI 6 ; cellHeightPx ; cellWidthPx t` | Terminal-to-child reports are written to stdin only while the client has set mode 2048 (unsolicited reports would be garbage on its stdin); pixel sizes come from the live cell metrics. This is the only resize signal clients like terminal-browser get on Windows (no SIGWINCH, no console polling) | ✅ Supported | Unit: `tests/NovaTerminal.VT.Tests/InBandResizeTests.cs` | Parser+App | Other xterm window ops (stack, iconify, resize-by-cells, title push/pop via `t`) are ignored rather than answered. The `rows:1`/`rows:2` sub-parameter form of the start/end events is not emitted; plain numeric rows are, which in-band-resize clients parse identically. |
-| DSR / CPR / DECXCPR | CSI Ps n / CSI ? Ps n | Operating status (`CSI 5 n` -> `CSI 0 n`) and cursor position. The bare request answers `CSI r ; c R`; the DEC private request `CSI ? 6 n` (DECXCPR) answers in the private form `CSI ? r ; c R`, because a client that asked the private question parses for a private answer and would otherwise drop the reply or mistake it for an unsolicited CPR. Both frames honour DECOM: with origin mode set the row is reported relative to the top of the scrolling region, matching the frame CUP used to set it | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs`, `tests/NovaTerminal.App.Tests/VttestScenarioTests.cs` | Parser | DEC's page parameter is omitted from the DECXCPR reply (`CSI ? r ; c R`, not `CSI ? r ; c ; p R`), as xterm omits it. The other private status reports - `?15` printer, `?25` UDK, `?26` keyboard, `?53` locator - are not implemented and stay silent rather than guessing. `CSI > Ps n` (xterm disable-key-modifiers) is not a status request and is ignored |
+| Mouse reporting | ?1000/1002/1003/1006 etc | Click (`?1000`) and drag-motion (`?1002`) tracking, plus hover motion with no buttons held under any-event tracking (`?1003`, issue #269); SGR (`?1006`) and legacy X10 coordinate encodings both supported. Motion reports are coalesced to at most one per distinct terminal cell (tracked last-reported cell, reset on buffer attach/resize, alternate-screen switch, pointer exit, and `?1002`/`?1003` mode changes observed between two motion events) so a stationary-but-jittery pointer or a TUI toggling tracking modes doesn't flood the PTY | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/Input/TerminalInputModeEncoderTests.cs`, `tests/Ntilde.App.Tests/Input/TerminalViewMouseMotionTests.cs` | Input layer | `?1001` (highlight tracking) and urxvt (`?1015`)/pixel-position (`?1016`) mouse coordinate encodings are not implemented; only X10 and SGR (`?1006`) coordinate encodings are supported. Coordinates are viewport-relative and 1-based on every report path (motion, press, release, wheel); the legacy X10 encoding clamps coordinates to its 223 ceiling rather than promoting the report to the SGR form the application never requested |
+| Cursor style | CSI Ps SP q | DECSCUSR block/beam/underline + blink state | ✅ Supported | Unit: `tests/Ntilde.App.Tests/OscUxTests.cs` | Parser+Renderer | |
+| Kitty keyboard protocol | CSI ? u / CSI > Pm u / CSI < Pm u / CSI = Pm ; Pm u | Progressive-enhancement flags: query, push, pop, set. Per-screen-buffer flag stacks (depth 32, oldest evicted on overflow); RIS clears both | ⚠ Partial | Unit: `tests/Ntilde.VT.Tests/KittyKeyboardProtocolTests.cs`, `tests/Ntilde.App.Tests/Input/KittyKeyboardEncodingTests.cs`, `tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs`, `tests/Ntilde.App.Tests/CommandAssist/TerminalViewKeyHandlingTests.cs` | Parser+Input | Scope: disambiguate-escape-codes tier (`0b1`) only. Bits `0b10`/`0b100`/`0b1000`/`0b10000` (event types, alternate keys, all-keys, associated text) are accepted but masked out on push/set, so the `CSI ? u` reply only advertises flags actually honored. Key encoding covers Esc, modified Enter/Tab/Backspace, and ctrl/alt/super combinations on the spec's legacy-text keys; keypad and functional keys keep their legacy encodings (including modified arrows/Home/End/PgUp/PgDn - the spec's `CSI 1;mod <letter>` form is not emitted, so e.g. Ctrl+Left stays an unmodified `CSI D`). AltGr on Windows non-US layouts is reported as Control+Alt; the encoder carves that combination out (falls through to legacy/text) so composed characters are not swallowed - the accepted trade-off is that literal Ctrl+Alt+&lt;key&gt; shortcuts on US layouts also lose kitty encoding, same as the pre-existing Alt-sends-ESC carve-out. Gated end-to-end by `TerminalSettings.EnableKittyKeyboardProtocol` (default on): when off, the App-side encoder is skipped unconditionally and the `CSI ? u` reply always reports flags 0 regardless of the pushed stack state. The tab-broadcast path in `MainWindow` builds its own input independently of this encoder and always sends legacy encoding to broadcast targets regardless of their own flag state. |
+| DECRQM / DECRPM (mode query) | CSI Ps $ p / CSI ? Ps $ p → CSI [?] Ps ; Pm $ y | Reports live set/reset state for private modes 1, 6, 7, 25, 47, 1000, 1002, 1003, 1004, 1006, 1047, 1049, 2004, 2026 and ANSI modes 4 (IRM), 12 (SRM), 20 (LNM); unrecognized modes report `Pm=0`. Lets apps (e.g. probing `?2026` synchronized output) detect real support instead of assuming it from unanswered queries | ✅ Supported | Unit: `tests/Ntilde.VT.Tests/DecrqmTests.cs` | Parser | `?9001` (ConPTY passthrough) is accepted by `CSI ? Ps h/l` but has no tracked boolean state, so DECRQM reports it as `Pm=0` (not recognized) rather than guessing. Dispatch keys on the `$` intermediate exactly, so `CSI ! p` (DECSTR, not implemented) and bare `CSI p` are unaffected. |
+| Kitty in-band resize / CSI 14 t / CSI 16 t | Mode 2048, `CSI 48 ; rows ; cols ; heightPx ; widthPx t`, `CSI 14 t` -> `CSI 4 ; heightPx ; widthPx t`, `CSI 16 t` -> `CSI 6 ; cellHeightPx ; cellWidthPx t` | Terminal-to-child reports are written to stdin only while the client has set mode 2048 (unsolicited reports would be garbage on its stdin); pixel sizes come from the live cell metrics. This is the only resize signal clients like terminal-browser get on Windows (no SIGWINCH, no console polling) | ✅ Supported | Unit: `tests/Ntilde.VT.Tests/InBandResizeTests.cs` | Parser+App | Other xterm window ops (stack, iconify, resize-by-cells, title push/pop via `t`) are ignored rather than answered. The `rows:1`/`rows:2` sub-parameter form of the start/end events is not emitted; plain numeric rows are, which in-band-resize clients parse identically. |
+| DSR / CPR / DECXCPR | CSI Ps n / CSI ? Ps n | Operating status (`CSI 5 n` -> `CSI 0 n`) and cursor position. The bare request answers `CSI r ; c R`; the DEC private request `CSI ? 6 n` (DECXCPR) answers in the private form `CSI ? r ; c R`, because a client that asked the private question parses for a private answer and would otherwise drop the reply or mistake it for an unsolicited CPR. Both frames honour DECOM: with origin mode set the row is reported relative to the top of the scrolling region, matching the frame CUP used to set it | ✅ Supported | Unit: `tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs`, `tests/Ntilde.App.Tests/VttestScenarioTests.cs` | Parser | DEC's page parameter is omitted from the DECXCPR reply (`CSI ? r ; c R`, not `CSI ? r ; c ; p R`), as xterm omits it. The other private status reports - `?15` printer, `?25` UDK, `?26` keyboard, `?53` locator - are not implemented and stay silent rather than guessing. `CSI > Ps n` (xterm disable-key-modifiers) is not a status request and is ignored |
 
 ---
 
@@ -126,7 +126,7 @@ It is designed to be:
 
 | Feature | CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| Basic SGR (0,1,2,3,4,5,7,9,22,23,24,25,27,29) | | Bold/dim/italic/underline/blink/reverse/strike | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/SgrAttributeTests.cs`; VTTEST: sgr scenario | Parser+Buffer+Renderer | Underline style/color tracked separately |
+| Basic SGR (0,1,2,3,4,5,7,9,22,23,24,25,27,29) | | Bold/dim/italic/underline/blink/reverse/strike | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/SgrAttributeTests.cs`; VTTEST: sgr scenario | Parser+Buffer+Renderer | Underline style/color tracked separately |
 | 8/16 colors | 30–37/90–97, 40–47/100–107 | | ⚠ Partial | Replay | Parser+Buffer | |
 | 256-color | 38;5;N / 48;5;N | | ⚠ Partial | Replay | Parser+Buffer | |
 | Truecolor | 38;2;r;g;b / 48;2;r;g;b | | ⚠ Partial | Replay | Parser+Buffer | |
@@ -138,8 +138,8 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| HT (tab) movement | | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/TabSystemTests.cs` | Parser+Buffer | Custom tab stops are clipped on width shrink; columns exposed by width growth start with default 8-column tab stops |
-| Tab stops set/clear | ESC H, CSI g | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/TabSystemTests.cs` | Parser+Buffer | `CSI g` supports current-stop clear (`0`/default) and clear-all (`3`); other parameters are ignored |
+| HT (tab) movement | | ✅ Supported | Unit: `tests/Ntilde.App.Tests/TabSystemTests.cs` | Parser+Buffer | Custom tab stops are clipped on width shrink; columns exposed by width growth start with default 8-column tab stops |
+| Tab stops set/clear | ESC H, CSI g | ✅ Supported | Unit: `tests/Ntilde.App.Tests/TabSystemTests.cs` | Parser+Buffer | `CSI g` supports current-stop clear (`0`/default) and clear-all (`3`); other parameters are ignored |
 
 ---
 
@@ -148,12 +148,12 @@ It is designed to be:
 | OSC | Purpose | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
 | OSC 0/2 | Set title | ⚠ Partial | Manual/Unit | App/UI | |
-| OSC 7 | CWD reporting | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+App | |
-| OSC 10/11 | Foreground/background color query | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+App | Query form (`?`) only; set form is ignored safely, no runtime palette change. Colors sourced from `AnsiParser.DefaultForeground`/`DefaultBackground`, wired from the active theme at parser creation and on `TerminalPane.ApplySettings`; falls back to fg C0C0C0 / bg 000000 when unset |
-| OSC 52 | Clipboard | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs`, `tests/NovaTerminal.App.Tests/Controls/PaneParserWiringTests.cs` | Parser+App | Write-only (issue #268): valid base64 decodes and raises `AnsiParser.OnClipboardWrite`, capped at 1 MiB decoded (rejected on encoded length before decoding, re-checked after); invalid base64 dropped silently; a sequence with no payload separator at all is ignored rather than clearing the clipboard. Targets `c`/`p` both map to the system clipboard, other selection chars ignored. Query (`?`) always gets an empty-payload denial reply, never real clipboard contents — clipboard READ is unsupported by design (security). The echoed selection parameter is whitelisted to `c p q s 0-7` and length-capped first: responses go to the child process's stdin, so an unsanitized echo was a command-injection primitive (PR #280 review). Gated by `TerminalSettings.AllowOsc52ClipboardWrite` (default true, single global setting; per-profile/SSH-scoped opt-in is future work) |
-| OSC 8 | Hyperlinks | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+Renderer+UI | Ctrl-click open path is app-level |
-| OSC 133 | Shell integration lifecycle | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/OscShellIntegrationTests.cs` | Parser+Command Assist | Supports A/B/C/D markers; broader semantic prompt extensions not audited |
-| OSC 1337 | iTerm2 inline images | ✅ Supported | Unit: `tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs`, Manual: `docs/qa/QA_GRAPHICS.md` | Parser+Renderer | Requires `inline=1` and the `File=` arg shape; no `name=`/`size=` enforcement |
+| OSC 7 | CWD reporting | ✅ Supported | Unit: `tests/Ntilde.App.Tests/OscUxTests.cs` | Parser+App | |
+| OSC 10/11 | Foreground/background color query | ✅ Supported | Unit: `tests/Ntilde.App.Tests/OscUxTests.cs` | Parser+App | Query form (`?`) only; set form is ignored safely, no runtime palette change. Colors sourced from `AnsiParser.DefaultForeground`/`DefaultBackground`, wired from the active theme at parser creation and on `TerminalPane.ApplySettings`; falls back to fg C0C0C0 / bg 000000 when unset |
+| OSC 52 | Clipboard | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/OscUxTests.cs`, `tests/Ntilde.App.Tests/Controls/PaneParserWiringTests.cs` | Parser+App | Write-only (issue #268): valid base64 decodes and raises `AnsiParser.OnClipboardWrite`, capped at 1 MiB decoded (rejected on encoded length before decoding, re-checked after); invalid base64 dropped silently; a sequence with no payload separator at all is ignored rather than clearing the clipboard. Targets `c`/`p` both map to the system clipboard, other selection chars ignored. Query (`?`) always gets an empty-payload denial reply, never real clipboard contents — clipboard READ is unsupported by design (security). The echoed selection parameter is whitelisted to `c p q s 0-7` and length-capped first: responses go to the child process's stdin, so an unsanitized echo was a command-injection primitive (PR #280 review). Gated by `TerminalSettings.AllowOsc52ClipboardWrite` (default true, single global setting; per-profile/SSH-scoped opt-in is future work) |
+| OSC 8 | Hyperlinks | ✅ Supported | Unit: `tests/Ntilde.App.Tests/OscUxTests.cs` | Parser+Renderer+UI | Ctrl-click open path is app-level |
+| OSC 133 | Shell integration lifecycle | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/OscShellIntegrationTests.cs` | Parser+Command Assist | Supports A/B/C/D markers; broader semantic prompt extensions not audited |
+| OSC 1337 | iTerm2 inline images | ✅ Supported | Unit: `tests/Ntilde.Rendering.Tests/InlineImageEndToEndTests.cs`, Manual: `docs/qa/QA_GRAPHICS.md` | Parser+Renderer | Requires `inline=1` and the `File=` arg shape; no `name=`/`size=` enforcement |
 | OSC 1339 | Windows conpty tunnel | 🧪 Experimental | Manual | Parser+Win | |
 
 ---
@@ -162,7 +162,7 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| Kitty graphics protocol | APC / OSC forms | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/GraphicsTests.cs`, `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs`, `tests/NovaTerminal.Rendering.Tests/InlineImageEndToEndTests.cs` | Parser+Renderer | Native APC (non-tunneled) on Windows decodes behind `TerminalSettings.AllowNativeKittyGraphics` (default on) — historically probes got `ERR`/images skipped; modern ConPTY passes APC through intact (live-verified 2026-09). Payload formats: container (PNG/...) plus raw `f=24`/`f=32` sized by `s=`/`v=`, `o=z` zlib inflation, and `t=f` file transport read through the host-injected `ReadFileBytes` delegate (App-side reader confined to `%TEMP%`, 64 MB cap). `t=s` (shm) skips gracefully. Placement params (`z`, `U=1`, `p=1`, `C=1`) are accepted but only cursor-anchored placement is implemented. |
+| Kitty graphics protocol | APC / OSC forms | ✅ Supported | Unit: `tests/Ntilde.App.Tests/GraphicsTests.cs`, `tests/Ntilde.App.Tests/AnsiParserHardeningTests.cs`, `tests/Ntilde.Rendering.Tests/InlineImageEndToEndTests.cs` | Parser+Renderer | Native APC (non-tunneled) on Windows decodes behind `TerminalSettings.AllowNativeKittyGraphics` (default on) — historically probes got `ERR`/images skipped; modern ConPTY passes APC through intact (live-verified 2026-09). Payload formats: container (PNG/...) plus raw `f=24`/`f=32` sized by `s=`/`v=`, `o=z` zlib inflation, and `t=f` file transport read through the host-injected `ReadFileBytes` delegate (App-side reader confined to `%TEMP%`, 64 MB cap). `t=s` (shm) skips gracefully. Placement params (`z`, `U=1`, `p=1`, `C=1`) are accepted but only cursor-anchored placement is implemented. |
 | Placement, z-index, scrolling | Complex interactions | ⚠ Partial | Manual | Buffer+Renderer | Pruned images' bitmaps are retired by the buffer; the owning view disposes them once no in-flight snapshot session predates the retire (#166) |
 
 ---
@@ -171,7 +171,7 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| SIXEL decode/render | Wired via `NovaTerminal.Rendering.SkiaImageDecoder` | ✅ Supported | Unit: `tests/NovaTerminal.Rendering.Tests/SixelDecoderTests.cs`, `tests/NovaTerminal.Rendering.Tests/SkiaImageDecoderTests.cs` | Decoder+Renderer | |
+| SIXEL decode/render | Wired via `Ntilde.Rendering.SkiaImageDecoder` | ✅ Supported | Unit: `tests/Ntilde.Rendering.Tests/SixelDecoderTests.cs`, `tests/Ntilde.Rendering.Tests/SkiaImageDecoderTests.cs` | Decoder+Renderer | |
 | SIXEL scrolling behavior | | ❌ Not supported | — | Buffer+Renderer | |
 
 ---
@@ -182,7 +182,7 @@ It is designed to be:
 |---|---|---:|---|---|---|
 | Selection model | UI behavior | ⚠ Partial | Manual | UI | |
 | Copy on select | Configurable | ❌ Not supported | — | UI | |
-| Hyperlinks | OSC 8 | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+UI | Ctrl-click open path is app-level |
+| Hyperlinks | OSC 8 | ✅ Supported | Unit: `tests/Ntilde.App.Tests/OscUxTests.cs` | Parser+UI | Ctrl-click open path is app-level |
 
 ---
 
@@ -190,23 +190,23 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| wcwidth-like width | CJK/emoji width | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/WidthTests.cs`, `tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs`; Replay: `tests/NovaTerminal.App.Tests/Fixtures/Replay/mixed_unicode.rec` | Buffer+Renderer | Deterministic 0/1/2-cell model for combining marks, emoji modifiers, ZWJ emoji, variation selectors, and regional-indicator flags. No Unicode-version pin or full UAX #11 conformance table is documented yet. |
-| Combining marks | Grapheme clusters | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/GraphemeAttachmentTests.cs`, `tests/NovaTerminal.App.Tests/SurrogateTests.cs`, `tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs`, `tests/NovaTerminal.App.Tests/ScrollAndWrapCorrectnessTests.cs` | Buffer+Renderer | Combining/variation attachment is covered for common terminal cases, including pending-wrap boundaries. Full extended-grapheme-cluster conformance is not claimed. |
-| ZWJ emoji sequences | | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/GraphemeAttachmentTests.cs`, `tests/NovaTerminal.App.Tests/WidthTests.cs`, `tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs` | Buffer+Renderer | Chunked ZWJ families, emoji modifiers, VS15/VS16, and chunked regional-indicator flag pairs are covered. Remaining gaps: cursor-addressing CSI remains cell-oriented, and width-changing selectors that arrive after a base glyph already placed at the last column are not guaranteed to retroactively reflow. |
+| wcwidth-like width | CJK/emoji width | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/WidthTests.cs`, `tests/Ntilde.App.Tests/UnicodeWidthModelV2Tests.cs`; Replay: `tests/Ntilde.App.Tests/Fixtures/Replay/mixed_unicode.rec` | Buffer+Renderer | Deterministic 0/1/2-cell model for combining marks, emoji modifiers, ZWJ emoji, variation selectors, and regional-indicator flags. No Unicode-version pin or full UAX #11 conformance table is documented yet. |
+| Combining marks | Grapheme clusters | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/GraphemeAttachmentTests.cs`, `tests/Ntilde.App.Tests/SurrogateTests.cs`, `tests/Ntilde.App.Tests/UnicodeWidthModelV2Tests.cs`, `tests/Ntilde.App.Tests/ScrollAndWrapCorrectnessTests.cs` | Buffer+Renderer | Combining/variation attachment is covered for common terminal cases, including pending-wrap boundaries. Full extended-grapheme-cluster conformance is not claimed. |
+| ZWJ emoji sequences | | ⚠ Partial | Unit: `tests/Ntilde.App.Tests/GraphemeAttachmentTests.cs`, `tests/Ntilde.App.Tests/WidthTests.cs`, `tests/Ntilde.App.Tests/UnicodeWidthModelV2Tests.cs` | Buffer+Renderer | Chunked ZWJ families, emoji modifiers, VS15/VS16, and chunked regional-indicator flag pairs are covered. Remaining gaps: cursor-addressing CSI remains cell-oriented, and width-changing selectors that arrive after a base glyph already placed at the last column are not guaranteed to retroactively reflow. |
 
 ---
 
 ## 13) Verification inventory
 
 ### External suites
-- VTTEST capture adapter: `tests/NovaTerminal.ExternalSuites/`  
+- VTTEST capture adapter: `tests/Ntilde.ExternalSuites/`  
   Recordings: `tests/Replays/Vttest/*.rec`
 
 ### Replay suites (goldens)
-- Add all `.rec/.snap` pairs under: `NovaTerminal.Tests/Fixtures/Replay/`
+- Add all `.rec/.snap` pairs under: `Ntilde.Tests/Fixtures/Replay/`
 
 ### Unit tests
-- Parser/Buffer tests under: `NovaTerminal.Tests/`
+- Parser/Buffer tests under: `Ntilde.Tests/`
 
 ---
 

@@ -80,8 +80,8 @@ One C# test: calling a session method on a disposed `NovaSshSafeHandle` is a saf
 
 ## F. Testing strategy
 
-- **Rust** (`cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml`): registry validation, the abuse suite, the alloc-counter balance test. Wired into CI.
-- **C#** (targeted, non-headless): `NovaSshSafeHandle` dispose idempotency + post-dispose safety; build of `NovaTerminal.Platform` green via `scripts/build.ps1`.
+- **Rust** (`cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml`): registry validation, the abuse suite, the alloc-counter balance test. Wired into CI.
+- **C#** (targeted, non-headless): `NovaSshSafeHandle` dispose idempotency + post-dispose safety; build of `Ntilde.Platform` green via `scripts/build.ps1`.
 - Existing native SSH E2E tests (`NativeSshDockerE2eTests`, currently `[SKIP]` off-CI) remain unaffected; the migration must keep them compiling.
 
 ## G. Risks to validate during implementation

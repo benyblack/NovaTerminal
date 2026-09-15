@@ -8,22 +8,22 @@ Observe-only, off by default.
 
 Expose three session-facing MCP tools backed by the running app:
 
-- `novaterminal.list_sessions`
-- `novaterminal.read_screen`
-- `novaterminal.read_scrollback`
+- `ntilde.list_sessions`
+- `ntilde.read_screen`
+- `ntilde.read_scrollback`
 
 The change must:
 
 - reuse the deterministic snapshot path (`BufferSnapshot`), not invent a new
   read path
 - be a strict no-op when the `Agent Access (observe)` setting is off
-- add no new dependencies to `NovaTerminal.VT` (leaf) and none from
-  `NovaTerminal.Pty` to `NovaTerminal.VT`
+- add no new dependencies to `Ntilde.VT` (leaf) and none from
+  `Ntilde.Pty` to `Ntilde.VT`
 - keep the stdio MCP server as the only agent-facing surface
 
 ## Current State
 
-- `src/NovaTerminal.McpServer` is a standalone stdio process
+- `src/Ntilde.McpServer` is a standalone stdio process
   (`Program.cs`: `Host.CreateApplicationBuilder` → `AddMcpServer()`
   `.WithStdioServerTransport().WithToolsFromAssembly()`, singleton
   `RepoContext`). It is repo-facing only; it has no connection to a running
@@ -32,19 +32,19 @@ The change must:
   sockets, or single-instance activation). The control channel is new code.
 - The live session registry is **MainWindow-local**: `_tabIds`,
   `_activePaneByTab`, `_paneOwnerTab`, `_layoutModelByTab` dictionaries in
-  `src/NovaTerminal.App/MainWindow.axaml.cs`. `TerminalPane`
+  `src/Ntilde.App/MainWindow.axaml.cs`. `TerminalPane`
   (`Controls/TerminalPane.axaml.cs`) owns `PaneId: Guid` and its
   `ITerminalSession`. There is no service-level registry to query.
 - Deterministic snapshots exist:
-  `NovaTerminal.Replay.BufferSnapshot.Capture(TerminalBuffer, bool includeAttributes)`
-  (`src/NovaTerminal.Replay/Replay/BufferSnapshot.cs`) produces `Lines` +
+  `Ntilde.Replay.BufferSnapshot.Capture(TerminalBuffer, bool includeAttributes)`
+  (`src/Ntilde.Replay/Replay/BufferSnapshot.cs`) produces `Lines` +
   optional `AttributeLines`; `ReplaySnapshot`
-  (`src/NovaTerminal.VT/ReplayModels.cs`) is the lower-level parity format.
+  (`src/Ntilde.VT/ReplayModels.cs`) is the lower-level parity format.
 - Buffer reads are guarded by `TerminalBuffer.Lock`
   (`ReaderWriterLockSlim`, `NoRecursion`) with
   `EnterReadLockIfNeeded`/`ExitReadLockIfNeeded` helpers
   (`TerminalBuffer.ThreadingAndInvalidation.cs`).
-- Settings: `TerminalSettings` (`src/NovaTerminal.App/Shell/TerminalSettings.cs`)
+- Settings: `TerminalSettings` (`src/Ntilde.App/Shell/TerminalSettings.cs`)
   already models opt-in experimental flags (`ExperimentalNativeSshEnabled`,
   `CommandAssistEnabled` default-false) with JSON persistence via
   `AppJsonContext`.
@@ -53,10 +53,10 @@ The change must:
 
 Three additive pieces:
 
-1. **`NovaTerminal.AgentHost.Contracts`** — new leaf class library: request/
+1. **`Ntilde.AgentHost.Contracts`** — new leaf class library: request/
    response DTOs and the wire protocol version. Referenced by both App and
    McpServer. Zero project references (enforced).
-2. **App-side endpoint** — an `AgentHostService` in `NovaTerminal.App` that
+2. **App-side endpoint** — an `AgentHostService` in `Ntilde.App` that
    (a) holds a thread-safe session registry populated by existing pane
    lifecycle code, and (b) when the observe setting is on, listens on a
    per-user local endpoint and answers contracts requests using
@@ -90,18 +90,18 @@ deterministic reads from the buffer itself.
 ## Architecture
 
 ```
-agent ── stdio MCP ──▶ NovaTerminal.McpServer
+agent ── stdio MCP ──▶ Ntilde.McpServer
                           │  AgentHostClient (Contracts DTOs, JSON frames)
                           ▼
               per-user local endpoint (named pipe / unix socket)
                           ▼
-                    NovaTerminal.App
+                    Ntilde.App
                     AgentHostService ── registry ◀─ TerminalPane lifecycle
                           │
                     BufferSnapshot.Capture(buffer)  [under buffer.Lock read]
 ```
 
-### Contracts (`src/NovaTerminal.AgentHost.Contracts`)
+### Contracts (`src/Ntilde.AgentHost.Contracts`)
 
 - `ProtocolVersion` (int, starts at 1; server rejects unknown majors)
 - `SessionInfo { Guid PaneId, Guid TabId, string Title, string ProfileName,
@@ -117,7 +117,7 @@ agent ── stdio MCP ──▶ NovaTerminal.McpServer
   MCP or JSON-RPC-the-library — small, versioned, source-generated JSON
   (AOT-safe, matching the app's `JsonSerializerContext` usage).
 
-### App side (`NovaTerminal.App`)
+### App side (`Ntilde.App`)
 
 - `AgentHost/AgentSessionRegistry` — `ConcurrentDictionary<Guid, ...>` of
   pane registrations `{ PaneId, TabId, title accessor, TerminalBuffer,
@@ -130,7 +130,7 @@ agent ── stdio MCP ──▶ NovaTerminal.McpServer
   McpServer `SettingsTools` known-key lists). Toggling the setting starts/
   stops the listener without restart.
 - Endpoint: `NamedPipeServerStream` on Windows
-  (`novaterminal-agent-<user-sid>`, `CurrentUserOnly`);
+  (`ntilde-agent-<user-sid>`, `CurrentUserOnly`);
   `UnixDomainSocketEndPoint` on Linux/macOS at
   `<AppPaths runtime dir>/agent.sock`, `0600`, unlinked on exit. An
   `agent-endpoint.json` discovery file next to `settings.json` records
@@ -147,12 +147,12 @@ agent ── stdio MCP ──▶ NovaTerminal.McpServer
 - `AgentHostClient` (singleton, DI alongside `RepoContext`): reads the
   discovery file, connects lazily per request batch, reconnects on failure.
 - `Tools/SessionTools.cs`:
-  - `novaterminal.list_sessions` — table of `SessionInfo`
-  - `novaterminal.read_screen` — visible grid as text, cursor position,
+  - `ntilde.list_sessions` — table of `SessionInfo`
+  - `ntilde.read_screen` — visible grid as text, cursor position,
     optional attributes (`includeAttributes` param)
-  - `novaterminal.read_scrollback` — ranged, capped
+  - `ntilde.read_scrollback` — ranged, capped
 - Unavailability is a *normal result*, not an exception: a fixed message
-  explaining that NovaTerminal isn't running or `Agent Access (observe)` is
+  explaining that Ntilde isn't running or `Agent Access (observe)` is
   disabled, and where to enable it. Repo-facing tools are unaffected.
 
 ### Settings UI
@@ -191,7 +191,7 @@ may include sensitive output and that acting permissions do not exist yet.
   no torn snapshots (each capture is internally consistent), renderer
   metrics lane stays within its ceilings.
 - **Protocol:** version-mismatch and malformed-frame rejection unit tests in
-  a new `tests/NovaTerminal.AgentHost.Contracts.Tests` or folded into
+  a new `tests/Ntilde.AgentHost.Contracts.Tests` or folded into
   `McpServer.Tests`.
 
 ## Out of Scope (later milestones)

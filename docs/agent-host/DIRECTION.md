@@ -1,4 +1,4 @@
-# ADR: NovaTerminal as an Agent Host
+# ADR: Ntilde as an Agent Host
 
 _Status: **Accepted** (2026-07-07) · Date: 2026-07-07 · Supersedes the strategic framing of
 `docs/ghostty-gaps/ghostty_gap_roadmap.md`; amends Phases 4–5 of `docs/ROADMAP.md`._
@@ -26,19 +26,19 @@ idle), completion & stall notifications, programmatic session spawning, and
 parallel-session orchestration. Most implementations are tmux-layer inference
 or proprietary. None offer deterministic replay.
 
-### Where NovaTerminal stands
+### Where Ntilde stands
 
 - Chasing Ghostty on its own axis (speed + correctness as the headline) is
   not winnable for a nights-and-weekends solo project. The gap-closure
   program produced real quality, but as a *strategy* it is a treadmill.
-- NovaTerminal's unusual investments map directly onto what agents need:
+- Ntilde's unusual investments map directly onto what agents need:
   - **Cell-based buffer + VT correctness** → structured, trustworthy screen
     reads ("the agent sees exactly what a human sees").
   - **Thread-safe PTY ownership** → real process/session status, not
     heuristics layered on tmux.
   - **Deterministic replay** → record and replay agent sessions with
     byte-for-byte buffer parity. No other terminal can do this.
-  - **Existing MCP server** (`src/NovaTerminal.McpServer`) → the transport
+  - **Existing MCP server** (`src/Ntilde.McpServer`) → the transport
     and packaging already exist; today it is repo-facing (docs, VT
     explanations, profile validation), not session-facing.
   - **Native SSH profiles** → agents can be given correct remote sessions,
@@ -46,7 +46,7 @@ or proprietary. None offer deterministic replay.
 
 ## Decision
 
-**NovaTerminal positions itself as the correct, deterministic terminal that is
+**Ntilde positions itself as the correct, deterministic terminal that is
 the best host for AI agents — "enable, don't embed."**
 
 Concretely:
@@ -90,7 +90,7 @@ proxied by the MCP server**:
 agent (Claude Code / Codex / …)
    │  stdio MCP
    ▼
-NovaTerminal.McpServer  ── local IPC (named pipe / unix socket) ──▶  NovaTerminal.App
+Ntilde.McpServer  ── local IPC (named pipe / unix socket) ──▶  Ntilde.App
                                                                     (session registry,
                                                                      buffer snapshots,
                                                                      PTY status, input)
@@ -106,7 +106,7 @@ NovaTerminal.McpServer  ── local IPC (named pipe / unix socket) ──▶  N
 ### Module placement (respects enforced invariants)
 
 - Session-control contracts (DTOs, IPC protocol) live in a new leaf library
-  (working name `NovaTerminal.AgentHost.Contracts`) referenced by both App
+  (working name `Ntilde.AgentHost.Contracts`) referenced by both App
   and McpServer. `VT` stays a leaf; `Pty` still never sees VT types — status
   events surface via the existing App orchestration layer.
 - No production assembly references test libraries; architecture tests gain
@@ -140,8 +140,8 @@ Each milestone is independently shippable and announceable. Estimates assume
 
 **Deliverables**
 - [x] App-side IPC endpoint + session registry exposure (PRs #183, #184)
-- [x] MCP tools: `novaterminal.list_sessions`, `novaterminal.read_screen`
-      (visible grid + cursor), `novaterminal.read_scrollback` (ranged)
+- [x] MCP tools: `ntilde.list_sessions`, `ntilde.read_screen`
+      (visible grid + cursor), `ntilde.read_scrollback` (ranged)
 - [x] `Agent Access (observe)` settings toggle, off by default (PR #184)
 - [ ] Docs + demo recording: Claude Code reading a live `htop`/`vim` session
 
@@ -156,8 +156,8 @@ Each milestone is independently shippable and announceable. Estimates assume
 - [x] Session status model: `running` / `awaitingInput` / `idle` / `exited`
       with precise/heuristic confidence tiers (PTY-derived, not scrape-based;
       exit status included; foreground-process reporting deferred) (PR #186)
-- [x] MCP tools: `novaterminal.get_session_status`,
-      `novaterminal.wait_for_events` (cursor long-poll over a bounded event
+- [x] MCP tools: `ntilde.get_session_status`,
+      `ntilde.wait_for_events` (cursor long-poll over a bounded event
       ring) for completion/stall events (PRs #187, #188)
 - [x] In-app notification for long-running command completion, default-off
       toggle (absorbs ROADMAP 5.2); OS-native notification backends remain a
@@ -172,8 +172,8 @@ Each milestone is independently shippable and announceable. Estimates assume
 ### A3 — Act (permissioned)
 
 **Deliverables**
-- [x] MCP tools: `novaterminal.send_input` (PR #193), `novaterminal.spawn_session`
-      (local profile or SSH profile by name) + `novaterminal.close_session` (PR #194)
+- [x] MCP tools: `ntilde.send_input` (PR #193), `ntilde.spawn_session`
+      (local profile or SSH profile by name) + `ntilde.close_session` (PR #194)
 - [x] Separate opt-in (`AgentAccessActEnabled`, default off) + per-profile SSH
       allowlist (`SshProfile.AllowAgentAccess`, fail-closed) + UI activity journal
       (`AgentActivityJournal` + "Agent Activity…" window; every attempt, allowed or
@@ -193,11 +193,11 @@ Each milestone is independently shippable and announceable. Estimates assume
 ### A4 — Replay for agents (the moat)
 
 **Deliverables**
-- [x] `novaterminal.export_replay` for a session/time range (PRs #190–#191:
+- [x] `ntilde.export_replay` for a session/time range (PRs #190–#191:
       flight-recorder ring bounded by bytes = the retained time range; output +
       resize only, never input; gated by the default-off `AgentReplayExportEnabled`
       sub-toggle on top of observe)
-- [x] CLI: `NovaTerminal.Cli --replay <file> [--attributes]` headless
+- [x] CLI: `Ntilde.Cli --replay <file> [--attributes]` headless
       render-to-text for CI and agent-run postmortems (PR #192; PNG output and
       frame-stepping deferred — see the A4 design doc's out-of-scope list)
 - [x] Docs: "Debug what your agent did, frame by frame" (README, agent host
@@ -210,7 +210,7 @@ Each milestone is independently shippable and announceable. Estimates assume
 ### A5 — Screenshots (see what the agent sees)
 
 **Deliverables**
-- [x] `novaterminal.capture_screen`: captures a pane as a PNG and returns its
+- [x] `ntilde.capture_screen`: captures a pane as a PNG and returns its
       path, plus the image inline on request (size-capped, `maxWidth`
       downscale). Rides the observe toggle like every other read; the pane
       indicator is its visibility surface.

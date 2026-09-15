@@ -1,0 +1,139 @@
+using System.IO;
+using System.Text;
+
+namespace Ntilde.CommandAssist.ShellIntegration.Zsh;
+
+public static class ZshBootstrapBuilder
+{
+    public static string BuildScript()
+    {
+        const string nl = "\n";
+        var b = new StringBuilder();
+        b.Append("#!/usr/bin/env zsh").Append(nl);
+        b.Append("# Ntilde command-assist bootstrap for zsh.").Append(nl);
+        b.Append("# Installed as $ZDOTDIR/.zshrc. ZDOTDIR is set so the user's").Append(nl);
+        b.Append("# ~/.zshrc is NOT auto-sourced; we source it explicitly first").Append(nl);
+        b.Append("# so customizations and PROMPT/PS1 stay owned by the user.").Append(nl);
+        b.Append("if [ -f \"$HOME/.zshrc\" ]; then").Append(nl);
+        b.Append("    . \"$HOME/.zshrc\"").Append(nl);
+        b.Append("fi").Append(nl);
+        b.Append(nl);
+        b.Append("typeset -g __ntilde_command_start_ms=\"\"").Append(nl);
+        // Load zsh's native datetime module so $EPOCHREALTIME is available
+        // for portable millisecond timing. `date +%s%N` is GNU-only and
+        // leaves a literal "%N" on macOS/BSD, breaking arithmetic.
+        //
+        // +p: because EPOCHREALTIME is a PARAMETER. `zmodload -F` with an
+        // unknown feature name fails, and with the error swallowed the module
+        // never loads at all: $EPOCHREALTIME stays unset, __ntilde_now_ms falls
+        // back to `date +%s`, and every duration is reported as a whole number
+        // of seconds. (+b: is the builtin namespace, which has no
+        // EPOCHREALTIME in it.)
+        b.Append("zmodload -F zsh/datetime +p:EPOCHREALTIME 2>/dev/null || true").Append(nl);
+        b.Append(nl);
+        b.Append("__ntilde_now_ms() {").Append(nl);
+        b.Append("    if (( ${+EPOCHREALTIME} )); then").Append(nl);
+        b.Append("        local sec=\"${EPOCHREALTIME%.*}\"").Append(nl);
+        b.Append("        local frac=\"${EPOCHREALTIME#*.}\"").Append(nl);
+        b.Append("        printf '%s%s' \"$sec\" \"${frac:0:3}\"").Append(nl);
+        b.Append("    else").Append(nl);
+        b.Append("        printf '%s000' \"$(date +%s)\"").Append(nl);
+        b.Append("    fi").Append(nl);
+        b.Append("}").Append(nl);
+        b.Append(nl);
+        b.Append("__ntilde_url_encode_pwd() {").Append(nl);
+        b.Append("    local s=\"$PWD\"").Append(nl);
+        b.Append("    printf '%s' \"$s\" | LC_ALL=C awk 'BEGIN{for(i=0;i<256;i++)c[sprintf(\"%c\",i)]=i} {for(i=1;i<=length($0);i++){ch=substr($0,i,1); if(ch~/[A-Za-z0-9._~\\/-]/) printf \"%s\",ch; else printf \"%%%02X\",c[ch]}}'").Append(nl);
+        b.Append("}").Append(nl);
+        b.Append(nl);
+        b.Append("__ntilde_emit_prompt_ready() {").Append(nl);
+        b.Append("    printf '\\033]7;file://%s%s\\a' \"${HOST:-localhost}\" \"$(__ntilde_url_encode_pwd)\"").Append(nl);
+        b.Append("    printf '\\033]133;A\\a'").Append(nl);
+        b.Append("}").Append(nl);
+        b.Append(nl);
+        // OSC 133;B marks the END of the prompt -- the cell where the user's
+        // input starts. precmd runs before PROMPT is expanded, so B cannot be
+        // printed from a hook the way A is; it has to be the last thing in
+        // PROMPT itself. %{...%} tells zsh the sequence occupies zero columns,
+        // so prompt-width arithmetic and ZLE redraw stay correct.
+        b.Append("typeset -g __ntilde_prompt_mark=$'%{\\e]133;B\\a%}'").Append(nl);
+        // Re-applied every precmd rather than once at startup because prompt
+        // frameworks (powerlevel10k, starship, oh-my-zsh themes) reassign
+        // PROMPT from their own precmd hooks; ours is appended to
+        // precmd_functions last, so we get the final word.
+        //
+        // Strip-then-append rather than skip-if-present: zsh has no "arm last"
+        // invariant like bash's __ntilde_arm, so a precmd hook registered after
+        // ours can append to PROMPT and leave our mark buried mid-prompt, where
+        // it would report the input cell several columns early. Removing the
+        // existing suffix (a no-op when absent, since ${var%pattern} only trims
+        // a trailing match) and re-appending is idempotent AND self-correcting.
+        b.Append("__ntilde_apply_prompt_mark() {").Append(nl);
+        b.Append("    PROMPT=\"${PROMPT%$__ntilde_prompt_mark}$__ntilde_prompt_mark\"").Append(nl);
+        b.Append("}").Append(nl);
+        b.Append(nl);
+        // zsh has native preexec/precmd hooks via the function-array convention.
+        // preexec receives the about-to-run command as $1, so unlike bash we
+        // do not need a one-shot guard around the DEBUG trap.
+        b.Append("__ntilde_preexec() {").Append(nl);
+        b.Append("    local cmd=\"$1\"").Append(nl);
+        b.Append("    local b64").Append(nl);
+        b.Append("    b64=$(printf '%s' \"$cmd\" | base64 | tr -d '\\n')").Append(nl);
+        b.Append("    printf '\\033]133;C;%s\\a' \"$b64\"").Append(nl);
+        b.Append("    __ntilde_command_start_ms=$(__ntilde_now_ms)").Append(nl);
+        b.Append("}").Append(nl);
+        b.Append(nl);
+        // Two precmd hooks at opposite ends of precmd_functions, because the
+        // two jobs want opposite positions. $? inside a precmd hook is the
+        // status of whatever ran immediately before it, and for an APPENDED
+        // hook that is the previous precmd hook rather than the user's
+        // command -- so on any setup with another precmd registered (oh-my-zsh,
+        // powerlevel10k, a vcs_info hook) the reported exit code was that
+        // hook's, i.e. almost always 0. Snapshotting $? has to happen in a hook
+        // that runs FIRST. Re-applying the prompt mark has to happen in a hook
+        // that runs LAST, after any theme has finished rewriting PROMPT.
+        b.Append("typeset -g __ntilde_last_status=0").Append(nl);
+        b.Append("__ntilde_status_snapshot() {").Append(nl);
+        b.Append("    __ntilde_last_status=$?").Append(nl);
+        b.Append("}").Append(nl);
+        b.Append(nl);
+        b.Append("__ntilde_precmd() {").Append(nl);
+        b.Append("    local exit=$__ntilde_last_status").Append(nl);
+        b.Append("    if [ -n \"$__ntilde_command_start_ms\" ]; then").Append(nl);
+        b.Append("        local now_ms duration_ms").Append(nl);
+        b.Append("        now_ms=$(__ntilde_now_ms)").Append(nl);
+        b.Append("        duration_ms=$((now_ms - __ntilde_command_start_ms))").Append(nl);
+        b.Append("        printf '\\033]133;D;%s;%s\\a' \"$exit\" \"$duration_ms\"").Append(nl);
+        b.Append("        __ntilde_command_start_ms=\"\"").Append(nl);
+        b.Append("    fi").Append(nl);
+        b.Append("    __ntilde_emit_prompt_ready").Append(nl);
+        b.Append("    __ntilde_apply_prompt_mark").Append(nl);
+        b.Append("}").Append(nl);
+        b.Append(nl);
+        b.Append("typeset -ag precmd_functions preexec_functions").Append(nl);
+        // Prepended, not appended: see __ntilde_status_snapshot above.
+        b.Append("precmd_functions=(__ntilde_status_snapshot \"${precmd_functions[@]}\")").Append(nl);
+        b.Append("precmd_functions+=(__ntilde_precmd)").Append(nl);
+        b.Append("preexec_functions+=(__ntilde_preexec)").Append(nl);
+        b.Append(nl);
+        // The first prompt is expanded before any precmd runs in some zsh
+        // configurations, so seed the mark here too; __ntilde_apply_prompt_mark
+        // is idempotent.
+        b.Append("__ntilde_apply_prompt_mark").Append(nl);
+        b.Append("__ntilde_emit_prompt_ready").Append(nl);
+        return b.ToString();
+    }
+
+    public static string WriteScript(string targetDirectory)
+    {
+        // ZDOTDIR must point at a directory that only contains zsh startup
+        // files; live next to other shells' bootstrap files would let zsh
+        // mistakenly source .zshenv-like neighbors. Carve out a zsh-only
+        // subdirectory and write .zshrc into it.
+        string zshDir = Path.Combine(targetDirectory, "zsh");
+        Directory.CreateDirectory(zshDir);
+        string path = Path.Combine(zshDir, ".zshrc");
+        File.WriteAllText(path, BuildScript(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        return path;
+    }
+}

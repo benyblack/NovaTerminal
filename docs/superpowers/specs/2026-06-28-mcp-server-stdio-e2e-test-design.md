@@ -2,12 +2,12 @@
 
 **Date:** 2026-06-28
 **Status:** Design approved, ready for implementation plan
-**Component:** `tests/NovaTerminal.McpServer.Tests`
+**Component:** `tests/Ntilde.McpServer.Tests`
 
 ## Summary
 
 Add a single end-to-end (e2e) integration test that launches the **built**
-`NovaTerminal.McpServer` as a real subprocess, connects to it over stdio with the
+`Ntilde.McpServer` as a real subprocess, connects to it over stdio with the
 ModelContextProtocol SDK client, and drives a full MCP handshake plus a couple of tool
 calls. This closes the one coverage gap left after v0.3: the server now exposes 13 tools
 but has **zero protocol-level coverage** — every existing test is method-level.
@@ -45,23 +45,23 @@ real MCP client depends on, all of which live outside the tool methods:
 
 ## Approach
 
-The test lives in `tests/NovaTerminal.McpServer.Tests` (which already references the server
-project, so the built `NovaTerminal.McpServer.dll` is copied next to the test assembly).
+The test lives in `tests/Ntilde.McpServer.Tests` (which already references the server
+project, so the built `Ntilde.McpServer.dll` is copied next to the test assembly).
 
 ### Locating the server
 
-- **DLL:** `Path.Combine(AppContext.BaseDirectory, "NovaTerminal.McpServer.dll")` — the
-  `ProjectReference` to the server copies `NovaTerminal.McpServer.dll` + `.runtimeconfig.json`
+- **DLL:** `Path.Combine(AppContext.BaseDirectory, "Ntilde.McpServer.dll")` — the
+  `ProjectReference` to the server copies `Ntilde.McpServer.dll` + `.runtimeconfig.json`
   + `.deps.json` next to the test assembly, so `dotnet <dll>` runs correctly from there.
   **This must be the test bin, not the server's own `src/.../bin`:** the CI unit-test job
   artifacts `tests/*/bin` (and reconstructs only the App/Cli `src` bins) before running
-  `dotnet test --no-build`, so `src/NovaTerminal.McpServer/bin` does not exist in that job —
+  `dotnet test --no-build`, so `src/Ntilde.McpServer/bin` does not exist in that job —
   launching from it would `FileNotFoundException`. (An earlier draft launched from the
   server's own bin for runtimeconfig robustness; that was wrong for CI and was corrected.)
   Works for Debug/Release on Windows/Ubuntu.
 - **Repo root:** walk up from `AppContext.BaseDirectory` until a directory containing
-  `NovaTerminal.sln` is found, and pass it to the subprocess as the
-  `NOVATERMINAL_REPO_ROOT` environment variable. This avoids relying on the subprocess's
+  `Ntilde.sln` is found, and pass it to the subprocess as the
+  `NTILDE_REPO_ROOT` environment variable. This avoids relying on the subprocess's
   working directory.
 
 ### Driving the server
@@ -69,10 +69,10 @@ project, so the built `NovaTerminal.McpServer.dll` is copied next to the test as
 ```csharp
 var transport = new StdioClientTransport(new StdioClientTransportOptions
 {
-    Name = "novaterminal-dev",
+    Name = "ntilde-dev",
     Command = "dotnet",
     Arguments = [ serverDllPath ],
-    EnvironmentVariables = { ["NOVATERMINAL_REPO_ROOT"] = repoRoot },
+    EnvironmentVariables = { ["NTILDE_REPO_ROOT"] = repoRoot },
 });
 
 await using var client = await McpClientFactory.CreateAsync(transport, cancellationToken: cts.Token);
@@ -100,30 +100,30 @@ but a direct reference makes the dependency explicit.
    registration, forces an intentional update whenever a tool is added or removed, and —
    because the handshake had to succeed first — implicitly proves the stdout stream is
    clean. Expected names:
-   `novaterminal.get_project_summary`, `novaterminal.get_architecture_map`,
-   `novaterminal.list_docs`, `novaterminal.read_doc`,
-   `novaterminal.get_vt_conformance_summary`, `novaterminal.explain_escape_sequence`,
-   `novaterminal.generate_vt_test_plan`, `novaterminal.get_theme_schema`,
-   `novaterminal.validate_theme_json`, `novaterminal.get_connection_profile_schema`,
-   `novaterminal.validate_connection_profile_json`,
-   `novaterminal.generate_codex_prompt_for_issue`, `novaterminal.suggest_relevant_files`.
-2. **A self-contained tool call** — call `novaterminal.validate_theme_json` with a
+   `ntilde.get_project_summary`, `ntilde.get_architecture_map`,
+   `ntilde.list_docs`, `ntilde.read_doc`,
+   `ntilde.get_vt_conformance_summary`, `ntilde.explain_escape_sequence`,
+   `ntilde.generate_vt_test_plan`, `ntilde.get_theme_schema`,
+   `ntilde.validate_theme_json`, `ntilde.get_connection_profile_schema`,
+   `ntilde.validate_connection_profile_json`,
+   `ntilde.generate_codex_prompt_for_issue`, `ntilde.suggest_relevant_files`.
+2. **A self-contained tool call** — call `ntilde.validate_theme_json` with a
    known-good theme JSON; assert the returned text starts with / contains `VALID`. Proves
    the `tools/call` request → argument binding → result serialization path end-to-end.
-3. **A repo-reading tool call** — call `novaterminal.list_docs`; assert the result is
+3. **A repo-reading tool call** — call `ntilde.list_docs`; assert the result is
    non-empty and contains a doc that is guaranteed to exist (e.g. `mcp/tools.md`). Proves
-   `RepoContext` discovery + the `NOVATERMINAL_REPO_ROOT` wiring + a real file read
+   `RepoContext` discovery + the `NTILDE_REPO_ROOT` wiring + a real file read
    end-to-end.
 
 ## Test structure & CI
 
 - One test class, `McpServerStdioE2ETests`, in
-  `tests/NovaTerminal.McpServer.Tests/McpServerStdioE2ETests.cs`.
+  `tests/Ntilde.McpServer.Tests/McpServerStdioE2ETests.cs`.
 - Tagged `[Trait("Category", "E2E")]` so it can be filtered if it ever misbehaves, but it
   runs in the **normal** test pass by default (a quarantined e2e test protects nothing).
 - A small private helper resolves the DLL path and repo root; shared by the tests.
 - Cross-platform: launching `dotnet <dll>` works on Windows and Ubuntu CI runners.
-- `NovaTerminal.McpServer.Tests` is already registered in CI's unit-test loop; no `ci.yml`
+- `Ntilde.McpServer.Tests` is already registered in CI's unit-test loop; no `ci.yml`
   change is needed (no new project).
 
 ## Risks & mitigations

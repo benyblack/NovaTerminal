@@ -1,0 +1,898 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+using Ntilde.VtContract;
+
+namespace Ntilde.Conformance;
+
+public static class VtConformanceReportTool
+{
+    // Timeout backstop (csharpsquid:S6444); the pattern parses trusted repo markdown and
+    // matches in microseconds.
+    private static readonly Regex InlineCodeRegex = new("`([^`]+)`", RegexOptions.Compiled, TimeSpan.FromMilliseconds(250));
+    private const string EmbeddedReportRegenerationCommand = "dotnet run --project src/Ntilde.Conformance/Ntilde.Conformance.csproj -- --report src/Ntilde.App/Resources/vt-conformance-report.json";
+
+    public static VtConformanceReport Generate(string repositoryRoot, string matrixPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(matrixPath);
+
+        string repoRoot = Path.GetFullPath(repositoryRoot);
+        string absoluteMatrixPath = Path.GetFullPath(Path.IsPathRooted(matrixPath)
+            ? matrixPath
+            : Path.Combine(repoRoot, matrixPath));
+
+        string matrixText = File.ReadAllText(absoluteMatrixPath);
+        string normalizedMatrixText = NormalizeLineEndings(matrixText);
+        string relativeMatrixPath = ToRepoRelativePath(repoRoot, absoluteMatrixPath);
+
+        var rows = new List<VtConformanceRow>();
+        var sections = new List<VtConformanceSection>();
+        var errors = new List<VtConformanceIssue>();
+        var warnings = new List<VtConformanceIssue>();
+
+        ParseFeatureTables(repoRoot, relativeMatrixPath, absoluteMatrixPath, normalizedMatrixText, rows, sections, errors, warnings);
+
+        ValidateRows(relativeMatrixPath, rows, errors, warnings);
+        ValidateCapabilityCatalog(repoRoot, relativeMatrixPath, rows, errors);
+
+        var summary = BuildSummary(rows, errors.Count, warnings.Count);
+        return new VtConformanceReport(
+            SchemaVersion: 1,
+            MatrixPath: relativeMatrixPath,
+            MatrixSha256: ComputeSha256(normalizedMatrixText),
+            Summary: summary,
+            Sections: sections,
+            Rows: rows,
+            Errors: errors,
+            Warnings: warnings);
+    }
+
+    public static string Serialize(VtConformanceReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return JsonSerializer.Serialize(report, JsonOptions);
+    }
+
+    public static void WriteReport(VtConformanceReport report, string outputPath)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+
+        string absoluteOutputPath = Path.GetFullPath(outputPath);
+        string? directory = Path.GetDirectoryName(absoluteOutputPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllText(absoluteOutputPath, Serialize(report));
+    }
+
+    public static VtConformanceReportComparison CompareReport(VtConformanceReport report, string reportPath)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reportPath);
+
+        string absoluteReportPath = Path.GetFullPath(reportPath);
+        if (!File.Exists(absoluteReportPath))
+        {
+            return new VtConformanceReportComparison(
+                Matches: false,
+                ReportPath: absoluteReportPath,
+                Message: $"VT conformance report '{absoluteReportPath}' does not exist. Regenerate it with: {EmbeddedReportRegenerationCommand}");
+        }
+
+        string expected = Serialize(report);
+        string actual = File.ReadAllText(absoluteReportPath);
+        if (string.Equals(expected, actual, StringComparison.Ordinal))
+        {
+            return new VtConformanceReportComparison(
+                Matches: true,
+                ReportPath: absoluteReportPath,
+                Message: $"VT conformance report matches '{absoluteReportPath}'.");
+        }
+
+        return new VtConformanceReportComparison(
+            Matches: false,
+            ReportPath: absoluteReportPath,
+            Message: $"VT conformance report '{absoluteReportPath}' is out of date. Regenerate it with: {EmbeddedReportRegenerationCommand}");
+    }
+
+    public static JsonSerializerOptions JsonOptions { get; } = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true
+    };
+
+    private static void ParseFeatureTables(
+        string repoRoot,
+        string relativeMatrixPath,
+        string absoluteMatrixPath,
+        string matrixText,
+        List<VtConformanceRow> rows,
+        List<VtConformanceSection> sections,
+        List<VtConformanceIssue> errors,
+        List<VtConformanceIssue> warnings)
+    {
+        string normalizedText = matrixText.Replace("\r\n", "\n");
+        string[] lines = normalizedText.Split('\n');
+        string currentHeading = "Document";
+        int sectionOrder = 0;
+
+        for (int index = 0; index < lines.Length; index++)
+        {
+            string line = lines[index].TrimEnd('\r');
+            if (TryReadHeading(line, out string? heading))
+            {
+                currentHeading = heading!;
+                continue;
+            }
+
+            if (!line.StartsWith('|'))
+            {
+                continue;
+            }
+
+            int tableStart = index;
+            var tableLines = new List<(int LineNumber, string Text)>();
+            while (index < lines.Length && lines[index].TrimStart().StartsWith('|'))
+            {
+                tableLines.Add((index + 1, lines[index].TrimEnd('\r')));
+                index++;
+            }
+
+            index--;
+
+            if (tableLines.Count < 2)
+            {
+                continue;
+            }
+
+            string[] headers = SplitMarkdownRow(tableLines[0].Text);
+            if (!LooksLikeFeatureTable(headers))
+            {
+                continue;
+            }
+
+            if (!IsSeparatorRow(tableLines[1].Text))
+            {
+                errors.Add(new VtConformanceIssue(
+                    Code: "table-missing-separator",
+                    Severity: IssueSeverity.Error,
+                    Message: $"Feature table '{currentHeading}' is missing a markdown separator row.",
+                    MatrixPath: relativeMatrixPath,
+                    LineNumber: tableLines[0].LineNumber,
+                    Feature: null));
+                continue;
+            }
+
+            int statusIndex = FindColumnIndex(headers, "Status");
+            int evidenceIndex = FindColumnIndex(headers, "Evidence");
+            int ownershipIndex = FindOptionalColumnIndex(headers, "Ownership");
+            if (ownershipIndex < 0)
+            {
+                ownershipIndex = FindOptionalColumnIndex(headers, "Ownership (code)");
+            }
+
+            int notesIndex = FindOptionalColumnIndex(headers, "Known deviations");
+            if (notesIndex < 0)
+            {
+                notesIndex = FindOptionalColumnIndex(headers, "Notes");
+            }
+
+            int specIndex = FindOptionalColumnIndex(headers, "Spec / Notes");
+            if (specIndex < 0)
+            {
+                specIndex = FindOptionalColumnIndex(headers, "Notes");
+            }
+
+            var sectionRows = new List<VtConformanceRow>();
+            for (int rowIndex = 2; rowIndex < tableLines.Count; rowIndex++)
+            {
+                (int lineNumber, string text) = tableLines[rowIndex];
+                string[] cells = SplitMarkdownRow(text);
+                if (cells.Length != headers.Length)
+                {
+                    errors.Add(new VtConformanceIssue(
+                        Code: "table-column-count-mismatch",
+                        Severity: IssueSeverity.Error,
+                        Message: $"Feature table '{currentHeading}' row has {cells.Length} columns; expected {headers.Length}.",
+                        MatrixPath: relativeMatrixPath,
+                        LineNumber: lineNumber,
+                        Feature: cells.Length > 0 ? NormalizeCell(cells[0]) : null));
+                    continue;
+                }
+
+                string feature = NormalizeCell(cells[0]);
+                string status = NormalizeCell(cells[statusIndex]);
+                string evidenceText = NormalizeCell(cells[evidenceIndex]);
+                string ownership = ownershipIndex >= 0 ? NormalizeCell(cells[ownershipIndex]) : string.Empty;
+                string notes = notesIndex >= 0 ? NormalizeCell(cells[notesIndex]) : string.Empty;
+                string specOrNotes = specIndex >= 0 ? NormalizeCell(cells[specIndex]) : string.Empty;
+
+                var evidenceKinds = GetEvidenceKinds(evidenceText);
+                var evidenceLinks = ExtractEvidenceLinks(repoRoot, evidenceText);
+
+                var row = new VtConformanceRow(
+                    Section: currentHeading,
+                    Feature: feature,
+                    Status: status,
+                    SpecOrNotes: specOrNotes,
+                    EvidenceText: evidenceText,
+                    EvidenceKinds: evidenceKinds,
+                    EvidenceLinks: evidenceLinks,
+                    HasAutomatedEvidenceSignal: HasAutomatedEvidenceSignal(evidenceKinds),
+                    HasLinkedEvidence: evidenceLinks.Any(link => link.Exists),
+                    Ownership: ownership,
+                    KnownDeviations: notes,
+                    SourceLine: lineNumber);
+
+                sectionRows.Add(row);
+            }
+
+            if (sectionRows.Count == 0)
+            {
+                warnings.Add(new VtConformanceIssue(
+                    Code: "empty-feature-table",
+                    Severity: IssueSeverity.Warning,
+                    Message: $"Feature table '{currentHeading}' does not contain any parsable rows.",
+                    MatrixPath: relativeMatrixPath,
+                    LineNumber: tableLines[0].LineNumber,
+                    Feature: null));
+                continue;
+            }
+
+            sections.Add(new VtConformanceSection(
+                Order: sectionOrder++,
+                Title: currentHeading,
+                StartLine: tableStart + 1,
+                EndLine: tableLines[^1].LineNumber,
+                RowCount: sectionRows.Count));
+
+            rows.AddRange(sectionRows);
+        }
+    }
+
+    private static void ValidateRows(
+        string relativeMatrixPath,
+        List<VtConformanceRow> rows,
+        List<VtConformanceIssue> errors,
+        List<VtConformanceIssue> warnings)
+    {
+        foreach (VtConformanceRow row in rows)
+        {
+            if (!IsKnownStatus(row.Status))
+            {
+                errors.Add(new VtConformanceIssue(
+                    Code: "unknown-status",
+                    Severity: IssueSeverity.Error,
+                    Message: $"Unknown status '{row.Status}' in feature row '{row.Feature}'.",
+                    MatrixPath: relativeMatrixPath,
+                    LineNumber: row.SourceLine,
+                    Feature: row.Feature));
+                continue;
+            }
+
+            foreach (VtEvidenceLink link in row.EvidenceLinks)
+            {
+                if (!link.Exists)
+                {
+                    errors.Add(new VtConformanceIssue(
+                        Code: "evidence-path-not-found",
+                        Severity: IssueSeverity.Error,
+                        Message: $"Evidence link '{link.Path}' does not exist for '{row.Feature}'.",
+                        MatrixPath: relativeMatrixPath,
+                        LineNumber: row.SourceLine,
+                        Feature: row.Feature));
+                }
+            }
+
+            if (IsSupportedStatus(row.Status) && !row.HasAutomatedEvidenceSignal && !row.HasLinkedEvidence)
+            {
+                errors.Add(new VtConformanceIssue(
+                    Code: "supported-missing-evidence",
+                    Severity: IssueSeverity.Error,
+                    Message: $"Supported row '{row.Feature}' must declare automated evidence.",
+                    MatrixPath: relativeMatrixPath,
+                    LineNumber: row.SourceLine,
+                    Feature: row.Feature));
+            }
+
+            if (IsSupportedStatus(row.Status) && !row.EvidenceLinks.Any())
+            {
+                warnings.Add(new VtConformanceIssue(
+                    Code: "supported-evidence-not-linked",
+                    Severity: IssueSeverity.Warning,
+                    Message: $"Supported row '{row.Feature}' does not link to a concrete repo path yet.",
+                    MatrixPath: relativeMatrixPath,
+                    LineNumber: row.SourceLine,
+                    Feature: row.Feature));
+            }
+
+            if (IsWontSupportStatus(row.Status) && string.IsNullOrWhiteSpace(row.KnownDeviations))
+            {
+                errors.Add(new VtConformanceIssue(
+                    Code: "wont-support-missing-rationale",
+                    Severity: IssueSeverity.Error,
+                    Message: $"Won't-support row '{row.Feature}' must include a rationale.",
+                    MatrixPath: relativeMatrixPath,
+                    LineNumber: row.SourceLine,
+                    Feature: row.Feature));
+            }
+        }
+    }
+
+    private static void ValidateCapabilityCatalog(
+        string repoRoot,
+        string relativeMatrixPath,
+        List<VtConformanceRow> rows,
+        List<VtConformanceIssue> errors)
+    {
+        string manifestPath = Path.Combine(
+            repoRoot,
+            "src",
+            "Ntilde.VtContract",
+            "vt-capabilities.json");
+        if (!File.Exists(manifestPath))
+        {
+            return;
+        }
+
+        if (!TryLoadCapabilities(manifestPath, relativeMatrixPath, errors, out IReadOnlyList<VtCapability> capabilities))
+        {
+            return;
+        }
+
+        AddDuplicateMatrixFeatureErrors(capabilities, relativeMatrixPath, errors);
+
+        foreach (VtCapability capability in capabilities)
+        {
+            ValidateCapability(repoRoot, relativeMatrixPath, rows, capability, errors);
+        }
+    }
+
+    private static bool TryLoadCapabilities(
+        string manifestPath,
+        string relativeMatrixPath,
+        List<VtConformanceIssue> errors,
+        out IReadOnlyList<VtCapability> capabilities)
+    {
+        try
+        {
+            capabilities = VtCapabilityCatalog.Parse(File.ReadAllText(manifestPath));
+            return true;
+        }
+        catch (VtCapabilityManifestException exception)
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-manifest-invalid",
+                Severity: IssueSeverity.Error,
+                Message: exception.Message,
+                MatrixPath: relativeMatrixPath,
+                LineNumber: 0,
+                Feature: null));
+            capabilities = Array.Empty<VtCapability>();
+            return false;
+        }
+    }
+
+    private static void AddDuplicateMatrixFeatureErrors(
+        IReadOnlyList<VtCapability> capabilities,
+        string relativeMatrixPath,
+        List<VtConformanceIssue> errors)
+    {
+        foreach (IGrouping<string, VtCapability> duplicate in capabilities
+                     .GroupBy(capability => capability.MatrixFeature, StringComparer.Ordinal)
+                     .Where(group => group.Count() > 1))
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-matrix-feature-duplicate",
+                Severity: IssueSeverity.Error,
+                Message: $"Capability matrix feature '{duplicate.Key}' is shared by: {string.Join(", ", duplicate.Select(capability => capability.Key))}.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: 0,
+                Feature: duplicate.Key));
+        }
+    }
+
+    private static void ValidateCapability(
+        string repoRoot,
+        string relativeMatrixPath,
+        List<VtConformanceRow> rows,
+        VtCapability capability,
+        List<VtConformanceIssue> errors)
+    {
+        List<VtConformanceRow> matchingRows = rows
+            .Where(candidate => string.Equals(candidate.Feature, capability.MatrixFeature, StringComparison.Ordinal))
+            .ToList();
+        if (matchingRows.Count == 0)
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-matrix-feature-missing",
+                Severity: IssueSeverity.Error,
+                Message: $"Capability '{capability.Key}' expects matrix feature '{capability.MatrixFeature}'.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: 0,
+                Feature: capability.MatrixFeature));
+            return;
+        }
+
+        if (matchingRows.Count > 1)
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-matrix-row-duplicate",
+                Severity: IssueSeverity.Error,
+                Message: $"Capability '{capability.Key}' expects exactly one matrix row for feature '{capability.MatrixFeature}', but found {matchingRows.Count}.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: matchingRows[0].SourceLine,
+                Feature: capability.MatrixFeature));
+            return;
+        }
+
+        VtConformanceRow row = matchingRows[0];
+
+        if (!CapabilityStatusMatches(capability.Support, row.Status))
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-status-mismatch",
+                Severity: IssueSeverity.Error,
+                Message: $"Capability '{capability.Key}' is '{capability.Support}' but matrix feature '{row.Feature}' is '{row.Status}'.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: row.SourceLine,
+                Feature: row.Feature));
+        }
+
+        if (capability.EvidencePath is string evidencePath)
+        {
+            ValidateCapabilityEvidence(repoRoot, relativeMatrixPath, capability, row, evidencePath, errors);
+        }
+    }
+
+    private static void ValidateCapabilityEvidence(
+        string repoRoot,
+        string relativeMatrixPath,
+        VtCapability capability,
+        VtConformanceRow row,
+        string evidencePath,
+        List<VtConformanceIssue> errors)
+    {
+        string normalizedEvidencePath = evidencePath.Replace('\\', '/');
+        string absoluteEvidencePath = Path.GetFullPath(Path.Combine(
+            repoRoot,
+            normalizedEvidencePath.Replace('/', Path.DirectorySeparatorChar)));
+        if (!IsPathWithinRoot(repoRoot, absoluteEvidencePath))
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-evidence-path-outside-repo",
+                Severity: IssueSeverity.Error,
+                Message: $"Capability '{capability.Key}' evidence path '{normalizedEvidencePath}' resolves outside the repository.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: row.SourceLine,
+                Feature: row.Feature));
+        }
+        else if (!File.Exists(absoluteEvidencePath) && !Directory.Exists(absoluteEvidencePath))
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-evidence-path-not-found",
+                Severity: IssueSeverity.Error,
+                Message: $"Capability '{capability.Key}' evidence path '{normalizedEvidencePath}' does not exist.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: row.SourceLine,
+                Feature: row.Feature));
+        }
+
+        if (!row.EvidenceLinks.Any(link => string.Equals(link.Path, normalizedEvidencePath, StringComparison.Ordinal)))
+        {
+            errors.Add(new VtConformanceIssue(
+                Code: "capability-evidence-not-linked",
+                Severity: IssueSeverity.Error,
+                Message: $"Matrix feature '{row.Feature}' must link capability evidence '{normalizedEvidencePath}'.",
+                MatrixPath: relativeMatrixPath,
+                LineNumber: row.SourceLine,
+                Feature: row.Feature));
+        }
+    }
+
+    private static bool IsPathWithinRoot(string rootPath, string candidatePath)
+    {
+        string normalizedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
+        string rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
+        StringComparison comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        return candidatePath.Equals(normalizedRoot, comparison)
+            || candidatePath.StartsWith(rootPrefix, comparison);
+    }
+
+    private static bool CapabilityStatusMatches(VtSupport support, string status)
+        => support switch
+        {
+            VtSupport.Supported => status.StartsWith('✅'),
+            VtSupport.Partial => status.StartsWith('⚠'),
+            VtSupport.Unsupported => status.StartsWith('❌'),
+            _ => false,
+        };
+
+    private static VtConformanceSummary BuildSummary(IReadOnlyList<VtConformanceRow> rows, int errorCount, int warningCount)
+    {
+        return new VtConformanceSummary(
+            TotalRows: rows.Count,
+            SupportedCount: rows.Count(row => row.Status.StartsWith("✅", StringComparison.Ordinal)),
+            PartialCount: rows.Count(row => row.Status.StartsWith("⚠", StringComparison.Ordinal)),
+            ExperimentalCount: rows.Count(row => row.Status.StartsWith("🧪", StringComparison.Ordinal)),
+            NotSupportedCount: rows.Count(row => row.Status.StartsWith("❌", StringComparison.Ordinal)),
+            WontSupportCount: rows.Count(row => row.Status.StartsWith("🚫", StringComparison.Ordinal)),
+            RowsWithLinkedEvidence: rows.Count(row => row.EvidenceLinks.Any(link => link.Exists)),
+            SupportedRowsWithLinkedEvidence: rows.Count(row => row.Status.StartsWith("✅", StringComparison.Ordinal) && row.EvidenceLinks.Any(link => link.Exists)),
+            ErrorCount: errorCount,
+            WarningCount: warningCount);
+    }
+
+    private static string[] SplitMarkdownRow(string row)
+    {
+        string trimmed = row.Trim();
+        if (trimmed.StartsWith('|'))
+        {
+            trimmed = trimmed[1..];
+        }
+
+        if (trimmed.EndsWith('|'))
+        {
+            trimmed = trimmed[..^1];
+        }
+
+        return trimmed.Split('|')
+            .Select(NormalizeCell)
+            .ToArray();
+    }
+
+    private static bool LooksLikeFeatureTable(string[] headers)
+        => headers.Any(header => header.Equals("Status", StringComparison.OrdinalIgnoreCase))
+           && headers.Any(header => header.Equals("Evidence", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsSeparatorRow(string row)
+    {
+        string candidate = row.Replace("|", string.Empty).Replace(":", string.Empty).Replace("-", string.Empty).Trim();
+        return candidate.Length == 0;
+    }
+
+    private static int FindColumnIndex(string[] headers, string expectedHeader)
+    {
+        int index = FindOptionalColumnIndex(headers, expectedHeader);
+        if (index < 0)
+        {
+            throw new InvalidOperationException($"Expected column '{expectedHeader}' was not found.");
+        }
+
+        return index;
+    }
+
+    private static int FindOptionalColumnIndex(string[] headers, string expectedHeader)
+        => Array.FindIndex(headers, header => header.Equals(expectedHeader, StringComparison.OrdinalIgnoreCase));
+
+    private static string NormalizeCell(string value)
+        => value.Replace("<br>", " ", StringComparison.OrdinalIgnoreCase).Trim();
+
+    private static bool TryReadHeading(string line, out string? heading)
+    {
+        heading = null;
+        if (!line.StartsWith('#'))
+        {
+            return false;
+        }
+
+        int markerCount = 0;
+        while (markerCount < line.Length && line[markerCount] == '#')
+        {
+            markerCount++;
+        }
+
+        if (markerCount == 0 || markerCount == line.Length || line[markerCount] != ' ')
+        {
+            return false;
+        }
+
+        heading = line[(markerCount + 1)..].Trim();
+        return !string.IsNullOrWhiteSpace(heading);
+    }
+
+    private static IReadOnlyList<string> GetEvidenceKinds(string evidenceText)
+    {
+        if (string.IsNullOrWhiteSpace(evidenceText) || evidenceText == "—")
+        {
+            return Array.Empty<string>();
+        }
+
+        string normalized = evidenceText.ToLowerInvariant();
+        var kinds = new List<string>();
+
+        AddEvidenceKindIfPresent(kinds, normalized, "unit", "unit");
+        AddEvidenceKindIfPresent(kinds, normalized, "replay", "replay");
+        AddEvidenceKindIfPresent(kinds, normalized, "external", "external");
+        AddEvidenceKindIfPresent(kinds, normalized, "vttest", "external");
+        AddEvidenceKindIfPresent(kinds, normalized, "fuzz", "fuzz");
+        AddEvidenceKindIfPresent(kinds, normalized, "manual", "manual");
+        AddEvidenceKindIfPresent(kinds, normalized, "code path", "code-path");
+        AddEvidenceKindIfPresent(kinds, normalized, "planned", "planned");
+
+        return kinds
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(kind => kind, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static void AddEvidenceKindIfPresent(List<string> kinds, string normalizedEvidenceText, string probe, string kind)
+    {
+        if (normalizedEvidenceText.Contains(probe, StringComparison.Ordinal))
+        {
+            kinds.Add(kind);
+        }
+    }
+
+    private static bool HasAutomatedEvidenceSignal(IReadOnlyList<string> kinds)
+        => kinds.Contains("unit", StringComparer.Ordinal)
+           || kinds.Contains("replay", StringComparer.Ordinal)
+           || kinds.Contains("external", StringComparer.Ordinal)
+           || kinds.Contains("fuzz", StringComparer.Ordinal);
+
+    private static IReadOnlyList<VtEvidenceLink> ExtractEvidenceLinks(string repoRoot, string evidenceText)
+    {
+        if (string.IsNullOrWhiteSpace(evidenceText))
+        {
+            return Array.Empty<VtEvidenceLink>();
+        }
+
+        var links = new List<VtEvidenceLink>();
+        foreach (Match match in InlineCodeRegex.Matches(evidenceText))
+        {
+            string candidate = match.Groups[1].Value.Trim();
+            if (!LooksLikeRepositoryPath(candidate))
+            {
+                continue;
+            }
+
+            string fullPath = Path.GetFullPath(Path.Combine(repoRoot, candidate.Replace('/', Path.DirectorySeparatorChar)));
+            bool exists = File.Exists(fullPath) || Directory.Exists(fullPath);
+            links.Add(new VtEvidenceLink(
+                Path: candidate.Replace('\\', '/'),
+                Exists: exists,
+                FullPath: fullPath));
+        }
+
+        return links
+            .DistinctBy(link => link.Path, StringComparer.Ordinal)
+            .OrderBy(link => link.Path, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static bool LooksLikeRepositoryPath(string candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return false;
+        }
+
+        if (candidate.Contains("://", StringComparison.Ordinal)
+            || candidate.Contains("...", StringComparison.Ordinal)
+            || candidate.Contains('*', StringComparison.Ordinal)
+            || candidate.Equals("—", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return candidate.Contains('/', StringComparison.Ordinal) || candidate.Contains('\\', StringComparison.Ordinal);
+    }
+
+    private static string ComputeSha256(string text)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(text);
+        byte[] hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string NormalizeLineEndings(string text)
+        => text.Replace("\r\n", "\n", StringComparison.Ordinal);
+
+    private static string ToRepoRelativePath(string repoRoot, string absolutePath)
+    {
+        string relative = Path.GetRelativePath(repoRoot, absolutePath);
+        return relative.Replace('\\', '/');
+    }
+
+    private static bool IsKnownStatus(string status)
+        => IsSupportedStatus(status)
+           || status.StartsWith("⚠", StringComparison.Ordinal)
+           || status.StartsWith("🧪", StringComparison.Ordinal)
+           || status.StartsWith("❌", StringComparison.Ordinal)
+           || IsWontSupportStatus(status);
+
+    private static bool IsSupportedStatus(string status)
+        => status.StartsWith("✅", StringComparison.Ordinal);
+
+    private static bool IsWontSupportStatus(string status)
+        => status.StartsWith("🚫", StringComparison.Ordinal);
+}
+
+public static class VtConformanceCli
+{
+    public static Task<int> RunAsync(string[] args)
+    {
+        try
+        {
+            string repoRoot = Directory.GetCurrentDirectory();
+            string matrixPath = Path.Combine("docs", "vt_coverage_matrix.md");
+            string? reportPath = null;
+            string? checkReportPath = null;
+            bool validate = false;
+
+            for (int index = 0; index < args.Length; index++)
+            {
+                string arg = args[index];
+                switch (arg)
+                {
+                    case "--repo-root":
+                        repoRoot = RequireValue(args, ref index, arg);
+                        break;
+                    case "--matrix":
+                        matrixPath = RequireValue(args, ref index, arg);
+                        break;
+                    case "--report":
+                        reportPath = RequireValue(args, ref index, arg);
+                        break;
+                    case "--check-report":
+                        checkReportPath = RequireValue(args, ref index, arg);
+                        break;
+                    case "--validate":
+                        validate = true;
+                        break;
+                    case "--help":
+                    case "-h":
+                        PrintUsage();
+                        return Task.FromResult(0);
+                    default:
+                        throw new InvalidOperationException($"Unknown argument '{arg}'.");
+                }
+            }
+
+            VtConformanceReport report = VtConformanceReportTool.Generate(repoRoot, matrixPath);
+            VtConformanceReportComparison? reportComparison = null;
+
+            if (!string.IsNullOrWhiteSpace(checkReportPath))
+            {
+                reportComparison = VtConformanceReportTool.CompareReport(report, checkReportPath);
+            }
+
+            if (!string.IsNullOrWhiteSpace(reportPath))
+            {
+                VtConformanceReportTool.WriteReport(report, reportPath);
+                Console.WriteLine($"Wrote VT conformance report to '{Path.GetFullPath(reportPath)}'.");
+            }
+            else if (string.IsNullOrWhiteSpace(checkReportPath))
+            {
+                Console.WriteLine(VtConformanceReportTool.Serialize(report));
+            }
+
+            Console.WriteLine($"Rows: {report.Summary.TotalRows}; errors: {report.Summary.ErrorCount}; warnings: {report.Summary.WarningCount}.");
+
+            if (reportComparison is not null)
+            {
+                if (reportComparison.Matches)
+                {
+                    Console.WriteLine(reportComparison.Message);
+                }
+                else
+                {
+                    Console.Error.WriteLine(reportComparison.Message);
+                }
+            }
+
+            foreach (VtConformanceIssue issue in report.Errors)
+            {
+                Console.Error.WriteLine($"ERROR {issue.Code} (line {issue.LineNumber}): {issue.Message}");
+            }
+
+            foreach (VtConformanceIssue issue in report.Warnings)
+            {
+                Console.WriteLine($"WARN {issue.Code} (line {issue.LineNumber}): {issue.Message}");
+            }
+
+            bool hasValidationErrors = validate && report.Errors.Count > 0;
+            bool hasReportDrift = reportComparison is { Matches: false };
+            return Task.FromResult(hasValidationErrors || hasReportDrift ? 1 : 0);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            PrintUsage();
+            return Task.FromResult(2);
+        }
+    }
+
+    private static string RequireValue(string[] args, ref int index, string argumentName)
+    {
+        if (index + 1 >= args.Length)
+        {
+            throw new InvalidOperationException($"Missing value for '{argumentName}'.");
+        }
+
+        index++;
+        return args[index];
+    }
+
+    private static void PrintUsage()
+    {
+        Console.WriteLine("Usage: dotnet run --project src/Ntilde.Conformance -- [--repo-root <path>] [--matrix <path>] [--report <path>] [--check-report <path>] [--validate]");
+    }
+}
+
+public sealed record VtConformanceReport(
+    int SchemaVersion,
+    string MatrixPath,
+    string MatrixSha256,
+    VtConformanceSummary Summary,
+    IReadOnlyList<VtConformanceSection> Sections,
+    IReadOnlyList<VtConformanceRow> Rows,
+    IReadOnlyList<VtConformanceIssue> Errors,
+    IReadOnlyList<VtConformanceIssue> Warnings);
+
+public sealed record VtConformanceSummary(
+    int TotalRows,
+    int SupportedCount,
+    int PartialCount,
+    int ExperimentalCount,
+    int NotSupportedCount,
+    int WontSupportCount,
+    int RowsWithLinkedEvidence,
+    int SupportedRowsWithLinkedEvidence,
+    int ErrorCount,
+    int WarningCount);
+
+public sealed record VtConformanceSection(
+    int Order,
+    string Title,
+    int StartLine,
+    int EndLine,
+    int RowCount);
+
+public sealed record VtConformanceRow(
+    string Section,
+    string Feature,
+    string Status,
+    string SpecOrNotes,
+    string EvidenceText,
+    IReadOnlyList<string> EvidenceKinds,
+    IReadOnlyList<VtEvidenceLink> EvidenceLinks,
+    bool HasAutomatedEvidenceSignal,
+    bool HasLinkedEvidence,
+    string Ownership,
+    string KnownDeviations,
+    int SourceLine);
+
+public sealed record VtEvidenceLink(
+    string Path,
+    bool Exists,
+    [property: JsonIgnore]
+    string FullPath);
+
+public sealed record VtConformanceIssue(
+    string Code,
+    IssueSeverity Severity,
+    string Message,
+    string? MatrixPath,
+    int LineNumber,
+    string? Feature);
+
+public sealed record VtConformanceReportComparison(
+    bool Matches,
+    string ReportPath,
+    string Message);
+
+public enum IssueSeverity
+{
+    Warning = 1,
+    Error = 2
+}

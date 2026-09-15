@@ -10,7 +10,7 @@ Command Assist V2 documents.
 
 Today's flow: pick the shell, press **Copy snippet**, and the clipboard receives the entire file —
 295 lines / 12.7 KB for bash and zsh, 194 lines for PowerShell. The row then tells the user to run
-`cat > ~/.nova-shell-integration.sh`, paste, press Ctrl-D, and afterwards append a loader line to
+`cat > ~/.ntilde-shell-integration.sh`, paste, press Ctrl-D, and afterwards append a loader line to
 their rc file by hand.
 
 Four things are wrong with it:
@@ -22,7 +22,7 @@ Four things are wrong with it:
   gets a few hundred history entries. PowerShell has no `cat >` equivalent at all, so its snippet
   lands in `ConsoleHost_history.txt` in full.
 - **The PowerShell recipe does not work on a Windows remote.** `cat` there is an alias for
-  `Get-Content`, so `cat > ~/.nova-shell-integration.ps1` fails with a missing `-Path` argument
+  `Get-Content`, so `cat > ~/.ntilde-shell-integration.ps1` fails with a missing `-Path` argument
   rather than reading stdin.
 - **The rc edit is a separate manual step**, and it is the step people forget. The symptom — "I
   installed it and nothing happened" — is already in the troubleshooting section.
@@ -33,10 +33,10 @@ One line, one history entry, roughly four lines of output. The line writes a tem
 a **child process**, and deletes it:
 
 ```
-nova: wrote ~/.nova-shell-integration.sh
-nova: added loader line to ~/.zshrc
-nova: run  . ~/.nova-shell-integration.sh  to enable it here now,
-nova: or open a new Nova session to this host.
+ntilde: wrote ~/.ntilde-shell-integration.sh
+ntilde: added loader line to ~/.zshrc
+ntilde: run  . ~/.ntilde-shell-integration.sh  to enable it here now,
+ntilde: or open a new Ntilde session to this host.
 ```
 
 ### Composition
@@ -46,9 +46,9 @@ returning that single line. All of it happens at copy time:
 
 1. Read the shell's snippet and its installer template from embedded resources, LF-normalized as
    `Read` already does.
-2. Substitute the snippet into the template's `@@NOVA_SNIPPET@@` line. Throw if the snippet
+2. Substitute the snippet into the template's `@@NTILDE_SNIPPET@@` line. Throw if the snippet
    contains a line that collides with the template's heredoc / here-string delimiter — today none
-   do (no line matches `^__NOVA`, `^'@` or `^NOVA_EOF`), and a silent collision would emit a
+   do (no line matches `^__NTILDE`, `^'@` or `^NTILDE_EOF`), and a silent collision would emit a
    corrupt installer.
 3. gzip, then base64 with no line breaks.
 4. Wrap in the per-shell prologue below.
@@ -60,9 +60,9 @@ Payload sizes, measured against the shipped assets:
 
 | Snippet | Raw | base64 | gzip + base64 |
 |---|---|---|---|
-| `nova-shell-integration.sh` | 12.7 KB | 17.0 KB | **6.4 KB** |
-| `nova-shell-integration.ps1` | 10.3 KB | 13.8 KB | **5.7 KB** |
-| `nova-shell-integration.fish` | 4.8 KB | 6.4 KB | **2.7 KB** |
+| `ntilde-shell-integration.sh` | 12.7 KB | 17.0 KB | **6.4 KB** |
+| `ntilde-shell-integration.ps1` | 10.3 KB | 13.8 KB | **5.7 KB** |
+| `ntilde-shell-integration.fish` | 4.8 KB | 6.4 KB | **2.7 KB** |
 
 gzip and base64 are present on effectively every Unix host, busybox included, and PowerShell needs
 neither — it has `[Convert]::FromBase64String` and `GZipStream` in the box. The compression is worth
@@ -74,14 +74,14 @@ snippet** action.
 
 ### New assets
 
-Under `assets/shell-integration/install/`, embedded into `NovaTerminal.CommandAssist` the same way
+Under `assets/shell-integration/install/`, embedded into `Ntilde.CommandAssist` the same way
 the snippets are:
 
 | File | Runs under | Target |
 |---|---|---|
-| `nova-install.sh` | `sh` | bash and zsh |
-| `nova-install-fish.sh` | `sh` | fish |
-| `nova-install.ps1` | pwsh child scope | PowerShell |
+| `ntilde-install.sh` | `sh` | bash and zsh |
+| `ntilde-install-fish.sh` | `sh` | fish |
+| `ntilde-install.ps1` | pwsh child scope | PowerShell |
 
 The installer logic lives in reviewable repo files rather than C# string literals, which is also
 what makes it directly testable.
@@ -95,13 +95,13 @@ data, so there is nothing gained by writing the installer in the target shell's 
 which is how the installer knows which rc file to patch without anything being sourced:
 
 ```sh
-__nova_t=$(mktemp 2>/dev/null || printf /tmp/nova-si.%s "$$"); printf %s 'H4sI…6.4KB…' | base64 -d 2>/dev/null | gzip -dc 2>/dev/null > "$__nova_t"; if [ -s "$__nova_t" ]; then sh "$__nova_t" "${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}"; else echo "nova: install failed - this host needs base64 and gzip"; fi; rm -f "$__nova_t"; unset __nova_t
+__ntilde_t=$(mktemp 2>/dev/null || printf /tmp/ntilde-si.%s "$$"); printf %s 'H4sI…6.4KB…' | base64 -d 2>/dev/null | gzip -dc 2>/dev/null > "$__ntilde_t"; if [ -s "$__ntilde_t" ]; then sh "$__ntilde_t" "${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}"; else echo "ntilde: install failed - this host needs base64 and gzip"; fi; rm -f "$__ntilde_t"; unset __ntilde_t
 ```
 
 **fish.** No rc file to patch — `conf.d` is auto-sourced — so the shell argument is a constant:
 
 ```fish
-set -l __nova_t (mktemp); printf %s 'H4sI…2.7KB…' | base64 -d | gzip -dc > $__nova_t; sh $__nova_t fish; rm -f $__nova_t; set -e __nova_t
+set -l __ntilde_t (mktemp); printf %s 'H4sI…2.7KB…' | base64 -d | gzip -dc > $__ntilde_t; sh $__ntilde_t fish; rm -f $__ntilde_t; set -e __ntilde_t
 ```
 
 **PowerShell.** Pure .NET, no external tools. `& $t` rather than `. $t`: the call operator runs the
@@ -109,24 +109,24 @@ installer in a child scope, so nothing it defines leaks into the session, and `$
 visible because it is an automatic variable in every scope:
 
 ```powershell
-$__nova_t=[IO.Path]::GetTempPath()+[Guid]::NewGuid().ToString('N')+'.ps1'; $__nova_g=[IO.Compression.GZipStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String('H4sI…5.7KB…')),[IO.Compression.CompressionMode]::Decompress); $__nova_o=[IO.File]::Create($__nova_t); $__nova_g.CopyTo($__nova_o); $__nova_o.Dispose(); $__nova_g.Dispose(); & $__nova_t; Remove-Item $__nova_t; Remove-Variable __nova_t,__nova_g,__nova_o
+$__ntilde_t=[IO.Path]::GetTempPath()+[Guid]::NewGuid().ToString('N')+'.ps1'; $__ntilde_g=[IO.Compression.GZipStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String('H4sI…5.7KB…')),[IO.Compression.CompressionMode]::Decompress); $__ntilde_o=[IO.File]::Create($__ntilde_t); $__ntilde_g.CopyTo($__ntilde_o); $__ntilde_o.Dispose(); $__ntilde_g.Dispose(); & $__ntilde_t; Remove-Item $__ntilde_t; Remove-Variable __ntilde_t,__ntilde_g,__ntilde_o
 ```
 
 ### What the installer does
 
-Four steps, one `nova:` line each:
+Four steps, one `ntilde:` line each:
 
-1. **Write the snippet** to `~/.nova-shell-integration.sh`, `~/.nova-shell-integration.ps1`, or
-   `~/.config/fish/conf.d/nova-shell-integration.fish`, creating `conf.d` or `$PROFILE`'s directory
+1. **Write the snippet** to `~/.ntilde-shell-integration.sh`, `~/.ntilde-shell-integration.ps1`, or
+   `~/.config/fish/conf.d/ntilde-shell-integration.fish`, creating `conf.d` or `$PROFILE`'s directory
    if it does not exist. The paths are the ones `GetRemotePath` already reports.
 2. **Resolve the rc file** from `$1` (`zsh` → `~/.zshrc`, `bash` → `~/.bashrc`), falling back to
    `basename "$SHELL"`. When neither answers, print the loader line and the fact that it could not
    tell which rc file to use, rather than guessing. PowerShell uses `$PROFILE`; fish has no rc step.
-3. **Patch the rc idempotently**: append `GetLoaderLine`'s text only when a `nova-shell-integration`
+3. **Patch the rc idempotently**: append `GetLoaderLine`'s text only when a `ntilde-shell-integration`
    match is not already present, and report `added` against `already present — unchanged`. Running
    the installer twice writes the loader line once, and a line the user placed by hand is not
    duplicated.
-4. **Print how to enable it in the current session** — `. ~/.nova-shell-integration.sh` — and that
+4. **Print how to enable it in the current session** — `. ~/.ntilde-shell-integration.sh` — and that
    a new session picks it up on its own.
 
 ### Why the live shell is never touched
@@ -141,7 +141,7 @@ runs in the live shell and can expand the answer into the child's argv. What is 
 marks-in-this-session, and that matches what the docs already promise ("Marks only take effect on a
 *new* session"); step 4 hands over the one-line command for a user who wants it sooner.
 
-The residual contact with the live shell is one variable, `__nova_t`, unset on the same line.
+The residual contact with the live shell is one variable, `__ntilde_t`, unset on the same line.
 
 ## Settings row
 
@@ -162,7 +162,7 @@ one click away.
 Status text after **Copy installer**:
 
 > Copied the installer for bash / zsh. Paste it at the remote prompt and press Enter — one line, one
-> history entry. It writes `~/.nova-shell-integration.sh` and adds the loader line to your rc file
+> history entry. It writes `~/.ntilde-shell-integration.sh` and adds the loader line to your rc file
 > if it isn't already there.
 
 The row description drops "Copy the snippet for the remote shell, paste it on the host" for "Copy
@@ -193,7 +193,7 @@ directory:
 - a loader line placed by hand beforehand is not duplicated
 - with `gzip` removed from `PATH`, the failure branch prints the `needs base64 and gzip` message and
   writes nothing
-- the calling shell is unchanged: no `nova` function or variable defined in it afterwards, and no
+- the calling shell is unchanged: no `ntilde` function or variable defined in it afterwards, and no
   prompt change
 
 `[Trait("Category", "ShellIntegration")]` per the existing quarantine convention. No new test
@@ -209,7 +209,7 @@ is rewritten to record why it was reversed rather than deleted.
 
 ## Risks accepted
 
-- **`mktemp`-less hosts** fall back to `/tmp/nova-si.$$`, a predictable path a local attacker on
+- **`mktemp`-less hosts** fall back to `/tmp/ntilde-si.$$`, a predictable path a local attacker on
   the remote host could pre-plant as a symlink. `mktemp` is present anywhere this realistically
   runs, and today's `cat > ~/...` has no better property.
 - **A 6.4 KB single line** is still a large paste. It is 2.6× smaller than the uncompressed blob,

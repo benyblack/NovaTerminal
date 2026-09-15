@@ -1,4 +1,4 @@
-Epic: Drag & Drop file support for interactive CLI (NovaTerminal)
+Epic: Drag & Drop file support for interactive CLI (Ntilde)
 =================================================================
 
 Epic goals
@@ -25,7 +25,7 @@ Milestone M0: Drop → Insert escaped path(s)
 User story
 ----------
 
-As a user, when I drag files into NovaTerminal, it inserts their paths into the current prompt line, properly quoted for my shell, so I can run commands like `codex -f <path>` quickly.
+As a user, when I drag files into Ntilde, it inserts their paths into the current prompt line, properly quoted for my shell, so I can run commands like `codex -f <path>` quickly.
 
 Tasks (issues)
 --------------
@@ -252,35 +252,35 @@ Proposed file / module map
 
 ### UI layer
 
--   `src/NovaTerminal.App/Views/TerminalView.axaml.cs` (or wherever terminal control lives)
+-   `src/Ntilde.App/Views/TerminalView.axaml.cs` (or wherever terminal control lives)
 
     -   drag/drop events → `DropRouter.HandleDrop(...)`
 
 ### Core / services
 
--   `src/NovaTerminal.Core/Input/DropRouter.cs`
+-   `src/Ntilde.Core/Input/DropRouter.cs`
 
--   `src/NovaTerminal.Core/Input/TerminalInputSender.cs` (writes to PTY)
+-   `src/Ntilde.Core/Input/TerminalInputSender.cs` (writes to PTY)
 
--   `src/NovaTerminal.Core/Sessions/SessionContext.cs`
+-   `src/Ntilde.Core/Sessions/SessionContext.cs`
 
--   `src/NovaTerminal.Core/Shell/IShellQuoter.cs`
+-   `src/Ntilde.Core/Shell/IShellQuoter.cs`
 
--   `src/NovaTerminal.Core/Shell/PwshQuoter.cs`
+-   `src/Ntilde.Core/Shell/PwshQuoter.cs`
 
--   `src/NovaTerminal.Core/Shell/CmdQuoter.cs`
+-   `src/Ntilde.Core/Shell/CmdQuoter.cs`
 
--   `src/NovaTerminal.Core/Shell/PosixShQuoter.cs`
+-   `src/Ntilde.Core/Shell/PosixShQuoter.cs`
 
--   `src/NovaTerminal.Core/VT/TerminalModes.cs` (or wherever ECHO mode is tracked)
+-   `src/Ntilde.Core/VT/TerminalModes.cs` (or wherever ECHO mode is tracked)
 
--   `src/NovaTerminal.Core/UI/ToastService.cs` (or existing notification mechanism)
+-   `src/Ntilde.Core/UI/ToastService.cs` (or existing notification mechanism)
 
 ### Tests
 
--   `tests/NovaTerminal.Tests/ShellQuoterTests.cs`
+-   `tests/Ntilde.Tests/ShellQuoterTests.cs`
 
--   `tests/NovaTerminal.Tests/DropRouterTests.cs`
+-   `tests/Ntilde.Tests/DropRouterTests.cs`
 
 (Adapt names to your repo layout; the structure is what matters.)
 
@@ -435,17 +435,17 @@ Suggested code structure
 
 ### Core
 
--   `src/NovaTerminal.Core/Paths/IPathMapper.cs`
+-   `src/Ntilde.Core/Paths/IPathMapper.cs`
 
--   `src/NovaTerminal.Core/Paths/IdentityPathMapper.cs`
+-   `src/Ntilde.Core/Paths/IdentityPathMapper.cs`
 
--   `src/NovaTerminal.Core/Paths/WslPathMapper.cs`
+-   `src/Ntilde.Core/Paths/WslPathMapper.cs`
 
--   `src/NovaTerminal.Core/Paths/WslPathMapperCache.cs` (or internal LRU)
+-   `src/Ntilde.Core/Paths/WslPathMapperCache.cs` (or internal LRU)
 
--   `src/NovaTerminal.Core/Process/IProcessRunner.cs` (abstract spawning)
+-   `src/Ntilde.Core/Process/IProcessRunner.cs` (abstract spawning)
 
--   `src/NovaTerminal.Core/Sessions/SessionContext.cs` (add `WslDistroName?`)
+-   `src/Ntilde.Core/Sessions/SessionContext.cs` (add `WslDistroName?`)
 
 ### DropRouter change
 

@@ -16,7 +16,7 @@ terminal.
 
 The information all existed:
 
-- `novaterminal.get_session_status` reported `exited`.
+- `ntilde.get_session_status` reported `exited`.
 - `debug.log` recorded `[RustPtySession] EOF received.`
 - `TerminalPane.ProcessExited` fired, and `MainWindow.OnPaneProcessExited` stored the exit code.
 

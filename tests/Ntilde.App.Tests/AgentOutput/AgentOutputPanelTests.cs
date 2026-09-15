@@ -1,0 +1,318 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Input;
+using Avalonia;
+using Avalonia.Controls.Documents;
+using Avalonia.Controls.Primitives;
+using Avalonia.Interactivity;
+using Ntilde.AgentOutput;
+using Avalonia.Headless.XUnit;
+using Xunit;
+
+namespace Ntilde.Tests.AgentOutput;
+
+/// <summary>
+/// The panel view's contract with its view model: content swaps rebuild the markdown host, the
+/// empty state and the rendered view are mutually exclusive, and the status line tracks
+/// streaming. No pixels - the assist overlay tests already cover the "chrome but no content"
+/// failure mode class, and these assertions pin the state machine that feeds it. AvaloniaFact,
+/// not plain facts: the panel is a XAML UserControl, and InitializeComponent needs the headless
+/// application up.
+/// </summary>
+public sealed class AgentOutputPanelTests
+{
+    private static AgentOutputPanel CreatePanel(out AgentOutputViewModel viewModel)
+    {
+        viewModel = new AgentOutputViewModel();
+        var panel = new AgentOutputPanel();
+        panel.SetViewModel(viewModel);
+        return panel;
+    }
+
+    [AvaloniaFact]
+    public void Initially_ShowsTheEmptyState()
+    {
+        var panel = CreatePanel(out _);
+
+        Assert.True(panel.FindControl<StackPanel>("EmptyState").IsVisible);
+        Assert.False(panel.FindControl<ScrollViewer>("ContentScroll").IsVisible);
+        Assert.False(panel.FindControl<Button>("BtnCopyAll").IsEnabled);
+    }
+
+    [AvaloniaFact]
+    public void ContentUpdate_SwapsEmptyStateForTheRenderedView()
+    {
+        var panel = CreatePanel(out var viewModel);
+
+        viewModel.SetUpdate("# Heading\n\nparagraph", isStreaming: true);
+
+        Assert.False(panel.FindControl<StackPanel>("EmptyState").IsVisible);
+        Assert.True(panel.FindControl<ScrollViewer>("ContentScroll").IsVisible);
+        Assert.True(panel.FindControl<Button>("BtnCopyAll").IsEnabled);
+        Assert.NotEmpty(panel.FindControl<StackPanel>("MarkdownHost").Children);
+    }
+
+    [AvaloniaFact]
+    public void StreamingStatus_ShowsInTheHeader_AndClearsWhenFinished()
+    {
+        var panel = CreatePanel(out var viewModel);
+        var status = panel.FindControl<TextBlock>("StatusText");
+
+        viewModel.SetUpdate("content", isStreaming: true);
+        Assert.True(status.IsVisible);
+        Assert.Equal("streaming…", status.Text);
+
+        viewModel.SetUpdate("content", isStreaming: false);
+        Assert.False(status.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void ClearingTheContent_ReturnsToTheEmptyState()
+    {
+        var panel = CreatePanel(out var viewModel);
+        viewModel.SetUpdate("## gone soon", isStreaming: false);
+
+        viewModel.SetUpdate(string.Empty, isStreaming: false);
+
+        Assert.True(panel.FindControl<StackPanel>("EmptyState").IsVisible);
+        Assert.Empty(panel.FindControl<StackPanel>("MarkdownHost").Children);
+    }
+
+    [AvaloniaFact]
+    public void IdenticalContentUpdate_DoesNotRebuildTheHost()
+    {
+        var panel = CreatePanel(out var viewModel);
+        viewModel.SetUpdate("# stable", isStreaming: false);
+        var host = panel.FindControl<StackPanel>("MarkdownHost");
+        Control first = host.Children[0];
+
+        // Same text, same hash: the tracker's dedupe contract means the host must not churn -
+        // a streaming agent repaints constantly, and every rebuild is a layout pass.
+        viewModel.SetUpdate("# stable", isStreaming: false);
+
+        Assert.Same(first, host.Children[0]);
+    }
+
+    // ---------------------------------------------------------------- link scheme allowlist
+
+    [Theory]
+    [InlineData("https://example.com/page")]
+    [InlineData("http://example.com/")]
+    [InlineData("mailto:someone@example.com")]
+    public void WebAndMailLinks_AreAllowedThroughTheAllowlist(string url)
+    {
+        Assert.True(AgentOutputPanel.IsSafeExternalUrl(url));
+    }
+
+    [Theory]
+    [InlineData("C:\\Windows\\System32\\calc.exe")]
+    [InlineData("file:///C:/Windows/System32/calc.exe")]
+    [InlineData("ms-settings:windowsupdate")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("../../etc/passwd")]
+    [InlineData("")]
+    public void ExecutablePaths_FileUrls_AndCustomSchemes_AreBlocked(string url)
+    {
+        // Agent output is untrusted: a crafted [label](target) must never name something the
+        // shell handler would launch or hand to a protocol handler.
+        Assert.False(AgentOutputPanel.IsSafeExternalUrl(url));
+    }
+
+    [AvaloniaFact]
+    public void SetViewModel_SyncsTheToggle_FromTheViewModel()
+    {
+        // Unreachable today (the view model always starts true), but a latent desync otherwise:
+        // the XAML pins IsChecked="True" and nothing reconciled it with an already-false flag.
+        var viewModel = new AgentOutputViewModel { RenderFencedMarkdown = false };
+        var panel = new AgentOutputPanel();
+
+        panel.SetViewModel(viewModel);
+
+        Assert.False(panel.FindControl<ToggleButton>("BtnRenderFences").IsChecked);
+    }
+
+    // ---------------------------------------------------------------- fence rendering switch
+
+    [AvaloniaFact]
+    public void FenceSwitch_IsHidden_WhenTheResponseHasNoMarkdownFence()
+    {
+        var panel = CreatePanel(out var viewModel);
+
+        viewModel.SetUpdate("# Just a heading\n\nno fences here\n", isStreaming: false);
+
+        Assert.False(panel.FindControl<ToggleButton>("BtnRenderFences").IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void FenceSwitch_IsVisible_WhenTheResponseHasAMarkdownFence()
+    {
+        var panel = CreatePanel(out var viewModel);
+
+        viewModel.SetUpdate("```markdown\n# Nested\n```\n", isStreaming: false);
+
+        Assert.True(panel.FindControl<ToggleButton>("BtnRenderFences").IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void FenceSwitch_UncheckedThenNewContent_KeepsRenderingSource()
+    {
+        var panel = CreatePanel(out var viewModel);
+        viewModel.SetUpdate("```markdown\n# First\n```\n", isStreaming: false);
+
+        ToggleButton toggle = panel.FindControl<ToggleButton>("BtnRenderFences");
+        toggle.IsChecked = false;
+        toggle.RaiseEvent(new RoutedEventArgs(ToggleButton.ClickEvent));
+
+        // The choice lives on the view model, so the next content update must not undo it - that is
+        // the whole reason the switch is panel-level rather than per-block.
+        viewModel.SetUpdate("```markdown\n# Second\n```\n", isStreaming: false);
+
+        Assert.False(viewModel.RenderFencedMarkdown);
+        Assert.Contains(
+            "# Second",
+            panel.FindControl<StackPanel>("MarkdownHost").Children
+                .OfType<Control>()
+                .SelectMany(TextOf),
+            StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// A link inside a rendered markdown fence reaches the link handler.
+    /// </summary>
+    /// <remarks>
+    /// <b>This lives here, not in <c>MarkdownRendererTests</c>, and the placement is the point.</b>
+    /// That class is plain <c>[Fact]</c> on purpose - it builds control trees without a headless
+    /// application. Synthesizing pointer input there touches Avalonia's input and ambient visual
+    /// state from a thread that owns none of it, which corrupts state shared with the
+    /// <c>[AvaloniaFact]</c> suites: unrelated classes then fail with "The calling thread cannot
+    /// access this object because a different thread owns it", non-deterministically, depending on
+    /// ordering. That is what turned main red after #397, and what
+    /// <c>AvaloniaBootLocatorHygieneTests.TheAmbientMediaContextBelongsToTheSessionDispatchThread</c>
+    /// exists to catch. Raising the event needs a session thread, so the test needs this class.
+    /// </remarks>
+    [AvaloniaFact]
+    public void MarkdownFence_LinkInside_ReachesTheLinkHandler()
+    {
+        var anchor = new Border();
+        string? opened = null;
+        MarkdownRenderResult result = MarkdownRenderer.Build(
+            "```markdown\n[x](https://example.com)\n```\n",
+            anchor,
+            onOpenLink: url => opened = url);
+
+        TextBlock link = Descendants(result.Root)
+            .OfType<SelectableTextBlock>()
+            .SelectMany(t => t.Inlines!.OfType<InlineUIContainer>())
+            .Select(c => c.Child)
+            .OfType<TextBlock>()
+            .First(b => b.Text == "x");
+
+        // Disposed, so the pressed pointer does not outlive the test and leak capture into the
+        // pointer-driven suites (the tab strip's drag-reorder tests) that share this session.
+        using var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, isPrimary: true);
+        link.RaiseEvent(new PointerPressedEventArgs(
+            link,
+            pointer,
+            link,
+            new Point(0, 0),
+            0,
+            new PointerPointProperties(),
+            KeyModifiers.None,
+            1));
+
+        Assert.Equal("https://example.com", opened);
+    }
+
+    private static IEnumerable<Control> Descendants(Control control)
+    {
+        if (control is Panel panel)
+        {
+            foreach (Control child in panel.Children)
+            {
+                yield return child;
+                foreach (Control nested in Descendants(child))
+                {
+                    yield return nested;
+                }
+            }
+        }
+
+        if (control is Border { Child: Control inner })
+        {
+            yield return inner;
+            foreach (Control nested in Descendants(inner))
+            {
+                yield return nested;
+            }
+        }
+
+        if (control is ContentControl { Content: Control content })
+        {
+            yield return content;
+            foreach (Control nested in Descendants(content))
+            {
+                yield return nested;
+            }
+        }
+    }
+
+    private static IEnumerable<string> TextOf(Control control)
+    {
+        // Markers set Text directly; paragraphs and fenced-source bodies carry Inlines instead
+        // (see MarkdownRendererTests.TextOf) - both must be checked or raw fence source (which
+        // goes through Inlines) is invisible to this helper.
+        if (control is TextBlock block)
+        {
+            if (block.Text is { Length: > 0 } text)
+            {
+                yield return text;
+            }
+            else if (block.Inlines is { Count: > 0 } inlines)
+            {
+                var builder = new System.Text.StringBuilder();
+                foreach (Inline inline in inlines)
+                {
+                    if (inline is Run run)
+                    {
+                        builder.Append(run.Text);
+                    }
+                }
+
+                if (builder.Length > 0)
+                {
+                    yield return builder.ToString();
+                }
+            }
+        }
+
+        if (control is Panel panel)
+        {
+            foreach (Control child in panel.Children)
+            {
+                foreach (string nested in TextOf(child))
+                {
+                    yield return nested;
+                }
+            }
+        }
+
+        if (control is Border { Child: Control inner })
+        {
+            foreach (string nested in TextOf(inner))
+            {
+                yield return nested;
+            }
+        }
+
+        if (control is ContentControl { Content: Control content })
+        {
+            foreach (string nested in TextOf(content))
+            {
+                yield return nested;
+            }
+        }
+    }
+}

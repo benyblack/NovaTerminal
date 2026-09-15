@@ -1,0 +1,5443 @@
+using Ntilde.Shell;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Threading;
+using Avalonia.Media;
+using Avalonia;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Avalonia.Controls.Presenters;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Threading.Tasks;
+using System.Threading;
+using System.Net.NetworkInformation;
+using System.Linq;
+using Avalonia.Controls.Shapes;
+using Avalonia.Automation;
+using Avalonia.Platform.Storage;
+using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
+using Ntilde.CommandAssist.Application;
+using Ntilde.CommandAssist.Domain;
+using Ntilde.CommandAssist.Models;
+using Ntilde.CommandAssist.ViewModels;
+using Ntilde.CommandAssist.ShellIntegration.Contracts;
+using Ntilde.CommandAssist.ShellIntegration.PowerShell;
+using Ntilde.CommandAssist.ShellIntegration.Runtime;
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Platform.Ssh.Interactions;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Sessions;
+using Ntilde.Models;
+using Ntilde.Services.Ssh;
+using Ntilde.ViewModels.Ssh;
+using Ntilde.Pty;
+
+namespace Ntilde.Controls
+{
+    public enum PaneAction
+    {
+        SplitVertical,
+        SplitHorizontal,
+        Equalize,
+        ToggleZoom,
+        ToggleBroadcast,
+        Close
+    }
+
+    public enum RecordingNotificationKind
+    {
+        Started,
+        Stopped,
+        Failed
+    }
+
+    public sealed class RecordingNotificationEventArgs : EventArgs
+    {
+        public required RecordingNotificationKind Kind { get; init; }
+        public required bool IsRecording { get; init; }
+        public required string RecordingsDirectory { get; init; }
+        public string? FilePath { get; init; }
+        public string? ErrorMessage { get; init; }
+    }
+
+    public readonly record struct SidebarTransferRequest(
+        TransferDirection Direction,
+        TransferKind Kind,
+        string RemotePath);
+
+    public partial class TerminalPane : UserControl, IDisposable
+    {
+        public ITerminalSession? Session { get; private set; }
+        public TerminalBuffer? Buffer { get; private set; }
+        public AnsiParser? Parser { get; private set; }
+        public string ShellCommand { get; private set; } = string.Empty;
+        public string ShellArgs { get; private set; } = string.Empty;
+        public TerminalProfile? Profile { get; private set; }
+        private Guid _paneId = Guid.NewGuid();
+
+        /// <remarks>
+        /// Session restore assigns a persisted id after construction
+        /// (SessionManager.RestorePaneTree), i.e. after this pane already
+        /// registered with the agent-session registry — so the setter re-keys
+        /// the registry entry to keep it addressable under the current id.
+        /// If re-keying fails (the entry stayed under the old id), the pane
+        /// keeps the old id too: pane and registry must never disagree.
+        /// </remarks>
+        public Guid PaneId
+        {
+            get => _paneId;
+            set
+            {
+                if (_paneId == value) return;
+                var oldId = _paneId;
+                if ((_agentRegistry ?? Ntilde.AgentHost.AgentSessionRegistry.Instance).Rekey(oldId, value))
+                {
+                    _paneId = value;
+                }
+            }
+        }
+
+        public event Action<TerminalPane, SidebarTransferRequest>? RequestRemoteFilesSidebarTransfer;
+        public event Action<bool>? RecordingStateChanged;
+        public event Action<RecordingNotificationEventArgs>? RecordingNotification;
+        public event Action<TerminalPane, string>? WorkingDirectoryChanged;
+        public event Action<TerminalPane, string>? TitleChanged;
+        public event Action<TerminalPane, PaneAction>? PaneActionRequested;
+        public event Action<TerminalPane>? OutputReceived;
+        public event Action<TerminalPane>? BellReceived;
+        public event Action<TerminalPane>? CommandStarted;
+        public event Action<TerminalPane, int?>? CommandFinished;
+        public event Action<TerminalPane, int>? ProcessExited;
+        /// <summary>A command ran at least <see cref="LongCommandNotificationPolicy.ThresholdSeconds"/>: (pane, command, exitCode, duration). Policy (setting, focus) is the window's call.</summary>
+        public event Action<TerminalPane, string?, int?, TimeSpan>? LongCommandCompleted;
+
+        private TerminalSettings? _settings;
+        private bool _isUpdatingScroll = false;
+        private bool _disposed;
+
+        /// <summary>
+        /// 1 while an output-driven UI refresh is already sitting in the dispatcher queue.
+        /// </summary>
+        /// <remarks>
+        /// Written from the PTY/SSH read thread and cleared on the UI thread, hence the
+        /// interlocked access. See <see cref="QueueOutputUiRefresh"/> for what it buys.
+        /// </remarks>
+        private int _outputUiRefreshQueued;
+        private Ntilde.AgentHost.AgentSessionRegistration? _agentRegistration;
+        // The registry this pane registered with, captured at SetupCommon so
+        // Rekey and Unregister always target the same registry Register did —
+        // even when a test redirected AgentSessionRegistry.Instance for the
+        // construction (#357). Pane and registry must never disagree.
+        private Ntilde.AgentHost.AgentSessionRegistry? _agentRegistry;
+        private bool _agentActable;
+        // Whether UpdateStatusBarUI has rendered the SSH forwarding half of the
+        // status bar at least once. See UpdateForwardingStatus.
+        private bool _forwardingStatusUiBuilt;
+        private DateTimeOffset? _lastCommandStartedAtUtc;
+        private Action<int, int>? _onTermViewResize;
+        private Action<float, float>? _onTermViewMetricsChanged;
+        private Action<float, float>? _onTermViewMetricsLayout;
+        private DispatcherTimer? _statusTimer;
+        private bool _hasUserInteraction;
+        private readonly SshDiagnosticsLevel _sshDiagnosticsLevel;
+        private string? _pendingPasteFilePath;
+        private string? _pendingEscapedPath;
+        private CommandAssistController? _commandAssistController;
+        private CommandAssistServices? _commandAssistServices;
+
+        /// <summary>
+        /// The in-surface Command Assist chords, resolved from the shortcut catalogue plus the user's
+        /// overrides. Replaced whenever settings are applied; defaults until then.
+        /// </summary>
+        private AssistKeyBindings _commandAssistKeyBindings = AssistKeyBindings.Default;
+
+        private ShellLifecycleTracker? _shellLifecycleTracker;
+
+        /// <summary>
+        /// True when <em>we</em> injected a bootstrap into this shell. Never true for SSH: the
+        /// injection mechanisms (an <c>--rcfile</c> path, a <c>ZDOTDIR</c>/<c>XDG_CONFIG_HOME</c>
+        /// override, a <c>-File</c> argument) all die at the SSH boundary.
+        /// </summary>
+        private bool _isShellIntegrationActive;
+
+        /// <summary>
+        /// True once this session has emitted any OSC 133 mark, whoever installed the thing that
+        /// emits it. The runtime half of V2 Phase 2b's remote story: a remote host that sources the
+        /// shipped snippet proves itself here rather than through
+        /// <see cref="_isShellIntegrationActive"/>, which it can never set.
+        /// </summary>
+        /// <remarks>
+        /// Written from the PTY read thread (the parser callbacks) and read from the UI thread
+        /// (<see cref="UpdateCommandAssistContext"/>); <c>volatile</c> and bool-sized, so a reader
+        /// sees either the old value or the new one. Latching - it is only ever set - so the
+        /// double-set a concurrent first mark could produce is harmless, and the redundant context
+        /// update it posts is idempotent.
+        /// </remarks>
+        private volatile bool _hasObservedShellIntegrationMark;
+        private IReadOnlyDictionary<string, string>? _shellIntegrationEnvOverrides;
+        private readonly OrderedAsyncEventDispatcher _shellIntegrationEventDispatcher = new();
+        private readonly CommandAssistAnchorCalculator _commandAssistAnchorCalculator = new();
+
+        /// <summary>
+        /// Newest <c>OSC 133;B</c> mark (prompt end), written from the PTY read thread and read
+        /// from the UI thread. <see langword="null"/> when there is no live mark.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Stored on the buffer, not in a field here.</b> A width-changing resize reflows the
+        /// buffer, which rebuilds the absolute-row coordinate space and bumps
+        /// <c>ScrollbackPages.Generation</c>; a mark held outside the buffer can only notice that
+        /// its epoch went stale and be discarded. That is the whole of the "the first prompt of a
+        /// session is dead" bug: PSReadLine repaints the input line on a resize but does not re-run
+        /// the prompt function, so no fresh <c>B</c> arrives and the pane is markless until the
+        /// user submits something. <see cref="TerminalBuffer.CommandStartMark"/> is re-anchored by
+        /// the reflow itself, which is the only code that knows where the marked cell moved to, and
+        /// it comes back carrying the new generation - so the generation contract is enforced
+        /// exactly as before and there is simply no stale epoch left to reject.
+        /// </para>
+        /// <para>
+        /// The buffer guards the slot with its own lock, which is what the pane's old
+        /// <c>_commandStartMarkGate</c> was for: a <see cref="ShellIntegrationMark"/> is five
+        /// fields wide and a plain nullable field could be torn across the two threads.
+        /// </para>
+        /// </remarks>
+        private ShellIntegrationMark? LatestCommandStartMark
+        {
+            get => Buffer?.CommandStartMark;
+            set
+            {
+                if (Buffer is { } buffer)
+                {
+                    buffer.CommandStartMark = value;
+                }
+            }
+        }
+
+        // Where the running command's output region begins (OSC 133;C) is
+        // TerminalBuffer.CommandOutputStartMark, on the buffer for the same reason as
+        // LatestCommandStartMark above: a resize between C and D would otherwise cost the failing
+        // command's captured output. The two call sites (CaptureCommandOutputRegionStart and
+        // TryCaptureFailureOutputTail) already hold a non-null buffer, so they read it directly.
+
+        // The last output tail captured at OSC 133;D, already capped and already redacted. A test
+        // seam only: the value the controller sees is passed as an argument, not read from here.
+        private string? _lastFailureOutputTailForTest;
+
+        // True between "the user pressed a key that edits the command line" and "the session sent
+        // us bytes we have parsed into the grid". See NoteInputAwaitingEcho for why insertion
+        // refuses while it is set. Written from the UI thread, cleared from the PTY read thread.
+        private volatile bool _hasUnechoedInput;
+
+        // Enter-time history capture for sessions with no OSC 133 marks (V2 Phase 1, task 7).
+        // Never the query - see MarklessSubmissionAccumulator for why this is not the shadow
+        // buffer coming back, and OnCommandAssistEnterObserved for how it composes with grid truth.
+        private readonly MarklessSubmissionAccumulator _marklessSubmission = new();
+        private string? _lastRelevantCommandText;
+        private CommandAssistBarViewModel? _boundCommandAssistViewModel;
+        private string? _lastCommandAssistAnchorDiagnosticSignature;
+        private string? _lastCommandAssistAnchorAppliedSignature;
+        private string? _lastCommandAssistAnchorCorrectionSignature;
+        private bool _suppressSshAssistOverlayUntilSettled;
+
+        // Last value of IsCommandAssistOverlayRendered the controller was told about. Starts false, which
+        // matches the overlay host's IsVisible="False" in the XAML.
+        private bool _wasCommandAssistOverlayRendered;
+        private int _sshAssistCorrectionPassCount;
+        private int _commandAssistPlacementCorrectionPasses;
+        private readonly CommandAssistBubbleViewModel _hiddenCommandAssistBubbleViewModel = new() { IsVisible = false };
+        private readonly CommandAssistPopupViewModel _hiddenCommandAssistPopupViewModel = new(new ObservableCollection<CommandAssistSuggestionItemViewModel>()) { IsVisible = false };
+        private IRemoteDirectoryBrowserService _remoteDirectoryBrowserService = new RemoteDirectoryBrowserService();
+        private RemoteFilesSidebarViewModel? _remoteFilesSidebarViewModel;
+        private RemoteFilesSidebar? _remoteFilesSidebarHost;
+
+        // Agent Output panel state, created in SetupCommon alongside the other pane-lifetime
+        // services. The tracker owns the debounced region reads; the view model owns visibility
+        // (user toggle minus alt-screen suppression); the host is the lazily-created view.
+        private AgentOutput.AgentOutputViewModel? _agentOutput;
+        private AgentOutput.AgentOutputRegionTracker? _agentOutputTracker;
+        private AgentOutput.AgentOutputPanel? _agentOutputPanelHost;
+        private bool _isRemoteFilesSidebarTestServiceConfigured;
+        private string? _currentRecordingFilePath;
+        private int _clipboardWriteAttemptsForTest;
+        private const double CommandAssistBubbleWidth = 420;
+        private const double CommandAssistBubbleHeight = 36;
+        private const double CommandAssistPopupWidth = 520;
+        private const double CommandAssistPopupHeight = 220;
+
+        // ---- Content-sized popup height (UX round 7).
+        //
+        // Every number below is read off CommandAssistPopupView.axaml rather than tuned by eye, and
+        // CommandAssistLayoutTests.TerminalPane_PopupHeightEstimate_MatchesTheRenderedTemplate
+        // measures the real control against them - so a template change that invalidates the estimate
+        // fails in the suite instead of showing up as a popup with a gap under its last row.
+        //
+        // Chrome, top to bottom:
+        //   outer Border BorderThickness 1, twice                            2
+        //   outer Border Padding 12, twice                                  24
+        //   root Grid RowSpacing 10, two gaps between its three rows        20
+        //   header line (mode label / query at the default font size)       19
+        //   results Border Padding 8, twice                                 16
+        //   footer line (FontSize 11)                                       15
+        private const double CommandAssistPopupChromeHeight = 96;
+
+        // One row: a default-size line box (19) inside Border Padding "4,2" (4) and Margin "0,1" (2).
+        private const double CommandAssistPopupRowHeight = 25;
+
+        // The attribution credit, when there is one: StackPanel Spacing 3 plus one 10pt line.
+        private const double CommandAssistPopupAttributionHeight = 19;
+
+        // The "no matches" popup is a caption, not a list, and gets one line's worth of body rather
+        // than the tall empty box a fixed 220 produced.
+        private const int CommandAssistPopupEmptyStateRows = 1;
+        private const double ConservativeRemotePromptBandStartRatio = 0.55;
+        private const int ConservativeRemoteMinVisibleRows = 8;
+        private const double ConservativeRemoteShortPaneHeightThreshold = 300;
+        private const int MaxSshAssistCorrectionPasses = 6;
+        internal CommandAssistBarViewModel? CommandAssistViewModel => _commandAssistController?.ViewModel;
+
+        /// <summary>
+        /// The Command Assist dependency graph this pane uses. Assigned by <c>MainWindow.WirePane</c>,
+        /// from the single instance built at the App composition root.
+        /// </summary>
+        /// <remarks>
+        /// A property rather than a constructor parameter because this control has four public
+        /// constructors plus two internal settings-carrying overloads, and panes are built from
+        /// three different places (new tab, split, session restore); property injection at the one
+        /// wiring funnel keeps all of them working without threading the graph through every
+        /// signature. (It is not about XAML: <c>TerminalPane.axaml</c> only declares
+        /// <c>x:Class</c> - no markup anywhere instantiates the type.) Not defaulted: a pane that
+        /// reaches Command Assist initialization without one throws (see
+        /// <c>RequireCommandAssistServices</c>) instead of quietly building a second graph, which is
+        /// exactly the failure mode the removed static locator made invisible.
+        /// </remarks>
+        internal CommandAssistServices? CommandAssistServices
+        {
+            get => _commandAssistServices;
+            set => _commandAssistServices = value;
+        }
+
+        public bool IsRecording => Session?.IsRecording ?? false;
+        public string? CurrentWorkingDirectory { get; private set; }
+        public string? CurrentOscTitle { get; private set; }
+        public int? LastExitCode { get; private set; }
+        public bool IsProcessRunning => Session?.IsProcessRunning ?? false;
+        public bool HasActiveChildProcesses => Session?.HasActiveChildProcesses ?? false;
+        public bool HasUserInteraction => _hasUserInteraction;
+
+        private bool _isActivePane = false;
+        public bool IsActivePane
+        {
+            get => _isActivePane;
+            set
+            {
+                if (_isActivePane != value)
+                {
+                    _isActivePane = value;
+                    UpdateFocusVisuals(IsKeyboardFocusWithin);
+                    UpdateAgentSessionSnapshot();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Pushes this pane's current metadata into its agent-session
+        /// registration (UI thread only). Cheap and allocation-light; called
+        /// on title/cwd/profile/active-state changes so background registry
+        /// readers never touch this control.
+        /// </summary>
+        private void UpdateAgentSessionSnapshot()
+        {
+            _agentRegistration?.UpdateSnapshot(
+                GetBaseTabTitle(),
+                Profile?.Name ?? "Terminal",
+                Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
+                IsActivePane,
+                Profile?.Id);
+        }
+
+        /// <summary>
+        /// Pushes this pane's render inputs (cell metrics, font, shaping flags)
+        /// into its agent-session registration so <c>captureScreen</c> can render
+        /// the pane off the UI thread (A5). UI thread only; called whenever the
+        /// font is re-measured or settings are applied.
+        /// </summary>
+        private void UpdateAgentRenderParameters()
+        {
+            if (_agentRegistration == null) return;
+
+            _agentRegistration.UpdateRenderParameters(new Ntilde.Shell.PaneRenderParameters(
+                TermView.Metrics,
+                TermView.Typeface.FontFamily.Name,
+                (float)TermView.FontSize,
+                TermView.EnableLigatures,
+                TermView.EnableComplexShaping));
+        }
+
+        public string GetBaseTabTitle()
+        {
+            if (!string.IsNullOrWhiteSpace(CurrentOscTitle))
+            {
+                return CurrentOscTitle!;
+            }
+
+            string profileName = Profile?.Name ?? "Terminal";
+            if (!string.IsNullOrWhiteSpace(CurrentWorkingDirectory))
+            {
+                string normalized = CurrentWorkingDirectory!.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+                string leaf = System.IO.Path.GetFileName(normalized);
+                if (!string.IsNullOrWhiteSpace(leaf))
+                {
+                    return $"{profileName} · {leaf}";
+                }
+            }
+
+            return profileName;
+        }
+
+        public void ToggleRecording()
+        {
+            if (Session == null) return;
+
+            string recordingsDirectory = AppPaths.RecordingsDirectory;
+
+            if (Session.IsRecording)
+            {
+                Session.StopRecording();
+                RecordingNotification?.Invoke(new RecordingNotificationEventArgs
+                {
+                    Kind = RecordingNotificationKind.Stopped,
+                    IsRecording = Session.IsRecording,
+                    FilePath = _currentRecordingFilePath,
+                    RecordingsDirectory = recordingsDirectory
+                });
+                _currentRecordingFilePath = null;
+            }
+            else
+            {
+                try
+                {
+                    if (!System.IO.Directory.Exists(recordingsDirectory))
+                    {
+                        System.IO.Directory.CreateDirectory(recordingsDirectory);
+                    }
+
+                    string filename = BuildRecordingFileName(DateTime.Now, Guid.NewGuid().ToString("N"));
+                    string path = System.IO.Path.Combine(recordingsDirectory, filename);
+
+                    Session.StartRecording(path);
+                    _currentRecordingFilePath = path;
+                    RecordingNotification?.Invoke(new RecordingNotificationEventArgs
+                    {
+                        Kind = RecordingNotificationKind.Started,
+                        IsRecording = Session.IsRecording,
+                        FilePath = path,
+                        RecordingsDirectory = recordingsDirectory
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _currentRecordingFilePath = null;
+                    RecordingNotification?.Invoke(new RecordingNotificationEventArgs
+                    {
+                        Kind = RecordingNotificationKind.Failed,
+                        IsRecording = Session.IsRecording,
+                        FilePath = _currentRecordingFilePath,
+                        RecordingsDirectory = recordingsDirectory,
+                        ErrorMessage = ex.Message
+                    });
+                }
+            }
+
+            RecordingStateChanged?.Invoke(IsRecording);
+        }
+
+        internal static string BuildRecordingFileName(DateTime timestamp, string uniqueSuffix)
+        {
+            string normalizedSuffix = string.IsNullOrWhiteSpace(uniqueSuffix)
+                ? Guid.NewGuid().ToString("N")
+                : uniqueSuffix.Trim().ToLowerInvariant();
+
+            string shortSuffix = normalizedSuffix.Length > 6
+                ? normalizedSuffix[..6]
+                : normalizedSuffix.PadRight(6, '0');
+
+            return $"ntilde_rec_{timestamp:yyyyMMdd_HHmmss}_{shortSuffix}.rec";
+        }
+
+        public void UpdateProfile(TerminalProfile profile)
+        {
+            Profile = profile;
+            UpdateAgentSessionSnapshot();
+            TermView.ShellOverride = profile.ShellOverride;
+            UpdateCommandAssistContext();
+            UpdateRemoteFilesSidebarHostIdentity();
+            if (!IsRemoteFilesSidebarSupported())
+            {
+                CloseRemoteFilesSidebar();
+            }
+
+            UpdateRemoteFilesSidebarCurrentDirectoryState();
+            UpdateRemoteFilesSidebarEntryPointState();
+        }
+
+        public Control ActiveControl => TermView;
+        public ISshInteractionHandler? SshInteractionHandler { get; set; }
+
+        public void ToggleRemoteFilesSidebar()
+        {
+            _ = ToggleRemoteFilesSidebarAsync();
+        }
+
+        public TerminalPane()
+        {
+            InitializeComponent();
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterInitializeComponent");
+            _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
+            Buffer = new TerminalBuffer(80, 24);
+            TermView.SetBuffer(Buffer);
+            TermView.Ready += (c, r) => InitializeSession(null, null, c, r);
+            SetupCommon(null);
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterSetupCommon");
+        }
+
+        public TerminalPane(string shell)
+            : this(shell, initialSettings: null)
+        {
+        }
+
+        internal TerminalPane(string shell, TerminalSettings? initialSettings)
+        {
+            InitializeComponent();
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterInitializeComponent");
+            _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
+            Buffer = new TerminalBuffer(80, 24);
+            TermView.SetBuffer(Buffer);
+            // Record the requested command NOW, not only once the session starts. Until
+            // InitializeSessionCore ran, the shell lived solely in this lambda's closure,
+            // while ShellCommand — the property the OnAttachedToVisualTree fallback,
+            // Reconnect() and session persistence all read — was still string.Empty. Any of
+            // those reaching the pane first therefore lost the requested shell entirely.
+            ShellCommand = shell ?? string.Empty;
+            TermView.Ready += (c, r) => InitializeSession(shell, null, c, r);
+            SetupCommon(initialSettings);
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterSetupCommon");
+        }
+
+        public TerminalPane(string shell, string args)
+            : this(shell, args, initialSettings: null)
+        {
+        }
+
+        internal TerminalPane(string shell, string args, TerminalSettings? initialSettings)
+        {
+            InitializeComponent();
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterInitializeComponent");
+            _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
+            Buffer = new TerminalBuffer(80, 24);
+            TermView.SetBuffer(Buffer);
+            // See the single-argument overload: the requested command must be observable
+            // before the session starts, or the attach-time fallback spawns an empty one.
+            ShellCommand = shell ?? string.Empty;
+            ShellArgs = args ?? string.Empty;
+            TermView.Ready += (c, r) => InitializeSession(shell, null, c, r, args);
+            SetupCommon(initialSettings);
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterSetupCommon");
+        }
+
+        public TerminalPane(TerminalProfile profile)
+            : this(profile, initialSettings: null, SshDiagnosticsLevel.None, useInitialSettings: false)
+        {
+        }
+
+        public TerminalPane(TerminalProfile profile, SshDiagnosticsLevel sshDiagnosticsLevel)
+            : this(profile, initialSettings: null, sshDiagnosticsLevel, useInitialSettings: false)
+        {
+        }
+
+        internal TerminalPane(TerminalProfile profile, TerminalSettings initialSettings, SshDiagnosticsLevel sshDiagnosticsLevel = SshDiagnosticsLevel.None)
+            : this(profile, initialSettings, sshDiagnosticsLevel, useInitialSettings: true)
+        {
+        }
+
+        private TerminalPane(TerminalProfile profile, TerminalSettings? initialSettings, SshDiagnosticsLevel sshDiagnosticsLevel, bool useInitialSettings)
+        {
+            Profile = profile;
+            InitializeComponent();
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterInitializeComponent");
+            _sshDiagnosticsLevel = sshDiagnosticsLevel;
+            Buffer = new TerminalBuffer(80, 24);
+            TermView.SetBuffer(Buffer);
+            TermView.ShellOverride = profile.ShellOverride;
+            // As above: keep the profile's command visible to the attach-time fallback,
+            // Reconnect() and persistence before the first session exists.
+            ShellCommand = profile.Command ?? string.Empty;
+            ShellArgs = profile.Arguments ?? string.Empty;
+            TermView.Ready += (c, r) => InitializeSession(profile.Command, profile, c, r);
+            SetupCommon(useInitialSettings ? initialSettings : null);
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterSetupCommon");
+        }
+
+        private void SetupCommon(TerminalSettings? initialSettings)
+        {
+            // Agent-host observe surface (docs/agent-host/DIRECTION.md, A1):
+            // inert bookkeeping until the IPC endpoint queries it. The
+            // registration holds a lock-protected metadata snapshot (never a
+            // live delegate into this control), pushed from the UI thread on
+            // every relevant change; the entry is removed in DetachFromUiThread.
+            _agentRegistration = new Ntilde.AgentHost.AgentSessionRegistration(
+                PaneId,
+                Buffer!,
+                GetBaseTabTitle(),
+                Profile?.Name ?? "Terminal",
+                Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
+                IsActivePane,
+                profileId: Profile?.Id);
+            // A3 act: an agent typing into this pane is text the keyboard path never saw.
+            _agentRegistration.InputInjected = NotifyExternalInputSent;
+            _agentRegistry = Ntilde.AgentHost.AgentSessionRegistry.Instance;
+            _agentRegistry.Register(_agentRegistration);
+            // Seed act-reachability from the registration instead of waiting for
+            // the first ActabilityChanged. AgentHostService.OnSessionRegistered
+            // publishes it synchronously inside Register above — i.e. one line
+            // before the subscription below exists, so the event is already gone
+            // by the time we would hear it. Subscribing first would not fix it
+            // either: OnAgentActabilityChanged only *posts* to the dispatcher, so
+            // the bar would still appear a frame after the pane's first layout
+            // and resize the PTY, which is the reflow this is here to remove.
+            // Reading the value is synchronous, so the pane is laid out with its
+            // bar already in place and the terminal row is never re-measured.
+            //
+            // Routed through ApplyAgentAttention rather than assigning
+            // _agentActable directly so the segment is rendered by its one
+            // renderer: a seeded-actable pane shows the idle "agent access"
+            // label immediately instead of a bare dot with empty text until the
+            // first attention event.
+            //
+            // Guarded rather than unconditional: _agentActable already defaults
+            // to false, so a non-actable pane has nothing to seed, and calling
+            // UpdateStatusBarVisibility() for it would only re-assert the SSH
+            // half of the bar's visibility OR earlier than anything expects.
+            if (_agentRegistration.IsAgentActable)
+            {
+                ApplyAgentAttention(_agentRegistration.AttentionMachine.Snapshot(), isActable: true);
+            }
+            _agentRegistration.AttentionMachine.Changed += OnAgentAttentionChanged;
+            _agentRegistration.ActabilityChanged += OnAgentActabilityChanged;
+            TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
+            WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();
+
+            // A2 status signals (docs/plans/2026-07-07-agent-host-a2-status-design.md):
+            // PTY lifecycle events feed the per-session status machine. Command
+            // lifecycle (started/finished) and prompt/accepted signals are wired
+            // synchronously at the parser hooks in InitializeSession so their
+            // relative order is preserved; alt-screen in HandleAltScreenChanged.
+            OutputReceived += _ => _agentRegistration?.StatusMachine.NotifyOutput();
+            BellReceived += _ => _agentRegistration?.StatusMachine.NotifyBell();
+            ProcessExited += (_, exitCode) => _agentRegistration?.StatusMachine.NotifyExited(exitCode);
+
+            TermView.KeyDownInterceptor = TryHandleCommandAssistKey;
+
+            // Mouse support for the popup rows (V2 Phase 3a). Wired here rather than in
+            // BindCommandAssistViews because the view is a fixed part of the pane's XAML tree while the
+            // view-model comes and goes with the feature flag: subscribing on every bind would add a
+            // second handler per rebind.
+            if (CommandAssistPopup != null)
+            {
+                CommandAssistPopup.SuggestionPointerSelected += OnCommandAssistSuggestionPointerSelected;
+                CommandAssistPopup.SuggestionPointerAccepted += OnCommandAssistSuggestionPointerAccepted;
+            }
+
+            TermView.TextInput += (_, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Text))
+                {
+                    _hasUserInteraction = true;
+                }
+            };
+            TermView.KeyDown += (_, e) =>
+            {
+                if (e.Key != Key.LeftShift &&
+                    e.Key != Key.RightShift &&
+                    e.Key != Key.LeftCtrl &&
+                    e.Key != Key.RightCtrl &&
+                    e.Key != Key.LeftAlt &&
+                    e.Key != Key.RightAlt)
+                {
+                    _hasUserInteraction = true;
+                }
+            };
+
+            // Wire up ScrollBar
+            TermScrollBar.ValueChanged += ScrollBar_ValueChanged;
+
+            TermView.ScrollStateChanged += (offset, max) =>
+            {
+                // Dispatch to UI thread to update ScrollBar value
+                this.Dispatcher.Post(() =>
+                {
+                    _isUpdatingScroll = true;
+                    try
+                    {
+                        TermScrollBar.Maximum = max;
+                        TermScrollBar.Value = max - offset;
+                    }
+                    finally
+                    {
+                        _isUpdatingScroll = false;
+                    }
+                }, DispatcherPriority.Render);
+            };
+
+            // Search UI
+            SetupSearch();
+
+            // Port Forwarding Status Timer
+            _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            _statusTimer.Tick += (s, e) => UpdateForwardingStatus();
+            _statusTimer.Start();
+
+            // SFTP Status
+            SftpService.Instance.JobUpdated += Sftp_JobUpdated;
+
+            // Wire up focus syncing
+            TermView.GotFocus += (s, e) => UpdateFocusVisuals(true);
+            TermView.LostFocus += (s, e) => UpdateFocusVisuals(false);
+            // Cached so DetachFromUiThread can remove it. As an uncached lambda it was the one
+            // TermView handler left attached after disposal, which contradicted the claim that a
+            // disposed pane stops reacting — harmless in practice (it only re-runs this pane's own
+            // layout) but it made the invariant untestable, and an untestable invariant is one edit
+            // away from being false (#102).
+            _onTermViewMetricsLayout = (cw, ch) =>
+            {
+                UpdateMinimumSizeConstraints();
+                UpdateCommandAssistOverlayPlacement();
+            };
+            TermView.MetricsChanged += _onTermViewMetricsLayout;
+            TermView.CommandAssistAnchorHintChanged += () => UpdateCommandAssistOverlayPlacement();
+            SizeChanged += (_, _) => UpdateCommandAssistOverlayPlacement();
+            // Keystrokes are triggers, not content, for the *query* (V2 Phase 1c): Command Assist
+            // re-reads the command line out of the grid on the refresh these queue, which is the
+            // only source that also knows about the arrow keys, Ctrl+U, history recall and
+            // shell-side Tab completion.
+            //
+            // They are content for one narrow purpose, added in V2 Phase 1 task 7: the markless
+            // submission accumulator, which supplies Enter-time history capture for the sessions
+            // the grid cannot serve. See NotifyTypedTextObserved and friends.
+            TermView.TextInputObserved += NotifyTypedTextObserved;
+            TermView.BackspaceObserved += NotifyBackspaceObserved;
+            TermView.EnterObserving += OnCommandAssistEnterObserving;
+            TermView.EnterObserved += OnCommandAssistEnterObserved;
+            TermView.PasteObserved += NotifyPasteObserved;
+
+            if (Buffer != null)
+            {
+                Buffer.OnScreenSwitched += OnBufferScreenSwitched;
+            }
+
+            // Agent Output (markdown side panel). The tracker hangs off the same buffer-lifetime
+            // subscription point as OnScreenSwitched above; OnInvalidate fires on the parse thread
+            // and the tracker only re-arms a debounce timer there. Notification wiring into the
+            // parser lives in CaptureCommandOutputRegionStart (C) and the OnCommandFinished
+            // handler (D) - both already parse-thread, both already at the right instant.
+            _agentOutput = new AgentOutput.AgentOutputViewModel();
+            _agentOutputTracker = new AgentOutput.AgentOutputRegionTracker(
+                () => Buffer,
+                () => Buffer?.CommandOutputStartMark,
+                dispatch: action =>
+                {
+                    if (this.Dispatcher.CheckAccess())
+                    {
+                        action();
+                    }
+                    else
+                    {
+                        this.Dispatcher.Post(action);
+                    }
+                },
+                onUpdate: (text, streaming) => _agentOutput.SetUpdate(text, streaming),
+
+                // The MD toggle only exists when the recent on-screen output actually looks like
+                // markdown - detection runs on the tracker's lazy closed-panel cadence, and this
+                // callback fires on the UI thread only when the verdict changes.
+                markdownPresenceChanged: present => AgentOutputToggle.IsVisible = present);
+            if (Buffer != null)
+            {
+                Buffer.OnInvalidate += _agentOutputTracker.NotifyInvalidate;
+            }
+            // Property hook rather than Click: the panel's ✕ unchecks the toggle programmatically
+            // (host.CloseRequested), and that path must close the panel exactly like a user click.
+            AgentOutputToggle.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == ToggleButton.IsCheckedProperty)
+                {
+                    SetAgentOutputPanelOpen(AgentOutputToggle.IsChecked ?? false);
+                }
+            };
+            TermView.EnterObserving += OnAgentOutputEnterObserved;
+
+            // Load Settings
+            ApplySettings(initialSettings ?? TerminalSettings.Load());
+            UpdateMinimumSizeConstraints();
+            AutomationProperties.SetName(TermView, "Terminal Pane");
+            AutomationProperties.SetName(this, "Terminal Pane");
+
+            // The pane segment is the agent surface the user actually looks at,
+            // so it opens the Agent Activity journal exactly the way the
+            // window-level AgentObserveIndicator does (MainWindow.axaml.cs's
+            // agentObserveIndicator.Click). Null-safe on VisualRoot: the pane is
+            // constructed before it is attached, and unit tests never attach it
+            // to a window at all.
+            //
+            // async void by necessity (Click is an EventHandler), so the await
+            // must not be left bare: an exception out of an async void handler
+            // is re-raised on the UI thread's synchronization context as an
+            // unhandled exception rather than contained, and a click that
+            // should quietly do nothing would terminate the app instead - the
+            // journal dialog failing to construct while the owning window is
+            // closing is enough. Contained the same way the rest of this file
+            // contains failures on the attention path.
+            AgentStatusButton.Click += async (_, _) =>
+            {
+                try
+                {
+                    if (VisualRoot is MainWindow mainWindow)
+                    {
+                        await mainWindow.ShowAgentActivityJournalAsync();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[TerminalPane] Opening the agent activity journal failed: {ex.Message}");
+                }
+            };
+
+            // Smart Paste Action setup
+            TermView.TextFileDropped += (s, args) =>
+            {
+                _pendingPasteFilePath = args.FilePath;
+                _pendingEscapedPath = args.EscapedPath;
+                string fileName = System.IO.Path.GetFileName(args.FilePath);
+                // A notice riding along with the drop (currently only the WSL mapping
+                // fallback) is appended rather than shown separately, because it would
+                // otherwise overwrite this actionable prompt in the shared panel.
+                ToastMessageText.Text = string.IsNullOrEmpty(args.Notice)
+                    ? fileName
+                    : $"{fileName} — {args.Notice}";
+                // Restore the action buttons: an informational drop notice (below) hides
+                // them, and the panel is shared between both uses.
+                ToastPastePathBtn.IsVisible = true;
+                ToastActionBtn.IsVisible = true;
+                ToastPanel.IsVisible = true;
+            };
+
+            // Drop refused, or accepted with a caveat. Reuses the same panel - the message
+            // belongs in the pane the drop landed on, not in a window-level toast - but with
+            // the action buttons hidden, because there is nothing to act on: the text was
+            // either never sent, or already sent.
+            TermView.DropNotice += message =>
+            {
+                _pendingPasteFilePath = null;
+                _pendingEscapedPath = null;
+                ToastMessageText.Text = message;
+                ToastPastePathBtn.IsVisible = false;
+                ToastActionBtn.IsVisible = false;
+                ToastPanel.IsVisible = true;
+            };
+
+            ToastCloseBtn.Click += (s, e) =>
+            {
+                ToastPanel.IsVisible = false;
+                _pendingPasteFilePath = null;
+                _pendingEscapedPath = null;
+            };
+
+            ToastPastePathBtn.Click += (s, e) =>
+            {
+                ToastPanel.IsVisible = false;
+                if (!string.IsNullOrEmpty(_pendingEscapedPath) && Session != null)
+                {
+                    NotifyExternalInputSent();
+                    TermView.ScrollToInputLine();
+                    Session.SendInput(_pendingEscapedPath);
+                    _pendingPasteFilePath = null;
+                    _pendingEscapedPath = null;
+                }
+            };
+
+            ToastActionBtn.Click += async (s, e) =>
+            {
+                ToastPanel.IsVisible = false;
+                if (!string.IsNullOrEmpty(_pendingPasteFilePath) && Session != null)
+                {
+                    try
+                    {
+                        string content = await System.IO.File.ReadAllTextAsync(_pendingPasteFilePath);
+                        NotifyExternalInputSent();
+                        TermView.ScrollToInputLine();
+                        Ntilde.Platform.Input.TerminalInputSender.SendBracketedPaste(Session, content);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to paste file contents: {ex.Message}");
+                    }
+                    _pendingPasteFilePath = null;
+                    _pendingEscapedPath = null;
+                }
+            };
+
+            // SFTP Context Menu
+            var contextMenu = RootGrid.ContextMenu;
+            if (contextMenu != null)
+            {
+                contextMenu.Opening += (_, _) => UpdatePaneContextMenuState();
+
+                var paneMenu = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(m => (string?)m.Header == "Pane");
+                if (paneMenu != null)
+                {
+                    foreach (var sub in paneMenu.Items.OfType<MenuItem>())
+                    {
+                        if (sub.Name == "MenuPaneSplitVertical") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.SplitVertical);
+                        if (sub.Name == "MenuPaneSplitHorizontal") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.SplitHorizontal);
+                        if (sub.Name == "MenuPaneEqualize") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.Equalize);
+                        if (sub.Name == "MenuPaneToggleZoom") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.ToggleZoom);
+                        if (sub.Name == "MenuPaneToggleBroadcast") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.ToggleBroadcast);
+                        if (sub.Name == "MenuPaneClose") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.Close);
+                    }
+                }
+
+                var explainSelectionItem = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(m => m.Name == "MenuExplainSelection");
+                if (explainSelectionItem != null)
+                {
+                    explainSelectionItem.Click += async (_, _) => await ExplainSelectionAsync();
+                }
+            }
+
+            InitializeRemoteFilesSidebar();
+        }
+
+        private void InitializeRemoteFilesSidebar()
+        {
+            SetRemoteFilesSidebarService(_remoteDirectoryBrowserService);
+
+            if (MenuToggleRemoteFilesSidebar != null)
+            {
+                MenuToggleRemoteFilesSidebar.Click += async (_, _) => await ToggleRemoteFilesSidebarAsync();
+            }
+
+            UpdateRemoteFilesSidebarHostIdentity();
+            UpdateRemoteFilesSidebarCurrentDirectoryState();
+            UpdateRemoteFilesSidebarVisibility();
+            UpdateRemoteFilesSidebarEntryPointState();
+        }
+
+        private RemoteFilesSidebar EnsureRemoteFilesSidebarHost()
+        {
+            if (_remoteFilesSidebarHost != null)
+            {
+                return _remoteFilesSidebarHost;
+            }
+
+            var host = new RemoteFilesSidebar
+            {
+                IsVisible = false,
+                DataContext = _remoteFilesSidebarViewModel
+            };
+
+            if (host.FindControl<Button>("BtnUploadFile") is Button uploadFileButton)
+            {
+                uploadFileButton.Click += (_, _) => RequestRemoteFilesSidebarUploadForCurrentDirectory(TransferKind.File);
+            }
+
+            if (host.FindControl<Button>("BtnUploadFolder") is Button uploadFolderButton)
+            {
+                uploadFolderButton.Click += (_, _) => RequestRemoteFilesSidebarUploadForCurrentDirectory(TransferKind.Folder);
+            }
+
+            if (host.FindControl<Button>("BtnDownloadSelected") is Button downloadSelectedButton)
+            {
+                downloadSelectedButton.Click += (_, _) => RequestRemoteFilesSidebarTransferForSelectedEntry();
+            }
+
+            if (RemoteFilesSidebarPresenter != null)
+            {
+                RemoteFilesSidebarPresenter.Content = host;
+                RemoteFilesSidebarPresenter.IsVisible = false;
+            }
+
+            _remoteFilesSidebarHost = host;
+            UpdateRemoteFilesSidebarHostIdentity();
+            return host;
+        }
+
+        private void SetRemoteFilesSidebarService(IRemoteDirectoryBrowserService directoryBrowserService)
+        {
+            ArgumentNullException.ThrowIfNull(directoryBrowserService);
+
+            if (_remoteFilesSidebarViewModel != null)
+            {
+                _remoteFilesSidebarViewModel.PropertyChanged -= OnRemoteFilesSidebarViewModelPropertyChanged;
+            }
+
+            _remoteDirectoryBrowserService = directoryBrowserService;
+            _remoteFilesSidebarViewModel = new RemoteFilesSidebarViewModel(directoryBrowserService);
+            _remoteFilesSidebarViewModel.PropertyChanged += OnRemoteFilesSidebarViewModelPropertyChanged;
+
+            if (_remoteFilesSidebarHost != null)
+            {
+                _remoteFilesSidebarHost.DataContext = _remoteFilesSidebarViewModel;
+            }
+
+            UpdateRemoteFilesSidebarHostIdentity();
+        }
+
+        private void OnRemoteFilesSidebarViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            UpdateRemoteFilesSidebarCurrentDirectoryState();
+            UpdateRemoteFilesSidebarVisibility();
+            UpdateRemoteFilesSidebarEntryPointState();
+        }
+
+        private bool IsRemoteFilesSidebarSupported()
+        {
+            return Profile?.Type == ConnectionType.SSH &&
+                   Profile.SshBackendKind == SshBackendKind.Native;
+        }
+
+        private void UpdateRemoteFilesSidebarEntryPointState()
+        {
+            if (MenuToggleRemoteFilesSidebar == null)
+            {
+                return;
+            }
+
+            bool isSupported = IsRemoteFilesSidebarSupported();
+            bool isBlockedByAltScreen = Buffer?.IsAltScreenActive == true;
+            bool isSidebarOpen = _remoteFilesSidebarViewModel?.IsOpen == true;
+            bool isSidebarDisconnected = _remoteFilesSidebarViewModel?.IsDisconnected == true;
+            bool canOpen = (isSidebarOpen && !isSidebarDisconnected) || Session?.IsProcessRunning == true;
+            MenuToggleRemoteFilesSidebar.IsVisible = isSupported;
+            MenuToggleRemoteFilesSidebar.IsEnabled = isSupported && !isBlockedByAltScreen && canOpen;
+            MenuToggleRemoteFilesSidebar.Header = isSidebarOpen
+                ? "Hide Remote Files"
+                : "Remote Files";
+        }
+
+        private void UpdateRemoteFilesSidebarVisibility()
+        {
+            bool shouldShow =
+                _remoteFilesSidebarViewModel?.IsOpen == true &&
+                !(Buffer?.IsAltScreenActive ?? false) &&
+                IsRemoteFilesSidebarSupported();
+
+            if (shouldShow)
+            {
+                EnsureRemoteFilesSidebarHost().IsVisible = true;
+            }
+            else if (_remoteFilesSidebarHost != null)
+            {
+                _remoteFilesSidebarHost.IsVisible = false;
+            }
+
+            if (RemoteFilesSidebarPresenter != null)
+            {
+                RemoteFilesSidebarPresenter.IsVisible = shouldShow;
+            }
+        }
+
+        private void UpdateRemoteFilesSidebarHostIdentity()
+        {
+            _remoteFilesSidebarHost?.SetHostIdentity(
+                string.IsNullOrWhiteSpace(Profile?.Name) ? null : Profile.Name,
+                BuildRemoteFilesSidebarSubtitle(Profile));
+        }
+
+        private static string? BuildRemoteFilesSidebarSubtitle(TerminalProfile? profile)
+        {
+            if (profile?.Type != ConnectionType.SSH)
+            {
+                return null;
+            }
+
+            string host = profile.SshHost?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                return null;
+            }
+
+            string subtitle = string.IsNullOrWhiteSpace(profile.SshUser)
+                ? host
+                : $"{profile.SshUser.Trim()}@{host}";
+
+            if (profile.SshPort > 0 && profile.SshPort != 22)
+            {
+                subtitle = $"{subtitle}:{profile.SshPort}";
+            }
+
+            return subtitle;
+        }
+
+        private void UpdateRemoteFilesSidebarCurrentDirectoryState()
+        {
+            if (_remoteFilesSidebarViewModel == null)
+            {
+                return;
+            }
+
+            if (!_remoteFilesSidebarViewModel.IsOpen)
+            {
+                _remoteFilesSidebarViewModel.SetJumpToCurrentDirectoryCandidate(null);
+                return;
+            }
+
+            string? currentWorkingDirectory = string.IsNullOrWhiteSpace(CurrentWorkingDirectory)
+                ? null
+                : RemoteSidebarStartPathResolver.NormalizeUncStylePath(CurrentWorkingDirectory.Trim());
+            string? jumpTarget = string.Equals(
+                currentWorkingDirectory,
+                _remoteFilesSidebarViewModel.CurrentPath,
+                StringComparison.Ordinal)
+                ? null
+                : currentWorkingDirectory;
+            _remoteFilesSidebarViewModel.SetJumpToCurrentDirectoryCandidate(jumpTarget);
+        }
+
+        private async Task ToggleRemoteFilesSidebarAsync()
+        {
+            if (_remoteFilesSidebarViewModel == null)
+            {
+                return;
+            }
+
+            if (_remoteFilesSidebarViewModel.IsOpen)
+            {
+                CloseRemoteFilesSidebar();
+                return;
+            }
+
+            if (!IsRemoteFilesSidebarSupported() ||
+                Profile == null ||
+                Session == null ||
+                Session.Id == Guid.Empty ||
+                Buffer?.IsAltScreenActive == true)
+            {
+                return;
+            }
+
+            await OpenRemoteFilesSidebarAsync(Profile.Id, Session.Id);
+        }
+
+        private async Task OpenRemoteFilesSidebarAsync(Guid profileId, Guid sessionId)
+        {
+            if (_remoteFilesSidebarViewModel == null)
+            {
+                return;
+            }
+
+            string startPath = RemoteSidebarStartPathResolver.Resolve(
+                CurrentWorkingDirectory,
+                Profile?.DefaultRemoteDir);
+            await _remoteFilesSidebarViewModel.OpenAsync(
+                profileId,
+                sessionId,
+                startPath,
+                CancellationToken.None);
+            UpdateRemoteFilesSidebarCurrentDirectoryState();
+            UpdateRemoteFilesSidebarVisibility();
+            UpdateRemoteFilesSidebarEntryPointState();
+        }
+
+        private void CloseRemoteFilesSidebar()
+        {
+            _remoteFilesSidebarViewModel?.Close();
+            UpdateRemoteFilesSidebarVisibility();
+            UpdateRemoteFilesSidebarEntryPointState();
+        }
+
+        private void RequestRemoteFilesSidebarTransferForSelectedEntry()
+        {
+            if (_remoteFilesSidebarViewModel?.SelectedEntry is not { } selectedEntry)
+            {
+                return;
+            }
+
+            TransferKind kind = selectedEntry.IsDirectory
+                ? TransferKind.Folder
+                : TransferKind.File;
+            RequestRemoteFilesSidebarTransfer?.Invoke(
+                this,
+                new SidebarTransferRequest(
+                    TransferDirection.Download,
+                    kind,
+                    selectedEntry.FullPath));
+        }
+
+        private void RequestRemoteFilesSidebarUploadForCurrentDirectory(TransferKind kind)
+        {
+            string remoteDirectory = _remoteFilesSidebarViewModel?.CurrentPath
+                ?? CurrentWorkingDirectory
+                ?? Profile?.DefaultRemoteDir
+                ?? "~";
+            if (string.IsNullOrWhiteSpace(remoteDirectory))
+            {
+                return;
+            }
+
+            RequestRemoteFilesSidebarTransfer?.Invoke(
+                this,
+                new SidebarTransferRequest(
+                    TransferDirection.Upload,
+                    kind,
+                    remoteDirectory));
+        }
+
+        private void InitializeCommandAssist()
+        {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                _commandAssistController?.Dismiss();
+                ClearCommandAssistBindings();
+
+                return;
+            }
+
+            if (_commandAssistController != null)
+            {
+                BindCommandAssistViews(_commandAssistController.ViewModel);
+
+                ApplyCommandAssistFeaturePolicy(_commandAssistController);
+                _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
+                UpdateCommandAssistContext();
+                return;
+            }
+
+            TerminalSettings settings = _settings!;
+            CommandAssistServices services = RequireCommandAssistServices();
+            services.ApplyHistoryRetentionLimit(settings.CommandAssistMaxHistoryEntries);
+
+            // This pane's own dispatcher, not Dispatcher.UIThread, and not read inside the
+            // dispatch delegate below either. Both halves of that matter (#81).
+            //
+            // Dispatcher.UIThread is a mutable static whose getter binds the UI-thread identity
+            // to *the calling thread* whenever the backing field is null (Dispatcher.cs, the
+            // `s_uiThread ?? CurrentDispatcher` slow path). Under headless test isolation that
+            // field is nulled by ResetGlobalState() at every test boundary, so *any* read of it
+            // off the dispatch thread can decide who the UI thread is - and both directions of
+            // that have now been observed. A suggestion pass still in flight from a finished
+            // test reached this delegate in the gap between two tests and made a threadpool
+            // thread the UI thread, after which the next test's Compositor ctor ->
+            // DefaultRenderLoop.Add -> VerifyAccess() threw inside EnsureIsolatedApplication(),
+            // which sits outside the try/catch in HeadlessUnitTestSession.DispatchCore, killing
+            // the one dispatcher loop the assembly shares. And reading the static *eagerly*
+            // here is no safer: it leaves s_uiThread pointing at whichever thread built the
+            // pane, and the plain-[Fact] tests that marshal onto Dispatcher.UIThread rely on
+            // finding it null so they can be their own UI thread - see the note in
+            // TestAppBuilder.cs, and SshInteractionServiceTests, which hangs forever otherwise.
+            //
+            // AvaloniaObject.Dispatcher costs nothing on either count. It is captured by every
+            // AvaloniaObject at construction (`= Dispatcher.CurrentDispatcher`), so the pane
+            // already holds it before this line runs: reading it binds nothing that `new
+            // TerminalPane()` had not already bound. A late pass then posts to the dispatcher
+            // the pane was born with - inert once that test is over - and no read of the global
+            // happens at all. It is also the more correct reading in production, where a pane
+            // belongs to one dispatcher for its whole life.
+            Dispatcher paneDispatcher = Dispatcher;
+            _commandAssistController = new CommandAssistController(
+                services.HistoryStore,
+                services.SecretsFilter,
+                services.SuggestionEngine,
+                services.SnippetStore,
+                services.CommandDocsProvider,
+                services.RecipeProvider,
+                services.ErrorInsightService,
+                modeRouter: null,
+                resultBuilder: null,
+                // The grid-truth seam. Command Assist may not reference Ntilde.VT (see
+                // ProjectFileLayeringTests), so the reader's GridCommandLine is mapped to the
+                // assist assembly's own AssistQuerySnapshot right here, at the one boundary that
+                // can see both types. Everything downstream sees plain data.
+                queryProvider: TryReadAssistQuerySnapshot,
+
+                // The lifecycle half of the same pair, and it has to come from the same place the
+                // mark does or the two can disagree - which is exactly what #448 cost. The buffer
+                // owns both and the parser publishes both in one step, so this controller reads the
+                // window rather than keeping its own opinion of it.
+                //
+                // Combined with the consumption switch, which is the third path that needs it
+                // (Codex P2 on #448). The parser writes the window for every session that emits
+                // marks, tracker or no tracker, so without this an instrumented remote host would
+                // hand grid-backed queries and Enter capture to a user who had turned shell
+                // integration off - and a remote host is exactly where they cannot uninstall the
+                // emitter instead.
+                commandInputGateProbe: () =>
+                    IsShellIntegrationConsumptionEnabled && (Buffer?.IsAcceptingCommandInput ?? false),
+
+                // The other seam the controller cannot see for itself: whether the overlay it believes
+                // is up is actually on screen. This pane hides it (no layout) and dims it (placement
+                // correction) on its own authority, and an armed Enter on a zero-pixel surface is the
+                // PR #290 review's first blocker.
+                renderedSurfaceProbe: () => IsCommandAssistOverlayRendered,
+                dispatch: action =>
+                {
+                    if (paneDispatcher.CheckAccess())
+                    {
+                        action();
+                    }
+                    else
+                    {
+                        paneDispatcher.Post(action);
+                    }
+                });
+
+            BindCommandAssistViews(_commandAssistController.ViewModel);
+
+            ApplyCommandAssistFeaturePolicy(_commandAssistController);
+            _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
+            UpdateCommandAssistContext();
+        }
+
+        /// <summary>
+        /// Pushes the two Command Assist sub-settings and the resolved in-surface keyboard into the
+        /// controller.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Called from both <see cref="InitializeCommandAssist"/> paths, so a settings change reaches an
+        /// already-live controller as well as a fresh one - <c>ApplySettings</c> routes through the same
+        /// method. Everything here is a re-application of current state rather than an event, so calling
+        /// it more often than necessary is free.
+        /// </para>
+        /// <para>
+        /// The bindings are cached in <see cref="_commandAssistKeyBindings"/> because the key router
+        /// consults them on every keystroke and re-resolving would mean re-parsing chord strings in the
+        /// hottest path in the feature.
+        /// </para>
+        /// </remarks>
+        private void ApplyCommandAssistFeaturePolicy(CommandAssistController controller)
+        {
+            TerminalSettings? settings = _settings;
+
+            controller.SetFeaturePolicy(
+                isHistoryEnabled: settings?.CommandAssistHistoryEnabled ?? true,
+                isPassiveBubbleEnabled: settings?.CommandAssistPassiveBubbleEnabled ?? true);
+
+            AssistShortcutBindings bindings = AssistShortcutBindingResolver.Resolve(settings?.Keybindings);
+            _commandAssistKeyBindings = bindings.Keys;
+            controller.SetShortcutHintLabels(bindings.HintLabels);
+        }
+
+        /// <summary>
+        /// Returns the injected Command Assist graph, or throws describing who was supposed to
+        /// supply it.
+        /// </summary>
+        private CommandAssistServices RequireCommandAssistServices()
+        {
+            return _commandAssistServices ?? throw new InvalidOperationException(
+                "TerminalPane.CommandAssistServices was not assigned before Command Assist " +
+                "initialized. MainWindow.WirePane injects the instance built by AppServices at the " +
+                "App composition root; a pane created outside that path must set it explicitly.");
+        }
+
+        /// <summary>
+        /// Hands the bar view-model's two child view-models to the two overlay views.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <strong>Why the UI-thread hop.</strong> Everything below writes Avalonia properties -
+        /// <c>DataContext</c> on the two views, and <c>Width</c>/<c>Height</c>/<c>Margin</c> through
+        /// <see cref="UpdateCommandAssistOverlayPlacement"/> - and Avalonia property writes are
+        /// UI-thread-only. This method is reachable off it: Command Assist is initialized lazily on
+        /// first use (see <see cref="ApplySettings"/>, which deliberately does *not* construct the
+        /// controller), and in a real session the first use is not a keystroke but the shell-integration
+        /// event pump. <c>OSC 133;B</c> arrives on the PTY reader thread, goes onto
+        /// <c>_shellIntegrationEventDispatcher</c>, and reaches
+        /// <see cref="EnsureCommandAssistInitialized"/> from there - before the user has touched the
+        /// keyboard.
+        /// </para>
+        /// <para>
+        /// Without the hop the first <c>DataContext</c> write throws "The calling thread cannot access
+        /// this object because a different thread owns it", the throw is swallowed by the
+        /// fire-and-forget dispatch in <c>OnShellIntegrationEventObserved</c>, and - because
+        /// <see cref="_boundCommandAssistViewModel"/> is already assigned by then - the pane goes on
+        /// believing it is bound. Key routing, visibility and sizing all keep working, so the overlay
+        /// appears, correctly sized, with a null <c>DataContext</c> on both views. Both views use
+        /// <c>x:CompileBindings</c>, where a null data root is a silent no-value rather than a logged
+        /// binding error, so the surfaces render their chrome and not one character of content. That is
+        /// the post-3a "empty dark rectangles" regression, and it is why it was invisible to tests that
+        /// drive the pane from the UI thread: with the dispatcher's semaphore uncontended the await
+        /// completes synchronously and the bind never leaves the caller's thread.
+        /// </para>
+        /// </remarks>
+        private void BindCommandAssistViews(CommandAssistBarViewModel? viewModel)
+        {
+            if (!this.Dispatcher.CheckAccess())
+            {
+                this.Dispatcher.Post(() => BindCommandAssistViews(viewModel));
+                return;
+            }
+
+            if (!ReferenceEquals(_boundCommandAssistViewModel, viewModel))
+            {
+                if (_boundCommandAssistViewModel != null)
+                {
+                    _boundCommandAssistViewModel.PropertyChanged -= OnCommandAssistViewModelPropertyChanged;
+                }
+
+                _boundCommandAssistViewModel = viewModel;
+
+                if (_boundCommandAssistViewModel != null)
+                {
+                    _boundCommandAssistViewModel.PropertyChanged += OnCommandAssistViewModelPropertyChanged;
+                }
+            }
+
+            if (CommandAssistBubble != null)
+            {
+                CommandAssistBubble.DataContext = viewModel?.Bubble;
+            }
+
+            if (CommandAssistPopup != null)
+            {
+                CommandAssistPopup.DataContext = viewModel?.Popup;
+            }
+
+            UpdateCommandAssistOverlayPlacement();
+        }
+
+        /// <summary>
+        /// Points the two overlay views at permanently-hidden view-models when the feature is off.
+        /// </summary>
+        /// <remarks>
+        /// Marshalled for the same reason as <see cref="BindCommandAssistViews"/>: it writes
+        /// <c>DataContext</c>, and <see cref="InitializeCommandAssist"/> - its only caller - runs
+        /// wherever the first Command Assist entry point happened to be.
+        /// </remarks>
+        private void ClearCommandAssistBindings()
+        {
+            if (!this.Dispatcher.CheckAccess())
+            {
+                this.Dispatcher.Post(ClearCommandAssistBindings);
+                return;
+            }
+
+            if (_boundCommandAssistViewModel != null)
+            {
+                _boundCommandAssistViewModel.PropertyChanged -= OnCommandAssistViewModelPropertyChanged;
+                _boundCommandAssistViewModel = null;
+            }
+
+            if (CommandAssistBubble != null)
+            {
+                CommandAssistBubble.DataContext = _hiddenCommandAssistBubbleViewModel;
+            }
+
+            if (CommandAssistPopup != null)
+            {
+                CommandAssistPopup.DataContext = _hiddenCommandAssistPopupViewModel;
+            }
+        }
+
+        /// <summary>
+        /// Whether Command Assist runs in this pane at all.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <strong>The master flag alone, since V2 Phase 3b (task 3).</strong> This used to require
+        /// <c>CommandAssistHistoryEnabled</c> as well, which made a privacy preference into a second
+        /// master switch: a user who turned command capture off lost the bubble, the popup, path
+        /// suggestions, Help and Fix - none of which read the history file. The history flag now gates
+        /// exactly capture and history-sourced suggestions, inside the assist assembly
+        /// (<c>AssistSessionContext.IsHistoryEnabled</c>), where both consumers live.
+        /// </para>
+        /// </remarks>
+        private bool IsCommandAssistFeatureEnabled()
+        {
+            return _settings?.CommandAssistEnabled == true;
+        }
+
+        // When this returns true the controller is guaranteed non-null; the attribute lets
+        // the compiler's null-flow analysis see that, so callers can dereference
+        // _commandAssistController directly after the guard without CS8602.
+        [MemberNotNullWhen(true, nameof(_commandAssistController))]
+        private bool EnsureCommandAssistInitialized()
+        {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
+            if (_commandAssistController == null)
+            {
+                InitializeCommandAssist();
+            }
+
+            return _commandAssistController != null;
+        }
+
+        private void OnCommandAssistViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            UpdateCommandAssistOverlayPlacement();
+        }
+
+        internal CommandAssistAnchorLayout? CalculateCommandAssistAnchorLayoutForTest()
+        {
+            return TryCalculateCommandAssistAnchorLayout();
+        }
+
+        private CommandAssistAnchorLayout? TryCalculateCommandAssistAnchorLayout()
+        {
+            // During startup (especially SSH), TermView bounds can briefly report a partial height.
+            // Anchor against the host pane bounds first so overlays don't jump to the top band.
+            double paneWidth = Bounds.Width > 0 ? Bounds.Width : TermView.Bounds.Width;
+            double paneHeight = Bounds.Height > 0 ? Bounds.Height : TermView.Bounds.Height;
+            if (paneWidth <= 0 || paneHeight <= 0)
+            {
+                return null;
+            }
+
+            CommandAssistPromptHint? promptHint = TermView.GetCommandAssistPromptHint();
+            CommandAssistMarkAnchorHint? markHint = TryGetCommandAssistMarkAnchorHint();
+            bool hasMarkAnchor = markHint.HasValue;
+            float fallbackCellHeight = TermView.Metrics.CellHeight > 0 ? TermView.Metrics.CellHeight : 18;
+            int fallbackVisibleRows = TermView.Rows > 0 ? TermView.Rows : 1;
+            CommandAssistSurfaceSizing sizing = CalculateCommandAssistSurfaceSizing(
+                paneWidth,
+                paneHeight,
+                ReadCommandAssistPopupContentSize());
+            bool hasReliablePromptAnchor = IsCommandAssistPromptAnchorReliable(promptHint, hasMarkAnchor);
+            float anchorCellHeight = markHint?.CellHeight ?? promptHint?.CellHeight ?? fallbackCellHeight;
+            int hintCursorRow = promptHint?.VisibleCursorVisualRow ?? 0;
+            int hintVisibleRows = markHint?.VisibleRows ?? promptHint?.VisibleRows ?? fallbackVisibleRows;
+            int paneEstimatedVisibleRows = anchorCellHeight > 0
+                ? Math.Max(1, (int)Math.Floor(paneHeight / anchorCellHeight))
+                : hintVisibleRows;
+            // Pane-estimated rows are a startup-jitter workaround for the heuristic path only: the
+            // hint's row count lags the pane's real height for a few frames over SSH. A mark hint
+            // reports the row count its own row was resolved against, so overriding it would move
+            // the mark relative to a viewport it was never measured in.
+            bool shouldUsePaneEstimatedRows = Profile?.Type == ConnectionType.SSH &&
+                                              !hasMarkAnchor &&
+                                              !hasReliablePromptAnchor &&
+                                              paneEstimatedVisibleRows > hintVisibleRows;
+            int anchorVisibleRows = shouldUsePaneEstimatedRows ? paneEstimatedVisibleRows : hintVisibleRows;
+            int anchorCursorRow = Math.Clamp(hintCursorRow, 0, Math.Max(0, anchorVisibleRows - 1));
+            int anchorMarkRow = hasMarkAnchor
+                ? Math.Clamp(markHint!.Value.VisibleMarkVisualRow, 0, Math.Max(0, anchorVisibleRows - 1))
+                : -1;
+            bool shouldSuppress = ShouldSuppressConservativeRemoteAssist(promptHint, hasReliablePromptAnchor, hasMarkAnchor, paneHeight);
+            if (shouldSuppress)
+            {
+                LogCommandAssistAnchorDiagnostics(
+                    paneWidth,
+                    paneHeight,
+                    hasReliablePromptAnchor,
+                    hasMarkAnchor,
+                    anchorMarkRow,
+                    promptHint,
+                    anchorCellHeight,
+                    anchorCursorRow,
+                    anchorVisibleRows,
+                    shouldSuppress,
+                    layout: null);
+                return null;
+            }
+
+            CommandAssistAnchorLayout layout = _commandAssistAnchorCalculator.Calculate(new CommandAssistAnchorRequest(
+                PaneWidth: paneWidth,
+                PaneHeight: paneHeight,
+                CellHeight: anchorCellHeight,
+                CursorVisualRow: anchorCursorRow,
+                VisibleRows: anchorVisibleRows,
+                BubbleWidth: sizing.BubbleWidth,
+                BubbleHeight: sizing.BubbleHeight,
+                PopupWidth: sizing.PopupWidth,
+                PopupHeight: sizing.PopupHeight,
+                HasReliablePromptAnchor: hasReliablePromptAnchor,
+                HasMarkAnchor: hasMarkAnchor,
+                MarkVisualRow: anchorMarkRow));
+            LogCommandAssistAnchorDiagnostics(
+                paneWidth,
+                paneHeight,
+                hasReliablePromptAnchor,
+                hasMarkAnchor,
+                anchorMarkRow,
+                promptHint,
+                anchorCellHeight,
+                anchorCursorRow,
+                anchorVisibleRows,
+                shouldSuppress,
+                layout);
+            return layout;
+        }
+
+        /// <summary>
+        /// The newest <c>OSC 133;B</c> mark resolved to a viewport row, or <c>null</c> when there is
+        /// no live mark or it is not on screen.
+        /// </summary>
+        /// <remarks>
+        /// Re-read on every placement pass rather than cached: the answer changes with the scroll
+        /// offset (<see cref="TerminalView.CommandAssistAnchorHintChanged"/> fires on scroll), and the
+        /// mark itself is replaced on every prompt repaint and dropped on <c>OSC 133;D</c>.
+        /// </remarks>
+        private CommandAssistMarkAnchorHint? TryGetCommandAssistMarkAnchorHint()
+        {
+            ShellIntegrationMark? mark = LatestCommandStartMark;
+
+            return mark is ShellIntegrationMark live
+                ? TermView.GetCommandAssistMarkAnchorHint(live)
+                : null;
+        }
+
+        private void LogCommandAssistAnchorDiagnostics(
+            double paneWidth,
+            double paneHeight,
+            bool hasReliablePromptAnchor,
+            bool hasMarkAnchor,
+            int anchorMarkRow,
+            CommandAssistPromptHint? promptHint,
+            float anchorCellHeight,
+            int anchorCursorRow,
+            int anchorVisibleRows,
+            bool shouldSuppress,
+            CommandAssistAnchorLayout? layout)
+        {
+            if (Profile?.Type != ConnectionType.SSH)
+            {
+                return;
+            }
+
+            int hintCursorRow = promptHint?.VisibleCursorVisualRow ?? -1;
+            int hintVisibleRows = promptHint?.VisibleRows ?? -1;
+            string layoutState = layout == null
+                ? "none"
+                : $"bubbleY={layout.BubbleRect.Y:F0},bubbleBottom={layout.BubbleRect.Bottom:F0},promptY={layout.PromptRect.Y:F0},usesPrompt={layout.UsesPromptAnchor},usesMark={layout.UsesMarkAnchor}";
+            string signature =
+                $"pw={paneWidth:F0},ph={paneHeight:F0},tw={TermView.Bounds.Width:F0},th={TermView.Bounds.Height:F0},rel={hasReliablePromptAnchor},mark={hasMarkAnchor},markRow={anchorMarkRow},sup={shouldSuppress},hintRow={hintCursorRow},hintRows={hintVisibleRows},cell={anchorCellHeight:F1},anchorRow={anchorCursorRow},anchorRows={anchorVisibleRows},vmVis={_boundCommandAssistViewModel?.IsVisible == true},{layoutState}";
+            if (string.Equals(signature, _lastCommandAssistAnchorDiagnosticSignature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastCommandAssistAnchorDiagnosticSignature = signature;
+            TerminalLogger.Log($"[AssistAnchor][SSH] {signature}");
+        }
+
+        /// <summary>
+        /// Hides the overlay entirely on short SSH panes whose prompt is still high in the pane —
+        /// the "it might be a login banner" case.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// V2 Phase 2a: this is a hedge against not knowing where the prompt is, so a mark-anchored
+        /// pane never reaches it. The <paramref name="hasMarkAnchor"/> early-out is redundant with
+        /// <paramref name="hasReliablePromptAnchor"/> (a mark makes the anchor reliable by
+        /// definition) and deliberately so: the property under test is "marks bypass suppression",
+        /// and it should not depend on a second flag staying in sync.
+        /// </para>
+        /// <para>
+        /// V2 Phase 3a adds the second bypass, and it is the fix for the owner's third report: in a tab
+        /// split into two SSH panes, the assist did not appear on one of them at all. A split halves the
+        /// pane height, which puts both panes under
+        /// <see cref="ConservativeRemoteShortPaneHeightThreshold"/>, and on the pane whose prompt was
+        /// still in the upper band this returned true — for <c>Ctrl+R</c> as readily as for a passive
+        /// bubble. Suppressing a surface the user summoned is not conservative behavior; it is the
+        /// feature not working. So an explicitly requested surface is never hidden here, and the worst
+        /// case becomes what the anchor calculator already does without a reliable anchor: the safe
+        /// lower band.
+        /// </para>
+        /// <para>
+        /// The suppression stays exactly as it was for uninvited surfaces on markless SSH, which is the
+        /// case it was written for.
+        /// </para>
+        /// </remarks>
+        private bool ShouldSuppressConservativeRemoteAssist(
+            CommandAssistPromptHint? promptHint,
+            bool hasReliablePromptAnchor,
+            bool hasMarkAnchor,
+            double paneHeight)
+        {
+            if (hasMarkAnchor || IsCommandAssistSurfaceUserRequested)
+            {
+                return false;
+            }
+
+            if (Profile?.Type != ConnectionType.SSH || hasReliablePromptAnchor || paneHeight > ConservativeRemoteShortPaneHeightThreshold)
+            {
+                return false;
+            }
+
+            if (!promptHint.HasValue)
+            {
+                return true;
+            }
+
+            if (promptHint.Value.VisibleRows < ConservativeRemoteMinVisibleRows)
+            {
+                return true;
+            }
+
+            double normalizedCursorRow = promptHint.Value.VisibleCursorVisualRow / (double)Math.Max(1, promptHint.Value.VisibleRows - 1);
+            return normalizedCursorRow < ConservativeRemotePromptBandStartRatio;
+        }
+
+        /// <summary>
+        /// Whether the anchor row may be trusted for prompt-adjacent placement.
+        /// </summary>
+        /// <remarks>
+        /// V2 Phase 2a changed this from a per-session-type guess to a per-prompt fact where one is
+        /// available: a live <c>OSC 133;B</c> mark in the viewport says where the prompt <i>is</i>,
+        /// and that is equally true over SSH — an instrumented remote emits the same marks a local
+        /// shell does. Only markless sessions fall through to the old rule, which is why the SSH
+        /// clause below survives rather than being deleted.
+        /// </remarks>
+        private bool IsCommandAssistPromptAnchorReliable(CommandAssistPromptHint? promptHint, bool hasMarkAnchor)
+        {
+            if (hasMarkAnchor)
+            {
+                return true;
+            }
+
+            if (!promptHint.HasValue)
+            {
+                return false;
+            }
+
+            // Markless SSH sessions stay on the heuristic path, so cursor-row hints are not
+            // trustworthy enough for prompt-adjacent anchoring.
+            if (Profile?.Type == ConnectionType.SSH)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Reads the popup's current contents off the bound view-model, for the height estimate.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The row count comes from <c>CommandAssistBarViewModel.SuggestionCount</c> rather than from
+        /// <c>Suggestions.Count</c>, and that is what makes the placement re-run at all. A placement
+        /// pass is triggered by <see cref="OnCommandAssistViewModelPropertyChanged"/>, which listens to
+        /// the bar view-model; the collection is rebuilt without any property on it changing, so
+        /// before the count was published a <c>Ctrl+R</c> filter that went from six rows to two left
+        /// the popup at its six-row height. Reading the same property the notification came from also
+        /// means the two can never disagree.
+        /// </para>
+        /// <para>
+        /// Not the popup view-model's copy: the pane holds the bar view-model, and the bar publishes
+        /// to the popup <em>after</em> raising its own change - so a read through the popup during
+        /// that notification would be one pass stale.
+        /// </para>
+        /// </remarks>
+        private CommandAssistPopupContentSize ReadCommandAssistPopupContentSize()
+        {
+            CommandAssistBarViewModel? viewModel = _boundCommandAssistViewModel;
+            if (viewModel == null)
+            {
+                return new CommandAssistPopupContentSize(0, false, false);
+            }
+
+            return new CommandAssistPopupContentSize(
+                viewModel.SuggestionCount,
+                viewModel.ShowEmptyState,
+                !string.IsNullOrWhiteSpace(viewModel.AttributionText));
+        }
+
+        private static CommandAssistSurfaceSizing CalculateCommandAssistSurfaceSizing(
+            double paneWidth,
+            double paneHeight,
+            CommandAssistPopupContentSize content)
+        {
+            double bubbleWidth = Math.Clamp(paneWidth * 0.44, 280, CommandAssistBubbleWidth);
+            double popupWidth = Math.Clamp(paneWidth * 0.58, 360, CommandAssistPopupWidth);
+            double popupHeight = EstimateCommandAssistPopupHeight(content, paneHeight);
+
+            return new CommandAssistSurfaceSizing(
+                BubbleWidth: bubbleWidth,
+                BubbleHeight: CommandAssistBubbleHeight,
+                PopupWidth: popupWidth,
+                PopupHeight: popupHeight);
+        }
+
+        /// <summary>
+        /// How tall the popup wants to be for the rows it is about to show.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <strong>Why the height is estimated up front instead of measured.</strong> The obvious
+        /// shrink-to-fit - <c>Height = NaN</c> with a <c>MaxHeight</c> cap - is wrong here, and
+        /// silently so. <c>CommandAssistAnchorCalculator.CreatePopupRect</c> places an upward popup by
+        /// subtracting the <em>requested</em> height from the bubble's top edge, and the pane applies
+        /// the result as <c>Margin.Top</c> inside a top-aligned grid. An auto-sized popup asked for
+        /// 220 and drawn at 120 would therefore hang 100 px above the prompt, attached to nothing.
+        /// Feeding the desired height into the request instead keeps the popup a fixed rectangle -
+        /// one that happens to be exactly the size of its contents - and every placement rule
+        /// downstream keeps working unchanged.
+        /// </para>
+        /// <para>
+        /// The estimate is allowed to be a little generous and must never be short: too tall leaves a
+        /// few pixels of card under the last row, too short clips it. The clamp keeps the old
+        /// <c>paneHeight * 0.45</c> ceiling, so a long list behaves exactly as it did and scrolls.
+        /// </para>
+        /// </remarks>
+        internal static double EstimateCommandAssistPopupHeight(CommandAssistPopupContentSize content, double paneHeight)
+        {
+            int rows = content.ShowEmptyState
+                ? CommandAssistPopupEmptyStateRows
+                : Math.Max(1, content.RowCount);
+
+            double desired = CommandAssistPopupChromeHeight + (rows * CommandAssistPopupRowHeight);
+            if (content.HasAttribution)
+            {
+                desired += CommandAssistPopupAttributionHeight;
+            }
+
+            // The floor is one row's worth of popup, not the old 160: a single-row Ctrl+R answer that
+            // reserved 160 px was most of the box the owner asked us to stop drawing.
+            double floor = CommandAssistPopupChromeHeight + CommandAssistPopupRowHeight;
+            double ceiling = Math.Max(floor, Math.Clamp(paneHeight * 0.45, floor, CommandAssistPopupHeight));
+
+            return Math.Clamp(desired, floor, ceiling);
+        }
+
+        private void UpdateCommandAssistOverlayPlacement()
+        {
+            CommandAssistAnchorLayout? layout = TryCalculateCommandAssistAnchorLayout();
+            bool shouldShowOverlayHost = layout != null && (_boundCommandAssistViewModel?.IsVisible == true);
+            if (!shouldShowOverlayHost || layout?.UsesMarkAnchor == true)
+            {
+                // Mark-anchored placement never hides the overlay while it settles: there is nothing
+                // to settle. Clearing here also unwinds any suppression left over from a markless
+                // frame earlier in the same session.
+                //
+                // A user-requested surface deliberately does *not* clear the counters here, even though
+                // it is also never hidden (V2 Phase 3a). Resetting _sshAssistCorrectionPassCount on
+                // every placement pass would stop MaxSshAssistCorrectionPasses from ever being reached,
+                // and since a correction pass posts another placement pass, that is an unbounded render
+                // loop. The bypass therefore lives on the opacity write below, which is the only thing
+                // the user can see anyway.
+                _suppressSshAssistOverlayUntilSettled = false;
+                _sshAssistCorrectionPassCount = 0;
+
+                // The correction-log dedup signature belongs to the run of passes being abandoned.
+                // Left set, the first [Corrected] line after a later markless relapse is swallowed
+                // as a duplicate of one from before the transition - and that first line is exactly
+                // the diagnostic that says the mark anchor stopped working.
+                _lastCommandAssistAnchorCorrectionSignature = null;
+            }
+
+            if (CommandAssistOverlayHost != null)
+            {
+                // The settle-suppression never applies to a surface the user asked for (V2 Phase 3a):
+                // an invisible answer to Ctrl+R is indistinguishable from no answer, which is how the
+                // owner experienced it on one pane of an SSH split.
+                bool keepOverlayOpaque = !_suppressSshAssistOverlayUntilSettled || IsCommandAssistSurfaceUserRequested;
+                CommandAssistOverlayHost.IsVisible = shouldShowOverlayHost;
+                CommandAssistOverlayHost.Opacity = shouldShowOverlayHost && keepOverlayOpaque ? 1.0 : 0.0;
+                NotifyCommandAssistOverlayRenderedChanged();
+            }
+
+            if (layout == null)
+            {
+                return;
+            }
+
+            if (CommandAssistBubble != null)
+            {
+                if (_boundCommandAssistViewModel != null)
+                {
+                    // The width budget only. Whether the query is worth showing at a width that could
+                    // hold it is the view-model's call - Fix mode declines it - so this sets the
+                    // permission rather than the outcome. See CommandAssistBarViewModel.AllowBubbleQueryText.
+                    _boundCommandAssistViewModel.AllowBubbleQueryText = !layout.UseCompactBubbleLayout;
+
+                    // Same rule, same reason, one more casualty of a narrow bubble: the hint strip's
+                    // Auto column beat the summary's * column at the width a split SSH pane produces,
+                    // so the one thing the bubble exists to show was squeezed out by a legend for it
+                    // (PR #290 review). Since the UX-polish round the collapse has a middle rung -
+                    // keys without verbs - because the owner's pane was wider than the compact
+                    // threshold and still could not fit both. The popup footer always carries the
+                    // full shortcuts.
+                    _boundCommandAssistViewModel.BubbleHintDetail = layout.UseCompactBubbleLayout
+                        ? AssistHintDetail.Hidden
+                        : layout.UseTerseBubbleHint
+                            ? AssistHintDetail.Terse
+                            : AssistHintDetail.Full;
+                }
+
+                CommandAssistBubble.Width = layout.BubbleRect.Width;
+                CommandAssistBubble.Height = layout.BubbleRect.Height;
+                CommandAssistBubble.MinHeight = layout.BubbleRect.Height;
+                CommandAssistBubble.MaxWidth = layout.BubbleRect.Width;
+                CommandAssistBubble.MaxHeight = layout.BubbleRect.Height;
+                CommandAssistBubble.Margin = new Thickness(
+                    layout.BubbleRect.X,
+                    layout.BubbleRect.Y,
+                    0,
+                    0);
+            }
+
+            if (CommandAssistPopup != null)
+            {
+                CommandAssistPopup.Width = layout.PopupRect.Width;
+                CommandAssistPopup.Height = layout.PopupRect.Height;
+                CommandAssistPopup.MinHeight = layout.PopupRect.Height;
+                CommandAssistPopup.MaxWidth = layout.PopupRect.Width;
+                CommandAssistPopup.MaxHeight = layout.PopupRect.Height;
+                CommandAssistPopup.Margin = new Thickness(
+                    layout.PopupRect.X,
+                    layout.PopupRect.Y,
+                    0,
+                    0);
+            }
+
+            LogCommandAssistAnchorAppliedDiagnostics(layout);
+            ScheduleCommandAssistPlacementCorrection(layout);
+        }
+
+        private void LogCommandAssistAnchorAppliedDiagnostics(CommandAssistAnchorLayout layout)
+        {
+            if (Profile?.Type != ConnectionType.SSH || CommandAssistBubble == null)
+            {
+                return;
+            }
+
+            string signature =
+                $"layoutY={layout.BubbleRect.Y:F0},layoutPromptY={layout.PromptRect.Y:F0},appliedBubbleTop={CommandAssistBubble.Margin.Top:F0},appliedBubbleVis={CommandAssistBubble.IsVisible},hostVis={CommandAssistOverlayHost?.IsVisible == true},vmVis={_boundCommandAssistViewModel?.IsVisible == true},popupVm={_boundCommandAssistViewModel?.IsPopupOpen == true}";
+            if (string.Equals(signature, _lastCommandAssistAnchorAppliedSignature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastCommandAssistAnchorAppliedSignature = signature;
+            TerminalLogger.Log($"[AssistAnchor][SSH][Applied] {signature}");
+        }
+
+        /// <summary>
+        /// Total placement-correction passes this pane has scheduled, ever. A test seam for the
+        /// V2 Phase 2a property "a mark-anchored pane runs zero correction passes" — the production
+        /// evidence for the same thing is the absence of <c>[AssistAnchor][SSH][Corrected]</c> lines
+        /// in the log, which a test cannot read.
+        /// </summary>
+        /// <remarks>
+        /// Zero is also what an under-driven test reads: the counter is only reachable with a visible
+        /// bound view model on an SSH pane. <c>CommandAssistLayoutTests</c> pairs every zero-pass
+        /// assertion with a markless negative control that must reach it, because without one the
+        /// assertion holds with the <c>UsesMarkAnchor</c> gate deleted.
+        /// </remarks>
+        internal int CommandAssistPlacementCorrectionPassesForTest => _commandAssistPlacementCorrectionPasses;
+
+        /// <summary>
+        /// Whether a computed layout warrants a placement-correction pass.
+        /// </summary>
+        /// <remarks>
+        /// Split out of <see cref="ScheduleCommandAssistPlacementCorrection"/> so the V2 Phase 2a
+        /// rule — "a mark anchor runs no corrections, whatever the session type" — is assertable
+        /// without a visible assist view model and a live render pass driving it.
+        /// </remarks>
+        private bool ShouldCorrectCommandAssistPlacement(CommandAssistAnchorLayout layout, bool assistIsVisible)
+        {
+            if (layout.UsesMarkAnchor)
+            {
+                return false;
+            }
+
+            // Deliberately *not* gated on IsCommandAssistSurfaceUserRequested. V2 Phase 3a's rule is
+            // that a summoned surface is never hidden, not that it is never corrected: correcting the
+            // placement is the useful half of this stack and costs the user nothing. What it must not do
+            // is drop the overlay to zero opacity while it settles, which for up to six render passes
+            // reads as "Ctrl+R did nothing" — so the hiding is what carries the bypass, at the two
+            // places that apply it (see the opacity write in UpdateCommandAssistOverlayPlacement and
+            // the suppression write inside CorrectPlacement).
+            return Profile?.Type == ConnectionType.SSH && assistIsVisible;
+        }
+
+        /// <summary>
+        /// Whether the assist surface currently on screen is one the user asked for by name —
+        /// <c>Ctrl+Space</c>, <c>Ctrl+R</c>, Help, a confident Fix popup.
+        /// </summary>
+        /// <remarks>
+        /// The single question every overlay-hiding heuristic in this file now asks first. The
+        /// authority is <c>AssistSessionStateMachine.IsUserRequestedSurface</c>; this is only the
+        /// null-safe pane-side spelling of it.
+        /// </remarks>
+        private bool IsCommandAssistSurfaceUserRequested =>
+            _commandAssistController?.IsUserRequestedSurface == true;
+
+        /// <summary>
+        /// Whether the assist overlay this pane hosts is actually on screen right now.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The pane-side half of the PR #290 review's first blocker. Assist visibility has two
+        /// authorities and they disagree: the session says "a surface is up" through
+        /// <c>CommandAssistBarViewModel.IsVisible</c>, and this pane independently hides the overlay host
+        /// when the conservative anchor check yields no layout, or drops it to zero opacity while a
+        /// placement correction settles. Both of those bypasses are waived for a surface the user asked
+        /// for by name - and a <c>PassivePopup</c> is not one, so a passive popup could hold an armed
+        /// <c>Enter</c> at zero pixels while the user's command line silently failed to submit.
+        /// </para>
+        /// <para>
+        /// Read live rather than cached: it is asked on the key path and during
+        /// <c>SyncPresentationState</c>, and both want the current frame's answer.
+        /// </para>
+        /// </remarks>
+        internal bool IsCommandAssistOverlayRendered =>
+            CommandAssistOverlayHost is { IsVisible: true } host && host.Opacity > 0;
+
+        /// <summary>
+        /// Tells the controller the answer to <see cref="IsCommandAssistOverlayRendered"/> moved, so the
+        /// hint strip can catch up with the routing decision.
+        /// </summary>
+        /// <remarks>
+        /// Gated on an actual change, and not only to save work: republishing presentation state can
+        /// raise <c>IsAcceptOnEnterArmed</c>, which this pane listens to, which runs another placement
+        /// pass. The change check is what makes that converge on the second pass instead of recursing.
+        /// </remarks>
+        private void NotifyCommandAssistOverlayRenderedChanged()
+        {
+            bool isRendered = IsCommandAssistOverlayRendered;
+            if (isRendered == _wasCommandAssistOverlayRendered)
+            {
+                return;
+            }
+
+            _wasCommandAssistOverlayRendered = isRendered;
+            _commandAssistController?.NotifyRenderedSurfaceVisibilityChanged();
+        }
+
+        internal bool ShouldCorrectCommandAssistPlacementForTest(CommandAssistAnchorLayout layout, bool assistIsVisible)
+        {
+            return ShouldCorrectCommandAssistPlacement(layout, assistIsVisible);
+        }
+
+        /// <summary>
+        /// Re-applies the computed margins on the next render pass when the rendered position drifted
+        /// from the computed one, hiding the overlay until it agrees.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is the SSH jitter mitigation from the 2026-03-11 firefight: the heuristic anchor moved
+        /// between frames during remote startup, so the overlay was chasing a row that had already
+        /// changed, visibly.
+        /// </para>
+        /// <para>
+        /// V2 Phase 2a gates it off for mark-anchored layouts rather than deleting it. A mark row does
+        /// not jitter — it is re-derived from the buffer on every pass and is either on screen or
+        /// absent — so there is nothing for a correction pass to correct, and the opacity flicker it
+        /// costs is pure loss. The stack stays for markless SSH, which is still a supported session
+        /// type; it goes away with that, not with this change.
+        /// </para>
+        /// </remarks>
+        private void ScheduleCommandAssistPlacementCorrection(CommandAssistAnchorLayout layout)
+        {
+            if (!ShouldCorrectCommandAssistPlacement(layout, _boundCommandAssistViewModel?.IsVisible == true))
+            {
+                return;
+            }
+
+            _commandAssistPlacementCorrectionPasses++;
+
+            void CorrectPlacement()
+            {
+                if (CommandAssistBubble == null || CommandAssistOverlayHost == null || !CommandAssistOverlayHost.IsVisible)
+                {
+                    return;
+                }
+
+                // `layout` was captured a frame ago, while the pane was still markless. A 133;B mark
+                // can land in between - that is the markless->mark handoff this change exists to
+                // clean up - and by now the overlay has been re-placed against the mark row. Measured
+                // against the stale layout that reads as drift, so the block below would hide the
+                // overlay and re-apply markless margins for a frame at the exact moment the anchor
+                // became exact. Re-derive and re-ask the gate instead; the answer for a mark-anchored
+                // pane is "no correction", so this returns without touching anything.
+                CommandAssistAnchorLayout? currentLayout = TryCalculateCommandAssistAnchorLayout();
+                if (currentLayout == null ||
+                    !ShouldCorrectCommandAssistPlacement(currentLayout, _boundCommandAssistViewModel?.IsVisible == true))
+                {
+                    // Not a bare return: a markless pass may have left the overlay hidden waiting for
+                    // this pass to clear it, and nothing else will now.
+                    ReleaseSshAssistOverlaySuppression();
+                    return;
+                }
+
+                Control? anchorControl = CommandAssistBubble.IsVisible
+                    ? CommandAssistBubble
+                    : CommandAssistPopup != null && CommandAssistPopup.IsVisible
+                        ? CommandAssistPopup
+                        : null;
+                if (anchorControl == null)
+                {
+                    return;
+                }
+
+                Point? anchorTopLeft = anchorControl.TranslatePoint(new Point(0, 0), this);
+                if (!anchorTopLeft.HasValue)
+                {
+                    return;
+                }
+
+                bool anchoredToBubble = ReferenceEquals(anchorControl, CommandAssistBubble);
+                double expectedTop = anchoredToBubble ? layout.BubbleRect.Y : layout.PopupRect.Y;
+                double actualTop = anchorTopLeft.Value.Y;
+                double drift = Math.Abs(actualTop - expectedTop);
+                if (drift <= 2)
+                {
+                    ReleaseSshAssistOverlaySuppression();
+                    return;
+                }
+
+                // Correct the placement either way; hide only what the user did not ask for.
+                if (!IsCommandAssistSurfaceUserRequested)
+                {
+                    _suppressSshAssistOverlayUntilSettled = true;
+                    CommandAssistOverlayHost.Opacity = 0.0;
+                    NotifyCommandAssistOverlayRenderedChanged();
+                }
+
+                // Re-apply anchored margins if the rendered position drifted from expected.
+                CommandAssistBubble.Margin = new Thickness(layout.BubbleRect.X, layout.BubbleRect.Y, 0, 0);
+                if (CommandAssistPopup != null)
+                {
+                    CommandAssistPopup.Margin = new Thickness(layout.PopupRect.X, layout.PopupRect.Y, 0, 0);
+                }
+
+                string signature = $"anchor={(anchoredToBubble ? "bubble" : "popup")},expected={expectedTop:F0},actual={actualTop:F0},drift={drift:F0},pass={_sshAssistCorrectionPassCount}";
+                if (!string.Equals(signature, _lastCommandAssistAnchorCorrectionSignature, StringComparison.Ordinal))
+                {
+                    _lastCommandAssistAnchorCorrectionSignature = signature;
+                    TerminalLogger.Log($"[AssistAnchor][SSH][Corrected] {signature}");
+                }
+
+                if (_sshAssistCorrectionPassCount >= MaxSshAssistCorrectionPasses)
+                {
+                    _suppressSshAssistOverlayUntilSettled = false;
+                    _sshAssistCorrectionPassCount = 0;
+                    CommandAssistOverlayHost.Opacity = 1.0;
+                    NotifyCommandAssistOverlayRenderedChanged();
+                    TerminalLogger.Log("[AssistAnchor][SSH][Corrected] max-pass reached; showing overlay with best-known anchor.");
+                    return;
+                }
+
+                _sshAssistCorrectionPassCount++;
+
+                // Re-evaluate on the next render pass; keep host hidden until settled.
+                this.Dispatcher.Post(UpdateCommandAssistOverlayPlacement, DispatcherPriority.Render);
+            }
+
+            this.Dispatcher.Post(CorrectPlacement, DispatcherPriority.Render);
+        }
+
+        /// <summary>
+        /// Ends a run of placement-correction passes and un-hides the overlay if one of them hid it.
+        /// </summary>
+        /// <remarks>
+        /// The correction stack is the only thing that sets
+        /// <see cref="_suppressSshAssistOverlayUntilSettled"/>, so it is also the only thing that can
+        /// clear it: every exit from a correction pass that is not "post another one" comes through
+        /// here, or the overlay stays at zero opacity until the next placement pass happens to run.
+        /// </remarks>
+        private void ReleaseSshAssistOverlaySuppression()
+        {
+            _sshAssistCorrectionPassCount = 0;
+            if (!_suppressSshAssistOverlayUntilSettled)
+            {
+                return;
+            }
+
+            _suppressSshAssistOverlayUntilSettled = false;
+            if (CommandAssistOverlayHost != null)
+            {
+                CommandAssistOverlayHost.Opacity = 1.0;
+                NotifyCommandAssistOverlayRenderedChanged();
+            }
+        }
+
+        private void OnBufferScreenSwitched(bool isAltScreen)
+        {
+            this.Dispatcher.Post(() => HandleAltScreenChanged(isAltScreen));
+        }
+
+        private void HandleAltScreenChanged(bool isAltScreen)
+        {
+            // A full-screen app owns the keyboard, and the keys it eats are not line edits. Drop
+            // whatever half-line was pending on the way in so a TUI session cannot leave text
+            // behind that a later Enter captures, and drop it again on the way out because the
+            // prompt underneath was redrawn by something the accumulator never saw.
+            _marklessSubmission.Reset();
+
+            _agentRegistration?.StatusMachine.NotifyAltScreenChanged(isAltScreen);
+            _commandAssistController?.HandleAltScreenChanged(isAltScreen);
+            UpdateRemoteFilesSidebarVisibility();
+            UpdateRemoteFilesSidebarEntryPointState();
+            if (_agentOutput != null)
+            {
+                _agentOutput.IsAltScreenSuppressed = isAltScreen;
+                UpdateAgentOutputPanelVisibility();
+            }
+
+            // Showing the panel again is not enough on the way out: the final update for a
+            // command that finished under the full-screen program was refused while the
+            // alternate screen was up, so the tracker owes the panel a corrective read.
+            _agentOutputTracker?.NotifyAltScreenChanged(isAltScreen);
+        }
+
+        // ------------------------------------------------------------- Agent Output panel
+        //
+        // The markdown side panel: a per-pane, manually toggled view over the current command's
+        // output region. It reads the grid, it never writes it - the terminal core is untouched,
+        // and the whole feature turns off the moment the user closes the panel.
+
+        /// <summary>
+        /// The toggle flipped. Creates the panel view on first open; the tracker only reads the
+        /// grid while the panel is open.
+        /// </summary>
+        private void SetAgentOutputPanelOpen(bool open)
+        {
+            if (_agentOutput == null)
+            {
+                return;
+            }
+
+            _agentOutput.IsPanelOpen = open;
+            if (open)
+            {
+                EnsureAgentOutputPanelHost();
+                _agentOutputTracker?.SetEnabled(true);
+
+                // A command that finished while the panel was closed never delivered its final
+                // update (D skips the read for a hidden panel), so the reopened view model may
+                // still claim the old output is streaming. Clear that first; if a live region
+                // does exist, the flush below immediately re-marks it as streaming.
+                _agentOutput.ClearStreaming();
+
+                // Fallback on: nothing is tracked when the panel opens onto output that already
+                // finished (no live C mark, no Enter-time heuristic yet), and the panel should
+                // show that output as a recent-tail snapshot rather than an empty state.
+                _agentOutputTracker?.FlushNow(includeRecentTailFallback: true);
+            }
+            else
+            {
+                _agentOutputTracker?.SetEnabled(false);
+            }
+
+            UpdateAgentOutputPanelVisibility();
+        }
+
+        private void UpdateAgentOutputPanelVisibility()
+        {
+            if (_agentOutput != null)
+            {
+                AgentOutputPanelPresenter.IsVisible = _agentOutput.IsShown;
+            }
+        }
+
+        /// <summary>Lazily builds the panel view, mirroring EnsureRemoteFilesSidebarHost.</summary>
+        private void EnsureAgentOutputPanelHost()
+        {
+            if (_agentOutputPanelHost != null || _agentOutput == null)
+            {
+                return;
+            }
+
+            var host = new AgentOutput.AgentOutputPanel();
+            host.SetViewModel(_agentOutput);
+            host.CloseRequested += () => AgentOutputToggle.IsChecked = false;
+            AgentOutputPanelPresenter.Content = host;
+            _agentOutputPanelHost = host;
+        }
+
+        /// <summary>
+        /// Enter observed with shell integration inactive: pin the output-region start from the
+        /// cursor, the markless fallback. Without this, sessions without shell integration have
+        /// no region to track at all. Runs after <see cref="OnCommandAssistEnterObserving"/> and,
+        /// like it, before the carriage return reaches the PTY: this records a grid row, and the row
+        /// only means what it says while the line the user submitted is still the one on screen.
+        /// </summary>
+        private void OnAgentOutputEnterObserved()
+        {
+            // Not gated on the panel being open: the row is only answerable at Enter, and a panel
+            // opened later needs it to bound the response instead of guessing at prompt shapes.
+            if (_isShellIntegrationActive)
+            {
+                return;
+            }
+
+            _agentOutputTracker?.CaptureHeuristicStart();
+        }
+
+        /// <remarks>
+        /// The grid read happens here, synchronously, rather than inside the async continuation.
+        /// <c>TerminalView</c> sends the carriage return to the PTY before raising this, so the
+        /// input line is already condemned: every scheduling hop between the keypress and the read
+        /// widens the window in which the shell has begun repainting over it. This is as close to
+        /// the keypress as the pane can get.
+        /// </remarks>
+        // What OnCommandAssistEnterObserving read out of the grid, waiting for the post-CR phase to
+        // persist it. Two fields rather than one, because null is a meaningful answer here: "the
+        // line was observed empty" and "there was nothing to observe" are different, and only the
+        // first should reach the pipeline.
+        private string? _pendingEnterSubmission;
+        private bool _hasPendingEnterSubmission;
+
+        /// <summary>
+        /// Enter's grid read, before the carriage return goes to the PTY.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is as close to the keypress as the pane can get, and closer than it used to be:
+        /// <c>TerminalView</c> sent the carriage return first, so the shell had already been handed
+        /// the chance to repaint over the line this reads. Worse, once the OSC 133 command-input
+        /// window began closing synchronously on the parse thread, a bare <c>133;C</c> could shut it
+        /// between the CR and this method - and a refused read here means the command is never
+        /// persisted at all (Codex P1 on #448).
+        /// </para>
+        /// <para>
+        /// Reads only. The persistence it feeds runs in <see cref="OnCommandAssistEnterObserved"/>,
+        /// after the CR, so a slow history store cannot sit between the keypress and the shell.
+        /// </para>
+        /// </remarks>
+        internal void OnCommandAssistEnterObserving()
+        {
+            _pendingEnterSubmission = null;
+            _hasPendingEnterSubmission = false;
+
+            // The reset is owed even when Command Assist is off or uninitialized: the accumulator
+            // is fed from TermView events that fire regardless, and a line left in it would be
+            // carried into the next one.
+            if (!EnsureCommandAssistInitialized())
+            {
+                _marklessSubmission.Reset();
+                return;
+            }
+
+            AssistQuerySnapshot? snapshot = _commandAssistController.TryReadQuerySnapshot();
+
+            // Grid truth always wins where it exists, including when it says the line was empty:
+            // "observed empty" and "unknown" are different answers, and only the second one falls
+            // through to the accumulator. A poisoned accumulator answers null, which
+            // CapturePipeline reads as "nothing to persist".
+            string? submitted = snapshot is { } grid
+                ? grid.Text
+                : ReadEchoedMarklessSubmission();
+
+            // After the read: Enter is both the capture point and the start of the next line.
+            _marklessSubmission.Reset();
+
+            _pendingEnterSubmission = submitted;
+            _hasPendingEnterSubmission = true;
+        }
+
+        /// <summary>
+        /// Persists what <see cref="OnCommandAssistEnterObserving"/> read, after the carriage return
+        /// has already reached the shell.
+        /// </summary>
+        internal void OnCommandAssistEnterObserved()
+        {
+            if (!_hasPendingEnterSubmission)
+            {
+                return;
+            }
+
+            _hasPendingEnterSubmission = false;
+            string? submitted = _pendingEnterSubmission;
+            _pendingEnterSubmission = null;
+
+            _ = HandleCommandAssistEnterObservedAsync(submitted);
+        }
+
+        /// <summary>
+        /// The accumulator's answer, but only when the screen agrees with it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>This gate exists to keep passwords out of history.</b> The accumulator is fed from
+        /// <c>TerminalView.OnTextInput</c>, which fires for every keystroke unconditionally — it
+        /// has no idea whether the shell is echoing. So in a markless session (`cmd.exe`, an
+        /// un-instrumented SSH host), the sequence `ssh host` / Enter / `hunter2` / Enter leaves the
+        /// accumulator holding a clean, unpoisoned `hunter2` at the hidden `password:` prompt, with
+        /// no grid snapshot to override it — and it would be written to `history.jsonl` verbatim.
+        /// <c>SecretsFilter</c> cannot save us there: it is pattern-based and a bare secret has no
+        /// pattern.
+        /// </para>
+        /// <para>
+        /// The check is the one thing that distinguishes the two cases. In any <em>visible</em>
+        /// markless prompt the typed command is on the screen — only the <c>OSC 133;B</c> mark is
+        /// missing, not the text — so requiring the accumulated string to be painted on the grid
+        /// ending at the cursor costs a correct capture nothing. At a no-echo prompt the grid holds
+        /// the prompt and nothing else, and the strings do not match.
+        /// </para>
+        /// <para>
+        /// Conservative in every direction: no buffer, an alt screen, a cursor the reader will not
+        /// resolve, an echo that has not landed yet, a shell that reprinted the line differently —
+        /// all of them fall out as "no capture". Comparison is on text rather than columns, so a
+        /// double-width character counts once (see
+        /// <see cref="GridQueryReader.TryReadTextEndingAtCursor"/>).
+        /// </para>
+        /// </remarks>
+        private string? ReadEchoedMarklessSubmission()
+        {
+            string? typed = _marklessSubmission.TryReadSubmission();
+            if (string.IsNullOrEmpty(typed))
+            {
+                // Poisoned, or an empty line: either way there is nothing to prove.
+                return typed;
+            }
+
+            TerminalBuffer? buffer = Buffer;
+            if (buffer == null)
+            {
+                return null;
+            }
+
+            if (!GridQueryReader.TryReadTextEndingAtCursor(buffer, typed.Length, out string onScreen))
+            {
+                return null;
+            }
+
+            // Exactly typed.Length characters were requested, so equality is "the accumulated text
+            // is painted on the grid and ends at the cursor". A short read (the row does not hold
+            // that much) fails the same way a wrong read does.
+            return string.Equals(onScreen, typed, StringComparison.Ordinal) ? typed : null;
+        }
+
+        /// <summary>
+        /// The user typed printable text into the terminal. Feeds the markless accumulator and
+        /// triggers a suggestion refresh; the text itself is content only for the accumulator.
+        /// </summary>
+        internal void NotifyTypedTextObserved(string text)
+        {
+            _marklessSubmission.AppendTypedText(text);
+            NoteInputAwaitingEcho();
+            if (EnsureCommandAssistInitialized())
+            {
+                _commandAssistController?.NotifyInputActivity();
+            }
+        }
+
+        /// <summary>The user pressed Backspace; the accumulator drops its last character.</summary>
+        internal void NotifyBackspaceObserved()
+        {
+            _marklessSubmission.ObserveBackspace();
+            NoteInputAwaitingEcho();
+            if (EnsureCommandAssistInitialized())
+            {
+                _commandAssistController?.NotifyInputActivity();
+            }
+        }
+
+        /// <summary>
+        /// Text arrived on the command line from somewhere other than the keyboard (a drag-and-drop
+        /// or a clipboard paste).
+        /// </summary>
+        /// <remarks>
+        /// Two mechanisms fire here and they are not the same one. The accumulator is
+        /// <em>poisoned</em>, because it did not see the characters and can no longer describe the
+        /// line. Command Assist is told the submission is <em>suppressed</em>, which is a
+        /// provenance claim — the text on the line was not composed here — and that one applies to
+        /// the grid path as well, where the line is perfectly readable and still should not be
+        /// written to history as something the user typed. Either alone stops the paste being
+        /// captured in a markless session; only suppression stops it in an instrumented one.
+        /// </remarks>
+        /// <param name="text">
+        /// Ignored. The pasted text is deliberately not read: neither mechanism below wants it —
+        /// the accumulator's answer to "what is on the line now" is "I cannot say", not "the line
+        /// plus this", and suppression is a provenance flag with no payload. The parameter stays
+        /// because it is the <c>TerminalView.PasteObserved</c> signature and a future consumer
+        /// (length-based heuristics, say) would want it.
+        /// </param>
+        internal void NotifyPasteObserved(string text)
+        {
+            _ = text;
+            _marklessSubmission.Poison();
+            if (EnsureCommandAssistInitialized())
+            {
+                _commandAssistController?.NotifyPastedInput();
+            }
+        }
+
+        /// <summary>
+        /// Bytes reached this pane's PTY from somewhere other than its own keyboard handling: a
+        /// broadcast from a sibling pane, the drag-and-drop path toast, a clipboard image path, the
+        /// agent host's act surface. The accumulator can no longer describe the command line.
+        /// </summary>
+        /// <remarks>
+        /// A poison rather than a reset, because none of these callers can say whether what they
+        /// sent ended in a newline: unlike Enter, they leave the line in a state only the shell
+        /// knows. Poison recovers at the next Enter, which costs at most one capture.
+        /// </remarks>
+        internal void NotifyExternalInputSent() => _marklessSubmission.Poison();
+
+        /// <summary>
+        /// Brings the terminal viewport back to the live input line, for input that enters the
+        /// PTY from outside <see cref="TerminalView"/>'s own key/text handling (window clipboard
+        /// paste, toast path paste). Writing while scrolled up into scrollback must reveal the
+        /// line being written; see <see cref="TerminalView.ScrollToInputLine"/>.
+        /// </summary>
+        public void ScrollToInputLine() => TermView.ScrollToInputLine();
+
+        private async Task HandleCommandAssistEnterObservedAsync(string? submittedText)
+        {
+            if (!EnsureCommandAssistInitialized())
+            {
+                return;
+            }
+
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(submittedText))
+                {
+                    _lastRelevantCommandText = submittedText.Trim();
+                }
+
+                await _commandAssistController.HandleEnterAsync(submittedText);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TerminalPane] Command Assist enter handling failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Records that this session emitted an OSC 133 mark, and - the first time only - republishes
+        /// the session context so Command Assist learns the session is instrumented.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Called from the four parser mark callbacks, i.e. on the PTY read thread. The context
+        /// update itself has to happen on the UI thread (it reads <see cref="Session"/> and
+        /// <c>CurrentWorkingDirectory</c> and pokes the controller), so it is posted rather than
+        /// called.
+        /// </para>
+        /// <para>
+        /// The posted update is not the only thing that closes the loop, and must not be: it lands
+        /// asynchronously, so a shell whose <c>A</c>, <c>B</c> and <c>C</c> all arrive in one parse
+        /// chunk could reach the capture pipeline before it. <c>AssistSessionContext</c> makes the
+        /// same deduction independently from the event stream
+        /// (<c>AssistSessionContext.IsShellIntegrationLive</c>). What the post is <em>necessary</em>
+        /// for is durability: <c>UpdateSession</c> forgets observed markers whenever it is told
+        /// integration is off, so without feeding the observation back, the next ordinary directory
+        /// change would demote an instrumented remote back to markless.
+        /// </para>
+        /// </remarks>
+        /// <summary>
+        /// Whether Ntilde participates in the OSC 133 contract at all for this pane: the same switch
+        /// <see cref="ApplyShellIntegrationLaunchPlan"/> and
+        /// <see cref="ArmRemoteShellIntegrationTracker"/> honour, read the same way (a pane with no
+        /// settings object yet is treated as enabled, which is what the arming paths do).
+        /// </summary>
+        /// <remarks>
+        /// Consulted by the three consumption paths that hang off the raw parser callbacks rather
+        /// than off the tracker - the integrated-session latch, the <c>133;C</c> payload, and the
+        /// command-input window the grid read is gated on - because those callbacks are wired
+        /// unconditionally and would otherwise keep consuming remote marks with the setting off. The callbacks themselves stay wired: they also feed the agent status
+        /// machine and the overlay anchor, neither of which this switch governs.
+        /// </remarks>
+        private bool IsShellIntegrationConsumptionEnabled =>
+            _settings?.CommandAssistShellIntegrationEnabled ?? true;
+
+        private void NoteShellIntegrationMarkObserved()
+        {
+            if (_hasObservedShellIntegrationMark || !IsShellIntegrationConsumptionEnabled)
+            {
+                return;
+            }
+
+            _hasObservedShellIntegrationMark = true;
+            this.Dispatcher.Post(UpdateCommandAssistContext);
+        }
+
+        private void UpdateCommandAssistContext()
+        {
+            _commandAssistController?.UpdateSessionContext(
+                shellKind: DetermineShellKind(Session?.ShellCommand ?? ShellCommand),
+                workingDirectory: CurrentWorkingDirectory,
+                profileId: Profile?.Id.ToString(),
+                sessionId: Session?.Id.ToString(),
+                hostId: Profile?.Type == ConnectionType.SSH ? Profile.SshHost : null,
+                isRemote: Profile?.Type == ConnectionType.SSH,
+
+                // Two ways to be integrated, and remote sessions can only ever be the second one.
+                // "We injected a bootstrap" is unreachable over SSH; "the shell is emitting marks"
+                // is what the V2 Phase 2b snippets buy, and it is equally good evidence - the parser
+                // has never cared who installed the thing writing OSC 133.
+                isShellIntegrated: _isShellIntegrationActive || _hasObservedShellIntegrationMark);
+        }
+
+        private void UpdatePaneContextMenuState()
+        {
+            UpdateRemoteFilesSidebarEntryPointState();
+
+            if (RootGrid.ContextMenu?.Items is not IEnumerable<object> items)
+            {
+                return;
+            }
+
+            MenuItem? explainSelectionItem = items.OfType<MenuItem>().FirstOrDefault(m => m.Name == "MenuExplainSelection");
+            if (explainSelectionItem != null)
+            {
+                bool canExplain = CanExplainSelection();
+                explainSelectionItem.IsEnabled = canExplain;
+                explainSelectionItem.IsVisible = canExplain;
+            }
+        }
+
+        /// <summary>
+        /// <c>TerminalView.KeyDownInterceptor</c>. Routes the key to Command Assist if it owns it,
+        /// and observes every key either way for the markless submission accumulator.
+        /// </summary>
+        /// <remarks>
+        /// The observation is strictly a side effect: this returns exactly what
+        /// <see cref="TryRouteCommandAssistKey"/> returns, so input routing is unchanged. It has to
+        /// run <em>after</em> the routing decision, because "Command Assist consumed this key" is
+        /// the same fact as "the shell never saw it".
+        /// </remarks>
+        internal bool TryHandleCommandAssistKey(Key key, KeyModifiers modifiers)
+        {
+            bool handledByAssist = TryRouteCommandAssistKey(key, modifiers);
+            _marklessSubmission.ApplyKey(key, modifiers, handledByAssist);
+            return handledByAssist;
+        }
+
+        private bool TryRouteCommandAssistKey(Key key, KeyModifiers modifiers)
+        {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
+            CommandAssistController? controller = _commandAssistController;
+            // Every fact here is asked of the controller rather than computed locally, including the two
+            // that depend on this pane: IsAcceptOnEnterArmed folds in IsCommandAssistOverlayRendered
+            // through the probe installed in InitializeCommandAssist, so the router, the hint strip and
+            // this pane cannot hold three different opinions about who owns Enter.
+            var keyState = new AssistKeyState(
+                IsSurfaceVisible: controller?.ViewModel.IsVisible == true,
+                IsAcceptOnEnterArmed: controller?.IsAcceptOnEnterArmed == true,
+                IsSelectionUpOwned: controller?.IsSelectionUpOwned == true);
+
+            // One resolution, one switch. Phase 3a asked the router "is this ours?" and then repeated
+            // the whole key cascade here to find out which of ours it was; with the chords rebindable
+            // (V2 Phase 3b) that repetition would be a second binding table, and the two would drift the
+            // first time someone changed one of them.
+            AssistKeyAction action = CommandAssistKeyRouter.Resolve(
+                keyState,
+                AssistKeyMapper.ToAssistKey(key),
+                AssistKeyMapper.ToAssistModifiers(modifiers),
+                _commandAssistKeyBindings);
+
+            switch (action)
+            {
+                case AssistKeyAction.Dismiss:
+                    controller?.HandleEscape();
+                    return true;
+
+                // Accept (V2 Phase 3a). The router only says yes here while the popup is open with a row
+                // selected *and the overlay is rendered*, so neither the typing flow nor a surface this
+                // pane has hidden or dimmed reaches this branch.
+                //
+                // The return value is the insertion's, not `true`, and that is the important part: when
+                // insertion refuses - a poisoned markless line, an unechoed keystroke, a cursor mid-line -
+                // the key falls through to the shell and submits, exactly as it did before this branch
+                // existed. Consuming it instead would turn a refusal into a dead key, which is a strictly
+                // worse answer than the pre-Phase-3a behavior the user is used to.
+                case AssistKeyAction.Accept:
+                    return TryInsertSelectedCommandAssistSuggestion();
+
+                case AssistKeyAction.SelectionDown:
+                    controller?.MoveSelectionDown();
+                    return true;
+
+                // Only reached when the router granted Up to the assist - an open popup, or a surface the
+                // user summoned. In the passive states Up is never routed here at all, so the shell keeps
+                // its history recall (PR #290 review).
+                case AssistKeyAction.SelectionUp:
+                    controller?.MoveSelectionUp();
+                    return true;
+
+                // Unlike Accept this consumes the key whether the insertion happened or not: the insert
+                // chord has no shell meaning to fall through to.
+                case AssistKeyAction.Insert:
+                    TryInsertSelectedCommandAssistSuggestion();
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// The catalogued pin/unpin shortcut fired. Toggles the selected row's snippet pin.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// No longer a call into <see cref="TryRouteCommandAssistKey"/>. Until V2 Phase 3b the pin chord
+        /// was <c>Ctrl+Shift+P</c> - the command palette's - and it was routed as an assist key so that
+        /// <c>MainWindow</c> could try the pin, watch it decline, and open the palette instead. That made
+        /// "does Ctrl+Shift+P open the command palette" depend on whether an assist row happened to be
+        /// selected. Pin has its own catalogue entry now (<c>command_assist_pin</c>), so it arrives here
+        /// as itself and the palette owns its chord unconditionally.
+        /// </para>
+        /// <para>
+        /// Routing it from the window rather than through <c>AssistKey</c> also means it can be rebound to
+        /// any chord at all, instead of the five keys the assist assembly's key vocabulary models.
+        /// </para>
+        /// <para>
+        /// Returns false rather than consuming the key when there is nothing to pin, so an unusable
+        /// shortcut is not a dead key. Nothing was sent to the shell either way: this arrives from the
+        /// window's handler on a chord <c>TerminalView</c> left unhandled.
+        /// </para>
+        /// </remarks>
+        public bool TryToggleCommandAssistPinShortcut()
+        {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
+            CommandAssistController? controller = _commandAssistController;
+            if (controller == null ||
+                !controller.ViewModel.IsVisible ||
+                !controller.CanTogglePinSelection())
+            {
+                return false;
+            }
+
+            _ = controller.TogglePinSelectionAsync();
+            return true;
+        }
+
+        /// <summary>
+        /// The user pressed a key that edits the command line, and the PTY has been sent the bytes
+        /// for it. Until the shell echoes them back and the parser paints them, the grid is a
+        /// prefix of the real command line.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is the one desync the grid cannot self-report. Every other stale read looks wrong -
+        /// a half-erased line, a mark that went dark - but an unechoed keystroke leaves a read that
+        /// is internally perfect: <c>"git st"</c> with the cursor at offset 6, every planner guard
+        /// satisfied, while the shell already holds <c>"git sta"</c>. Because the stale text is
+        /// always a strict <em>prefix</em> of the true line, no prefix check can detect it: the
+        /// planner would compute <c>"atus"</c> against <c>"git st"</c> and the line would become
+        /// <c>"git staatus"</c>.
+        /// </para>
+        /// <para>
+        /// So insertion refuses while this is set, consistent with the planner's other rules -
+        /// refusal on doubt, never a guess. Ranking is deliberately left alone: a one-character-
+        /// stale query ranks slightly worse rows and the next trigger fixes it, which is a cost
+        /// worth paying to keep suggestions live while typing.
+        /// </para>
+        /// <para>
+        /// The clear is approximate in one direction only. Any session output clears the flag, so
+        /// unrelated output (a background job printing) can clear it before the echo lands, leaving
+        /// the original window open. It cannot go the other way: output that has been parsed is
+        /// output that is in the grid.
+        /// </para>
+        /// <para>
+        /// <strong>That window is wider than it was, and is a known follow-up.</strong> Under the
+        /// additive rule a read taken inside it produced <c>git staatus</c> - a wrong append. Under
+        /// <see cref="CommandAssistInsertionStyle.ReplaceTypedPrefix"/> it produces a wrong
+        /// <em>count</em>, so the deletes stop one character short and the command lands against the
+        /// survivor. Same pre-existing hole, larger blast radius; closing it needs a signal that
+        /// distinguishes "the bytes I sent came back" from "some output arrived", which the parser
+        /// does not offer today.
+        /// </para>
+        /// </remarks>
+        internal void NoteInputAwaitingEcho() => _hasUnechoedInput = true;
+
+        /// <summary>Session bytes have been parsed into the grid, so the grid has caught up.</summary>
+        internal void NoteSessionOutputApplied() => _hasUnechoedInput = false;
+
+        /// <summary>Whether an edit keystroke is still waiting for the shell's echo.</summary>
+        internal bool HasUnechoedInput => _hasUnechoedInput;
+
+        /// <summary>
+        /// A popup row was clicked once: select it, exactly as <c>Up</c>/<c>Down</c> would.
+        /// </summary>
+        /// <remarks>
+        /// Selecting rather than accepting is deliberate. A single click that ran an insertion would
+        /// make the list unbrowsable by mouse — there would be no way to look at a row's detail panel
+        /// without committing to it — and it would put a destructive action one stray click away on a
+        /// surface that overlays the terminal. Accept needs a second, deliberate act: a double click, or
+        /// a click on the row that is already selected.
+        /// </remarks>
+        internal void OnCommandAssistSuggestionPointerSelected(int index)
+        {
+            _commandAssistController?.TrySelectSuggestionAt(index);
+        }
+
+        /// <summary>A popup row was double-clicked, or clicked while already selected: accept it.</summary>
+        internal void OnCommandAssistSuggestionPointerAccepted(int index)
+        {
+            CommandAssistController? controller = _commandAssistController;
+            if (controller == null)
+            {
+                return;
+            }
+
+            // Select first even on the accept path: a double click on an unselected row must insert the
+            // row that was clicked, not whatever the keyboard had highlighted.
+            if (!controller.TrySelectSuggestionAt(index))
+            {
+                return;
+            }
+
+            TryInsertSelectedCommandAssistSuggestion();
+        }
+
+        private bool TryInsertSelectedCommandAssistSuggestion()
+        {
+            if (_commandAssistController == null || Session == null)
+            {
+                return false;
+            }
+
+            // The echo race: a fresh read taken now can be a self-consistent snapshot of a command
+            // line the shell has already moved past. See NoteInputAwaitingEcho.
+            if (_hasUnechoedInput)
+            {
+                return false;
+            }
+
+            // Read the line before accepting: accepting dismisses the surface, and the planner needs
+            // to know what is on the command line *now* rather than what the last ranking pass saw.
+            AssistQuerySnapshot? existingQuery = TryReadInsertionQuerySnapshot();
+
+            // Everything above and below this line is non-mutating, and that ordering is the point.
+            // TryAcceptSelection accepts *and* dismisses; calling it first meant that every refusal
+            // after it - a degraded session, a cursor mid-line, a multiline entry - tore the list
+            // down and sent nothing, so Ctrl+Enter read as "the feature is broken" rather than as
+            // "not here". The plan is computed first and the surface is only touched once there is
+            // text to send.
+            if (!_commandAssistController.TryGetInsertionText(out string? insertionText) ||
+                string.IsNullOrWhiteSpace(insertionText))
+            {
+                return false;
+            }
+
+            // The style is session state, so the controller answers it rather than the pane guessing
+            // from what happens to be on screen: accepting a row out of explicit Ctrl+R history search
+            // replaces the typed filter, and every other surface stays strictly additive. See
+            // CommandAssistController.AcceptReplacesTypedQuery.
+            CommandAssistInsertionStyle style = _commandAssistController.AcceptReplacesTypedQuery
+                ? CommandAssistInsertionStyle.ReplaceTypedPrefix
+                : CommandAssistInsertionStyle.Append;
+
+            // The emptiness guard is on the *plan*, not on a string. A plan of pure deletes with no
+            // text would read as non-empty to string.IsNullOrEmpty and would erase the user's line for
+            // nothing; a plan with neither is the no-op the planner promises never to return, and this
+            // is where that promise is checked rather than trusted.
+            if (!CommandAssistInsertionPlanner.TryCreatePlan(existingQuery, insertionText, style, out CommandAssistInsertionPlan plan) ||
+                (plan.BackspaceCount == 0 && plan.TextToSend.Length == 0))
+            {
+                return false;
+            }
+
+            if (!_commandAssistController.TryAcceptSelection(out _))
+            {
+                return false;
+            }
+
+            _lastRelevantCommandText = insertionText;
+
+            // Text on the command line the user did not type. Insertion is only reachable when the
+            // grid can be read, so the accumulator is not the capture source here anyway - but it
+            // is still holding a line it can no longer describe, and Ctrl+Enter is the one key the
+            // interceptor deliberately does not poison on (Command Assist owns it).
+            _marklessSubmission.Poison();
+
+            // One SendInput, and that is a requirement rather than tidiness. Each call UTF-8 encodes
+            // and enqueues one byte[] onto the session's single-consumer writer thread, and
+            // Parser.OnResponse writes to that same session from the *parse* thread (device-report
+            // replies, which ConPTY and Clink both provoke). Two calls would leave a window in which a
+            // reply could be interleaved between the deletes and the text - i.e. between erasing the
+            // user's line and putting the command back on it.
+            //
+            // \x7f (DEL) is this codebase's backspace byte on the wire; see TerminalView's key
+            // handling. No bracketed paste for either half: bracketed content is literal by
+            // definition, so a DEL inside it would be inserted as a character rather than executed as
+            // an erase.
+            TermView.ScrollToInputLine();
+            Session.SendInput(new string('\x7f', plan.BackspaceCount) + plan.TextToSend);
+
+            // The grid is now behind the shell by everything we just sent, and the next accept must
+            // not be planned against it. Omitting this was a latent bug even under the additive rule
+            // (two fast Ctrl+Enters would compute the second delta against a pre-insertion line); under
+            // replace it is the difference between a stale count and an erased command line.
+            NoteInputAwaitingEcho();
+            return true;
+        }
+
+        /// <summary>
+        /// The command line the insertion planner is measured against: grid truth where it exists, and
+        /// in a markless session an <em>observed-empty</em> line when - and only when - the accumulator
+        /// can prove the line is empty.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <strong>V2 Phase 3a: the "browse-only in degraded sessions" rule is narrowed, not dropped.</strong>
+        /// Phase 1c refused all insertion without a snapshot, for a good reason: appending a whole
+        /// command to an unknown prefix is how <c>git sgit status</c> happens. But "unknown" was doing
+        /// two jobs. In the case the owner actually hit - open a markless SSH pane, press
+        /// <c>Ctrl+R</c>, pick a row - the prefix is not unknown at all. It is empty, and the pane can
+        /// prove it: the accumulator was reset by the last <c>Enter</c> (or <c>Ctrl+C</c>) and has
+        /// observed nothing since, and it poisons on every edit it cannot model. So this returns the
+        /// snapshot that says "the line was read and it is empty", which the planner already handles
+        /// as a fact rather than an absence, and the whole command is sent.
+        /// </para>
+        /// <para>
+        /// <strong>Why this is safe.</strong> Four independent things all have to agree, and each of
+        /// them fails closed:
+        /// </para>
+        /// <list type="number">
+        /// <item>the accumulator is <em>not poisoned</em> - so no arrow key, <c>Home</c>, <c>Delete</c>,
+        /// <c>Tab</c>, paste, prior insertion, agent injection or unrecognised chord has touched the
+        /// line since it was reset (the classification is an allow-list, so an unknown key poisons);</item>
+        /// <item>the accumulator is <em>empty</em> - the user has typed nothing since the reset, so
+        /// there is no prefix for the appended text to corrupt;</item>
+        /// <item><see cref="_hasUnechoedInput"/> is clear, checked by the caller before this runs - so
+        /// there are no keystrokes in flight to the shell that the pane has not seen come back. This is
+        /// the condition that closes the "typed a character and hit Enter in the same frame" window,
+        /// and it is the same gate the echo-race fix uses;</item>
+        /// <item>the controller's own gates still apply - a suppressed (pasted) submission and an alt
+        /// screen both refuse upstream of here.</item>
+        /// </list>
+        /// <para>
+        /// If any of them is in doubt the answer is <see langword="null"/> and the planner refuses,
+        /// exactly as before. And the failure mode of the remaining risk is bounded in a way the
+        /// original refusal's was not: insertion sends text to the shell's line editor and stops. The
+        /// user sees the command sitting on their prompt and has to press <c>Enter</c> themselves, so
+        /// the worst case is a visible, editable, deletable line - not a command that ran.
+        /// </para>
+        /// <para>
+        /// One honest cost: "the accumulator is clean and empty" is not the same as "the shell is at a
+        /// prompt". A markless pane running a program that reads stdin (<c>cat</c>, a REPL) satisfies
+        /// every condition, so an accepted row is typed into that program instead. That is what typing
+        /// the command by hand would also have done, and it is visible either way; the alternative -
+        /// refusing forever in every un-instrumented session - is the bug being fixed.
+        /// </para>
+        /// <para>
+        /// <strong>Unchanged by the replace style, and deliberately so.</strong> The synthetic snapshot
+        /// below has <c>Text == ""</c>, so its typed prefix is empty and a replace plans zero deletes:
+        /// the degraded path is bit-identical under both styles, and no new gate is needed here. The
+        /// reason it needs none is worth stating, because the obvious instinct is to add one. Replace
+        /// needs a <em>count</em>, which is strictly more than append needed; in a markless session the
+        /// pane can prove <em>whether</em> the line is empty but never <em>how many</em> characters a
+        /// non-empty line holds - and the only markless case where the count is knowable is the case
+        /// where it is zero, which is exactly the case where the two styles already agree. So there is
+        /// nothing for an extra gate to catch. <c>CommandAssistGridTruthTests</c> and
+        /// <c>PaneAssistInsertionTests</c> both pin the degraded refusal under the replace style.
+        /// </para>
+        /// </remarks>
+        private AssistQuerySnapshot? TryReadInsertionQuerySnapshot()
+        {
+            AssistQuerySnapshot? gridTruth = _commandAssistController?.TryReadQuerySnapshot();
+            if (gridTruth.HasValue)
+            {
+                return gridTruth;
+            }
+
+            if (!_marklessSubmission.IsCleanAndEmpty)
+            {
+                return null;
+            }
+
+            // Deliberately constructed rather than read: the cursor is at offset 0 of an empty line,
+            // the entry is not multiline and no right prompt was trimmed, because none of those things
+            // can be true of a line with no characters in it. Going through the planner rather than
+            // sending the text directly keeps one refusal discipline for both paths.
+            return new AssistQuerySnapshot(
+                Text: string.Empty,
+                CursorOffset: 0,
+                IsMultiline: false,
+                RightPromptTrimmed: false);
+        }
+
+        internal static string DetermineShellKind(string? shellCommand)
+        {
+            if (string.IsNullOrWhiteSpace(shellCommand))
+            {
+                return "unknown";
+            }
+
+            // Order matters: bash/zsh/fish must be matched before the generic
+            // `sh` fallback because each contains "sh" as a substring.
+            if (shellCommand.Contains("pwsh", StringComparison.OrdinalIgnoreCase) ||
+                shellCommand.Contains("powershell", StringComparison.OrdinalIgnoreCase))
+            {
+                return "pwsh";
+            }
+
+            if (shellCommand.Contains("cmd", StringComparison.OrdinalIgnoreCase))
+            {
+                return "cmd";
+            }
+
+            if (shellCommand.Contains("bash", StringComparison.OrdinalIgnoreCase))
+            {
+                return "bash";
+            }
+
+            if (shellCommand.Contains("zsh", StringComparison.OrdinalIgnoreCase))
+            {
+                return "zsh";
+            }
+
+            if (shellCommand.Contains("fish", StringComparison.OrdinalIgnoreCase))
+            {
+                return "fish";
+            }
+
+            if (shellCommand.Contains("sh", StringComparison.OrdinalIgnoreCase))
+            {
+                return "sh";
+            }
+
+            return "unknown";
+        }
+
+        private void InitializeSession(string? shell, TerminalProfile? profile, int cols, int rows, string? explicitArgs = null)
+        {
+            if (Session != null || Buffer == null) return;
+
+            if (cols <= 0 || rows <= 0) return;
+
+            // Update buffer to match view exactly before starting PTY
+            Buffer.Resize(cols, rows);
+            CreateAndWireParser();
+
+            // Sync initial metrics
+            float cw = TermView.Metrics.CellWidth;
+            float ch = TermView.Metrics.CellHeight;
+            if (cw > 0) Parser!.CellWidth = cw;
+            if (ch > 0) Parser!.CellHeight = ch;
+
+            // Setup Session.
+            //
+            // Deliberately IsNullOrWhiteSpace, not `??`: an EMPTY command is just as
+            // unspawnable as a null one, and it is the value that actually reaches here in
+            // practice. `ShellCommand` starts out as string.Empty and is fed straight back
+            // into this method by the OnAttachedToVisualTree fallback and by Reconnect(),
+            // and a restored pane whose persisted Command was empty arrives the same way.
+            // With `??` all of those spawned "", which the native layer resolved to the
+            // first %PATH% *directory* and reported as "Access is denied" against a path the
+            // user never typed. The default shell is always spawnable, so preferring it over
+            // a blank is strictly better than failing.
+            string effectiveShell = string.IsNullOrWhiteSpace(shell) ? ShellHelper.GetDefaultShell() : shell;
+            string args = explicitArgs ?? profile?.Arguments ?? "";
+            InitializeSessionCore(effectiveShell, args, profile, cols, rows);
+        }
+
+        /// <summary>
+        /// Replaces <see cref="Parser"/> with a fresh <see cref="AnsiParser"/> and attaches this
+        /// pane's handlers to it.
+        /// </summary>
+        /// <remarks>
+        /// The handlers attached here are deliberately never removed, and that is safe for exactly
+        /// one reason: a <b>new</b> parser is created on every call, so each one starts with an empty
+        /// handler list and the previous parser becomes garbage along with its handlers. #102 read
+        /// the missing <c>-=</c> calls as an accumulation bug on <c>Reconnect()</c>; they are not,
+        /// because of this line.
+        ///
+        /// That makes the assignment load-bearing. Hoisting the parser out to reuse it across
+        /// sessions — a reasonable-looking change — would silently double all of these on every
+        /// reconnect, producing the duplicate bell/title symptom #102 describes, with no <c>-=</c>
+        /// anywhere to fall back on. Split into its own method so that invariant can be asserted
+        /// without spinning up a shell; see <c>PaneParserWiringTests</c>.
+        /// </remarks>
+        internal void CreateAndWireParser()
+        {
+            if (Buffer == null) return;
+
+            Parser = new AnsiParser(Buffer);
+
+            // Inline images (sixel / iTerm2 / Kitty) decode to the SKBitmap handles the draw
+            // operation renders; without a decoder those parser paths silently no-op.
+            Parser.ImageDecoder = new Ntilde.Rendering.SkiaImageDecoder();
+
+            // A device reply is text on the PTY that the keyboard path never produced: DA1, a DSR
+            // cursor report, an answerback. Nothing here can promise the shell's line editor was not
+            // reading when the query arrived, so history capture stands down for the rest of the
+            // line - but the accumulator is *not* poisoned outright, because a local pane is sent one
+            // of these before the user has touched the keyboard (ConPTY and Clink both probe the
+            // terminal while the first prompt is drawn) and a poison there disabled suggestion
+            // insertion for the whole session. See MarklessSubmissionAccumulator's
+            // _deviceReplyObserved for the full argument and the measurement. Subscribed here rather
+            // than beside the SendInput handler in InitializeSessionCore so it exists whenever a
+            // parser does, session or not.
+            Parser.OnResponse += _ => _marklessSubmission.ObserveDeviceReply();
+
+            // OSC 10/11 (fg/bg color query) answers come from the active theme; without this,
+            // a freshly-created parser would fall back to AnsiParser's hardcoded defaults until
+            // the next ApplySettings call (#265). Must use the same profile-merged theme
+            // resolution as ApplySettings (via BuildEffectiveSettings) — using the global
+            // _settings.ActiveTheme directly would clobber a per-profile theme override,
+            // since this method runs after ApplySettings on pane init and on every
+            // Reconnect().
+            if (_settings != null)
+            {
+                var effectiveTheme = BuildEffectiveSettings(_settings).ActiveTheme;
+                Parser.DefaultForeground = effectiveTheme.Foreground;
+                Parser.DefaultBackground = effectiveTheme.Background;
+            }
+
+            // Kill switch (Blocker 2, #277 review): a freshly-created parser must start with
+            // the query-reply gate in the same state TerminalView's encoder gate will be in,
+            // same reasoning as the DefaultForeground wiring above.
+            Parser.KittyKeyboardEnabled = _settings?.EnableKittyKeyboardProtocol ?? true;
+
+            // Native kitty graphics on Windows (ConPTY pass-through opt-in): a freshly-created
+            // parser must match what ApplySettings will set, same reasoning as above.
+            Parser.AllowNativeKittyGraphics = _settings?.AllowNativeKittyGraphics ?? true;
+
+            // Kitty t=f (file transport) reads happen through this delegate so the VT layer
+            // never touches disk itself. Confinement: absolute paths only, must resolve under
+            // the user's temp directory (where clients like terminal-browser stage raw frames),
+            // with a hard size cap - the path arrives from the remote stream, so it is
+            // attacker-controlled input, not a filename to trust.
+            //
+            // Local sessions only: on an SSH pane the path names a file on the REMOTE host, and
+            // reading a same-named local file would fabricate frames (or just fail). Leaving
+            // the delegate null makes t=f probes answer ERR, so remote clients fall back to
+            // inline payloads, which are self-contained.
+            Parser.ReadFileBytes = Profile is { Type: ConnectionType.SSH }
+                ? null
+                : ReadKittyTransportFile;
+
+            Parser.OnBell += () =>
+            {
+                this.Dispatcher.Post(() =>
+                {
+                    TermView.TriggerBell();
+                    BellReceived?.Invoke(this);
+                });
+            };
+            // OSC 52 clipboard write (issue #268). AnsiParser always raises this event
+            // (VT stays policy-free); the settings gate lives here, checked at invocation
+            // time so a live ApplySettings toggle takes effect immediately without needing
+            // to re-wire the parser. Read (query) is handled entirely inside the parser via
+            // an OnResponse denial reply and never reaches this handler.
+            Parser.OnClipboardWrite += (target, data) =>
+            {
+                // Resolved through BuildEffectiveSettings rather than off raw _settings, matching
+                // the #277 precedent below in ApplySettings: BuildEffectiveSettings copies this
+                // bool straight through today, so the two are equivalent, but the moment a
+                // per-profile / SSH-scoped override lands, reading the global would silently gate
+                // on the wrong value (PR #280 review). Still read at invocation time so a live
+                // ApplySettings toggle takes effect without re-wiring.
+                // A null _settings means "not configured yet" and defaults to allow, consistent
+                // with TerminalSettings.AllowOsc52ClipboardWrite's own default.
+                bool allowed = _settings == null || BuildEffectiveSettings(_settings).AllowOsc52ClipboardWrite;
+                if (!allowed) return;
+
+                // Lossy by design: invalid UTF-8 in the payload becomes U+FFFD rather than being
+                // rejected, matching how other terminals treat OSC 52 as text. GetString does not
+                // throw for malformed input, so there is nothing to catch here - if this should
+                // ever reject non-UTF-8 instead, it needs a throwing decoder, not a try/catch.
+                string text = System.Text.Encoding.UTF8.GetString(data);
+
+                // Bumped only once the gate above has passed, i.e. exactly when this handler is
+                // actually about to reach the clipboard. Gives PaneParserWiringTests a synchronous
+                // seam to assert "setting off -> clipboard not touched" without needing a real
+                // UI-thread TopLevel/Clipboard in tests. Deliberately a plain non-atomic increment
+                // on the PTY thread: it is a single-writer test seam, not a metric, so don't read
+                // it as one.
+                _clipboardWriteAttemptsForTest++;
+                this.Dispatcher.Post(() =>
+                {
+                    _ = TermView.SetClipboardTextAsync(text);
+                });
+            };
+            Parser.OnWorkingDirectoryChanged += cwd =>
+            {
+                _shellLifecycleTracker?.HandleWorkingDirectoryChanged(cwd);
+                this.Dispatcher.Post(() =>
+                {
+                    HandleWorkingDirectoryChanged(cwd);
+                });
+            };
+            Parser.OnTitleChanged += title =>
+            {
+                this.Dispatcher.Post(() =>
+                {
+                    CurrentOscTitle = title;
+                    TitleChanged?.Invoke(this, title);
+                });
+            };
+            Parser.OnPromptReady += () =>
+            {
+                NoteShellIntegrationMarkObserved();
+                _shellLifecycleTracker?.HandlePromptReady();
+                _agentRegistration?.StatusMachine.NotifyPromptReady();
+            };
+            Parser.OnCommandAccepted += commandText =>
+            {
+                NoteShellIntegrationMarkObserved();
+
+
+                // OSC 133;C is the only moment the output region's *start* can be established: the
+                // input line is still on screen and the mark that describes it is still live, so
+                // "the row after the last row of the input" is answerable. One frame later the
+                // shell has echoed a newline and started printing, and nothing on the grid says
+                // where that began. Runs here on the parse thread, synchronously, for the same
+                // reason - a UI-thread hop would read a grid the parser has moved on from.
+                CaptureCommandOutputRegionStart();
+
+                // Only overwritten when the mark carried text. A bare `133;C` (legal FinalTerm, and
+                // what several third-party remote snippets emit) arrives with null, and clearing
+                // here would throw away the command the grid/heuristic path already read at Enter -
+                // which on those shells is the only source Fix mode has.
+                //
+                // Gated on the setting for the same reason the latch above is: with shell
+                // integration off, a C payload written by the far end of an SSH connection (or by a
+                // local `cat` of a crafted file) must not become the command Fix mode and the
+                // long-command notification talk about.
+                if (!string.IsNullOrWhiteSpace(commandText) && IsShellIntegrationConsumptionEnabled)
+                {
+                    _lastRelevantCommandText = commandText.Trim();
+                }
+
+                _shellLifecycleTracker?.HandleCommandAccepted(commandText);
+                // OSC 133;C is the execution-start edge: the line editor is closed and the
+                // shell is about to run the command. (OSC 133;B, below, only says the prompt
+                // finished printing -- the shell is idle waiting for input at that point, so
+                // driving "running" off B would report every idle prompt as a busy session.)
+                //
+                // Status machine is notified synchronously on the parser path so
+                // command-lifecycle signals keep their emission order relative to
+                // OnCommandStarted/OnPromptReady (the UI post below would let a
+                // snapshot briefly see AwaitingInput with CurrentCommand set).
+                _agentRegistration?.StatusMachine.NotifyCommandAccepted(commandText);
+                _agentRegistration?.StatusMachine.NotifyCommandStarted();
+                _lastCommandStartedAtUtc = DateTimeOffset.UtcNow;
+                this.Dispatcher.Post(() =>
+                {
+                    LastExitCode = null;
+                    CommandStarted?.Invoke(this);
+                });
+            };
+            Parser.OnCommandStarted += mark =>
+            {
+                // OSC 133;B == prompt end / start of user input. The mark position is the
+                // anchor Command Assist uses to read the live command line out of the grid.
+                // B rides inside the prompt string, so it is re-emitted on every prompt the
+                // shell *prints* (a new prompt, clear, zle reset-prompt) with fresh
+                // coordinates: keep the newest one rather than the first. It is NOT re-emitted
+                // on a window resize - PSReadLine (measured on 2.3) repaints the input line
+                // without re-running the prompt function, and zsh/fish behave the same unless
+                // the user wired a resize hook. That is why the mark has to survive the reflow
+                // a resize triggers rather than waiting to be replaced; see
+                // TerminalBuffer.CommandStartMark, which is where this now lives.
+                NoteShellIntegrationMarkObserved();
+
+                // The mark is not written here any more: AnsiParser publishes it into the buffer
+                // together with the command-input window, before this callback runs, so the pair can
+                // never be observed half-updated (Codex P2 on #448). LatestCommandStartMark remains
+                // as the pane's reader of it.
+                _shellLifecycleTracker?.HandleCommandStarted(new ShellMarkPosition(
+                    Row: mark.Row,
+                    Column: mark.Column,
+                    AbsoluteRow: mark.AbsoluteRow,
+                    IsAltScreen: mark.IsAltScreen,
+                    Generation: mark.Generation));
+            };
+            Parser.OnCommandFinished += exitCode =>
+            {
+                _agentRegistration?.StatusMachine.NotifyCommandFinished(exitCode);
+
+                // The Agent Output panel's final read must happen here, on the parse thread: D is
+                // the last instant the grid still holds the command's output, and a debounced
+                // background read would race the next prompt painting over the tail. Bounded by
+                // the same budget as every other read. OnCommandFinishedDetailed (below) clears
+                // the tracked marks after this.
+                _agentOutputTracker?.NotifyCommandFinished();
+
+                // Captured here, on the parse thread, and only for a failure. By the time the UI
+                // post below runs, the shell has painted the next prompt over the last rows of the
+                // output and may already be running the next command; D is the last instant at
+                // which the region is still on the grid. The success path pays nothing - no read,
+                // no redaction - because there is nothing for Fix mode to say about it.
+                string? outputTail = TryCaptureFailureOutputTail(exitCode);
+                _lastFailureOutputTailForTest = outputTail;
+
+                this.Dispatcher.Post(() =>
+                {
+                    if (exitCode.HasValue)
+                    {
+                        LastExitCode = exitCode.Value;
+                    }
+
+                    CommandFinished?.Invoke(this, exitCode);
+                    _ = HandleCommandAssistCompletionAsync(exitCode, outputTail);
+                });
+            };
+            Parser.OnCommandFinishedDetailed += (exitCode, durationMs) =>
+            {
+                // OSC 133;D == the command finished, so the B mark that anchored its input line
+                // no longer points at an input line: everything from it down is command output.
+                // Dropping it here closes the window in which the grid reader would happily
+                // return output as "the live command line" -- until the next prompt re-emits B,
+                // there is nothing truthful to read, and "no mark" is the honest answer.
+                //
+                // D rather than C (CommandExecuted) deliberately: in one B -> C -> D cycle, C
+                // fires the instant the user submits, while the input line is still on screen and
+                // still exactly what the mark describes. Clearing on C would blind the reader for
+                // the whole run of the command, including the submission edge that Phase 1c reads
+                // the final command text on. GridQueryReader.MaxSpanRows stays as a backstop for
+                // shells that emit B without a matching D, but it is no longer the only guard.
+                NoteShellIntegrationMarkObserved();
+
+                // The output region ends here too. OnCommandFinished (above, same OSC 133;D)
+                // has already read it; holding the mark past this point would let the *next*
+                // failure read a region that starts inside this command's output.
+                Buffer?.ClearTrackedShellMarks();
+
+                _shellLifecycleTracker?.HandleCommandFinished(exitCode, durationMs);
+
+                // Long-command completion (A2 PR4): the pane only applies the
+                // mechanical threshold; opt-in + focus policy lives in the window.
+                var startedAt = _lastCommandStartedAtUtc;
+                _lastCommandStartedAtUtc = null;
+                TimeSpan? duration = durationMs.HasValue
+                    ? TimeSpan.FromMilliseconds(durationMs.Value)
+                    : startedAt.HasValue ? DateTimeOffset.UtcNow - startedAt.Value : null;
+                if (duration is { } d && LongCommandNotificationPolicy.QualifiesAsLong(d))
+                {
+                    var commandText = _lastRelevantCommandText;
+                    this.Dispatcher.Post(() => LongCommandCompleted?.Invoke(this, commandText, exitCode, d));
+                }
+            };
+        }
+
+        /// Spawns the session and wires the handlers that depend on it. Split out of
+        /// <c>InitializeSession</c> alongside <see cref="CreateAndWireParser"/>; no behaviour change.
+        private void InitializeSessionCore(string effectiveShell, string args, TerminalProfile? profile, int cols, int rows)
+        {
+            _shellLifecycleTracker = null;
+            _isShellIntegrationActive = false;
+            _hasObservedShellIntegrationMark = false;
+            _shellIntegrationEnvOverrides = null;
+            // The Agent Output tracker's heuristic region mark belongs to the shell that is going
+            // away; drop it with the rest of the per-session state.
+            _agentOutputTracker?.Reset();
+            // A restart or a profile switch reaches here; the pending line belonged to the shell
+            // that is going away.
+            _marklessSubmission.Reset();
+            Buffer?.ClearTrackedShellMarks();
+
+            _lastFailureOutputTailForTest = null;
+
+            // Update SFTP Menu Visibility
+            // If it's not an SSH session, detach the context menu entirely to avoid "tiny empty box" artifacts
+            if (profile == null || profile.Type != ConnectionType.SSH)
+            {
+                RootGrid.ContextMenu = null;
+            }
+
+            UpdateRemoteFilesSidebarEntryPointState();
+
+            string startingDir = profile?.StartingDirectory ?? "";
+            Session = null;
+            _agentRegistration?.SetLifecycle(null);
+            try
+            {
+                // A combined command carries its arguments inline ("zsh -l"). The split lives in
+                // ShellHelper because ResolveExecutableOrDefault has to make the same call when it
+                // decides whether a command is runnable, and when the two split differently they
+                // disagreed about what was being launched: this code cut at the first literal space,
+                // so a quoted executable whose path contains spaces
+                // ("C:\Program Files\PowerShell\7\pwsh.exe" -NoLogo) passed the resolver's check and
+                // was then spawned here as `"C:\Program`.
+                if (ShellHelper.TrySplitCommandLine(effectiveShell, out string cmdPart, out string argPart))
+                {
+                    effectiveShell = cmdPart;
+                    args = (argPart + " " + args).Trim();
+                }
+
+                ShellCommand = effectiveShell;
+                ShellArgs = args;
+
+                if (profile == null || profile.Type != ConnectionType.SSH)
+                {
+                    ApplyShellIntegrationLaunchPlan(profile, ref effectiveShell, ref args, startingDir);
+
+                    // ShellCommand/ShellArgs are deliberately NOT updated with the merged
+                    // command line. SessionManager persists them, and a launch plan written
+                    // back to disk is a trap: on the next launch the provider sees its own
+                    // -File / -EncodedCommand in the incoming arguments, takes the "the user
+                    // supplied a script" bail-out, and passes the stale line through — so
+                    // integration silently stops and the old bootstrap is launched forever.
+                    // Every launch re-saves it, so it never recovers on its own.
+                    //
+                    // They hold what the USER configured; the merge is a launch-time detail
+                    // that `args` carries into the session below. A relaunch re-runs the plan
+                    // from the user's arguments, which is what makes it self-correcting.
+                }
+                else
+                {
+                    ArmRemoteShellIntegrationTracker(profile);
+                }
+
+                if (profile != null && profile.Type == ConnectionType.SSH)
+                {
+                    try
+                    {
+                        var sessionFactory = new SshSessionFactory(
+                            nativeInteractionHandler: SshInteractionHandler,
+                            nativeSshEnabled: _settings?.ExperimentalNativeSshEnabled ?? false);
+                        Session = sessionFactory.Create(
+                            profile.Id,
+                            cols,
+                            rows,
+                            _sshDiagnosticsLevel,
+                            null,
+                            log: TerminalLogger.Log);
+                        ShellCommand = Session.ShellCommand;
+                        ShellArgs = string.Empty;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[TerminalPane] SSH connection failed for '{profile.Name}': {ex.Message}");
+                        WriteBanner($"\r\n[ERROR] SSH Connection Failed: {SanitizeBannerValue(ex.Message)}\r\n");
+
+                        // Fail loudly: Do not fall back to RustPtySession with missing arguments.
+                        return;
+                    }
+                }
+
+                Session ??= new RustPtySession(
+                    effectiveShell,
+                    cols,
+                    rows,
+                    args,
+                    startingDir,
+                    skipPowerShellPostLaunchInit: _isShellIntegrationActive,
+                    environmentOverrides: _shellIntegrationEnvOverrides);
+
+                TermView.SetSession(Session);
+                ITerminalSession session = Session;
+                session.OnExit += code =>
+                {
+                    this.Dispatcher.Post(() =>
+                    {
+                        HandleSessionExit(session, code);
+                    });
+                };
+                RegisterActiveSshSession(session, profile);
+                UpdateCommandAssistContext();
+
+                // Publish the PTY lifecycle to the registration (the endpoint's
+                // sweep probes only this published reference, never the pane).
+                if (_agentRegistration is { } agentReg)
+                {
+                    agentReg.SetLifecycle(session);
+
+                    // Seed the first child-process sample, but OFF the UI thread:
+                    // ProbeHasActiveChildProcesses() is a full OS process-table scan
+                    // (CreateToolhelp32Snapshot on Windows, a pgrep spawn elsewhere) —
+                    // blocking I/O that would jank tab creation. It is thread-safe, so
+                    // run the probe on a background thread and post only the Sweep back
+                    // to the UI thread. The endpoint's 1 s sweep corrects it regardless.
+                    Task.Run(() =>
+                    {
+                        var hasChildren = agentReg.ProbeHasActiveChildProcesses();
+                        this.Dispatcher.Post(
+                            () => agentReg.StatusMachine.Sweep(hasChildren),
+                            DispatcherPriority.Background);
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                // Graceful failure: Log and show in terminal
+                System.Diagnostics.Debug.WriteLine($"[TerminalPane] Failed to spawn session: {ex.Message}");
+                WriteBanner($"\r\n[ERROR] Failed to spawn process: {SanitizeBannerValue(effectiveShell)}\r\n[DETAILS] {SanitizeBannerValue(ex.Message)}\r\n");
+                return;
+            }
+
+            // Wire up Output
+            Session.OnOutputReceived += text =>
+            {
+                Parser.Process(text);
+
+                // After Parse, not before: the flag's contract is "the grid may be behind the
+                // keyboard", so it may only be cleared once these bytes are actually painted.
+                NoteSessionOutputApplied();
+                QueueOutputUiRefresh();
+            };
+
+            // Wire up Parser responses (e.g. DA1). The accumulator invalidation for these lives in
+            // CreateAndWireParser, next to the parser's other observers.
+            Parser.OnResponse += response =>
+            {
+                Session.SendInput(response);
+            };
+
+            WireReusedTermViewHandlers();
+        }
+
+        /// <summary>
+        /// Queues the after-output UI work — scrollbar extent, cursor visibility, and the
+        /// <see cref="OutputReceived"/> notification the window uses for tab activity — collapsing
+        /// any number of output chunks into one pending dispatcher job.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Called on the PTY/SSH read thread, once per chunk read from the session. Posting
+        /// unconditionally (what this replaced) makes the dispatcher queue grow with the remote's
+        /// send rate rather than the UI's drain rate: a busy SSH session delivers chunks far faster
+        /// than the UI thread retires them, and each one queued a closure that did the same work as
+        /// the one in front of it. <see cref="UpdateScrollUI"/> then posts a second job of its own,
+        /// so the cost was two dispatcher items and an async state machine per chunk.
+        /// </para>
+        /// <para>
+        /// Every consumer here is a level, not an edge — the scrollbar reads the buffer's current
+        /// extent, <c>OnPaneOutputReceived</c> stamps "output seen at", and the agent status machine
+        /// records a last-output time — so the intermediate passes had nothing to contribute. What
+        /// matters is that one runs after the last chunk, which this guarantees.
+        /// </para>
+        /// <para>
+        /// The flag is cleared at the <em>start</em> of the job, not the end: a chunk that arrives
+        /// while the job is running must be able to queue the next one. Clearing at the end would
+        /// fold that chunk into a pass that had already read the buffer, and the newest output
+        /// would sit unreflected until something else happened to refresh.
+        /// </para>
+        /// </remarks>
+        private void QueueOutputUiRefresh()
+        {
+            if (Interlocked.Exchange(ref _outputUiRefreshQueued, 1) == 1)
+            {
+                return;
+            }
+
+            this.Dispatcher.Post(() =>
+            {
+                Volatile.Write(ref _outputUiRefreshQueued, 0);
+
+                // The pane can be torn down between the post and the run.
+                if (_disposed)
+                {
+                    return;
+                }
+
+                UpdateScrollUI();
+                OutputReceived?.Invoke(this);
+            });
+        }
+
+        /// <summary>
+        /// Subscribes the two <see cref="TermView"/> handlers that belong to session setup, in a way
+        /// that is safe to call repeatedly.
+        /// </summary>
+        /// <remarks>
+        /// Every other subscription made by <c>InitializeSession</c> targets an object that is
+        /// recreated with the session — a fresh <see cref="AnsiParser"/> (see the assignment at the
+        /// top of that method) or the new <see cref="ITerminalSession"/> — so those handler lists
+        /// start empty and cannot accumulate. These two are the exception: <c>TermView</c> is the
+        /// pane's own control and outlives any individual session, so <c>Reconnect()</c> would add a
+        /// second copy of each on every reconnect.
+        ///
+        /// Hence the cached delegates plus remove-before-add: the delegate identity has to be stable
+        /// for <c>-=</c> to match, which a fresh lambda per call would not give. Extracted into its
+        /// own method so the idempotence can be asserted directly (#102) rather than only through a
+        /// full session spin-up.
+        /// </remarks>
+        internal void WireReusedTermViewHandlers()
+        {
+            _onTermViewResize ??= (c, r) =>
+            {
+                if (Parser != null)
+                {
+                    float cwResize = TermView.Metrics.CellWidth;
+                    float chResize = TermView.Metrics.CellHeight;
+                    if (cwResize > 0) Parser.CellWidth = cwResize;
+                    if (chResize > 0) Parser.CellHeight = chResize;
+                }
+                Session?.Resize(c, r);
+
+                // Kitty in-band resize (mode 2048): a client that enabled the mode —
+                // terminal-browser on Windows has no SIGWINCH and never polls console size —
+                // only learns about a new geometry from this report, so it must follow the
+                // PTY resize. Pixel dims come from the same metrics the grid draws with.
+                if (Parser is { InBandResizeReportsEnabled: true })
+                {
+                    float cwReport = TermView.Metrics.CellWidth;
+                    float chReport = TermView.Metrics.CellHeight;
+                    if (cwReport > 0 && chReport > 0)
+                    {
+                        Parser.SendInBandResize(r, c, (int)Math.Round(c * cwReport), (int)Math.Round(r * chReport));
+                    }
+                }
+            };
+            TermView.OnResize -= _onTermViewResize;
+            TermView.OnResize += _onTermViewResize;
+
+            _onTermViewMetricsChanged ??= (cwMetric, chMetric) =>
+            {
+                if (Parser != null && cwMetric > 0 && chMetric > 0)
+                {
+                    Parser.CellWidth = cwMetric;
+                    Parser.CellHeight = chMetric;
+                }
+
+                // Cell geometry just changed, so the agent-host's copy of this
+                // pane's render inputs is stale (A5 captureScreen).
+                UpdateAgentRenderParameters();
+
+                // Kitty in-band resize (mode 2048): a font or monitor-scaling change can alter
+                // the pane's pixel geometry WITHOUT changing the integer grid, so OnResize
+                // never fires and this is the only path that notices. A mode-2048 client keeps
+                // rendering at the stale pixel dimensions until it is told.
+                if (Parser is { InBandResizeReportsEnabled: true } && Buffer != null && cwMetric > 0 && chMetric > 0)
+                {
+                    Parser.SendInBandResize(Buffer.Rows, Buffer.Cols, (int)Math.Round(Buffer.Cols * cwMetric), (int)Math.Round(Buffer.Rows * chMetric));
+                }
+            };
+            TermView.MetricsChanged -= _onTermViewMetricsChanged;
+            TermView.MetricsChanged += _onTermViewMetricsChanged;
+
+            // The view may already have measured its font before this subscription
+            // existed, in which case the MetricsChanged that would have published
+            // the render parameters has already been and gone.
+            UpdateAgentRenderParameters();
+        }
+
+        private void HandleWorkingDirectoryChanged(string cwd)
+        {
+            CurrentWorkingDirectory = cwd;
+            UpdateCommandAssistContext();
+            UpdateRemoteFilesSidebarCurrentDirectoryState();
+            WorkingDirectoryChanged?.Invoke(this, cwd);
+        }
+
+
+
+        /// <summary>
+        /// Merges global settings with this pane's profile overrides (font, theme, cursor).
+        /// Shared by <see cref="ApplySettings"/> (which needs every merged field for
+        /// <see cref="TermView"/>) and <see cref="CreateAndWireParser"/> (which only needs
+        /// the resulting <see cref="TerminalSettings.ActiveTheme"/> colors for OSC 10/11
+        /// answers), so the two call sites can never resolve the profile-effective theme
+        /// differently — see the #265 wiring-bug follow-up.
+        /// </summary>
+        /// <summary>
+        /// Hard cap on a single kitty <c>t=f</c> transport read. A 2000×2000 RGBA frame — the
+        /// parser's pixel guardrail — is 16 MB, so 64 MB leaves generous headroom for legitimate
+        /// staged frames while keeping a hostile path from pulling an arbitrary file into memory.
+        /// </summary>
+        internal const long KittyTransportMaxFileBytes = 64L * 1024 * 1024;
+
+        /// <summary>
+        /// Disk reader behind <see cref="AnsiParser.ReadFileBytes"/> for kitty graphics file
+        /// transport. The path comes from the remote byte stream, so it is treated as hostile:
+        /// absolute paths only, confined to the user's temp directory (where clients like
+        /// terminal-browser stage raw RGBA frames), size-capped, and any failure degrades to a
+        /// null the parser logs and skips. Internal + static so the confinement rules are unit
+        /// testable without a pane.
+        /// </summary>
+        internal static byte[]? ReadKittyTransportFile(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !System.IO.Path.IsPathRooted(path))
+            {
+                return null;
+            }
+
+            string candidate;
+            try
+            {
+                candidate = System.IO.Path.GetFullPath(path);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+
+            string tempRoot = System.IO.Path.GetFullPath(System.IO.Path.GetTempPath());
+            // Casing follows the platform's filesystem rules: ignore-case is only correct where
+            // the filesystem itself is case-insensitive - on Unix, /TMP/frame.rgba is a
+            // different directory from /tmp/frame.rgba, and accepting it as "under temp" would
+            // let a case-variant path escape the confinement boundary.
+            var pathComparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            if (!candidate.StartsWith(tempRoot, pathComparison))
+            {
+                return null;
+            }
+
+            try
+            {
+                var info = new System.IO.FileInfo(candidate);
+                if (!info.Exists || info.Length > KittyTransportMaxFileBytes)
+                {
+                    return null;
+                }
+
+                // The writer (e.g. terminal-browser's frame ring) keeps the file open while it
+                // cycles frames, so a plain File.ReadAllBytes' FileShare.Read gets rejected with
+                // a sharing violation. Open tolerating concurrent writers: the path is only sent
+                // after the frame write completes, so the bytes read are the finished frame.
+                using var stream = new System.IO.FileStream(
+                    candidate,
+                    System.IO.FileMode.Open,
+                    System.IO.FileAccess.Read,
+                    System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete);
+
+                // Re-check the cap on the OPENED handle: the file can grow between the
+                // FileInfo probe above and this open, and the allocation below trusts the
+                // length blindly.
+                if (stream.Length > KittyTransportMaxFileBytes)
+                {
+                    return null;
+                }
+
+                var bytes = new byte[stream.Length];
+                int read = 0;
+                while (read < bytes.Length)
+                {
+                    int n = stream.Read(bytes, read, bytes.Length - read);
+                    if (n <= 0) break;
+                    read += n;
+                }
+
+                return read == bytes.Length ? bytes : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+        private TerminalSettings BuildEffectiveSettings(TerminalSettings settings)
+        {
+            // We create a "copy" for the view to use, but we only override specific visual fields
+            return new TerminalSettings
+            {
+                FontSize = Profile?.FontSize ?? settings.FontSize,
+                FontFamily = Profile?.FontFamily ?? settings.FontFamily,
+                ThemeName = Profile?.ThemeName ?? settings.ThemeName,
+                CursorStyle = Profile?.CursorStyle ?? settings.CursorStyle,
+                CursorBlink = Profile?.CursorBlink ?? settings.CursorBlink,
+
+                // Inherit everything else from global
+                MaxHistory = settings.MaxHistory,
+                WindowOpacity = settings.WindowOpacity,
+                BlurEffect = settings.BlurEffect,
+                BackgroundImagePath = settings.BackgroundImagePath,
+                BackgroundImageOpacity = settings.BackgroundImageOpacity,
+                BackgroundImageStretch = settings.BackgroundImageStretch,
+                BellAudioEnabled = settings.BellAudioEnabled,
+                BellVisualEnabled = settings.BellVisualEnabled,
+                SmoothScrolling = settings.SmoothScrolling,
+                EnableLinkDetection = settings.EnableLinkDetection,
+                EnableKittyKeyboardProtocol = settings.EnableKittyKeyboardProtocol,
+                AllowNativeKittyGraphics = settings.AllowNativeKittyGraphics,
+                AllowOsc52ClipboardWrite = settings.AllowOsc52ClipboardWrite,
+                CommandAssistEnabled = settings.CommandAssistEnabled,
+                CommandAssistHistoryEnabled = settings.CommandAssistHistoryEnabled,
+                CommandAssistMaxHistoryEntries = settings.CommandAssistMaxHistoryEntries,
+                CommandAssistPassiveBubbleEnabled = settings.CommandAssistPassiveBubbleEnabled,
+                CommandAssistShellIntegrationEnabled = settings.CommandAssistShellIntegrationEnabled,
+                CommandAssistPowerShellIntegrationEnabled = settings.CommandAssistPowerShellIntegrationEnabled,
+                Profiles = settings.Profiles,
+                DefaultProfileId = settings.DefaultProfileId
+            };
+        }
+
+        public void ApplySettings(TerminalSettings settings)
+        {
+            _settings = settings;
+
+            // Merge global settings with profile overrides
+            var effectiveSettings = BuildEffectiveSettings(settings);
+
+            TermView.ApplySettings(effectiveSettings);
+            if (_commandAssistController != null || !IsCommandAssistFeatureEnabled())
+            {
+                InitializeCommandAssist();
+            }
+            UpdateMinimumSizeConstraints();
+
+            // Sync metrics to parser after settings change (font size, etc.)
+            if (Parser != null)
+            {
+                float cw = TermView.Metrics.CellWidth;
+                float ch = TermView.Metrics.CellHeight;
+                if (cw > 0) Parser.CellWidth = cw;
+                if (ch > 0) Parser.CellHeight = ch;
+
+                // Keep OSC 10/11 (fg/bg color query) responses in sync with the active theme,
+                // including profile-specific theme overrides (see effectiveSettings above).
+                Parser.DefaultForeground = effectiveSettings.ActiveTheme.Foreground;
+                Parser.DefaultBackground = effectiveSettings.ActiveTheme.Background;
+
+                // Kill switch (Blocker 2, #277 review): keep the query-reply gate in sync with
+                // the setting on every settings change, not just at parser creation.
+                Parser.KittyKeyboardEnabled = effectiveSettings.EnableKittyKeyboardProtocol;
+
+                // Native kitty graphics on Windows (ConPTY pass-through opt-in): same live-sync
+                // reasoning as the kill switch above.
+                Parser.AllowNativeKittyGraphics = effectiveSettings.AllowNativeKittyGraphics;
+            }
+
+            // Font family/size and shaping toggles just moved with the settings.
+            UpdateAgentRenderParameters();
+        }
+
+
+        private void ScrollBar_ValueChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+        {
+            if (_isUpdatingScroll || Buffer == null) return;
+
+            // ScrollBar Top (0) -> History Top (Max Offset)
+            // ScrollBar Bottom (Max) -> History Bottom (0 Offset)
+            int inverted = (int)(TermScrollBar.Maximum - e.NewValue);
+            TermView.ScrollOffset = inverted;
+            TermView.InvalidateVisual();
+        }
+
+        private void UpdateScrollUI()
+        {
+            if (Buffer == null) return;
+
+            _isUpdatingScroll = true;
+            try
+            {
+                int total = Buffer.TotalLines;
+                int view = Buffer.Rows;
+                int maxScroll = Math.Max(0, total - view);
+
+                TermScrollBar.Maximum = maxScroll;
+                TermScrollBar.ViewportSize = view;
+
+                // Current Value
+                // Offset 0 (Bottom) -> Value = Max
+                // Offset Max (Top) -> Value = 0
+                TermScrollBar.Value = maxScroll - TermView.ScrollOffset;
+            }
+            finally
+            {
+                _isUpdatingScroll = false;
+            }
+
+            // When new output arrives, ensure the cursor is visible
+            // If we just switched from alt screen (like after exiting mc), ensure we're scrolled to show the cursor
+            this.Dispatcher.Post(async () =>
+            {
+
+                if (TermView.JustSwitchedFromAltScreen)
+                {
+                    // Small delay to ensure screen switch processing is complete
+                    await Task.Delay(10);
+                    // Ensure cursor is visible after screen switch
+                    TermView.EnsureCursorVisible();
+                    // Note: EnsureCursorVisible() handles resetting the flag internally
+                }
+                else
+                {
+                    // For normal output, ensure the cursor is visible
+                    TermView.EnsureCursorVisible();
+                }
+
+            }, DispatcherPriority.Render);
+
+            // Failsafe: Force render on output
+            TermView.InvalidateVisual();
+        }
+
+        private void SetupSearch()
+        {
+            void OnSearchTriggered(object? s, global::Avalonia.Interactivity.RoutedEventArgs e) => PerformSearch();
+
+            SearchBox.TextChanged += (s, e) => PerformSearch();
+
+            // Re-run search when options change
+            SearchCaseSensitive.Click += OnSearchTriggered;
+            SearchRegex.Click += OnSearchTriggered;
+
+            SearchPrev.Click += (s, e) => TermView.PrevMatch();
+            SearchNext.Click += (s, e) => TermView.NextMatch();
+            SearchClose.Click += (s, e) =>
+            {
+                SearchPanel.IsVisible = false;
+                TermView.ClearSearch();
+                TermView.Focus();
+            };
+
+            TermView.SearchStateChanged += (idx, total) =>
+            {
+                this.Dispatcher.Post(() => SearchCount.Text = $"{idx}/{total}");
+            };
+        }
+
+        private void PerformSearch()
+        {
+            if (!string.IsNullOrEmpty(SearchBox.Text))
+            {
+                bool useRegex = SearchRegex.IsChecked ?? false;
+                bool caseSensitive = SearchCaseSensitive.IsChecked ?? false;
+                TermView.Search(SearchBox.Text, useRegex, caseSensitive);
+            }
+            else
+            {
+                TermView.ClearSearch();
+            }
+        }
+
+        public void ToggleSearch()
+        {
+            SearchPanel.IsVisible = !SearchPanel.IsVisible;
+            if (SearchPanel.IsVisible)
+            {
+                SearchBox.Focus();
+                PerformSearch();
+            }
+            else
+            {
+                TermView.ClearSearch();
+                TermView.Focus();
+            }
+        }
+
+        public void ToggleCommandAssist()
+        {
+            if (!EnsureCommandAssistInitialized())
+            {
+                return;
+            }
+
+            _commandAssistController?.ToggleAssist();
+        }
+
+        /// <summary>
+        /// Takes this pane's assist surface down, if it has one. Used when something outside the pane
+        /// invalidates what the surface is showing - today, Settings clearing command history.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately does not initialize Command Assist: a pane that never built a controller has no
+        /// surface to dismiss, and forcing one into existence to tell it to hide would be the opposite of
+        /// what the caller wants.
+        /// </remarks>
+        internal void DismissCommandAssistSurface() => _commandAssistController?.Dismiss();
+
+        public bool OpenCommandAssistHelp()
+        {
+            if (!EnsureCommandAssistInitialized())
+            {
+                return false;
+            }
+
+            return _commandAssistController?.OpenHelp() ?? false;
+        }
+
+        public bool OpenCommandAssistHistorySearch()
+        {
+            if (!EnsureCommandAssistInitialized())
+            {
+                return false;
+            }
+
+            return _commandAssistController?.OpenHistorySearch() ?? false;
+        }
+
+        public void NotifyCommandAssistPaste(string text)
+        {
+            // Poisons before the feature gate: the accumulator is fed unconditionally, so it must
+            // be invalidated unconditionally. See NotifyPasteObserved for how poison and
+            // suppression divide the work.
+            _marklessSubmission.Poison();
+
+            if (!EnsureCommandAssistInitialized())
+            {
+                return;
+            }
+
+            // The text is kept for the failure-analysis path (Fix mode needs a command to analyse
+            // and a paste is often the whole of one), but it is no longer handed to Command Assist
+            // as query state: NotifyPastedInput carries provenance only. See
+            // CommandAssistController.NotifyPastedInput.
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                _lastRelevantCommandText = text.Trim();
+            }
+
+            _commandAssistController?.NotifyPastedInput();
+        }
+
+        internal bool CanExplainSelection(string? selectedTextOverride = null)
+        {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
+            string? selectedText = selectedTextOverride ?? TermView.GetSelectedText();
+            return !string.IsNullOrWhiteSpace(selectedText);
+        }
+
+        internal async Task<bool> ExplainSelectionAsync(string? selectedTextOverride = null)
+        {
+            if (!EnsureCommandAssistInitialized())
+            {
+                return false;
+            }
+
+            string? selectedText = selectedTextOverride ?? TermView.GetSelectedText();
+            if (string.IsNullOrWhiteSpace(selectedText))
+            {
+                return false;
+            }
+
+            return await _commandAssistController.ExplainSelectionAsync(selectedText);
+        }
+
+        public void ToggleRenderHud()
+        {
+            TermView.ShowRenderHud = !TermView.ShowRenderHud;
+        }
+
+        protected override void OnGotFocus(FocusChangedEventArgs e)
+        {
+            base.OnGotFocus(e);
+            UpdateFocusVisuals(true);
+            TermView.InvalidateVisual();
+        }
+
+        protected override void OnLostFocus(FocusChangedEventArgs e)
+        {
+            base.OnLostFocus(e);
+            UpdateFocusVisuals(false);
+        }
+
+        private void UpdateFocusVisuals(bool focused)
+        {
+            if (InactiveOverlay != null)
+            {
+                bool dimEnabled = true;
+                InactiveOverlay.IsVisible = dimEnabled && !IsActivePane;
+            }
+
+            if (FocusBorder != null)
+            {
+                FocusBorder.IsVisible = false;
+            }
+
+            // Keep rendering crisp; dimming is now handled by overlay.
+            TermView.Opacity = 1.0;
+            AutomationProperties.SetName(TermView, focused ? "Terminal Pane Active" : "Terminal Pane");
+
+            // Re-render to ensure cursor state updates
+            TermView.InvalidateVisual();
+        }
+
+        public (double MinWidth, double MinHeight) GetMinimumPaneSize()
+        {
+            UpdateMinimumSizeConstraints();
+            return (MinWidth, MinHeight);
+        }
+
+        private void UpdateMinimumSizeConstraints()
+        {
+            float cellWidth = TermView.Metrics.CellWidth > 0 ? TermView.Metrics.CellWidth : 8f;
+            float cellHeight = TermView.Metrics.CellHeight > 0 ? TermView.Metrics.CellHeight : 18f;
+
+            // UX spec: minimum 20 cols x 5 rows.
+            MinWidth = Math.Ceiling((cellWidth * 20) + 4);
+            MinHeight = Math.Ceiling(cellHeight * 5);
+
+            if (_settings != null && InactiveOverlay != null)
+            {
+                var bg = _settings.ActiveTheme.Background;
+                double luminance = (0.299 * bg.R + 0.587 * bg.G + 0.114 * bg.B) / 255.0;
+                byte alpha = (byte)(luminance > 0.5 ? 96 : 72);
+                InactiveOverlay.Background = new SolidColorBrush(Color.FromArgb(alpha, 0, 0, 0));
+            }
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            // Focus Handling: Ensure we are focused
+            if (!IsKeyboardFocusWithin) return;
+
+            var modifiers = e.KeyModifiers;
+            bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
+            bool isShift = (modifiers & KeyModifiers.Shift) != 0;
+
+            // Search Shortcut (Ctrl+Shift+F)
+            if (isCtrl && isShift && e.Key == Key.F)
+            {
+                ToggleSearch();
+                e.Handled = true;
+                return;
+            }
+
+            // Copy/Paste (Ctrl+Shift+C/V) - TBD
+            // Font Zoom - TBD
+
+            // Reconnect if dead
+            if (ShouldReconnectOnEnter(Session) && e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                Reconnect();
+                return;
+            }
+
+            // Forward to PTY common handler
+            // For now, we rely on Window forwarding, OR we implement it here.
+            // PLAN: We will implement full OnKeyDown here in Phase 2.
+
+            base.OnKeyDown(e);
+        }
+
+        public void Reconnect()
+        {
+            CloseRemoteFilesSidebar();
+
+            if (Session != null)
+            {
+                ITerminalSession session = Session;
+                UnregisterActiveSshSession(session);
+                Session = null;
+                _agentRegistration?.SetLifecycle(null);
+                session.Dispose();
+            }
+
+            LastExitCode = null;
+            WriteBanner("\r\n\x1b[90m[Reconnecting...]\x1b[0m\r\n");
+            InitializeSession(ShellCommand, Profile, TermView.Cols, TermView.Rows, ShellArgs);
+        }
+
+        internal static bool ShouldReconnectOnEnter(ITerminalSession? session)
+        {
+            return session == null || !session.IsProcessRunning;
+        }
+
+        internal void ConfigureRemoteFilesSidebarForTest(IRemoteDirectoryBrowserService directoryBrowserService)
+        {
+            _isRemoteFilesSidebarTestServiceConfigured = true;
+            SetRemoteFilesSidebarService(directoryBrowserService);
+            UpdateRemoteFilesSidebarCurrentDirectoryState();
+            UpdateRemoteFilesSidebarVisibility();
+            UpdateRemoteFilesSidebarEntryPointState();
+        }
+
+        internal void ShowRemoteFilesSidebarForTest()
+        {
+            if (!_isRemoteFilesSidebarTestServiceConfigured)
+            {
+                ConfigureRemoteFilesSidebarForTest(new TestRemoteDirectoryBrowserService());
+            }
+
+            if (!IsRemoteFilesSidebarSupported())
+            {
+                Profile = new TerminalProfile
+                {
+                    Name = "Test Native SSH",
+                    Type = ConnectionType.SSH,
+                    SshBackendKind = SshBackendKind.Native,
+                    SshHost = "test.example",
+                    SshUser = "nova"
+                };
+            }
+
+            OpenRemoteFilesSidebarAsync(Profile?.Id ?? Guid.NewGuid(), Session?.Id ?? Guid.NewGuid())
+                .GetAwaiter()
+                .GetResult();
+        }
+
+        internal void HandleAltScreenChangedForTest(bool isAltScreen)
+        {
+            if (Buffer != null)
+            {
+                FieldInfo? field = typeof(TerminalBuffer).GetField("_isAltScreen", BindingFlags.Instance | BindingFlags.NonPublic);
+                field?.SetValue(Buffer, isAltScreen);
+            }
+
+            HandleAltScreenChanged(isAltScreen);
+        }
+
+        internal void HandleWorkingDirectoryChangedForTest(string cwd)
+        {
+            HandleWorkingDirectoryChanged(cwd);
+        }
+
+        /// <summary>
+        /// Count of OSC 52 clipboard-write payloads that made it past the
+        /// <see cref="TerminalSettings.AllowOsc52ClipboardWrite"/> gate and decoding in
+        /// <see cref="CreateAndWireParser"/>'s <c>Parser.OnClipboardWrite</c> handler (issue #268).
+        /// A synchronous seam for tests: the real path continues on to
+        /// <c>Dispatcher.UIThread.Post</c> + <c>TermView.SetClipboardTextAsync</c>, which needs a
+        /// live UI-thread TopLevel/Clipboard that headless tests do not provide, so this counter
+        /// is what the settings-gate test asserts against instead.
+        /// </summary>
+        internal int ClipboardWriteAttemptsForTest => _clipboardWriteAttemptsForTest;
+
+        /// <summary>
+        /// Whether the pane has latched "this session emits OSC 133" - i.e. what
+        /// <see cref="UpdateCommandAssistContext"/> would publish as <c>isShellIntegrated</c>.
+        /// </summary>
+        /// <remarks>
+        /// A seam rather than an observation of the published context, because the publish is posted
+        /// to the UI thread and the thing under test (the setting gate on
+        /// <see cref="NoteShellIntegrationMarkObserved"/>) decides whether it is posted at all. A
+        /// test asserting "nothing was published" against an async post would be asserting a
+        /// timeout.
+        /// </remarks>
+        internal bool HasObservedShellIntegrationMarkForTest => _hasObservedShellIntegrationMark;
+
+        /// <summary>
+        /// The command text the pane would hand to Fix mode and the long-command notification. Read
+        /// by the tests that pin what a <c>133;C</c> payload is and is not allowed to overwrite.
+        /// </summary>
+        internal string? LastRelevantCommandTextForTest => _lastRelevantCommandText;
+
+        internal bool IsRemoteFilesSidebarVisibleForTest()
+        {
+            return RemoteFilesSidebarPresenter?.IsVisible == true;
+        }
+
+        internal bool IsRemoteFilesSidebarEntryAvailableForTest()
+        {
+            UpdateRemoteFilesSidebarEntryPointState();
+            return MenuToggleRemoteFilesSidebar?.IsVisible == true &&
+                   MenuToggleRemoteFilesSidebar.IsEnabled;
+        }
+
+        internal IReadOnlyList<string> GetSftpContextMenuItemNamesForTest()
+        {
+            if (RootGrid.ContextMenu?.Items is not IEnumerable<object> items)
+            {
+                return Array.Empty<string>();
+            }
+
+            MenuItem? sftpMenu = items.OfType<MenuItem>().FirstOrDefault(m => (string?)m.Header == "SFTP");
+            if (sftpMenu?.Items is null)
+            {
+                return Array.Empty<string>();
+            }
+
+            return sftpMenu.Items
+                .OfType<MenuItem>()
+                .Select(item => item.Name ?? string.Empty)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .ToArray();
+        }
+
+        internal string GetRemoteFilesSidebarCurrentPathForTest()
+        {
+            return _remoteFilesSidebarViewModel?.CurrentPath ?? string.Empty;
+        }
+
+        internal string? GetRemoteFilesSidebarJumpTargetForTest()
+        {
+            return _remoteFilesSidebarViewModel?.JumpToCurrentDirectoryPath;
+        }
+
+        internal bool IsRemoteFilesSidebarDisconnectedForTest()
+        {
+            return _remoteFilesSidebarViewModel?.IsDisconnected == true;
+        }
+
+        internal void HandleSessionExitForTesting(int code)
+        {
+            HandleSessionExit(Session, code);
+        }
+
+        private void HandleSessionExit(ITerminalSession? session, int code)
+        {
+            if (session != null && !ReferenceEquals(Session, session))
+            {
+                return;
+            }
+
+            LastExitCode = code;
+
+            if (Profile?.Type == ConnectionType.SSH)
+            {
+                if (_remoteFilesSidebarViewModel?.IsOpen == true)
+                {
+                    _remoteFilesSidebarViewModel.MarkDisconnected();
+                    UpdateRemoteFilesSidebarVisibility();
+                    UpdateRemoteFilesSidebarEntryPointState();
+                }
+
+                WriteSshDisconnectedBanner(code);
+            }
+
+            ProcessExited?.Invoke(this, code);
+        }
+
+        private void WriteSshDisconnectedBanner(int code)
+        {
+            string exitCodeLine = code == 0
+                ? string.Empty
+                : $"[Exit code: {code}]\r\n";
+            WriteBanner(
+                $"\r\n[SSH session disconnected]\r\n{exitCodeLine}[Press Enter to reconnect]\r\n");
+        }
+
+        /// <summary>
+        /// #311: a local pane whose shell exited. Same shape as the SSH banner — including
+        /// dropping the exit-code line when the code is 0 — because the restart it advertises is
+        /// the same mechanism: Enter on a dead session reaches <see cref="Reconnect"/>.
+        /// No interpolated value is caller- or remote-derived, so nothing needs sanitizing.
+        /// </summary>
+        internal void WriteLocalExitBanner(int code)
+        {
+            string exitCodeLine = code == 0
+                ? string.Empty
+                : $"[Exit code: {code}]\r\n";
+            WriteBanner(
+                $"\r\n[Shell exited]\r\n{exitCodeLine}[Press Enter to restart]\r\n");
+        }
+
+        /// <summary>
+        /// Strips control characters (C0 incl. ESC, DEL, and C1) from interpolated banner values.
+        /// Banner text is parsed as terminal input, so remote- or profile-derived values such as
+        /// SSH/spawn error messages could otherwise smuggle escape sequences that move the cursor,
+        /// clear the screen, switch modes, or rewrite the title. Only printable content survives.
+        /// </summary>
+        internal static string SanitizeBannerValue(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+
+            var sb = new System.Text.StringBuilder(value.Length);
+            foreach (char c in value)
+            {
+                if (c < 0x20 || c == 0x7F || (c >= 0x80 && c <= 0x9F))
+                {
+                    continue;
+                }
+
+                sb.Append(c);
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Writes Ntilde-generated banner text (connection errors, disconnect/reconnect
+        /// notices) into the terminal. Banners are routed through the ANSI parser rather than
+        /// <see cref="TerminalBuffer.WriteContent"/> — which writes graphemes verbatim — so that
+        /// embedded SGR color codes and CR/LF line breaks are interpreted, instead of leaving
+        /// literal "[90m" garbage collapsed onto a single line. A fresh parser is used each time so
+        /// the banner renders with a clean slate: it never inherits a partial escape sequence or
+        /// accumulated SGR state from the (possibly just-disposed) session parser, and never shares
+        /// mutable parser state with the background-thread session output pump.
+        /// Interpolated values must be passed through <see cref="SanitizeBannerValue"/> first.
+        /// </summary>
+        private void WriteBanner(string text)
+        {
+            if (Buffer == null)
+            {
+                return;
+            }
+
+            new AnsiParser(Buffer).Process(text);
+        }
+
+        protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            base.OnAttachedToVisualTree(e);
+
+            // Fallback: Ensure session is initialized if it wasn't yet (e.g. nested split timing)
+            if (Session == null)
+            {
+                InitializeSession(ShellCommand, Profile, TermView.Cols, TermView.Rows);
+            }
+
+            // Force initial render availability
+            this.Dispatcher.Post(() =>
+            {
+                UpdateFocusVisuals(IsKeyboardFocusWithin);
+                TermView.InvalidateVisual();
+                UpdateCommandAssistOverlayPlacement();
+            }, DispatcherPriority.Loaded);
+        }
+
+        public void Dispose()
+        {
+            // Synchronous teardown for UI-thread callers. MainWindow.DisposeControlTree
+            // splits the two phases instead, so the (potentially blocking) session
+            // teardown runs off the UI thread while the UI-affine detach stays on it.
+            DetachFromUiThread()?.Dispose();
+        }
+
+        /// <summary>
+        /// Detaches UI-affine state (control visibility, DispatcherTimer, event handlers)
+        /// and transfers ownership of the underlying session to the caller for disposal.
+        /// MUST be called on the UI thread. Returns <c>null</c> when already disposed or
+        /// when the pane has no session. See #154: previously the whole Dispose ran on a
+        /// worker thread with a swallowed catch, so a VerifyAccess throw in the UI-affine
+        /// part aborted teardown before the session was disposed, leaking the PTY and its
+        /// child shell.
+        /// </summary>
+        public ITerminalSession? DetachFromUiThread()
+        {
+            // Enforce the UI-thread contract BEFORE flipping _disposed: if this threw
+            // mid-teardown after _disposed was set, every later Dispose() would return
+            // early and the session would leak permanently — the exact bug this method
+            // exists to prevent.
+            this.Dispatcher.VerifyAccess();
+
+            if (_disposed) return null;
+            _disposed = true;
+
+            (_agentRegistry ?? Ntilde.AgentHost.AgentSessionRegistry.Instance).Unregister(PaneId);
+            if (_agentRegistration != null)
+            {
+                _agentRegistration.AttentionMachine.Changed -= OnAgentAttentionChanged;
+                _agentRegistration.ActabilityChanged -= OnAgentActabilityChanged;
+            }
+
+            CloseRemoteFilesSidebar();
+
+            // Cancels any suggestion pass still in flight. Without this a debounced pass
+            // outlives the pane that owns it and publishes into a surface that is being torn
+            // down; see the dispatcher note in InitializeCommandAssist for what that cost.
+            _commandAssistController?.Dispose();
+
+
+            // Detach handlers on the reused TermView so a disposed pane stops reacting.
+            if (_onTermViewResize != null) TermView.OnResize -= _onTermViewResize;
+            if (_onTermViewMetricsChanged != null) TermView.MetricsChanged -= _onTermViewMetricsChanged;
+            if (_onTermViewMetricsLayout != null) TermView.MetricsChanged -= _onTermViewMetricsLayout;
+
+            if (Buffer != null)
+            {
+                Buffer.OnScreenSwitched -= OnBufferScreenSwitched;
+                if (_agentOutputTracker != null)
+                {
+                    Buffer.OnInvalidate -= _agentOutputTracker.NotifyInvalidate;
+                }
+            }
+            _agentOutputTracker?.Dispose();
+            _agentOutputTracker = null;
+            _statusTimer?.Stop();
+            _statusTimer = null;
+            SftpService.Instance.JobUpdated -= Sftp_JobUpdated;
+            if (Session != null)
+            {
+                ITerminalSession session = Session;
+                UnregisterActiveSshSession(session);
+                Session = null;
+                _agentRegistration?.SetLifecycle(null);
+                return session;
+            }
+            return null;
+        }
+
+        private static void RegisterActiveSshSession(ITerminalSession session, TerminalProfile? profile)
+        {
+            if (profile?.Type != ConnectionType.SSH || profile.SshBackendKind != SshBackendKind.Native)
+            {
+                return;
+            }
+
+            ActiveSshSessionRegistry.Instance.Register(new ActiveSshSessionDescriptor(
+                session.Id,
+                profile.Id,
+                profile.SshBackendKind));
+        }
+
+        private static void UnregisterActiveSshSession(ITerminalSession session)
+        {
+            ActiveSshSessionRegistry.Instance.Unregister(session.Id);
+        }
+
+        // Every dispatch in this class goes to this.Dispatcher - the pane's own, captured by
+        // AvaloniaObject at construction - and never to the Dispatcher.UIThread static (#423).
+        //
+        // The static's getter binds UI-thread identity to *the calling thread* whenever its
+        // backing field is null. Under the headless lane's PerTest isolation that field is nulled
+        // at every test boundary, and again inside HeadlessUnitTestSession.EnsureIsolatedApplication
+        // immediately before AppBuilder.SetupUnsafe() runs. A background thread that reads the
+        // static inside that window becomes the UI thread, after which SetupUnsafe's
+        // Compositor ctor -> DefaultRenderLoop.Add -> VerifyAccess() throws - outside the try in
+        // DispatchCore, so it unwinds the one dispatcher loop the assembly shares and every
+        // remaining test blocks forever. Two dumps caught exactly that, one local and one on CI's
+        // ubuntu lane, both with five live RustPtySessions still running.
+        //
+        // Half this class's dispatches are raised on threads that are not the UI thread and say so
+        // in their own comments: the agent-attention and actability handlers on the endpoint's IPC
+        // or timer thread, the SFTP job handler on a transfer worker, the parser mark callbacks on
+        // the PTY read thread, the exit paths on the PTY exit watcher. Any of them firing on a pane
+        // that outlived its test is a candidate reader.
+        //
+        // this.Dispatcher costs nothing on either count. It is assigned by AvaloniaObject's own
+        // field initializer (= Dispatcher.CurrentDispatcher), so the pane already holds it before
+        // any of this runs: reading it binds nothing that `new TerminalPane()` had not already
+        // bound. It is also the more correct reading in production, where a pane belongs to one
+        // dispatcher for its whole life. PR #416 made this argument for the Command Assist
+        // dispatch and it applies unchanged to the rest of the class.
+        private void Sftp_JobUpdated(object? sender, TransferJob job)
+        {
+            if (job.SessionId != Session?.Id) return;
+
+            this.Dispatcher.Post(() =>
+            {
+                var activeJobs = SftpService.Instance.Jobs
+                    .Where(j => j.SessionId == Session?.Id && j.State == TransferState.Running)
+                    .ToList();
+
+                if (activeJobs.Count > 0)
+                {
+                    TransferJob primaryJob = activeJobs
+                        .OrderByDescending(j => j.StartedAt)
+                        .First();
+
+                    SftpStatus.IsVisible = true;
+                    SftpIcon.Text = activeJobs.Count > 1
+                        ? "⇅"
+                        : primaryJob.Direction == TransferDirection.Upload ? "⬆" : "⬇";
+                    SftpText.Text = BuildRunningTransferStatus(primaryJob, activeJobs.Count);
+                }
+                else
+                {
+                    var lastJob = SftpService.Instance.Jobs
+                        .Where(j => j.SessionId == Session?.Id)
+                        .OrderByDescending(j => j.FinishedAt)
+                        .FirstOrDefault();
+
+                    if (lastJob != null && lastJob.FinishedAt > DateTime.Now.AddSeconds(-10))
+                    {
+                        SftpStatus.IsVisible = true;
+                        SftpIcon.Text = lastJob.State switch
+                        {
+                            TransferState.Completed => "✅",
+                            TransferState.Canceled => "⏹",
+                            _ => "❌"
+                        };
+                        SftpText.Text = BuildCompletedTransferStatus(lastJob);
+                    }
+                    else
+                    {
+                        SftpStatus.IsVisible = false;
+                    }
+                }
+            });
+        }
+
+        private static string BuildRunningTransferStatus(TransferJob job, int activeTransferCount)
+        {
+            string action = job.Direction == TransferDirection.Upload ? "Uploading" : "Downloading";
+            string detail = job.BytesTotal > 0
+                ? $" {Math.Round(job.Progress * 100)}%"
+                : string.Empty;
+            string prefix = activeTransferCount > 1 ? $"{activeTransferCount} transfers • " : string.Empty;
+            return $"{prefix}{action} {job.DisplayName}{detail}";
+        }
+
+        private static string BuildCompletedTransferStatus(TransferJob job)
+        {
+            return job.State switch
+            {
+                TransferState.Completed => $"{(job.Direction == TransferDirection.Upload ? "Uploaded" : "Downloaded")} {job.DisplayName}",
+                TransferState.Canceled => $"{(job.Direction == TransferDirection.Upload ? "Upload" : "Download")} canceled",
+                TransferState.Failed when !string.IsNullOrWhiteSpace(job.LastError) => $"Transfer failed: {job.LastError}",
+                TransferState.Failed => "Transfer failed",
+                _ => "Transfer updated"
+            };
+        }
+
+        /// <summary>
+        /// Single owner of StatusBar visibility. Two independent features want
+        /// the bar (SSH port forwards, agent access), so neither writes
+        /// IsVisible directly. Only persistent conditions appear here: the bar
+        /// appearing or disappearing resizes the terminal, so agent *activity*
+        /// must never reach this.
+        ///
+        /// It owns the agent segment's own visibility too — both the clickable
+        /// wrapper and the panel inside it, so an invisible segment leaves no
+        /// button padding behind in the bar.
+        /// </summary>
+        internal void UpdateStatusBarVisibility()
+        {
+            bool sshForwards = Profile != null && Profile.Forwards.Count > 0;
+            StatusBar.IsVisible = sshForwards || _agentActable;
+            AgentStatusButton.IsVisible = _agentActable;
+            AgentStatusSegment.IsVisible = _agentActable;
+        }
+
+        /// <summary>
+        /// Renders the pane's agent attention tier. Called on the UI thread from
+        /// the registration's <c>AttentionMachine.Changed</c> event (a tier
+        /// transition) and from its <c>ActabilityChanged</c> event (act-reachability
+        /// republished with no tier transition — the global act toggle, or an
+        /// SSH allowlist edit, on an otherwise-idle pane).
+        /// </summary>
+        internal void ApplyAgentAttention(Ntilde.AgentHost.AgentAttentionSnapshot snapshot, bool isActable)
+        {
+            _agentActable = isActable;
+            UpdateStatusBarVisibility();
+
+            if (!_agentActable) return;
+
+            switch (snapshot.Tier)
+            {
+                case Ntilde.AgentHost.AgentAttentionTier.Wrote:
+                    AgentStatusDot.Fill = new SolidColorBrush(Color.Parse("#E8A33D"));
+                    AgentStatusText.Text = "agent typed";
+                    AgentStatusText.Foreground = new SolidColorBrush(Color.Parse("#F0C07A"));
+                    break;
+                case Ntilde.AgentHost.AgentAttentionTier.Watched:
+                    AgentStatusDot.Fill = new SolidColorBrush(Color.Parse("#4FB0D4"));
+                    AgentStatusText.Text = "agent reading";
+                    AgentStatusText.Foreground = new SolidColorBrush(Color.Parse("#7FC3DC"));
+                    break;
+                default:
+                    AgentStatusDot.Fill = new SolidColorBrush(Color.Parse("#6B737F"));
+                    AgentStatusText.Text = "agent access";
+                    AgentStatusText.Foreground = new SolidColorBrush(Color.Parse("#AAAAAA"));
+                    break;
+            }
+
+            ToolTip.SetTip(AgentStatusButton, BuildAgentSegmentTooltip(snapshot));
+        }
+
+        /// <summary>
+        /// The segment's hover text. The two-word label in the bar cannot say
+        /// *when* an agent typed, and the write tier is sticky for at least ten
+        /// seconds, so "agent typed" alone leaves the user unable to tell a
+        /// write from a moment ago from one they already saw. Names the method
+        /// too, since sendInput and closeSession are very different events.
+        /// </summary>
+        private static string BuildAgentSegmentTooltip(Ntilde.AgentHost.AgentAttentionSnapshot snapshot)
+        {
+            const string Suffix = " Click to open the agent activity journal.";
+            switch (snapshot.Tier)
+            {
+                case Ntilde.AgentHost.AgentAttentionTier.Wrote:
+                    string when = snapshot.LastWriteUtc.HasValue
+                        ? snapshot.LastWriteUtc.Value.ToLocalTime().ToString(
+                            "HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
+                        : "just now";
+                    string method = string.IsNullOrEmpty(snapshot.LastWriteMethod)
+                        ? "an agent"
+                        : snapshot.LastWriteMethod;
+                    return $"An agent typed into this pane at {when} ({method})." + Suffix;
+                case Ntilde.AgentHost.AgentAttentionTier.Watched:
+                    return "An agent is reading this pane." + Suffix;
+                default:
+                    return "An agent can read this pane and type into it." + Suffix;
+            }
+        }
+
+        // Raised on the endpoint's IPC or timer thread; Avalonia controls are
+        // UI-thread only, so hop before touching the status bar. The handler
+        // body stays a bare Dispatcher.UIThread.Post with no logic in it:
+        // AgentAttentionMachine.DrainPendingEvents rethrows subscriber
+        // exceptions on the calling thread, and that thread is serving a live
+        // agent-host request. Guard the Post itself too — during teardown the
+        // dispatcher can be gone while the endpoint is still serving requests.
+        private void OnAgentAttentionChanged(Ntilde.AgentHost.AgentAttentionSnapshot snapshot)
+        {
+            var registration = _agentRegistration;
+            if (registration == null) return;
+            try
+            {
+                this.Dispatcher.Post(() => ApplyAgentAttention(snapshot, registration.IsAgentActable));
+            }
+            catch (Exception)
+            {
+                // Dispatcher unavailable during app teardown; nothing to render to.
+                // Never let this escape: it runs on the endpoint's IPC/timer
+                // thread, and AgentAttentionMachine.Changed rethrows subscriber
+                // exceptions on that same thread.
+            }
+        }
+
+        // Raised on AgentSessionRegistration.IsAgentActable's setter thread —
+        // AgentHostService.RefreshActability runs it from the 1 s sweep and
+        // from the act-toggle setter, neither of which is the UI thread — so
+        // hop the same way OnAgentAttentionChanged does. Kept to a bare guarded
+        // Dispatcher.UIThread.Post with no logic in the body for the same
+        // reason: a throw here must never propagate back into whatever caller
+        // flipped actability (the endpoint's request handling, in the toggle
+        // case). The registration only raises this on an actual value change,
+        // so this cannot become a once-per-second post storm from the sweep.
+        //
+        // ActabilityChanged carries no payload on purpose, and this reads
+        // IsAgentActable *inside* the posted lambda rather than capturing it.
+        // RefreshActability can run concurrently (sweep thread, act-toggle
+        // setter, allowlist edit) and two racing writers can compute different
+        // values for the same SSH pane; the one that stores first may raise
+        // last, so a captured bool can render the value that lost the race.
+        // Because the setter raises only on an actual change, no later sweep
+        // would ever correct that — the pane would stay unmarked forever while
+        // agents could still type into it. Reading through the registration
+        // makes the stale channel structurally impossible: whichever post runs
+        // last renders whatever the registration currently holds.
+        private void OnAgentActabilityChanged()
+        {
+            var registration = _agentRegistration;
+            if (registration == null) return;
+            try
+            {
+                this.Dispatcher.Post(() =>
+                    ApplyAgentAttention(registration.AttentionMachine.Snapshot(), registration.IsAgentActable));
+            }
+            catch (Exception)
+            {
+                // Dispatcher unavailable during app teardown; nothing to render to.
+            }
+        }
+
+        /// <summary>
+        /// Test-only trigger for the SSH forwarding refresh that normally runs off
+        /// <see cref="_statusTimer"/>'s 2-second tick. Tests construct a pane with
+        /// forwards but never wait out a real timer, so without this hook the SSH
+        /// half of the status bar (label, per-rule rows) never renders.
+        /// </summary>
+        internal void UpdateForwardingStatusForTesting() => UpdateForwardingStatus();
+
+        /// <summary>
+        /// Test-only access to the pane's agent-host registration, so tests can
+        /// flip <see cref="Ntilde.AgentHost.AgentSessionRegistration.IsAgentActable"/>
+        /// through the exact setter <c>AgentHostService.RefreshActability</c>
+        /// uses, without a live endpoint or settings service.
+        /// </summary>
+        internal Ntilde.AgentHost.AgentSessionRegistration? AgentRegistrationForTesting => _agentRegistration;
+
+        private void UpdateForwardingStatus()
+        {
+            if (Profile == null || Profile.Forwards.Count == 0)
+            {
+                ClearForwardingStatusUi();
+                UpdateStatusBarVisibility();
+                return;
+            }
+
+            bool anyChanges = false;
+            foreach (var rule in Profile.Forwards)
+            {
+                var oldStatus = rule.Status;
+
+                if (rule.Type == ForwardingType.Remote)
+                {
+                    // For now, assume remote is active if session is alive
+                    rule.Status = (Session != null) ? ForwardingStatus.Active : ForwardingStatus.Stopped;
+                }
+                else
+                {
+                    bool isListening = CheckIfPortIsListening(rule);
+                    if (isListening) rule.Status = ForwardingStatus.Active;
+                    else if (Session != null) rule.Status = ForwardingStatus.Starting;
+                    else rule.Status = ForwardingStatus.Stopped;
+                }
+
+                if (oldStatus != rule.Status) anyChanges = true;
+            }
+
+            // "Never rendered yet" used to be inferred from !StatusBar.IsVisible,
+            // on the assumption that the forwards were the only thing that could
+            // have raised the bar. They are not: the agent segment shares it, and
+            // an allowlisted SSH pane can now be born actable (SetupCommon seeds
+            // act-reachability so the bar never reflows the PTY a second later),
+            // which would raise the bar before this ever ran and leave the
+            // forwards half blank until some rule's status happened to change.
+            // Track the render explicitly instead of inferring it.
+            if (anyChanges || !_forwardingStatusUiBuilt)
+            {
+                UpdateStatusBarUI();
+                (VisualRoot as MainWindow)?.UpdateTabVisuals();
+            }
+        }
+
+        /// <summary>
+        /// Photographs this pane's live control for the agent-host <c>live</c>
+        /// capture mode (A5). UI thread only. Null when the pane has never been
+        /// laid out, or the image would exceed the per-capture pixel budget.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately the on-screen control rather than a buffer re-render: this
+        /// is the mode that exists to carry what the headless path structurally
+        /// cannot — the user's background image and window opacity, which the draw
+        /// operation never paints. It costs reproducibility (the same session
+        /// photographs differently as the window moves, resizes, or is covered) and
+        /// only works while the pane is on screen, which is why <c>render</c> stays
+        /// the default.
+        ///
+        /// <paramref name="scale"/> is applied as the render DPI, the same knob the
+        /// manual PNG export takes from <c>TopLevel.RenderScaling</c> — but named by
+        /// the caller here, so a live capture does not silently change resolution
+        /// when the window moves between monitors.
+        /// </remarks>
+        internal Ntilde.AgentHost.AgentLiveCapture? CaptureLiveForAgent(int maxWidth, double scale)
+        {
+            var view = TermView;
+            if (view == null) return null;
+
+            double width = view.Bounds.Width;
+            double height = view.Bounds.Height;
+            if (width <= 0 || height <= 0)
+            {
+                // Never laid out (a pane in a background tab that has not been
+                // shown yet), so there are no on-screen pixels to photograph.
+                return null;
+            }
+
+            double effectiveScale = scale <= 0
+                ? 1.0
+                : Math.Min(scale, Ntilde.AgentHost.Contracts.AgentHostProtocol.MaxCaptureScale);
+            var pixelSize = new PixelSize(
+                (int)Math.Ceiling(width * effectiveScale),
+                (int)Math.Ceiling(height * effectiveScale));
+            if (pixelSize.Width <= 0 || pixelSize.Height <= 0) return null;
+            if ((long)pixelSize.Width * pixelSize.Height > Ntilde.AgentHost.Contracts.AgentHostProtocol.MaxCapturePixels)
+            {
+                return null;
+            }
+
+            try
+            {
+                byte[] png;
+                using (var rtb = new Avalonia.Media.Imaging.RenderTargetBitmap(
+                    pixelSize, new Vector(96 * effectiveScale, 96 * effectiveScale)))
+                {
+                    rtb.Render(view);
+                    using var stream = new System.IO.MemoryStream();
+                    rtb.Save(stream);
+                    png = stream.ToArray();
+                }
+
+                if (maxWidth <= 0 || pixelSize.Width <= maxWidth)
+                {
+                    return new Ntilde.AgentHost.AgentLiveCapture(png, pixelSize.Width, pixelSize.Height, Downscaled: false);
+                }
+
+                // Round-tripping through Skia to resample: RenderTargetBitmap gives
+                // an Avalonia bitmap, and the one resampler in the product that is
+                // pinned to fixed sampling lives in TerminalSnapshotRenderer. A
+                // screenshot is rare enough that the extra decode is not worth a
+                // second scaling path.
+                using var decoded = SkiaSharp.SKBitmap.Decode(png);
+                if (decoded == null)
+                {
+                    return new Ntilde.AgentHost.AgentLiveCapture(png, pixelSize.Width, pixelSize.Height, Downscaled: false);
+                }
+                using var resized = Ntilde.Shell.TerminalSnapshotRenderer.DownscaleToWidth(decoded, maxWidth);
+                if (resized == null)
+                {
+                    return new Ntilde.AgentHost.AgentLiveCapture(png, pixelSize.Width, pixelSize.Height, Downscaled: false);
+                }
+                return new Ntilde.AgentHost.AgentLiveCapture(
+                    Ntilde.Shell.TerminalSnapshotRenderer.EncodePng(resized),
+                    resized.Width,
+                    resized.Height,
+                    Downscaled: true);
+            }
+            catch (Exception ex)
+            {
+                // A capture is a read: a failed one must never take down the pane
+                // or the endpoint.
+                System.Diagnostics.Debug.WriteLine($"[TerminalPane] live agent capture failed: {ex}");
+                return null;
+            }
+        }
+
+        public async Task ExportSnapshotAsync(string format)
+        {
+            if (Buffer == null) return;
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null) return;
+
+            string ext = format.ToLowerInvariant() switch
+            {
+                "png" => ".png",
+                "ansi" => ".ansi",
+                _ => ".txt"
+            };
+
+            var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = $"Export Terminal Snapshot ({format.ToUpperInvariant()})",
+                SuggestedFileName = $"snapshot_{DateTime.Now:yyyyMMdd_HHmmss}{ext}"
+            });
+
+            if (file == null) return;
+
+            try
+            {
+                if (format.Equals("png", StringComparison.OrdinalIgnoreCase))
+                {
+                    var dpi = topLevel.RenderScaling;
+                    var pixelSize = new PixelSize(
+                        (int)Math.Ceiling(TermView.Bounds.Width * dpi),
+                        (int)Math.Ceiling(TermView.Bounds.Height * dpi));
+
+                    var rtb = new Avalonia.Media.Imaging.RenderTargetBitmap(pixelSize, new Vector(96 * dpi, 96 * dpi));
+                    rtb.Render(TermView);
+
+                    using var stream = await file.OpenWriteAsync();
+                    rtb.Save(stream);
+                }
+                else if (format.Equals("ansi", StringComparison.OrdinalIgnoreCase))
+                {
+                    string data = Ntilde.VT.Export.TerminalExporter.ExportToAnsi(Buffer);
+                    using var stream = await file.OpenWriteAsync();
+                    using var writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8);
+                    await writer.WriteAsync(data);
+                }
+                else
+                {
+                    string data = Ntilde.VT.Export.TerminalExporter.ExportToPlainText(Buffer);
+                    using var stream = await file.OpenWriteAsync();
+                    using var writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8);
+                    await writer.WriteAsync(data);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TerminalPane] Failed to export snapshot: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Drops whatever the forwarding half of the status bar last rendered.
+        ///
+        /// Before the agent segment existed, "no forwards" meant the bar itself
+        /// was hidden, so nothing stale could be on screen and
+        /// <see cref="UpdateForwardingStatus"/> could simply return. It cannot
+        /// any more: the bar now also stays up for an agent-actable pane, so an
+        /// SSH profile edited down to zero forwarding rules would keep
+        /// advertising the rules it used to have, indefinitely.
+        ///
+        /// Deliberately does not touch <c>StatusBar.IsVisible</c> —
+        /// <see cref="UpdateStatusBarVisibility"/> is its sole writer, because
+        /// the bar appearing or disappearing reflows the PTY.
+        ///
+        /// The built flag is reset alongside the controls so that a profile
+        /// which regains forwards renders them on the next pass instead of
+        /// waiting for some rule's status to change. The early return keeps
+        /// this off the hot path: the 2 s tick reaches it on every local pane,
+        /// which never built anything to clear.
+        /// </summary>
+        private void ClearForwardingStatusUi()
+        {
+            if (!_forwardingStatusUiBuilt) return;
+
+            _forwardingStatusUiBuilt = false;
+            StatusBarLabel.Text = string.Empty;
+            StatusBarRules.Children.Clear();
+        }
+
+        private void UpdateStatusBarUI()
+        {
+            if (Profile == null) return;
+            UpdateStatusBarVisibility();
+            _forwardingStatusUiBuilt = true;
+            StatusBarLabel.Text = $"SSH ▸ {Profile.Name} ▸";
+            StatusBarRules.Children.Clear();
+
+            foreach (var rule in Profile.Forwards)
+            {
+                var container = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 4 };
+
+                var icon = new TextBlock
+                {
+                    Text = "🔁",
+                    FontSize = 10,
+                    Foreground = rule.Status switch
+                    {
+                        ForwardingStatus.Active => Brushes.LimeGreen,
+                        ForwardingStatus.Starting => Brushes.Yellow,
+                        ForwardingStatus.Failed => Brushes.Red,
+                        _ => Brushes.Gray
+                    },
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+                };
+
+                var txt = new TextBlock
+                {
+                    Text = rule.Type switch
+                    {
+                        ForwardingType.Local => $"L:{rule.LocalAddress}→{rule.RemoteAddress}",
+                        ForwardingType.Remote => $"R:{rule.RemoteAddress}→{rule.LocalAddress}",
+                        ForwardingType.Dynamic => $"D:{rule.LocalAddress}",
+                        _ => ""
+                    },
+                    FontSize = 10,
+                    Foreground = Brushes.White,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+                };
+
+                container.Children.Add(icon);
+                container.Children.Add(txt);
+                StatusBarRules.Children.Add(container);
+            }
+        }
+
+        private bool CheckIfPortIsListening(ForwardingRule rule)
+        {
+            try
+            {
+                string portStr = rule.LocalAddress;
+                if (portStr.Contains(':')) portStr = portStr.Split(':').Last();
+                if (!int.TryParse(portStr, out int port)) return false;
+
+                var properties = IPGlobalProperties.GetIPGlobalProperties();
+                var listeners = properties.GetActiveTcpListeners();
+                return listeners.Any(l => l.Port == port);
+            }
+            catch { return false; }
+        }
+
+        private void ApplyShellIntegrationLaunchPlan(
+            TerminalProfile? profile,
+            ref string effectiveShell,
+            ref string args,
+            string startingDirectory)
+        {
+            if (_settings == null || !_settings.CommandAssistShellIntegrationEnabled)
+            {
+                return;
+            }
+
+            string shellKind = DetermineShellKind(effectiveShell);
+            ShellIntegrationRegistry registry = RequireCommandAssistServices().ShellIntegrationRegistry;
+            IShellIntegrationProvider? provider = registry.GetProvider(shellKind, profile?.Command);
+            if (provider == null)
+            {
+                return;
+            }
+
+            if (!_settings.CommandAssistPowerShellIntegrationEnabled &&
+                provider is PowerShellShellIntegrationProvider)
+            {
+                return;
+            }
+
+            ShellIntegrationLaunchPlan plan;
+            try
+            {
+                plan = provider.CreateLaunchPlan(effectiveShell, args, startingDirectory);
+            }
+            catch
+            {
+                return;
+            }
+
+            if (!plan.IsIntegrated)
+            {
+                return;
+            }
+
+            effectiveShell = plan.ShellCommand;
+            args = plan.ShellArguments ?? string.Empty;
+            _isShellIntegrationActive = true;
+            _shellIntegrationEnvOverrides = plan.EnvironmentOverrides;
+            ArmShellIntegrationTracker();
+        }
+
+        /// <summary>
+        /// Arms the translator that turns raw OSC 133 parser callbacks into the ordered
+        /// <see cref="ShellIntegrationEvent"/> stream Command Assist consumes.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately separate from <c>_isShellIntegrationActive</c>, which the injection caller
+        /// sets and which means something narrower: that <em>we</em> injected a bootstrap into this
+        /// shell. Arming the translator only says the events will be delivered if they arrive - it
+        /// is inert on a shell that emits no marks, since every tracker entry point is reached only
+        /// from a parser mark callback. V2 Phase 2b is where a session we did not instrument arms it
+        /// too; see <see cref="ArmRemoteShellIntegrationTracker"/>. Internal so a headless test can
+        /// drive the real parser to tracker to dispatcher to controller path without spawning a
+        /// shell.
+        /// </remarks>
+        internal void ArmShellIntegrationTracker()
+        {
+            _shellLifecycleTracker = new ShellLifecycleTracker();
+            _shellLifecycleTracker.EventObserved += OnShellIntegrationEventObserved;
+        }
+
+        /// <summary>
+        /// Arms the OSC 133 translator for an SSH session, so that a remote shell the user has
+        /// instrumented themselves (see <c>docs/command-assist/RemoteShellIntegration.md</c>) gets
+        /// the same Command Assist treatment a local integrated shell does.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why unconditionally, before any mark has been seen.</b> The alternative - arm lazily on
+        /// the first observed mark - loses that mark. <c>133;A</c> and the first <c>133;B</c> arrive
+        /// with the very first remote prompt, and the <c>B</c> is what opens the command-input window
+        /// the grid reader is gated on; a tracker armed after it would leave the first command line
+        /// unreadable for no gain. Arming costs one object and one event subscription on a session
+        /// that may never emit a mark, and produces no events until one does.
+        /// </para>
+        /// <para>
+        /// <b>Why it cannot regress markless SSH.</b> Every path into
+        /// <see cref="ShellLifecycleTracker"/> is a parser mark callback. A remote host with no
+        /// snippet installed emits no OSC 133, so no event is ever dispatched, no
+        /// <c>HasObservedShellIntegrationMarker</c> is set, and the heuristic Enter-time capture and
+        /// the conservative markless anchoring stack behave exactly as they did before. The
+        /// agent-status machinery is not affected either way: it hangs off the parser callbacks
+        /// directly, never off the tracker.
+        /// </para>
+        /// <para>
+        /// <b>Gated on the shell-integration setting</b>, which is the same switch that decides
+        /// whether we inject locally. It is the user's "do not participate in the OSC 133 contract"
+        /// control, and a remote host is exactly where they cannot simply uninstall the emitter.
+        /// (Mark-based overlay <em>anchoring</em> is deliberately not gated on it - that path reads
+        /// the parser's mark directly and predates this switch's remote meaning.)
+        /// </para>
+        /// <param name="profile">
+        /// The profile being connected. Passed explicitly because
+        /// <see cref="InitializeSessionCore"/> runs before <see cref="Profile"/> has necessarily
+        /// caught up with the session being built; falls back to <see cref="Profile"/> for callers
+        /// (and tests) that have already published it.
+        /// </param>
+        /// </remarks>
+        internal void ArmRemoteShellIntegrationTracker(TerminalProfile? profile = null)
+        {
+            profile ??= Profile;
+            if (profile?.Type != ConnectionType.SSH)
+            {
+                return;
+            }
+
+            if (_settings != null && !_settings.CommandAssistShellIntegrationEnabled)
+            {
+                return;
+            }
+
+            ArmShellIntegrationTracker();
+        }
+
+        private void OnShellIntegrationEventObserved(ShellIntegrationEvent shellEvent)
+        {
+            if (shellEvent.Type == ShellIntegrationEventType.CommandAccepted &&
+                !string.IsNullOrWhiteSpace(shellEvent.CommandText))
+            {
+                _lastRelevantCommandText = shellEvent.CommandText.Trim();
+            }
+
+            // OSC 133;B (CommandStarted) used to be dropped here as a no-op: nothing consumed it,
+            // and B fires once per prompt AND once per prompt repaint, so forwarding it only
+            // queued dead work onto the serialized dispatcher ahead of events that did something.
+            //
+            // Phase 1c gave it a job. B is what opens Command Assist's command-input window
+            // (AssistSessionContext.IsAcceptingCommandInput), and that window is the lifecycle gate
+            // on reading the command line out of the grid: with the event dropped, the gate would
+            // never open and grid-truth query state would be dead on arrival. The early-out is
+            // therefore gone, and the repaint cost -- one dispatcher hop per prompt paint, doing an
+            // idempotent bool set and a marker observation -- is the price of the gate.
+            //
+            // Faults are logged rather than dropped. This dispatch is fire-and-forget, so an exception
+            // anywhere in the handler used to vanish into an unobserved Task - which is how a
+            // cross-thread Avalonia write inside Command Assist initialization could break the assist
+            // overlay's content with no error anywhere (the post-3a blank-overlay regression, fixed in
+            // BindCommandAssistViews). One log line is the difference between that and a mystery.
+            _ = _shellIntegrationEventDispatcher
+                .EnqueueAsync(() => HandleShellIntegrationEventAsync(shellEvent))
+                .ContinueWith(
+                    static task => TerminalLogger.Log(
+                        LogLevel.Error,
+                        "Shell integration event dispatch failed: " + task.Exception),
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+        }
+
+        /// <summary>
+        /// Reads the live command line out of the terminal grid: the cells between the newest
+        /// <c>OSC 133;B</c> mark and the cursor.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The Phase 1b seam. Combines the three things the reader needs and the pane is the
+        /// only place that has all of: the newest mark, the buffer, and the buffer's read lock
+        /// (taken by <see cref="GridQueryReader"/> itself).
+        /// </para>
+        /// <para>
+        /// <b>Lifecycle.</b> The mark is dropped on <c>OSC 133;D</c> (command finished), so
+        /// between one command's end and the next prompt's <c>B</c> this returns <c>false</c>
+        /// rather than serving that command's output as a command line. It is deliberately kept
+        /// across <c>OSC 133;C</c>: C fires the instant the user submits, while the input line is
+        /// still on screen and still exactly what the mark describes.
+        /// <see cref="GridQueryReader.MaxSpanRows"/> remains as a backstop for shells that emit
+        /// <c>B</c> without a matching <c>D</c>.
+        /// </para>
+        /// <para>
+        /// <b>The mark is only half the gate.</b> Whether the cells between it and the cursor are a
+        /// command line the user is editing or the output of a command that already ran is a
+        /// lifecycle fact, and Command Assist holds it
+        /// (<c>AssistSessionContext.IsAcceptingCommandInput</c>, opened by <c>133;B</c> and closed
+        /// by <c>133;C</c>). This seam answers only "can the grid be read from the newest mark";
+        /// <see cref="TryReadAssistQuerySnapshot"/> is what the orchestrator calls, and the
+        /// orchestrator applies the gate before calling it.
+        /// </para>
+        /// </remarks>
+        /// <returns><c>false</c> when there is no live mark or the grid cannot be read.</returns>
+        internal bool TryGetGridCommandLine(out GridCommandLine line)
+        {
+            line = default;
+
+            var buffer = Buffer;
+            if (buffer == null)
+            {
+                return false;
+            }
+
+            ShellIntegrationMark? mark = buffer.CommandStartMark;
+
+            return mark is ShellIntegrationMark live
+                && GridQueryReader.TryReadCommandLine(buffer, live, out line);
+        }
+
+        /// <summary>
+        /// The App-boundary mapping: <see cref="GridCommandLine"/> (VT) to
+        /// <see cref="AssistQuerySnapshot"/> (Command Assist). This is the provider handed to the
+        /// controller, and the only place the two type systems meet.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Callable from any thread, and it is: the suggestion orchestrator invokes it from the
+        /// worker its refresh pass runs on, deliberately, so the read lands behind the queue hop
+        /// rather than on the keystroke that triggered it. Both things it touches are safe for
+        /// that - the mark is read under the buffer's tracked-mark lock (see
+        /// <see cref="TerminalBuffer.CommandStartMark"/>) and <see cref="GridQueryReader"/> takes
+        /// the buffer's own read lock.
+        /// </para>
+        /// <para>
+        /// The span's <c>StartRow</c>/<c>EndRow</c> are dropped rather than carried across. Nothing
+        /// on the far side has a use for buffer coordinates, and Phase 2's anchoring work will take
+        /// the <c>133;A</c> row through the anchor calculator instead.
+        /// </para>
+        /// </remarks>
+        internal AssistQuerySnapshot? TryReadAssistQuerySnapshot()
+        {
+            return TryGetGridCommandLine(out GridCommandLine line)
+                ? new AssistQuerySnapshot(
+                    Text: line.Text,
+                    CursorOffset: line.CursorOffset,
+                    IsMultiline: line.IsMultiline,
+                    RightPromptTrimmed: line.RightPromptTrimmed,
+                    TextAfterCursorIsGhost: line.TextAfterCursorIsGhost)
+                : null;
+        }
+
+        /// <summary>
+        /// The query as Command Assist actually sees it: the grid read with the lifecycle gate
+        /// applied.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately distinct from <see cref="TryReadAssistQuerySnapshot"/>, which is the raw
+        /// seam and is ungated on purpose. The <c>133;B</c> mark survives <c>133;C</c> (it is only
+        /// dropped on <c>D</c>), so the seam keeps answering while a command runs, and the thing
+        /// that says its answer must not be believed is
+        /// <c>AssistSessionContext.IsAcceptingCommandInput</c>, applied inside
+        /// <c>SuggestionOrchestrator</c>. A test asserting "the gate closed" has to ask on this side
+        /// of it; asking the seam would assert the mark lifecycle instead and pass for the wrong
+        /// reason.
+        /// </remarks>
+        internal AssistQuerySnapshot? TryReadGatedAssistQuerySnapshotForTest() =>
+            _commandAssistController?.TryReadQuerySnapshot();
+
+        /// <summary>
+        /// Records where the running command's output begins, at the <c>OSC 133;C</c> edge.
+        /// </summary>
+        /// <remarks>
+        /// Called on the PTY parse thread. Cheap by construction - one bounded grid walk to find
+        /// the last row of the input line - and unconditional, because the thing being recorded is
+        /// a coordinate, not content: skipping it for successful commands would mean not knowing,
+        /// at <c>D</c>, whether the command that just failed had one.
+        /// </remarks>
+        private void CaptureCommandOutputRegionStart()
+        {
+            TerminalBuffer? buffer = Buffer;
+            if (buffer == null)
+            {
+                return;
+            }
+
+            ShellIntegrationMark? commandLineMark = buffer.CommandStartMark;
+
+            bool captured = CommandOutputReader.TryCaptureOutputStart(
+                buffer, commandLineMark, out ShellIntegrationMark outputStart);
+
+            buffer.CommandOutputStartMark = captured ? outputStart : null;
+
+            // The Agent Output tracker starts streaming here too: it resolves the region from the
+            // same buffer mark at read time, so this notification only flips it into streaming
+            // state and clears any markless heuristic start.
+            _agentOutputTracker?.NotifyCommandAccepted();
+        }
+
+        /// <summary>
+        /// The redacted tail of a failing command's output, read at the <c>OSC 133;D</c> edge.
+        /// </summary>
+        /// <returns>
+        /// Null for a success, for a missing exit code, for a session with no <c>C</c> mark to
+        /// bound the region, and for any grid the reader will not vouch for. Never a partial or
+        /// speculative answer.
+        /// </returns>
+        /// <remarks>
+        /// <para>
+        /// <strong>The cap comes before the redaction, and that ordering is the point.</strong>
+        /// <see cref="CommandOutputReader"/> stops walking after 40 logical lines or 8 KB, so the
+        /// regex pass below runs over at most 8 KB however much the command printed. Redacting
+        /// first and truncating afterwards would make a failing <c>terraform apply</c> pay for
+        /// megabytes of scrollback on the parse thread.
+        /// </para>
+        /// <para>
+        /// <strong>Redaction happens here, not downstream.</strong> This is the boundary: above it
+        /// the text is raw grid content owned by the VT layer, below it the text is a plain string
+        /// inside <c>CommandFailureContext</c> that Phase 5's provider seam may eventually send off
+        /// the machine. One call site is one thing to audit, and
+        /// <c>PaneCommandOutputCaptureTests</c> fails if it is removed.
+        /// </para>
+        /// </remarks>
+        private string? TryCaptureFailureOutputTail(int? exitCode)
+        {
+            if (exitCode is null or 0)
+            {
+                return null;
+            }
+
+            TerminalBuffer? buffer = Buffer;
+            if (buffer == null)
+            {
+                return null;
+            }
+
+            ShellIntegrationMark? outputStart = buffer.CommandOutputStartMark;
+
+            if (outputStart is not ShellIntegrationMark region)
+            {
+                return null;
+            }
+
+            if (!CommandOutputReader.TryReadOutputTail(buffer, region, out string tail) ||
+                string.IsNullOrWhiteSpace(tail))
+            {
+                return null;
+            }
+
+            ISecretsFilter filter = _commandAssistServices?.SecretsFilter ?? FallbackSecretsFilter;
+            return filter.Redact(tail).RedactedText;
+        }
+
+        /// <summary>
+        /// Used when no services graph has been attached (headless tests, a pane created before
+        /// composition). <see cref="SecretsFilter"/> is stateless, so one instance is enough - and
+        /// the alternative, skipping redaction when there is no graph, would make the guarantee
+        /// conditional on wiring.
+        /// </summary>
+        private static readonly ISecretsFilter FallbackSecretsFilter = new SecretsFilter();
+
+        /// <summary>The tail captured for the last failing command. Test seam; see the field.</summary>
+        internal string? LastFailureOutputTailForTest => _lastFailureOutputTailForTest;
+
+        internal async Task HandleCommandAssistCompletionAsync(int? exitCode, string? outputTail = null)
+        {
+            if (!EnsureCommandAssistInitialized())
+            {
+                return;
+            }
+
+            // Only when nothing else will patch the entry. An armed tracker turns this same OSC 133;D
+            // into a CommandFinished event that patches the exit code *and* the duration, and it is
+            // the better of the two; running both means the first one clears the pending entry and
+            // the second silently does nothing, which loses the duration.
+            //
+            // Keyed on the tracker rather than on _isShellIntegrationActive since V2 Phase 2b: for a
+            // remote session the latter is false while the tracker is armed, and the old condition
+            // would have raced the structured patch on every SSH command.
+            if (_shellLifecycleTracker == null)
+            {
+                await _commandAssistController.HandleCommandFinishedAsync(exitCode);
+            }
+
+            if (!exitCode.HasValue || exitCode.Value == 0 || Buffer?.IsAltScreenActive == true)
+            {
+                return;
+            }
+
+            string commandText = _lastRelevantCommandText?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(commandText))
+            {
+                return;
+            }
+
+            var context = new CommandFailureContext(
+                CommandText: commandText,
+                ExitCode: exitCode,
+                ShellKind: DetermineShellKind(Session?.ShellCommand ?? ShellCommand),
+                WorkingDirectory: CurrentWorkingDirectory,
+
+                // V2 Phase 4a task 1: was a hard-coded null, which made two of the three branches
+                // in HeuristicErrorInsightService unreachable and Fix mode a typo corrector with no
+                // evidence. Captured at D on the parse thread and redacted there; see
+                // TryCaptureFailureOutputTail.
+                OutputTail: outputTail,
+                IsRemote: Profile?.Type == ConnectionType.SSH,
+                SelectedText: null);
+
+            await _commandAssistController.HandleCommandFailureAsync(context);
+        }
+
+        private async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
+        {
+            if (!EnsureCommandAssistInitialized())
+            {
+                return;
+            }
+
+            try
+            {
+                await _commandAssistController.HandleShellIntegrationEventAsync(shellEvent);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TerminalPane] Shell integration event handling failed: {ex.Message}");
+            }
+        }
+
+        private readonly record struct CommandAssistSurfaceSizing(
+            double BubbleWidth,
+            double BubbleHeight,
+            double PopupWidth,
+            double PopupHeight);
+
+        /// <summary>
+        /// The three facts about the popup's contents that change how tall it needs to be.
+        /// </summary>
+        /// <remarks>
+        /// Internal, and a parameter rather than something
+        /// <see cref="EstimateCommandAssistPopupHeight"/> reads off the bound view-model, so the
+        /// height rule is a pure function the suite can drive across row counts without a pane, a
+        /// session or a render pass.
+        /// </remarks>
+        internal readonly record struct CommandAssistPopupContentSize(
+            int RowCount,
+            bool ShowEmptyState,
+            bool HasAttribution);
+
+        private sealed class TestRemoteDirectoryBrowserService : IRemoteDirectoryBrowserService
+        {
+            public Task<RemoteSidebarListingResult> ListDirectoryAsync(
+                Guid profileId,
+                Guid sessionId,
+                string remotePath,
+                CancellationToken cancellationToken)
+            {
+                string resolvedPath = string.IsNullOrWhiteSpace(remotePath) ? "~" : remotePath;
+                return Task.FromResult(RemoteSidebarListingResult.Success(
+                    resolvedPath,
+                    Array.Empty<RemoteSidebarEntry>()));
+            }
+        }
+    }
+}

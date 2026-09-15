@@ -1,6 +1,6 @@
-# NovaTerminal Theme System
+# Ntilde Theme System
 
-NovaTerminal features a robust theme management system that separates visual appearance (color schemes) from functional settings. This allows users to switch between different color palettes without altering their core configuration.
+Ntilde features a robust theme management system that separates visual appearance (color schemes) from functional settings. This allows users to switch between different color palettes without altering their core configuration.
 
 ## Overview
 

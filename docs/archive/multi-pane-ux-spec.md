@@ -1,5 +1,5 @@
 # Multi-Pane UX Specification
-Product: NovaTerminal
+Product: Ntilde
 Audience: Desktop power users (developers, DevOps, SRE)
 Scope: Cross-platform (Windows, Linux, macOS)
 

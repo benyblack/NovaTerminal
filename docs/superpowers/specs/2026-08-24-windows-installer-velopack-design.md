@@ -2,8 +2,8 @@
 
 **Date:** 2026-08-24
 **Status:** Design approved, ready for implementation plan
-**Tracking issue:** [#91](https://github.com/benyblack/NovaTerminal/issues/91) — Windows installer + auto-update (Velopack) + code signing (post-0.3)
-**Components:** `.github/workflows/release.yml`, `src/NovaTerminal.App` (`Program`, `MainWindow`, `SettingsWindow`, `Shell/TerminalSettings`, new `Update/`), `Directory.Packages.props`
+**Tracking issue:** [#91](https://github.com/benyblack/ntilde/issues/91) — Windows installer + auto-update (Velopack) + code signing (post-0.3)
+**Components:** `.github/workflows/release.yml`, `src/Ntilde.App` (`Program`, `MainWindow`, `SettingsWindow`, `Shell/TerminalSettings`, new `Update/`), `Directory.Packages.props`
 
 ## Summary
 
@@ -12,13 +12,13 @@ background update path: check GitHub on startup, download quietly, apply on the 
 next restart. Velopack does the packaging (`Setup.exe`, full/delta `.nupkg`, update
 feed index) and the in-app update mechanics.
 
-The portable story does not change. `NovaTerminal-win-x64-vX.Y.Z.zip` keeps its name
+The portable story does not change. `ntilde-win-x64-vX.Y.Z.zip` keeps its name
 and contents, so `packaging/winget/` continues to work untouched and anyone scripting
 that URL is unaffected.
 
 **Not in scope:** Authenticode code signing — the larger half of #91 and the real
 SmartScreen fix — stays open. This installer ships unsigned and will still trip
-SmartScreen on first run. Also out: macOS/Linux Velopack, `win-arm64`, `nova` on PATH,
+SmartScreen on first run. Also out: macOS/Linux Velopack, `win-arm64`, `ntilde` on PATH,
 file associations.
 
 ## Background — what exists today
@@ -26,16 +26,16 @@ file associations.
 - **Releases are three zips.** `release.yml`'s `publish_aot` job publishes
   self-contained NativeAOT bundles for `win-x64`, `linux-x64` and `osx-arm64`
   (`-p:PublishAot=true -p:SkipCliShim=true`), then `Compress-Archive`s each into
-  `NovaTerminal-<rid>-<tag>.zip` and attaches it with `softprops/action-gh-release`.
+  `ntilde-<rid>-<tag>.zip` and attaches it with `softprops/action-gh-release`.
   There is no installer of any kind.
 - **winget packages the zip as portable.** `packaging/winget/` uses
   `InstallerType: zip` + `NestedInstallerType: portable` precisely so that onboarding
   needs no code-signing certificate. Its `InstallerUrl` points at the release zip and
   its `InstallerSha256` pins that exact asset.
-- **The app is NativeAOT.** `NovaTerminal.App.csproj` sets `PublishAot=true`, and
+- **The app is NativeAOT.** `Ntilde.App.csproj` sets `PublishAot=true`, and
   `ci.yml` has an `aot_publish` job that gates it.
 - **`Main` already multiplexes CLI modes.** `Program.Main`
-  (`src/NovaTerminal.App/Program.cs`) dispatches `VtReportCommand`,
+  (`src/Ntilde.App/Program.cs`) dispatches `VtReportCommand`,
   `SshAskPassCommand` and `ReplayCommand` before starting Avalonia, because the AOT
   bundle ships no separate CLI.
 - **A toast pattern already exists.** `RecordingToast` in `MainWindow.axaml` — a
@@ -56,7 +56,7 @@ file associations.
 | Asset layout | Keep today's zip, add installer + feed | Zero churn for `packaging/winget/` and for existing download URLs. |
 | Update channel | Stable tags only (`prerelease: false`) | Prerelease tags must not push users onto unfinished builds. Requires `create_release` to set GitHub's `prerelease` flag from the tag's SemVer suffix — `GithubSource` and `vpk download github` filter on that flag alone, and `CheckForUpdatesAsync` does no suffix filtering at all, so without it a beta tag pulls every stable user onto the beta. |
 | Install scope | Velopack default (per-user, `%LocalAppData%`) | No elevation, no UAC prompt, no certificate needed. |
-| Install directory | `packId` = `NovaTerminalApp`, **not** `NovaTerminal` | Velopack installs to `%LocalAppData%\<packId>` and **uninstall deletes that entire directory**. `AppPaths.RootDirectory` is `%LocalAppData%\NovaTerminal`, so matching the packId to the app name would put config inside the install root and make uninstall silently destroy `settings.json`, `ssh/profiles.json`, `native_known_hosts.json`, command-assist history, workspaces, themes and recordings. Only nupkg names and the install folder derive from packId; `--packTitle` still shows `NovaTerminal` to the user, and existing 0.4.0 config needs no migration. Updates were never at risk (only `current` is replaced) - uninstall is the destructive path, which is why nothing in CI could surface it. |
+| Install directory | `packId` = `NtildeApp`, **not** `Ntilde` | Velopack installs to `%LocalAppData%\<packId>` and **uninstall deletes that entire directory**. `AppPaths.RootDirectory` is `%LocalAppData%\Ntilde`, so matching the packId to the app name would put config inside the install root and make uninstall silently destroy `settings.json`, `ssh/profiles.json`, `native_known_hosts.json`, command-assist history, workspaces, themes and recordings. Only nupkg names and the install folder derive from packId; `--packTitle` still shows `Ntilde` to the user, and existing 0.4.0 config needs no migration. Updates were never at risk (only `current` is replaced) - uninstall is the destructive path, which is why nothing in CI could surface it. |
 | Signing | Deferred | Left on #91; an unsigned installer does not worsen the status quo (the zip's exe is unsigned today). |
 
 ## Packaging: changes to `release.yml`
@@ -74,14 +74,14 @@ All changes are confined to the `win-x64` leg of `publish_aot`, after the existi
    output directory, authenticated with the workflow token. Velopack computes a delta
    only when the previous full `.nupkg` is present locally. The first run finds nothing
    and produces full-only output; that is expected and must not fail the job.
-4. **Pack**: `vpk pack` over `artifacts/publish/win-x64` with `--packId NovaTerminal`,
-   the tag-derived `--packVersion`, `--mainExe NovaTerminal.exe`, and
-   `--icon src/NovaTerminal.App/Assets/nova_icon.ico`. Velopack's own portable zip is
+4. **Pack**: `vpk pack` over `artifacts/publish/win-x64` with `--packId Ntilde`,
+   the tag-derived `--packVersion`, `--mainExe Ntilde.exe`, and
+   `--icon src/Ntilde.App/Assets/ntilde_icon.ico`. Velopack's own portable zip is
    suppressed so the releases page does not carry two near-identical zips (confirm the
    exact flag against `vpk pack --help` during implementation; if there is none, simply
    do not upload that file).
 5. **Upload** through the existing `softprops/action-gh-release` step:
-   - `Setup.exe` — renamed to `NovaTerminal-Setup-win-x64-<tag>.exe` for a releases page
+   - `Setup.exe` — renamed to `ntilde-Setup-win-x64-<tag>.exe` for a releases page
      that reads clearly. The name is free; nothing resolves the installer by name.
    - `*-full.nupkg`, `*-delta.nupkg`, `releases.win.json` — **names exactly as produced**.
      `GithubSource` locates these by name on the latest release; renaming them breaks
@@ -92,7 +92,7 @@ must degrade to full-only output rather than failing the release.
 
 ## App integration
 
-A single `Velopack` `PackageReference` in `NovaTerminal.App`, version pinned in
+A single `Velopack` `PackageReference` in `Ntilde.App`, version pinned in
 `Directory.Packages.props` (the repo uses central package management). An architecture
 test pins the reference to that one project.
 
@@ -106,7 +106,7 @@ swallow them.
 
 ### `UpdateService`
 
-A UI-free seam in a new `src/NovaTerminal.App/Update/`, behind an interface so it is
+A UI-free seam in a new `src/Ntilde.App/Update/`, behind an interface so it is
 testable without a window and without network:
 
 - `Task<UpdateCheckResult> CheckAsync(CancellationToken)` — wraps `UpdateManager` over
@@ -154,7 +154,7 @@ testable without a window and without network:
   `GetOrCreateStagedUserId()` (file read plus write), and
   `GetLatestLocalFullPackage()`, which parses the nuspec inside every local `.nupkg`.
   "Runs on a background task" has to mean the prologue too, not just the network call.
-- On a downloaded update: a **persistent** toast — "NovaTerminal vX.Y.Z is ready" with
+- On a downloaded update: a **persistent** toast — "Ntilde vX.Y.Z is ready" with
   a **Restart now** action and a close button. This is a *new* control modeled on
   `RecordingToast`, not a reuse of that named panel: the two notices can be live at the
   same time and must not contend for one surface. It does not auto-dismiss on a timer
@@ -215,13 +215,13 @@ Worth knowing where these land: `App.Tests` is *not* in the gating unit loop tha
 not block a release on its own.
 
 An earlier draft claimed that did not matter because "`UpdateService` lives in
-`NovaTerminal.App` and only `App.Tests` can reach it". **That is wrong**:
-`NovaTerminal.Architecture.Tests` already carries a `ProjectReference` to
-`NovaTerminal.App`, and *it* is in the gating loop. So the split as shipped is:
+`Ntilde.App` and only `App.Tests` can reach it". **That is wrong**:
+`Ntilde.Architecture.Tests` already carries a `ProjectReference` to
+`Ntilde.App`, and *it* is in the gating loop. So the split as shipped is:
 
 - `UpdateCoordinatorTests` and `UpdateSettingsTests` — pure policy and pure
   serialization, no Avalonia, no Windows, no network — live in
-  `tests/NovaTerminal.Architecture.Tests/Update/`, where a regression actually fails a
+  `tests/Ntilde.Architecture.Tests/Update/`, where a regression actually fails a
   gating job. `UpdateSettingsTests` in particular pins the one regression that must
   never ship: an existing user's settings file silently opting them out of update
   checks.
@@ -232,7 +232,7 @@ Both projects also run on ubuntu in CI, so none of these may require Windows or 
 Velopack install — the seam exists partly for that reason. The release safety net for
 the *packaging* half remains the manual end-to-end check below.
 
-**Architecture:** a test pinning the `Velopack` reference to `NovaTerminal.App`, plus one
+**Architecture:** a test pinning the `Velopack` reference to `Ntilde.App`, plus one
 asserting that the `Velopack` `PackageVersion` in `Directory.Packages.props` equals the
 `--version` passed to `dotnet tool install -g vpk` in `release.yml`. `vpk` writes the
 package format and the feed that the in-app SDK reads, so the two must not drift; a

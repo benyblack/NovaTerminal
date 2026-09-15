@@ -1,0 +1,335 @@
+using System;
+using System.Collections.Concurrent;
+using Avalonia;
+using Avalonia.Media;
+using Ntilde.Rendering;
+using Ntilde.VT;
+using SkiaSharp;
+
+namespace Ntilde.Shell
+{
+    /// <summary>
+    /// How a snapshot resolves the primary Skia font it renders with.
+    /// </summary>
+    public enum SnapshotFontResolution
+    {
+        /// <summary>
+        /// Plain <see cref="SKTypeface.FromFamilyName(string)"/> lookup with Skia's
+        /// default edging and hinting. This is the golden-baseline path: the
+        /// render tests' PNG baselines were captured through it, so it must not
+        /// change behaviour.
+        /// </summary>
+        Simple,
+
+        /// <summary>
+        /// The same resolution the live control uses on screen
+        /// (<see cref="TerminalView.ResolveMonospacePrimaryTypeface"/>: bundled
+        /// font catalog first, then the monospace fallbacks that are probed for
+        /// box-drawing coverage, antialiased and hinted). Use this when the
+        /// snapshot is meant to look like what the user is looking at.
+        /// </summary>
+        LiveParity,
+    }
+
+    /// <summary>
+    /// A live pane's render inputs as plain values, so a snapshot can reproduce
+    /// what is on screen from another thread without reading the control.
+    /// Published by the pane on the UI thread (see
+    /// <c>TerminalPane.UpdateAgentRenderParameters</c>).
+    /// </summary>
+    /// <param name="Metrics">Cell geometry measured by the live control.</param>
+    /// <param name="FontFamily">
+    /// The configured family name — the same string the control resolves its
+    /// primary typeface from, so <see cref="SnapshotFontResolution.LiveParity"/>
+    /// lands on the same font.
+    /// </param>
+    public readonly record struct PaneRenderParameters(
+        CellMetrics Metrics,
+        string FontFamily,
+        float FontSize,
+        bool EnableLigatures,
+        bool EnableComplexShaping)
+    {
+        /// <summary>
+        /// False before the control has measured its font (a pane that was just
+        /// created, or was never laid out): there is no geometry to render into.
+        /// </summary>
+        public bool IsUsable =>
+            Metrics.CellWidth > 0 &&
+            Metrics.CellHeight > 0 &&
+            FontSize > 0 &&
+            !string.IsNullOrWhiteSpace(FontFamily);
+    }
+
+    /// <summary>Knobs for <see cref="TerminalSnapshotRenderer.Capture"/>.</summary>
+    public sealed record TerminalSnapshotOptions
+    {
+        /// <summary>Selection to paint, or null for "nothing selected".</summary>
+        public SelectionState? Selection { get; init; }
+
+        public bool HideCursor { get; init; }
+        public bool EnableLigatures { get; init; }
+        public bool EnableComplexShaping { get; init; } = true;
+
+        /// <summary>
+        /// DPI factor the draw operation snaps to. Defaults to 1.0 — one device
+        /// pixel per DIP — deliberately: inheriting the current monitor's scaling
+        /// would make the same buffer render differently per machine, which no
+        /// determinism test could pin down.
+        /// </summary>
+        public double RenderScaling { get; init; } = 1.0;
+
+        public string TypefaceFamily { get; init; } = DefaultTypefaceFamily;
+        public float FontSize { get; init; } = 14f;
+
+        /// <summary>Alpha applied to the rendered content (the live control's window opacity).</summary>
+        public double Opacity { get; init; } = 1.0;
+
+        /// <summary>See <see cref="SnapshotFontResolution"/>.</summary>
+        public SnapshotFontResolution FontResolution { get; init; } = SnapshotFontResolution.Simple;
+
+        /// <summary>
+        /// When true the buffer's theme background is painted across the canvas
+        /// before the terminal is drawn.
+        /// </summary>
+        /// <remarks>
+        /// The draw operation deliberately leaves default-background cells
+        /// transparent (the live control fills the theme background underneath it,
+        /// and <c>TransparentDefaultEqualBackgroundTests</c> pins that down). A
+        /// snapshot that is going to be looked at as an image therefore has to
+        /// fill it here, or every unstyled cell comes out transparent. Default
+        /// false so existing golden baselines keep their transparency.
+        /// </remarks>
+        public bool FillBackground { get; init; }
+
+        /// <summary>Row-picture cache to render with, or null to render uncached.</summary>
+        /// <remarks>
+        /// Never the live control's: those belong to the render thread and are not safe
+        /// to touch from another one. A caller off the render thread that wants a cache
+        /// passes a fresh instance it owns and disposes.
+        /// </remarks>
+        public RowImageCache? RowCache { get; init; }
+
+        /// <summary>
+        /// Glyph atlas to render with, or null to render uncached. Callers own the
+        /// instance and its disposal, as with <see cref="RowCache"/>.
+        /// </summary>
+        /// <remarks>
+        /// Load-bearing beyond caching: the draw operation resolves per-codepoint font
+        /// fallback only inside its <c>_glyphCache != null</c> branch. Rendering without
+        /// one draws each run in the primary face alone, so any glyph that face lacks -
+        /// a symbol, an icon, anything outside its coverage - comes out as a notdef box.
+        /// Pass a cache for any capture meant to look like the screen; the golden
+        /// baselines deliberately render uncached and accept the difference (and #346
+        /// had to pass one to get the box-drawing primitive painter back).
+        /// </remarks>
+        public GlyphCache? GlyphCache { get; init; }
+
+        /// <summary>Font family list used when none is supplied.</summary>
+        public const string DefaultTypefaceFamily =
+            "Cascadia Code PL, CaskaydiaCove Nerd Font, Cascadia Code, Consolas, Monospace";
+    }
+
+    /// <summary>
+    /// Renders a terminal buffer to a bitmap through the real
+    /// <see cref="TerminalDrawOperation"/>, with no window, visual tree, or GPU
+    /// surface involved: the draw operation only needs an <see cref="SKCanvas"/>.
+    ///
+    /// This is the one capture path in the product. The render tests' golden PNGs,
+    /// the agent-host <c>captureScreen</c> method, and any future CLI PNG output
+    /// all go through it, so a snapshot an agent takes is produced by the same
+    /// code the baselines pin down.
+    ///
+    /// Thread affinity: safe to call off the UI thread. It takes the buffer's read
+    /// lock for the values it needs, releases it, and then draws (the draw
+    /// operation re-enters the lock itself). It never touches the live control or
+    /// its caches — pass no caches and it allocates its own Skia font objects.
+    /// </summary>
+    public static class TerminalSnapshotRenderer
+    {
+        /// <summary>
+        /// Renders <paramref name="buffer"/> into a new <paramref name="width"/> x
+        /// <paramref name="height"/> bitmap. The caller owns the bitmap.
+        /// </summary>
+        public static SKBitmap Capture(
+            TerminalBuffer buffer,
+            CellMetrics metrics,
+            int width,
+            int height,
+            TerminalSnapshotOptions? options = null)
+        {
+            ArgumentNullException.ThrowIfNull(buffer);
+            if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width));
+            if (height <= 0) throw new ArgumentOutOfRangeException(nameof(height));
+            options ??= new TerminalSnapshotOptions();
+
+            // Snapshot the geometry/cursor values under the read lock, then let go:
+            // DrawTerminalInternal re-enters the lock, and the buffer's lock has no
+            // recursion policy to fall back on.
+            int snapshotRows, snapshotCols, totalLines, cursorRow, cursorCol;
+            TerminalTheme theme;
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                snapshotRows = buffer.Rows;
+                snapshotCols = buffer.Cols;
+                totalLines = buffer.InternalTotalLines;
+                cursorRow = buffer.InternalCursorRow;
+                cursorCol = buffer.InternalCursorCol;
+                theme = buffer.Theme;
+            }
+            finally
+            {
+                buffer.Lock.ExitReadLock();
+            }
+
+            // The draw operation works in DIPs and expects the canvas to carry the render
+            // scaling, because that is what it gets on screen: Render() draws onto Avalonia's
+            // leased SKCanvas, which already has the DPI transform applied. Everything downstream
+            // is built on that contract - glyph sprites are rasterised at _renderScaling and drawn
+            // back through a 1/_renderScaling transform, and the pixel grid snaps geometry to
+            // k/_renderScaling DIPs precisely so it lands on whole device pixels.
+            //
+            // This method used to pass RenderScaling down while handing over a plain unscaled
+            // canvas sized in DIPs, so that contract was broken for any scaling but 1.0. Position
+            // survived it (ToDevicePx then FromDevicePx round-trips back to roughly the same DIP)
+            // but thickness did not: a box-drawing stroke is chosen as a whole number of *device*
+            // pixels, so the 1px stroke came out as a 1/1.5 = 0.67px rect with antialiasing off
+            // and rasterised to nothing. Box borders vanished at RenderScaling 1.5 while whole-cell
+            // block fills, which never convert a device-pixel count back to DIPs, were unaffected.
+            //
+            // So scale the canvas and size the bitmap in device pixels, exactly as the live path
+            // does. width/height stay DIPs - that is what every caller passes and what the draw
+            // operation's bounds want - and the returned bitmap is the device-pixel image those
+            // DIPs describe at this scaling.
+            double renderScaling = options.RenderScaling <= 0 ? 1.0 : options.RenderScaling;
+            int deviceWidth = Math.Max(1, (int)Math.Round(width * renderScaling, MidpointRounding.AwayFromZero));
+            int deviceHeight = Math.Max(1, (int)Math.Round(height * renderScaling, MidpointRounding.AwayFromZero));
+
+            var bitmap = new SKBitmap(deviceWidth, deviceHeight);
+            var canvas = new SKCanvas(bitmap);
+
+            // Applied unconditionally: scaling by 1.0 concatenates the identity matrix, so there
+            // is nothing for a guard to save, and no tolerance worth expressing either - whatever
+            // scaling the caller asked for is simply what the canvas gets.
+            canvas.Scale((float)renderScaling);
+
+            var typeface = new Typeface(options.TypefaceFamily);
+            var glyphTypeface = typeface.GlyphTypeface;
+
+            SKTypeface? primary = options.FontResolution == SnapshotFontResolution.LiveParity
+                ? TerminalView.ResolveMonospacePrimaryTypeface(typeface.FontFamily.Name, out _)
+                : SKTypeface.FromFamilyName(typeface.FontFamily.Name);
+
+            // Deliberately not substituted when the lookup comes back empty: the
+            // Simple path has to keep whatever Skia does with a missing family,
+            // because that is what the golden baselines were captured against.
+            var skTypeface = new SharedSKTypeface(primary!);
+            var skFont = new SharedSKFont(new SKFont(skTypeface.Typeface!, options.FontSize));
+            if (options.FontResolution == SnapshotFontResolution.LiveParity && skFont.Font != null)
+            {
+                skFont.Font.Edging = SKFontEdging.Antialias;
+                skFont.Font.Hinting = SKFontHinting.Normal;
+            }
+
+            var fallbackChain = options.FontResolution == SnapshotFontResolution.LiveParity
+                ? TerminalView.GetSnapshotFallbackChain()
+                : Array.Empty<SKTypeface>();
+
+            var op = new TerminalDrawOperation(
+                new Rect(0, 0, width, height),
+                buffer,
+                scrollOffset: 0,
+                selection: options.Selection ?? new SelectionState(),
+                searchMatches: null,
+                activeSearchIndex: -1,
+                metrics: metrics,
+                typeface: typeface,
+                fontSize: options.FontSize,
+                glyphTypeface: glyphTypeface,
+                skTypeface: skTypeface,
+                skFont: skFont,
+                enableLigatures: options.EnableLigatures,
+                fallbackCache: new ConcurrentDictionary<string, SKTypeface?>(),
+                fallbackChain: fallbackChain,
+                opacity: options.Opacity,
+                hideCursor: options.HideCursor,
+                renderScaling: renderScaling,
+                snapshotRows: snapshotRows,
+                snapshotCols: snapshotCols,
+                totalLines: totalLines,
+                cursorRow: cursorRow,
+                cursorCol: cursorCol,
+                rowCache: options.RowCache,
+                enableComplexShaping: options.EnableComplexShaping,
+                glyphCache: options.GlyphCache);
+
+            try
+            {
+                if (options.FillBackground)
+                {
+                    var bg = theme.Background;
+                    canvas.Clear(new SKColor(bg.R, bg.G, bg.B, bg.A));
+                }
+
+                op.DrawTerminalInternal(canvas);
+                return bitmap;
+            }
+            catch
+            {
+                bitmap.Dispose();
+                throw;
+            }
+            finally
+            {
+                op.Dispose();
+                skFont.Dispose();
+                skTypeface.Dispose();
+                canvas.Dispose();
+            }
+        }
+
+        /// <summary>Renders and PNG-encodes in one step.</summary>
+        public static byte[] CapturePng(
+            TerminalBuffer buffer,
+            CellMetrics metrics,
+            int width,
+            int height,
+            TerminalSnapshotOptions? options = null)
+        {
+            using var bitmap = Capture(buffer, metrics, width, height, options);
+            return EncodePng(bitmap);
+        }
+
+        public static byte[] EncodePng(SKBitmap bitmap)
+        {
+            ArgumentNullException.ThrowIfNull(bitmap);
+            using var image = SKImage.FromBitmap(bitmap);
+            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+            return data.ToArray();
+        }
+
+        /// <summary>
+        /// Resamples <paramref name="source"/> down so its width is at most
+        /// <paramref name="maxWidth"/>, preserving aspect ratio. Returns null when
+        /// the source already fits (nothing to do) so callers can keep the original.
+        /// </summary>
+        public static SKBitmap? DownscaleToWidth(SKBitmap source, int maxWidth)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            if (maxWidth <= 0 || source.Width <= maxWidth) return null;
+
+            // Height rounds up so a 1-pixel-tall result can never come out as 0.
+            int height = Math.Max(1, (int)Math.Ceiling(source.Height * (double)maxWidth / source.Width));
+            var resized = new SKBitmap(maxWidth, height);
+
+            // Fixed sampling: the same input must always resample to the same bytes.
+            if (!source.ScalePixels(resized, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None)))
+            {
+                resized.Dispose();
+                return null;
+            }
+            return resized;
+        }
+    }
+}

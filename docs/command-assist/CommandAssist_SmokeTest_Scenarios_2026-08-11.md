@@ -31,7 +31,7 @@ Record each scenario PASS / FAIL / N-A with one line of what you saw, and file t
 
 ## Preconditions
 
-- Build via `scripts/build.ps1`. Launch with `NOVATERM_APPDATA_ROOT` pointed at a scratch
+- Build via `scripts/build.ps1`. Launch with `NTILDE_APPDATA_ROOT` pointed at a scratch
   directory. **Do not run this against your real history.**
 - Settings -> Terminal -> Command assistant: master toggle ON, "Suggestion bubble while
   typing" ON, "Remember commands" ON, "Shell integration" ON.
@@ -301,7 +301,7 @@ instrumented - the indicator reads `basic`.
 
 **Pass:**
 
-- Step 3 prints `nova: wrote ~/.nova-shell-integration.sh` and `nova: added loader line to
+- Step 3 prints `ntilde: wrote ~/.ntilde-shell-integration.sh` and `ntilde: added loader line to
   ~/.<rc>` and nothing else - no base64/gzip complaint, no shell syntax error, no `>`
   continuation prompt.
 - Step 5 reports no change and writes nothing.
@@ -336,6 +336,6 @@ Stated so that a clean run is not mistaken for more than it is:
   established, but nothing has been pasted into a live canonical-mode shell.
 - **Non-default DPI or UI font scale.** The popup's height constants were measured at the
   headless default.
-- **Two NovaTerminal instances at once.** The history store assumes a single process owns the
+- **Two Ntilde instances at once.** The history store assumes a single process owns the
   file. Two windows are one process and are fine; two installs are not a supported
   configuration.

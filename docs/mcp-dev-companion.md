@@ -1,7 +1,7 @@
-# NovaTerminal MCP server
+# Ntilde MCP server
 
-A local, stdio [MCP](https://modelcontextprotocol.io) server (`src/NovaTerminal.McpServer`) that
-exposes NovaTerminal to AI coding agents (Claude Code, Claude Desktop, VS Code, …). It began as a
+A local, stdio [MCP](https://modelcontextprotocol.io) server (`src/Ntilde.McpServer`) that
+exposes Ntilde to AI coding agents (Claude Code, Claude Desktop, VS Code, …). It began as a
 read-only "dev companion" and now also fronts the **agent host** — opt-in access to live terminal
 sessions. Two tool families:
 
@@ -18,7 +18,7 @@ sessions. Two tool families:
 
 ## Live-session tools (agent host)
 
-Proxy the **running** NovaTerminal app over a per-user local IPC endpoint, gated by explicit,
+Proxy the **running** Ntilde app over a per-user local IPC endpoint, gated by explicit,
 default-off opt-ins in the app's settings:
 
 - **Observe** (opt-in) — read live sessions: `list_sessions`, `read_screen`, `read_scrollback`,
@@ -38,15 +38,15 @@ See [mcp/tools.md](mcp/tools.md) for the authoritative list of both families.
 
 The server speaks MCP over **stdio**, so it is normally launched by an MCP client (not run by
 hand). The dev-companion tools locate the repository automatically by walking up to
-`NovaTerminal.sln`; you can override that with the `NOVATERMINAL_REPO_ROOT` environment variable.
-The live-session tools need the NovaTerminal app running with the opt-ins enabled.
+`Ntilde.sln`; you can override that with the `NTILDE_REPO_ROOT` environment variable.
+The live-session tools need the Ntilde app running with the opt-ins enabled.
 
 Clients should point at the built DLL, **not** `dotnet run` — `run` emits build/restore
 output to stdout, which corrupts the JSON-RPC stream.
 
 **Point the client at the sidecar copy, not at `src/.../bin/`** (#211). The server is a
 long-lived process, so while it runs from the repo tree it holds
-`NovaTerminal.AgentHost.Contracts.dll` open, and *every* full repo build then fails with
+`Ntilde.AgentHost.Contracts.dll` open, and *every* full repo build then fails with
 `MSB3027`/`MSB3021` on the McpServer copy step — whether or not the app is running.
 `scripts/run-sidecar.ps1` builds and mirrors the server to a fixed location outside the repo
 and prints the exact path to configure:
@@ -59,8 +59,8 @@ scripts/run-sidecar.ps1 -SkipMcpServer      # app only
 The script prints the exact path to configure. It lives at:
 
 ```
-%LOCALAPPDATA%\NovaTerminal-sidecar\McpServer\<Configuration>\net10.0\NovaTerminal.McpServer.dll
-~/.local/share/NovaTerminal-sidecar/McpServer/<Configuration>/net10.0/NovaTerminal.McpServer.dll
+%LOCALAPPDATA%\ntilde-sidecar\McpServer\<Configuration>\net10.0\Ntilde.McpServer.dll
+~/.local/share/ntilde-sidecar/McpServer/<Configuration>/net10.0/Ntilde.McpServer.dll
 ```
 
 **Paste the resolved absolute path into client config, not the `%LOCALAPPDATA%` form.** Most
@@ -77,19 +77,19 @@ The repo stays buildable either way, which is the point.
 To run it by hand instead (it speaks stdio, so this is mainly a smoke check):
 
 ```bash
-dotnet build -c Release src/NovaTerminal.McpServer
-dotnet src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll
+dotnet build -c Release src/Ntilde.McpServer
+dotnet src/Ntilde.McpServer/bin/Release/net10.0/Ntilde.McpServer.dll
 ```
 
 ### Client configuration
 
 - Claude Code (substitute the path `run-sidecar.ps1` printed):
-  `claude mcp add novaterminal -- dotnet "C:\Users\<you>\AppData\Local\NovaTerminal-sidecar\McpServer\Debug\net10.0\NovaTerminal.McpServer.dll"`
+  `claude mcp add ntilde -- dotnet "C:\Users\<you>\AppData\Local\ntilde-sidecar\McpServer\Debug\net10.0\Ntilde.McpServer.dll"`
 - Claude Desktop: [examples/mcp/claude_desktop_config.json](../examples/mcp/claude_desktop_config.json)
 - VS Code: [examples/mcp/vscode_mcp_config.json](../examples/mcp/vscode_mcp_config.json)
 
-Point `NOVATERMINAL_REPO_ROOT` at your clone so the doc-reading tools resolve. To use the
-live-session tools, enable **Settings → Agent access (observe)** in NovaTerminal (and the
+Point `NTILDE_REPO_ROOT` at your clone so the doc-reading tools resolve. To use the
+live-session tools, enable **Settings → Agent access (observe)** in Ntilde (and the
 **Agent access (act)** sub-toggle to allow typing/spawning/closing).
 
 ## Status

@@ -1,6 +1,6 @@
 # Updating Replay Snapshots (Golden Masters)
 
-NovaTerminal uses **replay-based regression tests**: a recorded terminal stream (`.rec`) is replayed through the parser/buffer, and the resulting buffer state is compared to a **golden snapshot** (`.snap`).
+Ntilde uses **replay-based regression tests**: a recorded terminal stream (`.rec`) is replayed through the parser/buffer, and the resulting buffer state is compared to a **golden snapshot** (`.snap`).
 
 This document describes the **only supported workflow** for creating/updating snapshots.
 
@@ -26,7 +26,7 @@ Golden workflow:
 Replay fixtures live here:
 
 ```
-NovaTerminal.Tests/Fixtures/Replay/
+Ntilde.Tests/Fixtures/Replay/
 ```
 
 Each fixture is a pair:
@@ -50,7 +50,7 @@ vttest_cursor.snap
 Run only replay tests:
 
 ```bash
-dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter Category=Replay
+dotnet test Ntilde.Tests/Ntilde.Tests.csproj --filter Category=Replay
 ```
 
 This should be fast and is safe to run on every PR.
@@ -62,7 +62,7 @@ This should be fast and is safe to run on every PR.
 1. Add a new `.rec` file to:
 
    ```
-   NovaTerminal.Tests/Fixtures/Replay/
+   Ntilde.Tests/Fixtures/Replay/
    ```
 
 2. Ensure there is a replay test that references that `.rec` (or a parameterized test that discovers it).
@@ -71,13 +71,13 @@ This should be fast and is safe to run on every PR.
 
    **Linux / macOS (bash):**
    ```bash
-   UPDATE_SNAPSHOTS=1 dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter Category=Replay
+   UPDATE_SNAPSHOTS=1 dotnet test Ntilde.Tests/Ntilde.Tests.csproj --filter Category=Replay
    ```
 
    **Windows (PowerShell):**
    ```powershell
    $env:UPDATE_SNAPSHOTS="1"
-   dotnet test NovaTerminal.Tests\NovaTerminal.Tests.csproj --filter Category=Replay
+   dotnet test Ntilde.Tests\Ntilde.Tests.csproj --filter Category=Replay
    Remove-Item Env:\UPDATE_SNAPSHOTS
    ```
 
@@ -86,7 +86,7 @@ This should be fast and is safe to run on every PR.
 5. Re-run tests **without** `UPDATE_SNAPSHOTS`:
 
    ```bash
-   dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter Category=Replay
+   dotnet test Ntilde.Tests/Ntilde.Tests.csproj --filter Category=Replay
    ```
 
 6. Review the generated `.snap` content and commit both `.rec` and `.snap`.
@@ -101,19 +101,19 @@ Only update snapshots when you *intentionally* changed VT behavior and you have 
 2. Run replay tests normally first (expected to fail if behavior changed):
 
    ```bash
-   dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter Category=Replay
+   dotnet test Ntilde.Tests/Ntilde.Tests.csproj --filter Category=Replay
    ```
 
 3. If the new behavior is correct and desired, regenerate snapshots:
 
    ```bash
-   UPDATE_SNAPSHOTS=1 dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter Category=Replay
+   UPDATE_SNAPSHOTS=1 dotnet test Ntilde.Tests/Ntilde.Tests.csproj --filter Category=Replay
    ```
 
 4. Re-run tests without update mode to confirm stability:
 
    ```bash
-   dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter Category=Replay
+   dotnet test Ntilde.Tests/Ntilde.Tests.csproj --filter Category=Replay
    ```
 
 5. Commit updated `.snap` files in the same PR as the behavior change.
@@ -133,9 +133,9 @@ Only update snapshots when you *intentionally* changed VT behavior and you have 
 Before committing new goldens, verify snapshots are stable across runs:
 
 ```bash
-sha256sum NovaTerminal.Tests/Fixtures/Replay/*.snap | sort
-dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter Category=Replay
-sha256sum NovaTerminal.Tests/Fixtures/Replay/*.snap | sort
+sha256sum Ntilde.Tests/Fixtures/Replay/*.snap | sort
+dotnet test Ntilde.Tests/Ntilde.Tests.csproj --filter Category=Replay
+sha256sum Ntilde.Tests/Fixtures/Replay/*.snap | sort
 ```
 
 Hashes should not change.
@@ -178,4 +178,4 @@ Replay tests can run anywhere once `.rec` is committed.
 ## Related docs
 
 - `docs/vt_coverage_matrix.md` — VT feature coverage and evidence links
-- `tests/NovaTerminal.ExternalSuites/` — external capture harnesses (e.g., VTTEST)
+- `tests/Ntilde.ExternalSuites/` — external capture harnesses (e.g., VTTEST)

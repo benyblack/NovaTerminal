@@ -2,17 +2,17 @@
 
 **Date:** 2026-06-04
 **Tracking issue:** #91 (Windows installer + auto-update (Velopack) + code signing)
-**Scope of this spec:** Windows packaging as a whole — Velopack installer + auto-update, with a code-signing *seam* that is a no-op until a certificate is provided. Code signing's actual certificate, macOS notarization, Linux packaging, and optional extras (`nova` on PATH, file associations) are explicitly **out of scope** and tracked separately under #91.
+**Scope of this spec:** Windows packaging as a whole — Velopack installer + auto-update, with a code-signing *seam* that is a no-op until a certificate is provided. Code signing's actual certificate, macOS notarization, Linux packaging, and optional extras (`ntilde` on PATH, file associations) are explicitly **out of scope** and tracked separately under #91.
 
 ## Goal
 
-Supplement the portable `NovaTerminal-win-x64-*.zip` with a proper Windows install + update experience: an installer, Start Menu shortcut, Add/Remove Programs entry, and delta auto-update from version N to N+1 — produced by CI on tag. Wire a signing seam now so an Authenticode certificate drops in later with zero CI rework.
+Supplement the portable `ntilde-win-x64-*.zip` with a proper Windows install + update experience: an installer, Start Menu shortcut, Add/Remove Programs entry, and delta auto-update from version N to N+1 — produced by CI on tag. Wire a signing seam now so an Authenticode certificate drops in later with zero CI rework.
 
 ## Non-goals
 
 - Obtaining or configuring an actual code-signing certificate (deferred; the seam is a no-op until secrets exist).
 - macOS notarization, Linux `.deb`/AppImage.
-- `nova` on PATH, file associations.
+- `ntilde` on PATH, file associations.
 - Replacing the portable zips. The installer **supplements** them; all existing release assets stay.
 - Periodic/background polling for updates (checks happen once per launch).
 - A nightly update channel (nightly stays zip-only).
@@ -44,7 +44,7 @@ Before touching `release.yml`, validate Velopack against the app's `PublishAot=t
 **Exit criteria:** install → launch → self-update N→N+1 works on a Windows box.
 **If Velopack fights AOT:** decide a fallback at that point — candidates: (a) ship the *installed* build as non-AOT self-contained while keeping the portable zip AOT, or (b) use Velopack's AOT guidance/shim. The fallback choice is made with spike evidence in hand, not pre-committed here.
 
-### Layer 1 — App code (`NovaTerminal.App`)
+### Layer 1 — App code (`Ntilde.App`)
 
 - Add the `Velopack` NuGet package reference.
 - Call `VelopackApp.Build().Run()` as the **first line** of `Program.Main`, before the `VtReportCommand` / `SshAskPassCommand` CLI-mode checks. Velopack's `Setup.exe`/`Update.exe` re-invoke the binary with hook args (`--veloapp-install`, `--veloapp-updated`, etc.); these must be handled and the process must exit fast, before any Avalonia or app initialization.
@@ -66,9 +66,9 @@ After the existing `Publish AOT` + `Archive bundle` steps, on the win-x64 (`wind
 1. Install the `vpk` tool: `dotnet tool install -g vpk` (pinned version).
 2. `vpk download github` — fetch the prior release's Velopack assets so deltas can be computed (tolerate "no prior release").
 3. `vpk pack` the `artifacts/publish/win-x64` folder:
-   - `--packId NovaTerminal` (stable, must not change across releases or update lineage breaks).
+   - `--packId Ntilde` (stable, must not change across releases or update lineage breaks).
    - `--packVersion <tag-without-leading-v>` (e.g. `v0.3.1` → `0.3.1`).
-   - `--mainExe NovaTerminal.exe`, icon from `Assets/nova_icon.ico`.
+   - `--mainExe Ntilde.exe`, icon from `Assets/ntilde_icon.ico`.
    - signing args injected via the seam (Layer 3).
 4. Upload the produced `Setup.exe`, `RELEASES`, and `.nupkg` (full + delta) to the same GitHub Release via the existing `softprops/action-gh-release` step.
 
@@ -81,7 +81,7 @@ After the existing `Publish AOT` + `Archive bundle` steps, on the win-x64 (`wind
 ## Versioning & feed
 
 - Pack version derives from the release **tag** (strip leading `v`), keeping it consistent with `Directory.Build.props` `<Version>`.
-- `--packId` is the fixed identity `NovaTerminal`; never change it.
+- `--packId` is the fixed identity `Ntilde`; never change it.
 - Feed: public GitHub Releases of this repository, consumed via Velopack `GithubSource`.
 - Channel: stable only.
 

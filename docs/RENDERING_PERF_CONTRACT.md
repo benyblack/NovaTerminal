@@ -12,8 +12,8 @@ The contract is intentionally "good-enough + stable" rather than aggressively ti
 ## Enabling Render Metrics
 Set these environment variables before rendering:
 
-- `NOVATERM_RENDER_METRICS=1`
-- `NOVATERM_RENDER_METRICS_OUT=<absolute-or-relative-path-to-render_metrics.jsonl>`
+- `NTILDE_RENDER_METRICS=1`
+- `NTILDE_RENDER_METRICS_OUT=<absolute-or-relative-path-to-render_metrics.jsonl>`
 
 When enabled, renderer frame metrics are appended as JSONL (`one JSON object per line`).
 

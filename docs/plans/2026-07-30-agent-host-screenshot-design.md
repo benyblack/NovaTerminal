@@ -8,7 +8,7 @@
 >
 > | This design | Shipped in #257 | Now |
 > |---|---|---|
-> | `novaterminal.capture_screenshot` | `novaterminal.capture_screen` | kept as shipped — the tool is public API, and the shorter name is the one in use |
+> | `ntilde.capture_screenshot` | `ntilde.capture_screen` | kept as shipped — the tool is public API, and the shorter name is the one in use |
 > | two modes, `render` + `live` | `render` only | **`live` implemented** as designed, behind the existing `IAgentActionExecutor` bridge |
 > | observe toggle alone, no new setting | added `AgentScreenshotEnabled` | **reverted to this design**: captures ride the observe toggle |
 > | no journal entry | journaled every capture | **reverted to this design** — see below |
@@ -33,7 +33,7 @@ Still observe-only; the acting surface (A3) is unchanged.
 
 ## Goal
 
-- **`novaterminal.capture_screenshot`** — MCP tool that returns a session's
+- **`ntilde.capture_screenshot`** — MCP tool that returns a session's
   viewport as an image the agent can see (MCP image content) plus a file path
   for later reference.
 - **Two capture modes behind one tool:**
@@ -59,7 +59,7 @@ The change must:
 ## Current State (verified)
 
 - **Render snapshot contract already exists** in the VT leaf
-  (`NovaTerminal.VT/RenderSnapshots.cs`): `TerminalRenderSnapshot` carries
+  (`Ntilde.VT/RenderSnapshots.cs`): `TerminalRenderSnapshot` carries
   per-row styled cells (`RenderCellSnapshot` with colors/flags), a
   `RenderThemeSnapshot` (fg/bg/cursor + 16-color palette), cursor
   position/style, and `RenderImageSnapshot` entries with opaque `ImageHandle`s
@@ -127,13 +127,13 @@ captureScreenshot { paneId, mode?, scale? }
   is unavailable (session closing race). Message suggests the other mode when
   applicable. Distinct from `sessionNotFound` (unknown paneId) and from the
   unavailable-endpoint path in `AgentHostClient`.
-- PNG file naming: `nova_shot_{yyyyMMdd_HHmmss}_{suffix}.png` in
+- PNG file naming: `ntilde_shot_{yyyyMMdd_HHmmss}_{suffix}.png` in
   `agent-exports/`, fresh random suffix per call (A4 scheme — same-second
   collisions must not truncate an earlier file).
 
 ### App: render mode (headless, default)
 
-New component **`TerminalSnapshotRenderer`** in `NovaTerminal.Rendering`
+New component **`TerminalSnapshotRenderer`** in `Ntilde.Rendering`
 (the assembly that already owns glyph/atlas Skia code; VT stays a leaf, App
 untouched):
 
@@ -197,7 +197,7 @@ content is).
 
 ### MCP tool
 
-`novaterminal.capture_screenshot` in `Tools/ScreenshotTools.cs` (new file,
+`ntilde.capture_screenshot` in `Tools/ScreenshotTools.cs` (new file,
 auto-discovered by `WithToolsFromAssembly`):
 
 - Params: `paneId` (GUID, validated client-side like the other session tools),
@@ -218,7 +218,7 @@ auto-discovered by `WithToolsFromAssembly`):
 - `docs/mcp/tools.md` — new tool entry (authoritative list).
 - `docs/mcp/security.md` — observe-family row: screenshot under the observe
   toggle, files under `agent-exports/`, no new setting.
-- `src/NovaTerminal.McpServer/README.md` — tool table + safety-posture list.
+- `src/Ntilde.McpServer/README.md` — tool table + safety-posture list.
 - `docs/agent-host/DIRECTION.md` — A5 milestone entry (this doc is its design).
 
 ## Alternatives Considered
@@ -245,7 +245,7 @@ auto-discovered by `WithToolsFromAssembly`):
 
 ## Testing
 
-- **Renderer unit tests** (NovaTerminal.Rendering.Tests or McpServer-side
+- **Renderer unit tests** (Ntilde.Rendering.Tests or McpServer-side
   harness): fixed test theme + fixed font metrics → structural assertions
   (dimensions, background color at known pixel, a known cell's ink color,
   cursor rect present, image drawn in its cell rect). No golden-hash compares —

@@ -16,7 +16,7 @@ Implement a **toggleable Render Performance HUD** overlay that displays live ren
 - Tests for toggle + sampling
 
 ## Out of Scope
-- Any changes to recording format (`.novarec`)
+- Any changes to recording format (`.ntilderec`)
 - Replay timeline UI
 - Command boundary detection
 - Remote relay / plugin SDK

@@ -31,4 +31,4 @@ ScrollbackPages.AppendRow(rowSpan)
 - No regression in terminal behavior
 
 Tests should be added to:
-tests/NovaTerminal.Tests/Buffer/
+tests/Ntilde.Tests/Buffer/

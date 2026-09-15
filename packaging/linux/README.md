@@ -2,15 +2,15 @@
 
 This folder holds the Linux packaging pieces used by the release workflow:
 
-- `build-deb.sh` — builds `novaterminal_<debver>_<debarch>.deb` from a NativeAOT
+- `build-deb.sh` — builds `ntilde_<debver>_<debarch>.deb` from a NativeAOT
   publish directory. `dpkg-deb` over a staged tree; nothing is compiled here.
 - `smoke-test.sh` — installs and launches the artifacts in bare `ubuntu:22.04`
   containers. The release gate.
 - `test-build-deb.sh` — unit-ish tests for `build-deb.sh` (version mapping, layout,
-  dependency derivation, control fields), needing no real NovaTerminal build.
-- `nova.desktop`, `nova.1` — the desktop entry and man page source.
+  dependency derivation, control fields), needing no real Ntilde build.
+- `ntilde.desktop`, `ntilde.1` — the desktop entry and man page source.
 
-Icons are derived at packaging time from `src/NovaTerminal.App/Assets/nova_icon.png`,
+Icons are derived at packaging time from `src/Ntilde.App/Assets/ntilde_icon.png`,
 which stays the single cross-platform source of truth. No scaled PNGs are committed.
 
 The AppImage and update feed are built by [Velopack](https://velopack.io) (`vpk pack`)
@@ -18,10 +18,10 @@ in `.github/workflows/release.yml`, mirroring the Windows and macOS lanes.
 
 | Release asset | Produced by | Notes |
 |---|---|---|
-| `NovaTerminal-linux-<arch>-<tag>.AppImage` | `vpk pack` (renamed) | Portable, self-updating |
-| `novaterminal_<debver>_<debarch>.deb` | `build-deb.sh` | System install; updates via your package manager |
-| `NovaTerminal-linux-<arch>-<tag>.tar.gz` | `tar` in `release.yml` | Portable, no integration |
-| `NovaTerminalApp-<ver>-linux-<arch>-full.nupkg` / `-delta.nupkg` | `vpk pack` | The update feed the in-app updater consumes |
+| `ntilde-linux-<arch>-<tag>.AppImage` | `vpk pack` (renamed) | Portable, self-updating |
+| `ntilde_<debver>_<debarch>.deb` | `build-deb.sh` | System install; updates via your package manager |
+| `ntilde-linux-<arch>-<tag>.tar.gz` | `tar` in `release.yml` | Portable, no integration |
+| `NtildeApp-<ver>-linux-<arch>-full.nupkg` / `-delta.nupkg` | `vpk pack` | The update feed the in-app updater consumes |
 | `releases.linux-<arch>.json` | `vpk pack` | Feed index resolved by `VelopackUpdateService` |
 
 `release.yml` produces and publishes every asset in that table. Two jobs do it,
@@ -92,8 +92,8 @@ version — see "Dry run without cutting a release" below.
   asset where the filename must be looked up rather than constructed from the
   tag. For a prerelease there's a second reason to look it up rather than
   build it: GitHub replaces `~` with `.` in release asset names, so the built
-  file `novaterminal_0.5.0~beta.1-1_amd64.deb` reaches the releases page as
-  `novaterminal_0.5.0.beta.1-1_amd64.deb`. That's cosmetic, not a bug — dpkg
+  file `ntilde_0.5.0~beta.1-1_amd64.deb` reaches the releases page as
+  `ntilde_0.5.0.beta.1-1_amd64.deb`. That's cosmetic, not a bug — dpkg
   installs from the package's control file, not the filename, so the
   `Version:` it records is still the `~` form — and stable tags have no `~`
   to sanitize, so they're unaffected.
@@ -133,17 +133,17 @@ version — see "Dry run without cutting a release" below.
   because the package name is version-pinned per distro and `InvariantGlobalization`
   is unset, so the app genuinely needs ICU. Hard-depending on one version would
   refuse to install across most of the supported distro range.
-- **`WM_CLASS` is `"nova", "NovaTerminal"`** on the real Avalonia binary — verified
-  against a genuine GUI launch, not inferred from source — so `StartupWMClass=NovaTerminal`
-  in `nova.desktop` is correct.
+- **`WM_CLASS` is `"ntilde", "Ntilde"`** on the real Avalonia binary — verified
+  against a genuine GUI launch, not inferred from source — so `StartupWMClass=Ntilde`
+  in `ntilde.desktop` is correct.
 - **`libSkiaSharp.so` embeds freetype, libjpeg and libpng, and the AOT binary embeds
   zlib.** These are inherent to a self-contained bundle and are accepted via
-  `usr/share/lintian/overrides/novaterminal`, one line per tag *and* exact path —
+  `usr/share/lintian/overrides/ntilde`, one line per tag *and* exact path —
   deliberately never a wildcard, so a genuinely new embedded library pulled in by a
   future SkiaSharp or AOT bump still trips the lintian gate instead of being waved
   through.
 - **User data is never touched** by updates or uninstall. It lives at
-  `~/.local/share/NovaTerminal` via `AppPaths`, independent of install method.
+  `~/.local/share/ntilde` via `AppPaths`, independent of install method.
 - **No maintainer scripts.** `desktop-file-utils` and `hicolor-icon-theme` ship dpkg
   triggers that refresh the desktop and icon caches, so the package needs no
   `postinst`/`prerm`.
@@ -157,7 +157,7 @@ version — see "Dry run without cutting a release" below.
   ships `/usr/bin/fusermount` and pulls in `libfuse2` as its own dependency, so
   installing `fuse` alone is both necessary and sufficient — verified empirically
   in a bare `ubuntu:22.04` container with `--device /dev/fuse --cap-add
-  SYS_ADMIN`), or run it as `./NovaTerminal-*.AppImage --appimage-extract-and-run`.
+  SYS_ADMIN`), or run it as `./Ntilde-*.AppImage --appimage-extract-and-run`.
   `smoke-test.sh` tests both paths, one per container.
 - **The AppImage self-updates in place**, so it must live somewhere the user can
   write. Parked in `/opt` or `/usr/local/bin` it cannot update itself. `~/Applications`
@@ -165,7 +165,7 @@ version — see "Dry run without cutting a release" below.
 - **A `.deb` install does not auto-update.** It is not a Velopack install, so
   `IUpdateService.IsSupported` is false and the in-app updater stays silent by
   design. Update through your package manager or reinstall a newer `.deb`.
-- **NovaTerminal is not registered as `x-terminal-emulator`.** That is deliberate:
+- **Ntilde is not registered as `x-terminal-emulator`.** That is deliberate:
   callers of `x-terminal-emulator` pass `-e <command>`, which the app does not
   implement, so registering would make "Open in Terminal"-style callers silently
   discard the command they meant to run. To opt in anyway, knowing `-e` will not
@@ -173,7 +173,7 @@ version — see "Dry run without cutting a release" below.
 
   ```sh
   sudo update-alternatives --install /usr/bin/x-terminal-emulator \
-      x-terminal-emulator /usr/bin/nova 40
+      x-terminal-emulator /usr/bin/ntilde 40
   ```
 
 ## Dry run without cutting a release
@@ -209,7 +209,7 @@ docker run --rm -v "$PWD:/w:ro" -w /w ubuntu:22.04 bash -c \
    packaging/linux/test-build-deb.sh'
 ```
 
-`smoke-test.sh <artifact-dir>` needs Docker with a real `novaterminal_*.deb` (and
+`smoke-test.sh <artifact-dir>` needs Docker with a real `ntilde_*.deb` (and
 optionally an `.AppImage`) already built — see `.github/workflows/ci.yml` for how the
 dry-run job assembles that directory before calling it.
 

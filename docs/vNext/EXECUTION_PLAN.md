@@ -1,4 +1,4 @@
-# NovaTerminal vNext Execution Plan
+# Ntilde vNext Execution Plan
 
 This document instructs AI coding agents how to start implementing the vNext architecture.
 
@@ -71,7 +71,7 @@ Tests:
 
 CLI:
 
-novaterm snapshot export
+ntilde snapshot export
 
 Outputs:
 

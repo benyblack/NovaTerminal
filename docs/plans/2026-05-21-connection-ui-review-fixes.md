@@ -4,7 +4,7 @@
 
 **Goal:** Fix the regressions introduced by the recent Settings and Connection Manager UI refresh while preserving the new layout direction.
 
-**Architecture:** Keep the fixes additive and local to `NovaTerminal.App`. Do not change VT/rendering paths. For Connection Manager, restore missing behavior and make filtering stable by keeping a permanent live collection for visible rows instead of rebinding the list to snapshots. For theming, preserve the new structure but drive the named brushes from the active `TerminalTheme` rather than hard-coding a dark palette.
+**Architecture:** Keep the fixes additive and local to `Ntilde.App`. Do not change VT/rendering paths. For Connection Manager, restore missing behavior and make filtering stable by keeping a permanent live collection for visible rows instead of rebinding the list to snapshots. For theming, preserve the new structure but drive the named brushes from the active `TerminalTheme` rather than hard-coding a dark palette.
 
 **Tech Stack:** Avalonia UI, C#, xUnit, Avalonia.Headless.XUnit
 
@@ -13,9 +13,9 @@
 ### Task 1: Stabilize Connection Manager filtering and result updates
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs`
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml`
-- Test: `tests/NovaTerminal.Tests/Ssh/ConnectionManagerTests.cs`
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml.cs`
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml`
+- Test: `tests/Ntilde.Tests/Ssh/ConnectionManagerTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -50,7 +50,7 @@ public void FavoriteFilter_RemovesRowImmediately_WhenFavoriteIsCleared()
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter ConnectionManagerTests
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter ConnectionManagerTests
 ```
 
 Expected: at least one failure showing stale list contents or stale count after filter changes.
@@ -96,7 +96,7 @@ private void RefreshVisibleRows()
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter ConnectionManagerTests
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter ConnectionManagerTests
 ```
 
 Expected: all `ConnectionManagerTests` pass.
@@ -104,16 +104,16 @@ Expected: all `ConnectionManagerTests` pass.
 **Step 5: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs src/NovaTerminal.App/Controls/ConnectionManager.axaml tests/NovaTerminal.Tests/Ssh/ConnectionManagerTests.cs
+git add src/Ntilde.App/Controls/ConnectionManager.axaml.cs src/Ntilde.App/Controls/ConnectionManager.axaml tests/Ntilde.Tests/Ssh/ConnectionManagerTests.cs
 git commit -m "fix: stabilize connection manager filtering"
 ```
 
 ### Task 2: Restore the launch-details action in Connection Manager
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml`
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/ConnectionManagerTests.cs`
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml`
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml.cs`
+- Test: `tests/Ntilde.Tests/Ssh/ConnectionManagerTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -148,7 +148,7 @@ public void DetailsAction_RaisesConnectionDetailsRequested_ForSelectedRow()
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter ConnectionManagerTests
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter ConnectionManagerTests
 ```
 
 Expected: failure because no button currently advertises or triggers the details action.
@@ -168,7 +168,7 @@ In `ConnectionManager.axaml.cs`:
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter ConnectionManagerTests
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter ConnectionManagerTests
 ```
 
 Expected: details-action test passes and existing action-hit-target test stays green.
@@ -176,16 +176,16 @@ Expected: details-action test passes and existing action-hit-target test stays g
 **Step 5: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/Controls/ConnectionManager.axaml src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs tests/NovaTerminal.Tests/Ssh/ConnectionManagerTests.cs
+git add src/Ntilde.App/Controls/ConnectionManager.axaml src/Ntilde.App/Controls/ConnectionManager.axaml.cs tests/Ntilde.Tests/Ssh/ConnectionManagerTests.cs
 git commit -m "fix: restore connection manager details action"
 ```
 
 ### Task 3: Remove misleading status filters or make them explicitly unsupported
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml`
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/ConnectionManagerTests.cs`
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml`
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml.cs`
+- Test: `tests/Ntilde.Tests/Ssh/ConnectionManagerTests.cs`
 
 **Step 1: Decide the minimal supported behavior**
 
@@ -228,7 +228,7 @@ In `ConnectionManager.axaml.cs`:
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter ConnectionManagerTests
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter ConnectionManagerTests
 ```
 
 Expected: no misleading interactive filters remain.
@@ -236,18 +236,18 @@ Expected: no misleading interactive filters remain.
 **Step 5: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/Controls/ConnectionManager.axaml src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs tests/NovaTerminal.Tests/Ssh/ConnectionManagerTests.cs
+git add src/Ntilde.App/Controls/ConnectionManager.axaml src/Ntilde.App/Controls/ConnectionManager.axaml.cs tests/Ntilde.Tests/Ssh/ConnectionManagerTests.cs
 git commit -m "fix: remove unsupported connection status filters"
 ```
 
 ### Task 4: Restore theme-aware styling for Settings and Connection Manager
 
 **Files:**
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml`
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml.cs`
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml`
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs`
-- Verify: `src/NovaTerminal.App/MainWindow.axaml.cs`
+- Modify: `src/Ntilde.App/SettingsWindow.axaml`
+- Modify: `src/Ntilde.App/SettingsWindow.axaml.cs`
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml`
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml.cs`
+- Verify: `src/Ntilde.App/MainWindow.axaml.cs`
 
 **Step 1: Preserve the new layout but move the palette back under theme control**
 
@@ -293,7 +293,7 @@ This keeps the new UI readable without hard-coding a permanent dark mode.
 Run:
 
 ```powershell
-dotnet run --project src/NovaTerminal.App/NovaTerminal.App.csproj
+dotnet run --project src/Ntilde.App/Ntilde.App.csproj
 ```
 
 Manual checks:
@@ -305,17 +305,17 @@ Manual checks:
 **Step 5: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/SettingsWindow.axaml src/NovaTerminal.App/SettingsWindow.axaml.cs src/NovaTerminal.App/Controls/ConnectionManager.axaml src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs
+git add src/Ntilde.App/SettingsWindow.axaml src/Ntilde.App/SettingsWindow.axaml.cs src/Ntilde.App/Controls/ConnectionManager.axaml src/Ntilde.App/Controls/ConnectionManager.axaml.cs
 git commit -m "fix: restore theme-aware settings and connection manager chrome"
 ```
 
 ### Task 5: Make the Connection Manager overlay responsive inside the main window
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml`
-- Modify: `src/NovaTerminal.App/Controls/ConnectionManager.axaml`
-- Verify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/ConnectionManagerTests.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml`
+- Modify: `src/Ntilde.App/Controls/ConnectionManager.axaml`
+- Verify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Test: `tests/Ntilde.Tests/Ssh/ConnectionManagerTests.cs`
 
 **Step 1: Replace hard fixed overlay sizing**
 
@@ -370,7 +370,7 @@ This is a coarse guard against reintroducing hard minimums.
 Run:
 
 ```powershell
-dotnet run --project src/NovaTerminal.App/NovaTerminal.App.csproj
+dotnet run --project src/Ntilde.App/Ntilde.App.csproj
 ```
 
 Manual checks:
@@ -381,7 +381,7 @@ Manual checks:
 **Step 5: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/MainWindow.axaml src/NovaTerminal.App/Controls/ConnectionManager.axaml tests/NovaTerminal.Tests/Ssh/ConnectionManagerTests.cs
+git add src/Ntilde.App/MainWindow.axaml src/Ntilde.App/Controls/ConnectionManager.axaml tests/Ntilde.Tests/Ssh/ConnectionManagerTests.cs
 git commit -m "fix: make connection manager overlay responsive"
 ```
 
@@ -393,7 +393,7 @@ git commit -m "fix: make connection manager overlay responsive"
 **Step 1: Run focused automated tests**
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj --filter "ConnectionManagerTests|SshManagerViewModelTests|SettingsWindow"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj --filter "ConnectionManagerTests|SshManagerViewModelTests|SettingsWindow"
 ```
 
 Expected: pass.

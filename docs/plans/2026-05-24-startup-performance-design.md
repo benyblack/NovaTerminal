@@ -1,10 +1,10 @@
 # Startup Performance Design
 
-**Goal:** Improve NovaTerminal startup performance across first window shown, first terminal ready, and full session restore complete, while preserving current terminal behavior and producing before/after comparison data for a measurable report.
+**Goal:** Improve Ntilde startup performance across first window shown, first terminal ready, and full session restore complete, while preserving current terminal behavior and producing before/after comparison data for a measurable report.
 
 ## Problem
 
-NovaTerminal startup currently does too much synchronous work on the critical path before the first interactive frame. `MainWindow` construction loads settings, migrates profiles, restores the full session, wires optional subsystems, and creates terminal panes before the first useful terminal is ready. `TerminalPane` also reloads settings during pane setup, multiplying startup I/O and object creation during restore-heavy launches.
+Ntilde startup currently does too much synchronous work on the critical path before the first interactive frame. `MainWindow` construction loads settings, migrates profiles, restores the full session, wires optional subsystems, and creates terminal panes before the first useful terminal is ready. `TerminalPane` also reloads settings during pane setup, multiplying startup I/O and object creation during restore-heavy launches.
 
 This hurts three user-visible metrics at once:
 
@@ -103,7 +103,7 @@ This removes repeated file I/O and duplicated settings object construction durin
 
 ### Primary collector
 
-Extend `NovaTerminal.Core.RendererStatistics` with startup-specific counters and per-launch timings so startup measurements reuse the existing app-side metrics surface.
+Extend `Ntilde.Core.RendererStatistics` with startup-specific counters and per-launch timings so startup measurements reuse the existing app-side metrics surface.
 
 ### Required startup metrics
 

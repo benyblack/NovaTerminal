@@ -4,7 +4,7 @@
 
 **Goal:** Extract `StartupOrchestrator` from `MainWindow.axaml.cs`, introduce the `AppServiceBundle` composition-root pattern, and migrate every existing `StartupPerformanceTracker.Current?.TryMark*` call site plus the inline session-restore lifecycle behind the orchestrator. Zero net behavior change; one quiet correctness improvement (collapses a duplicated mark-pair).
 
-**Architecture:** Three new files in `src/NovaTerminal.App/Core/` (`StartupOrchestrator.cs`, `AppServiceBundle.cs`, `AppServices.cs`). MainWindow gains a typed ctor `MainWindow(AppServiceBundle services)` and a parameterless forwarder for the XAML designer + existing tests. The orchestrator wraps the existing `StartupPerformanceTracker` and owns the existing `StartupRestoreCoordinator` instance; neither type is changed.
+**Architecture:** Three new files in `src/Ntilde.App/Core/` (`StartupOrchestrator.cs`, `AppServiceBundle.cs`, `AppServices.cs`). MainWindow gains a typed ctor `MainWindow(AppServiceBundle services)` and a parameterless forwarder for the XAML designer + existing tests. The orchestrator wraps the existing `StartupPerformanceTracker` and owns the existing `StartupRestoreCoordinator` instance; neither type is changed.
 
 **Tech Stack:** C# 12, .NET 10, Avalonia 12, xUnit (with `Avalonia.Headless.XUnit` for headless tests), `scripts/build.{ps1,sh}` wrappers (raw `dotnet` hangs Bash pipes — see `CLAUDE.md`).
 
@@ -17,20 +17,20 @@
 ### Task 1: Create `StartupOrchestrator` with failing tests, then make them pass
 
 **Files:**
-- Create: `src/NovaTerminal.App/Core/StartupOrchestrator.cs`
-- Create: `tests/NovaTerminal.Tests/Core/StartupOrchestratorTests.cs`
+- Create: `src/Ntilde.App/Core/StartupOrchestrator.cs`
+- Create: `tests/Ntilde.Tests/Core/StartupOrchestratorTests.cs`
 
 - [ ] **Step 1: Write the failing test file**
 
-Create `tests/NovaTerminal.Tests/Core/StartupOrchestratorTests.cs` with the full test class:
+Create `tests/Ntilde.Tests/Core/StartupOrchestratorTests.cs` with the full test class:
 
 ```csharp
 using System;
 using System.Collections.Generic;
-using NovaTerminal.Core;
+using Ntilde.Core;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class StartupOrchestratorTests
 {
@@ -53,9 +53,9 @@ public sealed class StartupOrchestratorTests
     private static StartupRestoreCoordinator CreateCapturingCoordinator(List<Action> captured)
         => new(action => captured.Add(action));
 
-    private static NovaSession SessionWith(int tabCount, int activeIndex)
+    private static NtildeSession SessionWith(int tabCount, int activeIndex)
     {
-        var session = new NovaSession { ActiveTabIndex = activeIndex };
+        var session = new NtildeSession { ActiveTabIndex = activeIndex };
         for (int i = 0; i < tabCount; i++)
         {
             session.Tabs.Add(new TabSession { Title = $"tab-{i}" });
@@ -285,12 +285,12 @@ Expected: build failure with `error CS0246: The type or namespace name 'StartupO
 
 - [ ] **Step 3: Create the orchestrator class**
 
-Create `src/NovaTerminal.App/Core/StartupOrchestrator.cs`:
+Create `src/Ntilde.App/Core/StartupOrchestrator.cs`:
 
 ```csharp
 using System;
 
-namespace NovaTerminal.Core;
+namespace Ntilde.Core;
 
 public sealed class StartupOrchestrator
 {
@@ -313,7 +313,7 @@ public sealed class StartupOrchestrator
     public void Checkpoint(string name) => _tracker.TryMarkCheckpoint(name);
 
     public void BeginSessionRestore(
-        NovaSession session,
+        NtildeSession session,
         Action<StartupRestoreTab> materializeImmediate)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -381,7 +381,7 @@ Expected: all 15 tests pass (`Mark_DelegatesToTracker`, `Checkpoint_DelegatesToT
 - [ ] **Step 5: Commit**
 
 ```powershell
-git commit src/NovaTerminal.App/Core/StartupOrchestrator.cs tests/NovaTerminal.Tests/Core/StartupOrchestratorTests.cs -m "feat: add StartupOrchestrator with phase + restore lifecycle"
+git commit src/Ntilde.App/Core/StartupOrchestrator.cs tests/Ntilde.Tests/Core/StartupOrchestratorTests.cs -m "feat: add StartupOrchestrator with phase + restore lifecycle"
 ```
 
 ---
@@ -389,21 +389,21 @@ git commit src/NovaTerminal.App/Core/StartupOrchestrator.cs tests/NovaTerminal.T
 ### Task 2: Create `AppServiceBundle` and `AppServices` with tests
 
 **Files:**
-- Create: `src/NovaTerminal.App/Core/AppServiceBundle.cs`
-- Create: `src/NovaTerminal.App/Core/AppServices.cs`
-- Create: `tests/NovaTerminal.Tests/Core/AppServicesTests.cs`
+- Create: `src/Ntilde.App/Core/AppServiceBundle.cs`
+- Create: `src/Ntilde.App/Core/AppServices.cs`
+- Create: `tests/Ntilde.Tests/Core/AppServicesTests.cs`
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/NovaTerminal.Tests/Core/AppServicesTests.cs`:
+Create `tests/Ntilde.Tests/Core/AppServicesTests.cs`:
 
 ```csharp
 using System;
 using System.Collections.Generic;
-using NovaTerminal.Core;
+using Ntilde.Core;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class AppServicesTests
 {
@@ -429,7 +429,7 @@ public sealed class AppServicesTests
     public void BuildForDesigner_ReturnsBundleWithSynchronousScheduler()
     {
         var bundle = AppServices.BuildForDesigner();
-        var session = new NovaSession { ActiveTabIndex = 0 };
+        var session = new NtildeSession { ActiveTabIndex = 0 };
         session.Tabs.Add(new TabSession { Title = "a" });
         session.Tabs.Add(new TabSession { Title = "b" });
         bundle.Startup.BeginSessionRestore(session, _ => { });
@@ -454,22 +454,22 @@ Expected: build failure with `error CS0103: The name 'AppServices' does not exis
 
 - [ ] **Step 3: Create the bundle record**
 
-Create `src/NovaTerminal.App/Core/AppServiceBundle.cs`:
+Create `src/Ntilde.App/Core/AppServiceBundle.cs`:
 
 ```csharp
-namespace NovaTerminal.Core;
+namespace Ntilde.Core;
 
 public sealed record AppServiceBundle(StartupOrchestrator Startup);
 ```
 
 - [ ] **Step 4: Create the services factory**
 
-Create `src/NovaTerminal.App/Core/AppServices.cs`:
+Create `src/Ntilde.App/Core/AppServices.cs`:
 
 ```csharp
 using System;
 
-namespace NovaTerminal.Core;
+namespace Ntilde.Core;
 
 public static class AppServices
 {
@@ -510,7 +510,7 @@ Expected: both tests pass.
 - [ ] **Step 6: Commit**
 
 ```powershell
-git commit src/NovaTerminal.App/Core/AppServiceBundle.cs src/NovaTerminal.App/Core/AppServices.cs tests/NovaTerminal.Tests/Core/AppServicesTests.cs -m "feat: add AppServiceBundle composition-root pattern"
+git commit src/Ntilde.App/Core/AppServiceBundle.cs src/Ntilde.App/Core/AppServices.cs tests/Ntilde.Tests/Core/AppServicesTests.cs -m "feat: add AppServiceBundle composition-root pattern"
 ```
 
 ---
@@ -518,16 +518,16 @@ git commit src/NovaTerminal.App/Core/AppServiceBundle.cs src/NovaTerminal.App/Co
 ### Task 3: Wire `MainWindow` to receive `AppServiceBundle`, no call-site migration yet
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` (add typed ctor, forwarder, field)
-- Modify: `src/NovaTerminal.App/App.axaml.cs` (use `AppServices.Build`)
-- Create: `tests/NovaTerminal.Tests/Core/TestMainWindowFactory.cs`
-- Modify: `tests/NovaTerminal.Tests/Core/MainWindowStartupTests.cs` (use factory)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` (add typed ctor, forwarder, field)
+- Modify: `src/Ntilde.App/App.axaml.cs` (use `AppServices.Build`)
+- Create: `tests/Ntilde.Tests/Core/TestMainWindowFactory.cs`
+- Modify: `tests/Ntilde.Tests/Core/MainWindowStartupTests.cs` (use factory)
 
 This task adds the wiring but does **not** migrate any `StartupPerformanceTracker.Current?.TryMark*` calls. After this task the orchestrator exists on `MainWindow` but no MainWindow code uses it yet. Everything still compiles and passes.
 
 - [ ] **Step 1: Add the `_startup` field and typed ctor to `MainWindow.axaml.cs`**
 
-Locate the existing field declarations near line 87 in `src/NovaTerminal.App/MainWindow.axaml.cs`:
+Locate the existing field declarations near line 87 in `src/Ntilde.App/MainWindow.axaml.cs`:
 
 ```csharp
         private readonly StartupRestoreCoordinator _startupRestoreCoordinator;
@@ -563,7 +563,7 @@ Concretely: copy the existing ctor body verbatim into the typed ctor, then leave
 
 - [ ] **Step 2: Update `App.axaml.cs` to construct services and pass the bundle**
 
-Replace the body of `OnFrameworkInitializationCompleted` in `src/NovaTerminal.App/App.axaml.cs`:
+Replace the body of `OnFrameworkInitializationCompleted` in `src/Ntilde.App/App.axaml.cs`:
 
 ```csharp
     public override void OnFrameworkInitializationCompleted()
@@ -601,38 +601,38 @@ using System;
 
 - [ ] **Step 3: Create the test factory**
 
-Create `tests/NovaTerminal.Tests/Core/TestMainWindowFactory.cs`:
+Create `tests/Ntilde.Tests/Core/TestMainWindowFactory.cs`:
 
 ```csharp
-using NovaTerminal.Core;
+using Ntilde.Core;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 internal static class TestMainWindowFactory
 {
-    public static NovaTerminal.MainWindow Create()
-        => new NovaTerminal.MainWindow(AppServices.BuildForDesigner());
+    public static Ntilde.MainWindow Create()
+        => new Ntilde.MainWindow(AppServices.BuildForDesigner());
 }
 ```
 
 - [ ] **Step 4: Switch existing MainWindow fixture call sites to use the factory**
 
-In `tests/NovaTerminal.Tests/Core/MainWindowStartupTests.cs`, replace every occurrence of `new NovaTerminal.MainWindow()` with `TestMainWindowFactory.Create()`. There are 7 occurrences on lines 15, 23, 37, 65, 83, 161, 195, 221. Use the Edit tool with `replace_all: true`:
+In `tests/Ntilde.Tests/Core/MainWindowStartupTests.cs`, replace every occurrence of `new Ntilde.MainWindow()` with `TestMainWindowFactory.Create()`. There are 7 occurrences on lines 15, 23, 37, 65, 83, 161, 195, 221. Use the Edit tool with `replace_all: true`:
 
 ```
-old_string: new NovaTerminal.MainWindow()
+old_string: new Ntilde.MainWindow()
 new_string: TestMainWindowFactory.Create()
 ```
 
 Then add the using directive at the top of the test file if not already present:
 
 ```csharp
-using NovaTerminal.Core;
+using Ntilde.Core;
 ```
 
-(The `NovaTerminal.Core` namespace contains `AppServices` and the orchestrator; the factory file in the same namespace doesn't need a using directive itself.)
+(The `Ntilde.Core` namespace contains `AppServices` and the orchestrator; the factory file in the same namespace doesn't need a using directive itself.)
 
-The `RecordingCommandProbeWindow` private nested class at the bottom of the file derives from `NovaTerminal.MainWindow` with no explicit ctor — it inherits the parameterless ctor unchanged. Leave that class alone.
+The `RecordingCommandProbeWindow` private nested class at the bottom of the file derives from `Ntilde.MainWindow` with no explicit ctor — it inherits the parameterless ctor unchanged. Leave that class alone.
 
 - [ ] **Step 5: Build and run the affected tests**
 
@@ -649,7 +649,7 @@ Expected: all tests pass. If any `MainWindowStartupTests` test fails because of 
 Run:
 
 ```powershell
-scripts/build.ps1 build src/NovaTerminal.App/NovaTerminal.App.csproj -c Release --no-restore
+scripts/build.ps1 build src/Ntilde.App/Ntilde.App.csproj -c Release --no-restore
 ```
 
 Expected: build succeeds. The App project's csproj has `<PublishAot>true</PublishAot>` but `dotnet build` (not `publish`) does not enforce AOT trim warnings; we still want a clean build here.
@@ -657,7 +657,7 @@ Expected: build succeeds. The App project's csproj has `<PublishAot>true</Publis
 - [ ] **Step 7: Commit**
 
 ```powershell
-git commit src/NovaTerminal.App/MainWindow.axaml.cs src/NovaTerminal.App/App.axaml.cs tests/NovaTerminal.Tests/Core/TestMainWindowFactory.cs tests/NovaTerminal.Tests/Core/MainWindowStartupTests.cs -m "refactor: wire MainWindow through AppServiceBundle composition root"
+git commit src/Ntilde.App/MainWindow.axaml.cs src/Ntilde.App/App.axaml.cs tests/Ntilde.Tests/Core/TestMainWindowFactory.cs tests/Ntilde.Tests/Core/MainWindowStartupTests.cs -m "refactor: wire MainWindow through AppServiceBundle composition root"
 ```
 
 ---
@@ -665,7 +665,7 @@ git commit src/NovaTerminal.App/MainWindow.axaml.cs src/NovaTerminal.App/App.axa
 ### Task 4: Migrate `Mark` and `Checkpoint` call sites in `MainWindow.axaml.cs`
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
 
 Pure mechanical refactor. Every `StartupPerformanceTracker.Current?.TryMark*(...)` call inside MainWindow becomes `_startup.Mark(...)` or `_startup.Checkpoint(...)`. No behavior change.
 
@@ -705,7 +705,7 @@ Use the Edit tool with `replace_all: false` for each substitution one-by-one (mo
 After every 3–5 edits, re-run a quick compile to fail fast:
 
 ```powershell
-scripts/build.ps1 build src/NovaTerminal.App/NovaTerminal.App.csproj -c Release --no-restore
+scripts/build.ps1 build src/Ntilde.App/Ntilde.App.csproj -c Release --no-restore
 ```
 
 - [ ] **Step 2: Confirm zero remaining `StartupPerformanceTracker.Current?.` references in MainWindow**
@@ -714,7 +714,7 @@ Run via the Grep tool (not Bash):
 
 ```
 pattern: StartupPerformanceTracker\.Current
-path:    src/NovaTerminal.App/MainWindow.axaml.cs
+path:    src/Ntilde.App/MainWindow.axaml.cs
 output_mode: content
 ```
 
@@ -733,7 +733,7 @@ Expected: all pass.
 - [ ] **Step 4: Commit**
 
 ```powershell
-git commit src/NovaTerminal.App/MainWindow.axaml.cs -m "refactor: route MainWindow phase + checkpoint marks through StartupOrchestrator"
+git commit src/Ntilde.App/MainWindow.axaml.cs -m "refactor: route MainWindow phase + checkpoint marks through StartupOrchestrator"
 ```
 
 ---
@@ -741,13 +741,13 @@ git commit src/NovaTerminal.App/MainWindow.axaml.cs -m "refactor: route MainWind
 ### Task 5: Migrate session restore + deferred path through the orchestrator
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
 
 This task removes `_startupRestoreCoordinator`, `_pendingStartupRestorePlan`, `RunDeferredStartupRestore()`, replaces the inline plan/mark logic with `_startup.BeginSessionRestore`/`DrainDeferred`, and collapses the duplicated fresh-start path.
 
 - [ ] **Step 1: Delete the now-redundant fields**
 
-In `src/NovaTerminal.App/MainWindow.axaml.cs`, near the field declarations added in Task 3, delete these two lines:
+In `src/Ntilde.App/MainWindow.axaml.cs`, near the field declarations added in Task 3, delete these two lines:
 
 ```csharp
         private readonly StartupRestoreCoordinator _startupRestoreCoordinator;
@@ -773,7 +773,7 @@ Find the method `TryRestoreStartupSession` (around line 1208). Replace its body 
 ```csharp
         private bool TryRestoreStartupSession(TabControl tabs)
         {
-            if (!SessionManager.TryLoadSavedSession(out NovaSession? session) ||
+            if (!SessionManager.TryLoadSavedSession(out NtildeSession? session) ||
                 session == null ||
                 session.Tabs.Count == 0)
             {
@@ -833,7 +833,7 @@ Replace the body crafted in Step 3 with this wrapped form:
 ```csharp
         private bool TryRestoreStartupSession(TabControl tabs)
         {
-            if (!SessionManager.TryLoadSavedSession(out NovaSession? session) ||
+            if (!SessionManager.TryLoadSavedSession(out NtildeSession? session) ||
                 session == null ||
                 session.Tabs.Count == 0)
             {
@@ -990,7 +990,7 @@ This is the one quiet correctness improvement the spec promised: collapses the d
 Run:
 
 ```powershell
-scripts/build.ps1 build src/NovaTerminal.App/NovaTerminal.App.csproj -c Release --no-restore
+scripts/build.ps1 build src/Ntilde.App/Ntilde.App.csproj -c Release --no-restore
 ```
 
 Expected: clean build. If you get `CS0103: The name '_pendingStartupRestorePlan' does not exist`, you missed a call site — search MainWindow.axaml.cs for `_pendingStartupRestorePlan` and `_startupRestoreCoordinator` and remove or migrate every remaining reference.
@@ -999,7 +999,7 @@ Run via Grep tool to verify zero remaining references:
 
 ```
 pattern: _pendingStartupRestorePlan|_startupRestoreCoordinator|RunDeferredStartupRestore
-path:    src/NovaTerminal.App/MainWindow.axaml.cs
+path:    src/Ntilde.App/MainWindow.axaml.cs
 output_mode: content
 ```
 
@@ -1018,7 +1018,7 @@ Expected: all pass.
 - [ ] **Step 10: Commit**
 
 ```powershell
-git commit src/NovaTerminal.App/MainWindow.axaml.cs -m "refactor: route MainWindow session restore through StartupOrchestrator"
+git commit src/Ntilde.App/MainWindow.axaml.cs -m "refactor: route MainWindow session restore through StartupOrchestrator"
 ```
 
 ---
@@ -1126,7 +1126,7 @@ PR #67 added the instrumentation building blocks but left the orchestration inli
 
 ## Test plan
 - [x] `scripts/build.ps1 test -c Release --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke"`
-- [x] `scripts/build.ps1 build src/NovaTerminal.App/NovaTerminal.App.csproj -c Release`
+- [x] `scripts/build.ps1 build src/Ntilde.App/Ntilde.App.csproj -c Release`
 - [x] Measurement gate within ±2%
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
@@ -1140,7 +1140,7 @@ EOF
 
 - **Staged-work safety:** the session that produced this plan left the icon-ico-swap + PowerShell `-File` unquote fix in the staging area. Every `git commit` in this plan uses explicit paths, so those changes are never swept into a commit produced by this plan. If a commit step ever lands those files, stop immediately and run `git reset --soft HEAD~1` then re-commit with explicit paths.
 - **Build wrappers are mandatory:** raw `dotnet build` / `dotnet test` hangs the Bash tool's pipe per `CLAUDE.md`. Always use `scripts/build.ps1` / `scripts/build.sh`. If a test step appears stuck, kill it and re-run via the wrapper.
-- **Do NOT touch:** `NovaTerminal.VT`, `NovaTerminal.Rendering`, `NovaTerminal.Replay`, `TerminalPane.axaml.cs`'s `FirstTerminalReady` mark, the `StartupPerformanceTracker.Current` static accessor (it must continue to work for TerminalPane), the `StartupRestoreCoordinator` and `StartupRestorePlan` source files.
+- **Do NOT touch:** `Ntilde.VT`, `Ntilde.Rendering`, `Ntilde.Replay`, `TerminalPane.axaml.cs`'s `FirstTerminalReady` mark, the `StartupPerformanceTracker.Current` static accessor (it must continue to work for TerminalPane), the `StartupRestoreCoordinator` and `StartupRestorePlan` source files.
 - **Commit granularity:** each task produces exactly one commit. Six commits total. If a task step fails partway, fix forward on the same commit (do not split). If you realize a previous task's commit needs a fix, add a follow-up commit rather than amending.
 - **Existing in-repo stashes** (`stash@{0..5}`): leave them alone. None are related to this work.
 

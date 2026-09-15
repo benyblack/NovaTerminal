@@ -2,7 +2,7 @@
 
 ## Goal
 
-Improve NovaTerminal's Native SFTP transfer UX by replacing the disconnected right-click-plus-modal flow with a pane-local, lightly navigable remote sidebar that stays terminal-first and does not become a general file browser.
+Improve Ntilde's Native SFTP transfer UX by replacing the disconnected right-click-plus-modal flow with a pane-local, lightly navigable remote sidebar that stays terminal-first and does not become a general file browser.
 
 ## Scope
 
@@ -102,7 +102,7 @@ Cons:
 
 ## Product Direction
 
-NovaTerminal should remain terminal-first, not file-manager-first.
+Ntilde should remain terminal-first, not file-manager-first.
 
 That means the sidebar must stay intentionally narrow:
 
@@ -269,4 +269,4 @@ After this work:
 - remote defaults come from live session context instead of `~`
 - downloads can start from visible remote entries instead of typed paths
 - uploads target the currently shown remote directory
-- NovaTerminal remains terminal-first without becoming a full SFTP browser
+- Ntilde remains terminal-first without becoming a full SFTP browser

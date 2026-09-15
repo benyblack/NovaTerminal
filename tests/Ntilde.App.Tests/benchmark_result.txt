@@ -1,0 +1,26 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Ntilde -> D:\projects\nova2\Ntilde\bin\Debug\net10.0\Ntilde.dll
+  Ntilde.Tests -> D:\projects\nova2\Ntilde.Tests\bin\Debug\net10.0\Ntilde.Tests.dll
+Test run for D:\projects\nova2\Ntilde.Tests\bin\Debug\net10.0\Ntilde.Tests.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+D:\projects\nova2\Ntilde.Tests\bin\Debug\net10.0\Ntilde.Tests.dll
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.4+50e68bbb8b (64-bit .NET 10.0.2)
+[xUnit.net 00:00:00.04]   Discovering: Ntilde.Tests
+[xUnit.net 00:00:00.08]   Discovered:  Ntilde.Tests
+[xUnit.net 00:00:00.09]   Starting:    Ntilde.Tests
+[xUnit.net 00:00:00.59]   Finished:    Ntilde.Tests
+  Passed Ntilde.Tests.Performance.PerformanceTests.LargeThroughput_Benchmark [478 ms]
+  Standard Output Messages:
+ Processed 2.95 MB in 0.4699s
+ Throughput: 6.29 MB/s
+
+
+
+Test Run Successful.
+Total tests: 1
+     Passed: 1
+ Total time: 0.9342 Seconds

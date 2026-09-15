@@ -44,7 +44,7 @@ Out of scope:
 
 ### UI
 
-`src/NovaTerminal.App/Controls/ConnectionManager.axaml`: the detail action bar is
+`src/Ntilde.App/Controls/ConnectionManager.axaml`: the detail action bar is
 a `Grid` with `ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto"`.
 Add one more `Auto` column and place a trash `Button` in it:
 
@@ -119,7 +119,7 @@ list would be worse than leaving it be.
 
 ### Vault surface
 
-`src/NovaTerminal.App/Shell/VaultService.cs` gains an interface alongside the
+`src/Ntilde.App/Shell/VaultService.cs` gains an interface alongside the
 existing `ISshPasswordVault`:
 
 ```csharp
@@ -207,7 +207,7 @@ No confirmation dialog, and no `LoadProfiles` refresh:
 
 ## Testing
 
-`tests/NovaTerminal.App.Tests/Ssh/ConnectionManagerTests.cs`, headless
+`tests/Ntilde.App.Tests/Ssh/ConnectionManagerTests.cs`, headless
 `[AvaloniaFact]`, following the existing `CreateMeasuredConnectionManager` /
 `SelectFirstRow` / `FindButtonByToolTip` helpers:
 
@@ -234,7 +234,7 @@ A combined `SshConnectionService`-level check ("delete removes the profile
 from the store and purges the profile-scoped vault keys") is not implementable
 as originally written: `SshConnectionService.DeleteProfile` delegates straight
 to `JsonSshProfileStore.DeleteProfile` and never touches the vault
-(`src/NovaTerminal.App/Services/Ssh/SshConnectionService.cs:161-164`) — the
+(`src/Ntilde.App/Services/Ssh/SshConnectionService.cs:161-164`) — the
 purge lives in `MainWindow.DeleteSshProfileAsync` by design, after the store
 delete succeeds (see the vault-scoping remarks on `ISavedPasswordAccess`).
 The store-delete and the vault-purge are instead verified separately, at
@@ -247,9 +247,9 @@ test.
 
 ## Files touched
 
-- `src/NovaTerminal.App/Controls/ConnectionManager.axaml`
-- `src/NovaTerminal.App/Controls/ConnectionManager.axaml.cs`
-- `src/NovaTerminal.App/Shell/VaultService.cs`
-- `src/NovaTerminal.App/MainWindow.axaml.cs`
-- `tests/NovaTerminal.App.Tests/Ssh/ConnectionManagerTests.cs`
-- `tests/NovaTerminal.App.Tests/Core/` — new or extended `VaultService` tests
+- `src/Ntilde.App/Controls/ConnectionManager.axaml`
+- `src/Ntilde.App/Controls/ConnectionManager.axaml.cs`
+- `src/Ntilde.App/Shell/VaultService.cs`
+- `src/Ntilde.App/MainWindow.axaml.cs`
+- `tests/Ntilde.App.Tests/Ssh/ConnectionManagerTests.cs`
+- `tests/Ntilde.App.Tests/Core/` — new or extended `VaultService` tests

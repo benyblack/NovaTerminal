@@ -4,14 +4,14 @@
 
 | Draft | Outcome |
 |---|---|
-| 1. Sixel HLS flat grey | filed as [#247](https://github.com/benyblack/NovaTerminal/issues/247) |
-| 2. Theme importers untested | filed as [#248](https://github.com/benyblack/NovaTerminal/issues/248) |
-| 3. Kitty theme importer | filed as [#249](https://github.com/benyblack/NovaTerminal/issues/249) |
-| 4. Command Assist recipes | filed as [#250](https://github.com/benyblack/NovaTerminal/issues/250) |
-| 5. Issue + PR templates | implemented in [#245](https://github.com/benyblack/NovaTerminal/pull/245) |
-| 6. CONTRIBUTING on-ramp | implemented in [#245](https://github.com/benyblack/NovaTerminal/pull/245) |
-| 7. `REP` (CSI Ps b) | filed as [#251](https://github.com/benyblack/NovaTerminal/issues/251) |
-| 8. OSC 52 clipboard | filed as [#252](https://github.com/benyblack/NovaTerminal/issues/252) |
+| 1. Sixel HLS flat grey | filed as [#247](https://github.com/benyblack/ntilde/issues/247) |
+| 2. Theme importers untested | filed as [#248](https://github.com/benyblack/ntilde/issues/248) |
+| 3. Kitty theme importer | filed as [#249](https://github.com/benyblack/ntilde/issues/249) |
+| 4. Command Assist recipes | filed as [#250](https://github.com/benyblack/ntilde/issues/250) |
+| 5. Issue + PR templates | implemented in [#245](https://github.com/benyblack/ntilde/pull/245) |
+| 6. CONTRIBUTING on-ramp | implemented in [#245](https://github.com/benyblack/ntilde/pull/245) |
+| 7. `REP` (CSI Ps b) | filed as [#251](https://github.com/benyblack/ntilde/issues/251) |
+| 8. OSC 52 clipboard | filed as [#252](https://github.com/benyblack/ntilde/issues/252) |
 
 Labels `vt`, `rendering` and `theme` were created (grey `#ededed`, matching the
 existing `ssh` / `ux` / `security` area labels).
@@ -62,7 +62,7 @@ out the HLS form (`#Pc;1;Ph;Pl;Ps`), assigning every HLS colour the same mid
 grey:
 
 ```csharp
-// src/NovaTerminal.Rendering/SixelDecoder.cs:99-103
+// src/Ntilde.Rendering/SixelDecoder.cs:99-103
 else if (type == 1) // HLS (simplified conversion)
 {
     // TODO: Full HLS to RGB conversion if needed
@@ -106,7 +106,7 @@ Two things to get right:
 
 ### How to test
 
-Extend `tests/NovaTerminal.Rendering.Tests/SixelDecoderTests.cs`. Note the
+Extend `tests/Ntilde.Rendering.Tests/SixelDecoderTests.cs`. Note the
 existing `SkiaAvailable` guard convention in that file (`Assert.SkipUnless`) —
 SkiaSharp is absent on the Linux gating runner. If you factor the conversion out
 as a pure static method, you can test it without touching Skia at all, which is
@@ -122,8 +122,8 @@ A `[Theory]` over the anchor table above plus one round-trip
 - [ ] Anchor table covered by tests
 - [ ] `TODO` comment removed
 
-**Files:** `src/NovaTerminal.Rendering/SixelDecoder.cs`,
-`tests/NovaTerminal.Rendering.Tests/SixelDecoderTests.cs`
+**Files:** `src/Ntilde.Rendering/SixelDecoder.cs`,
+`tests/Ntilde.Rendering.Tests/SixelDecoderTests.cs`
 
 ---
 
@@ -135,9 +135,9 @@ A `[Theory]` over the anchor table above plus one round-trip
 
 Three importers ship with zero tests:
 
-- `src/NovaTerminal.App/Shell/ThemeImporters/AlacrittyImporter.cs` (`.toml`)
-- `src/NovaTerminal.App/Shell/ThemeImporters/ITerm2Importer.cs` (`.itermcolors`)
-- `src/NovaTerminal.App/Shell/ThemeImporters/WindowsTerminalImporter.cs` (`.json`)
+- `src/Ntilde.App/Shell/ThemeImporters/AlacrittyImporter.cs` (`.toml`)
+- `src/Ntilde.App/Shell/ThemeImporters/ITerm2Importer.cs` (`.itermcolors`)
+- `src/Ntilde.App/Shell/ThemeImporters/WindowsTerminalImporter.cs` (`.json`)
 
 There is no test file matching `*Import*` anywhere under `tests/`. Each importer
 is a hand-rolled parser over untrusted third-party files, and `Import` swallows
@@ -149,15 +149,15 @@ rule that behaviour is enforced by tests rather than discipline.
 
 ### What to change
 
-Add `tests/NovaTerminal.App.Tests/Shell/ThemeImporterTests.cs` (namespace
-`NovaTerminal.Tests.Shell`, matching the `NovaTerminal.Tests.CommandAssist`
-convention in `tests/NovaTerminal.App.Tests/CommandAssist/`).
+Add `tests/Ntilde.App.Tests/Shell/ThemeImporterTests.cs` (namespace
+`Ntilde.Tests.Shell`, matching the `Ntilde.Tests.CommandAssist`
+convention in `tests/Ntilde.App.Tests/CommandAssist/`).
 
 Cover, per importer:
 
 - a well-formed file maps every slot correctly — `Foreground`, `Background`,
   `CursorColor`, and ANSI 0–15 (see `TerminalTheme` in
-  `src/NovaTerminal.VT/TerminalTheme.cs` for the full surface)
+  `src/Ntilde.VT/TerminalTheme.cs` for the full surface)
 - `Name` is derived as expected (e.g. `AlacrittyImporter` appends
   `" (Alacritty)"`)
 - comments, blank lines and trailing `# ...` are ignored (Alacritty)
@@ -181,7 +181,7 @@ will not turn the check red for you.
 - [ ] Tests create their own fixtures; no dependency on developer machine state
 - [ ] `scripts/build.ps1 test` (or `.sh`) passes locally
 
-**Files:** `tests/NovaTerminal.App.Tests/Shell/ThemeImporterTests.cs` (new)
+**Files:** `tests/Ntilde.App.Tests/Shell/ThemeImporterTests.cs` (new)
 
 ---
 
@@ -191,7 +191,7 @@ will not turn the check red for you.
 
 ### Context
 
-NovaTerminal imports Windows Terminal, iTerm2 and Alacritty themes. Kitty's
+Ntilde imports Windows Terminal, iTerm2 and Alacritty themes. Kitty's
 `.conf` format is the other big one — the [kitty-themes] catalogue is where a
 lot of people keep their colours, and it is the simplest of the four to parse.
 
@@ -199,11 +199,11 @@ lot of people keep their colours, and it is the simplest of the four to parse.
 
 ### What to change
 
-1. Add `src/NovaTerminal.App/Shell/ThemeImporters/KittyImporter.cs` implementing
+1. Add `src/Ntilde.App/Shell/ThemeImporters/KittyImporter.cs` implementing
    `IThemeImporter` (three members: `Name`, `Extension`, `Import`) — see
    `IThemeImporter.cs` and copy the shape of `AlacrittyImporter`, which is the
    closest analogue (line-oriented, `key value` pairs).
-2. Register it in the importer list at `src/NovaTerminal.App/Shell/ThemeManager.cs:14-19`.
+2. Register it in the importer list at `src/Ntilde.App/Shell/ThemeManager.cs:14-19`.
 
 The format is flat `key value` lines, `#`-commented:
 
@@ -239,8 +239,8 @@ kitty-themes catalogue as a fixture string.
 - [ ] Comments, blank lines and unknown keys are ignored, not fatal
 - [ ] Tests cover a real kitty theme and a malformed one
 
-**Files:** `src/NovaTerminal.App/Shell/ThemeImporters/KittyImporter.cs` (new),
-`src/NovaTerminal.App/Shell/ThemeManager.cs`
+**Files:** `src/Ntilde.App/Shell/ThemeImporters/KittyImporter.cs` (new),
+`src/Ntilde.App/Shell/ThemeManager.cs`
 
 ---
 
@@ -254,7 +254,7 @@ Command Assist suggests recipes for the command you are typing. The seed
 catalogue currently holds **seven** entries, covering `git` (×2), `docker`,
 `ls`, `grep`, `Get-ChildItem` and `Set-Location`:
 
-`src/NovaTerminal.App/CommandAssist/Domain/SeedRecipeProvider.cs:12-22`
+`src/Ntilde.App/CommandAssist/Domain/SeedRecipeProvider.cs:12-22`
 
 Common tools have nothing: `ssh`, `curl`, `tar`, `find`, `kubectl`, `rg`,
 `systemctl`, `journalctl`, `dotnet`, `cargo`, and on the PowerShell side
@@ -293,7 +293,7 @@ PR, not mixed with content.
 
 ### How to test
 
-Extend `tests/NovaTerminal.App.Tests/CommandAssist/SeedRecipeProviderTests.cs`.
+Extend `tests/Ntilde.App.Tests/CommandAssist/SeedRecipeProviderTests.cs`.
 Worth adding as invariants over the whole catalogue rather than per-recipe
 assertions:
 
@@ -309,8 +309,8 @@ assertions:
 - [ ] Catalogue-wide invariant tests added
 - [ ] No destructive or secret-leaking examples
 
-**Files:** `src/NovaTerminal.App/CommandAssist/Domain/SeedRecipeProvider.cs`,
-`tests/NovaTerminal.App.Tests/CommandAssist/SeedRecipeProviderTests.cs`
+**Files:** `src/Ntilde.App/CommandAssist/Domain/SeedRecipeProvider.cs`,
+`tests/Ntilde.App.Tests/CommandAssist/SeedRecipeProviderTests.cs`
 
 ---
 
@@ -355,7 +355,7 @@ Add:
    test categories were run locally, since the `App.Tests` lane is
    non-blocking.
 2. `.github/ISSUE_TEMPLATE/bug_report.yml` — a form. For a terminal emulator
-   the fields that actually matter: OS + version, NovaTerminal version/commit,
+   the fields that actually matter: OS + version, Ntilde version/commit,
    shell, the escape sequence or command that triggers it, expected vs actual,
    and whether it reproduces in another terminal (that one distinction saves a
    lot of triage).
@@ -405,17 +405,17 @@ Keep the forms short. A long form is a form nobody fills in.
 ### Adjacent fix, same session
 
 `docs/MODULE_OWNERSHIP.md` documented a module that no longer exists. The
-`NovaTerminal.Core` → `NovaTerminal.Platform` rename (#76) had already happened
-in the source tree, but the doc still had a `## NovaTerminal.Core` section
+`Ntilde.Core` → `Ntilde.Platform` rename (#76) had already happened
+in the source tree, but the doc still had a `## Ntilde.Core` section
 claiming the rename was "a planned follow-up", and four dead
-`tests/NovaTerminal.Core.Tests/...` paths. `src/NovaTerminal.Core/` and
-`tests/NovaTerminal.Core.Tests/` survive on disk only as untracked `bin`/`obj`
+`tests/Ntilde.Core.Tests/...` paths. `src/Ntilde.Core/` and
+`tests/Ntilde.Core.Tests/` survive on disk only as untracked `bin`/`obj`
 leftovers — no `.csproj`, no solution entry.
 
 Fixed, since the new project map points newcomers at that doc. **Still open
-there:** `MODULE_OWNERSHIP.md` has no section for `NovaTerminal.Platform`'s
-sibling assemblies `NovaTerminal.McpServer` or
-`NovaTerminal.AgentHost.Contracts`. Worth its own pass — possibly its own good
+there:** `MODULE_OWNERSHIP.md` has no section for `Ntilde.Platform`'s
+sibling assemblies `Ntilde.McpServer` or
+`Ntilde.AgentHost.Contracts`. Worth its own pass — possibly its own good
 first issue.
 
 ---
@@ -440,7 +440,7 @@ missing characters.
 ### What to change
 
 1. Record the last graphic character written. The printable path is
-   `_buffer.WriteChar(c)` at `src/NovaTerminal.VT/AnsiParser.cs:141`.
+   `_buffer.WriteChar(c)` at `src/Ntilde.VT/AnsiParser.cs:141`.
    Note that `TerminalBuffer` already tracks `_lastCharCol` / `_lastCharRow`
    (`TerminalBuffer.State.cs:18-19`) but those exist for **grapheme
    attachment**, not for `REP` — they record a position, not a character. Do not
@@ -453,14 +453,14 @@ missing characters.
    stale character is worse than one that does nothing.
 4. Respect `DECAWM` wrap and the pending-wrap state — repetition goes through
    the normal write path, it does not bypass it. See
-   `tests/NovaTerminal.App.Tests/PendingWrapTests.cs` for the existing
+   `tests/Ntilde.App.Tests/PendingWrapTests.cs` for the existing
    invariants there.
 5. Add a row to `docs/vt_coverage_matrix.md` and regenerate the conformance
    report.
 
 ### How to test
 
-Unit tests in `tests/NovaTerminal.VT.Tests/`, at minimum:
+Unit tests in `tests/Ntilde.VT.Tests/`, at minimum:
 
 - `A` + `CSI 3 b` → `AAAA`
 - `CSI b` with no parameter → one repetition
@@ -480,9 +480,9 @@ assuming it is handled.
 - [ ] Large-count input bounded
 - [ ] Coverage matrix row added, conformance report regenerated
 
-**Files:** `src/NovaTerminal.VT/AnsiParser.cs`,
-`src/NovaTerminal.VT/TerminalBuffer.WritePath.cs`, `docs/vt_coverage_matrix.md`,
-`tests/NovaTerminal.VT.Tests/`
+**Files:** `src/Ntilde.VT/AnsiParser.cs`,
+`src/Ntilde.VT/TerminalBuffer.WritePath.cs`, `docs/vt_coverage_matrix.md`,
+`tests/Ntilde.VT.Tests/`
 
 ---
 
@@ -501,14 +501,14 @@ requested remote-workflow feature in terminals, and `tmux`/`nvim` both drive it.
 ### What to change
 
 `OSC 52 ; Pc ; Pd ST`, dispatched from `HandleOsc` at
-`src/NovaTerminal.VT/AnsiParser.cs:1465` (follow the `OSC 0/2` and `OSC 7`
+`src/Ntilde.VT/AnsiParser.cs:1465` (follow the `OSC 0/2` and `OSC 7`
 shape at `:1496-1514`).
 
 **Architecture constraint:** the VT core must not depend on UI or OS. So the
 parser raises an event — `OnClipboardWriteRequested` alongside the existing
 `OnTitleChanged` / `OnWorkingDirectoryChanged` — and the App layer performs the
 clipboard write. A PR that reaches for an Avalonia clipboard API from inside
-`NovaTerminal.VT` will be sent back.
+`Ntilde.VT` will be sent back.
 
 **Security posture, which is the substance of this issue:**
 
@@ -529,7 +529,7 @@ clipboard write. A PR that reaches for an Avalonia clipboard API from inside
 
 ### How to test
 
-`tests/NovaTerminal.VT.Tests/` for the parse and policy layer — the event fires
+`tests/Ntilde.VT.Tests/` for the parse and policy layer — the event fires
 with decoded content for a valid write; does not fire for a read request,
 oversized payload, or malformed base64. Then update
 `docs/vt_coverage_matrix.md` and regenerate the conformance report.
@@ -541,8 +541,8 @@ oversized payload, or malformed base64. Then update
 - [ ] Size cap and base64 validation, with tests
 - [ ] Coverage matrix updated from `❌` to its real status
 
-**Files:** `src/NovaTerminal.VT/AnsiParser.cs`, App-layer clipboard wiring,
-`docs/vt_coverage_matrix.md`, `tests/NovaTerminal.VT.Tests/`
+**Files:** `src/Ntilde.VT/AnsiParser.cs`, App-layer clipboard wiring,
+`docs/vt_coverage_matrix.md`, `tests/Ntilde.VT.Tests/`
 
 ---
 

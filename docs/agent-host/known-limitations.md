@@ -6,7 +6,7 @@ observe. Tracked against the DIRECTION follow-ups.
 
 ## Heuristic session status can't see inside WSL or remote SSH
 
-`novaterminal.get_session_status` (and the status column in `list_sessions`) has
+`ntilde.get_session_status` (and the status column in `list_sessions`) has
 two confidence tiers:
 
 - **precise** — driven by shell-integration events (prompt / command lifecycle).
@@ -76,5 +76,5 @@ From `docs/agent-host/DIRECTION.md` and the milestone design docs:
   been laid out (created but never shown) has no cell geometry to render into and
   returns `captureUnavailable`; `read_screen` works regardless.
 - **Replay ships in the app executable** — the self-contained AOT release bundle
-  contains no separate `NovaTerminal.Cli`; the app exe serves `--replay <file>`
-  itself (`NovaTerminal --replay …`), the same headless render as the dev CLI.
+  contains no separate `Ntilde.Cli`; the app exe serves `--replay <file>`
+  itself (`Ntilde --replay …`), the same headless render as the dev CLI.

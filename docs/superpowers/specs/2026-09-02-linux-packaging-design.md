@@ -14,7 +14,7 @@ Give Linux the install and update experience Windows and macOS already have, on 
 
 - an **AppImage** built by `vpk pack`, with full/delta nupkgs and a per-arch update feed,
   so the in-app updater works on Linux for the first time;
-- a **`.deb`** with a `.desktop` entry, hicolor icons, `/usr/bin/nova`, and a man page, for
+- a **`.deb`** with a `.desktop` entry, hicolor icons, `/usr/bin/ntilde`, and a man page, for
   users who want a system-integrated install;
 - a **`tar.gz`** replacing today's portable zip, which is defective (see below).
 
@@ -38,11 +38,11 @@ Update channels are **`linux-x64`** and **`linux-arm64`** — not the platform-d
 
 - `release.yml`'s `publish_aot` runs a NativeAOT self-contained publish for `linux-x64` on
   `ubuntu-latest`, then zips the raw publish directory as
-  `NovaTerminal-linux-x64-<tag>.zip` with PowerShell `Compress-Archive`. That is the
+  `ntilde-linux-x64-<tag>.zip` with PowerShell `Compress-Archive`. That is the
   entire Linux distribution: no installer, no update feed, no desktop entry, no icon, no
-  `nova` on PATH, no distro package.
+  `ntilde` on PATH, no distro package.
 - **The zip is defective.** `Compress-Archive` (System.IO.Compression) does not write Unix
-  mode bits, so the extracted `NovaTerminal` binary arrives without its executable bit and
+  mode bits, so the extracted `Ntilde` binary arrives without its executable bit and
   every user must `chmod +x` before first launch. Fixing this is in scope here and is
   independent of everything else.
 - **The current build silently excludes the most-deployed LTS.** `ubuntu-latest` is
@@ -54,7 +54,7 @@ Update channels are **`linux-x64`** and **`linux-arm64`** — not the platform-d
   `librusty_pty.so` / `librusty_ssh.so` are built on the ubuntu runner, and secrets use
   the Secret Service.
 - CLI modes (`--vt-report`, `--ssh-askpass`, `--replay`, `backup`) dispatch off `args` in
-  `Program.Main`, **not** off `argv[0]`. A single `/usr/bin/nova` symlink therefore serves
+  `Program.Main`, **not** off `argv[0]`. A single `/usr/bin/ntilde` symlink therefore serves
   both the GUI and every CLI mode.
 - `native/target_linux/release/` is an arch-agnostic staging directory and each runner
   builds natively for itself, so the arm64 lane needs no `.csproj` change.
@@ -68,7 +68,7 @@ Update channels are **`linux-x64`** and **`linux-arm64`** — not the platform-d
 | Architectures | `linux-x64` + `linux-arm64` | Native arm64 hosted runners are free for public repos |
 | Update channels | `linux-x64`, `linux-arm64` | Two arches in one release must not share one feed |
 | `.deb` updates | Manual reinstall; apt repo deferred | A signed APT feed is a long-term commitment; breaking it breaks users' package manager |
-| Desktop integration | Standard (`.desktop`, icons, PATH, man) | `x-terminal-emulator` is a contract Nova cannot yet honour — see below |
+| Desktop integration | Standard (`.desktop`, icons, PATH, man) | `x-terminal-emulator` is a contract Ntilde cannot yet honour — see below |
 | ICU | Keep it; alternatives `Depends:` | `InvariantGlobalization` is unset, and flipping it changes behaviour on all three platforms |
 | Verification | Dry-run job + bare-container smoke gate | Nobody on the team runs Linux daily; the build runner cannot prove a user's machine works |
 
@@ -79,10 +79,10 @@ is a contract rather than a label: callers invoke `x-terminal-emulator -e <comma
 usually with a working directory. `Program.Main` implements exactly four CLI modes
 (`--vt-report`, `--ssh-askpass`, `--replay`, `backup`) and passes everything else to
 `StartWithClassicDesktopLifetime(args)`, which ignores unrecognised arguments. Registering
-today would make a file manager's "Open in Terminal" launch Nova in `$HOME` and silently
+today would make a file manager's "Open in Terminal" launch Ntilde in `$HOME` and silently
 discard the command — a broken feature is worse than an absent one.
 
-What is *not* lost by deferring: `/usr/bin/nova` is on PATH, so a user who wants Nova as
+What is *not* lost by deferring: `/usr/bin/ntilde` is on PATH, so a user who wants Ntilde as
 their default can run `update-alternatives --install` themselves; the `.desktop` entry
 already carries `Categories=System;TerminalEmulator;`, which is the discovery mechanism
 the newer `xdg-terminal-exec` convention uses; and the major desktops do not consult
@@ -90,8 +90,8 @@ alternatives anyway (GNOME's Nautilus has no built-in "Open in Terminal", and th
 extension carries its own hardcoded terminal list — VS Code and the JetBrains IDEs each
 use their own setting).
 
-The prerequisite is app work, not packaging: `nova -e <cmd>` and
-`nova --working-directory <dir>`. Deferred to its own issue, with the alternatives
+The prerequisite is app work, not packaging: `ntilde -e <cmd>` and
+`ntilde --working-directory <dir>`. Deferred to its own issue, with the alternatives
 registration as that issue's acceptance criterion.
 
 ## Facts verified against Velopack 1.2.0 docs
@@ -128,11 +128,11 @@ Per tag, per architecture (`<arch>` ∈ {`x64`, `arm64`}, `<debarch>` ∈ {`amd6
 
 | Asset | Produced by | Purpose |
 |---|---|---|
-| `NovaTerminal-linux-<arch>-<tag>.AppImage` | `vpk pack` (renamed) | Auto-updating portable app |
-| `novaterminal_<ver>_<debarch>.deb` | `packaging/linux/build-deb.sh` | System-integrated install |
-| `NovaTerminal-linux-<arch>-<tag>.tar.gz` | `tar` in `release.yml` | Portable; **replaces the broken zip** |
-| `NovaTerminalApp-<ver>-linux-<arch>-full.nupkg` | `vpk pack` | Update feed (full) |
-| `NovaTerminalApp-<ver>-linux-<arch>-delta.nupkg` | `vpk pack` | Update feed (delta) |
+| `ntilde-linux-<arch>-<tag>.AppImage` | `vpk pack` (renamed) | Auto-updating portable app |
+| `ntilde_<ver>_<debarch>.deb` | `packaging/linux/build-deb.sh` | System-integrated install |
+| `ntilde-linux-<arch>-<tag>.tar.gz` | `tar` in `release.yml` | Portable; **replaces the broken zip** |
+| `NtildeApp-<ver>-linux-<arch>-full.nupkg` | `vpk pack` | Update feed (full) |
+| `NtildeApp-<ver>-linux-<arch>-delta.nupkg` | `vpk pack` | Update feed (delta) |
 | `releases.linux-<arch>.json` | `vpk pack` | Feed index resolved by `VelopackUpdateService` |
 
 **The zip becomes a tar.gz.** This renames a published asset, breaking anyone who scripts
@@ -140,7 +140,7 @@ the download URL. Accepted: the current file is defective (no executable bit), L
 download volume is low, and shipping both would ship one broken artifact on purpose.
 
 **Renaming convention** follows the macOS lane, which renames `*-osx-Setup.pkg` to
-`NovaTerminal-Setup-osx-arm64-<tag>.pkg` so assets read consistently on the release page.
+`ntilde-Setup-osx-arm64-<tag>.pkg` so assets read consistently on the release page.
 
 ## CI topology
 
@@ -223,7 +223,7 @@ locally runnable, and not duplicated across YAML:
 
 - `build-deb.sh <publish-dir> <version> <debarch> <out-dir>`
 - `smoke-test.sh <artifact-dir>` (runs the containers; needs only Docker)
-- `nova.desktop`, `nova.1` (man page source), `README.md`
+- `ntilde.desktop`, `ntilde.1` (man page source), `README.md`
 
 ## The `.deb`
 
@@ -235,17 +235,17 @@ toolchain and no `fakeroot`.
 ### Layout
 
 ```
-/usr/lib/novaterminal/              AOT bundle: NovaTerminal, librusty_pty.so,
+/usr/lib/ntilde/              AOT bundle: Ntilde, librusty_pty.so,
                                     librusty_ssh.so, libSkiaSharp.so, Assets/, themes/
-/usr/bin/nova                    -> /usr/lib/novaterminal/NovaTerminal
-/usr/share/applications/novaterminal.desktop
-/usr/share/icons/hicolor/16x16/apps/novaterminal.png   (also 32, 48, 64, 128, 256)
-/usr/share/man/man1/nova.1.gz
-/usr/share/doc/novaterminal/copyright
-/usr/share/doc/novaterminal/changelog.Debian.gz
+/usr/bin/ntilde                    -> /usr/lib/ntilde/Ntilde
+/usr/share/applications/ntilde.desktop
+/usr/share/icons/hicolor/16x16/apps/ntilde.png   (also 32, 48, 64, 128, 256)
+/usr/share/man/man1/ntilde.1.gz
+/usr/share/doc/ntilde/copyright
+/usr/share/doc/ntilde/changelog.Debian.gz
 ```
 
-Icons are derived at packaging time from `src/NovaTerminal.App/Assets/nova_icon.png`, which
+Icons are derived at packaging time from `src/Ntilde.App/Assets/ntilde_icon.png`, which
 stays the single cross-platform source of truth — the same principle as
 `packaging/macos/make-icns.sh`. No pre-scaled PNGs are committed.
 
@@ -254,16 +254,16 @@ stays the single cross-platform source of truth — the same principle as
 ```ini
 [Desktop Entry]
 Type=Application
-Name=NovaTerminal
+Name=Ntilde
 GenericName=Terminal Emulator
 Comment=A modern terminal emulator
-Exec=/usr/bin/nova
-Icon=novaterminal
+Exec=/usr/bin/ntilde
+Icon=ntilde
 Terminal=false
 Categories=System;TerminalEmulator;
 Keywords=shell;prompt;command;commandline;terminal;
 StartupNotify=true
-StartupWMClass=NovaTerminal
+StartupWMClass=Ntilde
 ```
 
 `StartupWMClass` must match the WM class Avalonia actually sets, or the running window
@@ -311,7 +311,7 @@ logic already in `release.yml`.
 
 ## Update channels and the source change
 
-One file changes: `src/NovaTerminal.App/Update/VelopackUpdateService.cs`.
+One file changes: `src/Ntilde.App/Update/VelopackUpdateService.cs`.
 
 ```csharp
 // Linux only: two architectures share one GitHub release, so each needs its own feed.
@@ -367,22 +367,22 @@ phase A has passed, later installs cannot invalidate it.
 **Phase A — dependency completeness, no new packages beyond the `.deb` itself:**
 
 ```sh
-apt-get update && apt-get install -y ./novaterminal_*.deb   # fails if Depends incomplete
-ldd /usr/lib/novaterminal/NovaTerminal | grep "not found" && exit 1
+apt-get update && apt-get install -y ./ntilde_*.deb   # fails if Depends incomplete
+ldd /usr/lib/ntilde/Ntilde | grep "not found" && exit 1
 ldconfig -p | grep -q libX11.so.6          # dlopen'd deps must come from the .deb's
 ldconfig -p | grep -q libfontconfig.so.1   #   OWN Depends, and nothing else's
-nova --vt-report >/dev/null                # headless CLI mode: no X, no input file
-test -x /usr/lib/novaterminal/NovaTerminal && test -L /usr/bin/nova
-test -f /usr/share/man/man1/nova.1.gz
+ntilde --vt-report >/dev/null                # headless CLI mode: no X, no input file
+test -x /usr/lib/ntilde/Ntilde && test -L /usr/bin/ntilde
+test -f /usr/share/man/man1/ntilde.1.gz
 ```
 
 **Phase B — validators, tooling now permitted:**
 
 ```sh
 apt-get install -y lintian desktop-file-utils man-db
-desktop-file-validate /usr/share/applications/novaterminal.desktop
-lintian --fail-on error novaterminal_*.deb
-man nova >/dev/null                        # renders only once man-db is present
+desktop-file-validate /usr/share/applications/ntilde.desktop
+lintian --fail-on error ntilde_*.deb
+man ntilde >/dev/null                        # renders only once man-db is present
 ```
 
 `--vt-report` is the headless probe because it needs no input file and exercises the AOT
@@ -394,10 +394,10 @@ genuinely broken packages: bad permissions, malformed control fields, missing co
 ### Container 2 — GUI launch, xvfb permitted
 
 ```sh
-xvfb-run -a nova &                                      # assert alive after 20s
-xdotool search --class NovaTerminal                     # assert a window mapped
-./NovaTerminal-*.AppImage --appimage-extract-and-run    # same checks
-apt-get install -y libfuse2 && ./NovaTerminal-*.AppImage   # and again, FUSE-mounted
+xvfb-run -a ntilde &                                      # assert alive after 20s
+xdotool search --class Ntilde                     # assert a window mapped
+./Ntilde-*.AppImage --appimage-extract-and-run    # same checks
+apt-get install -y libfuse2 && ./Ntilde-*.AppImage   # and again, FUSE-mounted
 ```
 
 The AppImage is tested **twice on purpose**: extracted (no FUSE) and mounted. Ubuntu
@@ -414,9 +414,9 @@ install `libfuse2`, or run with `--appimage-extract-and-run`.
 ## Documentation
 
 - `packaging/linux/README.md`, mirroring `packaging/macos/README.md`: the asset table, the
-  channel facts, where user data lives (`~/.local/share/NovaTerminal` via `AppPaths`,
+  channel facts, where user data lives (`~/.local/share/Ntilde` via `AppPaths`,
   untouched by updates and uninstall), how to run the dry run, and the known traps
-  (`libfuse2`, AppImage self-update needs a writable location, making Nova the default
+  (`libfuse2`, AppImage self-update needs a writable location, making Ntilde the default
   terminal by hand with `update-alternatives`).
 - `README.md`: Linux install instructions for all three formats, with the glibc 2.35 /
   Ubuntu 22.04 floor stated plainly.
@@ -428,7 +428,7 @@ Each gets a tracked issue rather than a mention:
 - Signed **APT repository** on GitHub Pages (`apt upgrade` integration, GPG key custody
   and rotation). Deferred deliberately: an apt feed is a long-term commitment and breaking
   it breaks users' package manager.
-- **`nova -e <cmd>` / `--working-directory`**, then `x-terminal-emulator` registration.
+- **`ntilde -e <cmd>` / `--working-directory`**, then `x-terminal-emulator` registration.
 - **Flatpak / Flathub.** A terminal emulator needs `--filesystem=host` and host-spawn
   access, which reviewers push back on; it also needs AppStream metainfo and a separate
   repo and release cadence.
@@ -456,11 +456,11 @@ Tracked as: #383 (APT repository), #384 (terminal-emulator contract),
 
 1. A tag produces, for both `linux-x64` and `linux-arm64`: an AppImage, a `.deb`, a
    `tar.gz`, full and delta nupkgs, and `releases.linux-<arch>.json`.
-2. `apt-get install ./novaterminal_*.deb` succeeds in a pristine `ubuntu:22.04` container
-   and `nova` launches a window under `xvfb`.
+2. `apt-get install ./ntilde_*.deb` succeeds in a pristine `ubuntu:22.04` container
+   and `ntilde` launches a window under `xvfb`.
 3. The AppImage launches both extracted and FUSE-mounted.
-4. The tarball's `NovaTerminal` binary carries its executable bit.
-5. `nova` is on PATH, `man nova` renders, and NovaTerminal appears in the app menu with
+4. The tarball's `Ntilde` binary carries its executable bit.
+5. `ntilde` is on PATH, `man ntilde` renders, and Ntilde appears in the app menu with
    its icon.
 6. The in-app updater offers N+1 on Linux and applies it; an arm64 client is never offered
    an x64 package.
@@ -494,14 +494,14 @@ Tracked as: #383 (APT repository), #384 (terminal-emulator contract),
    `--channel` flag already carries and resolves its own channel from package
    metadata; `ExplicitChannel` only guards against a future pack invocation that
    omits `--channel` and silently falls back to vpk's platform-default `linux`.
-4. **Headless probe:** `nova --vt-report` exits 0 (also `nova --vt-report --json`).
+4. **Headless probe:** `ntilde --vt-report` exits 0 (also `ntilde --vt-report --json`).
    Any other argument shape — a bare `--json` without `--vt-report`, a duplicated
    flag, or any unrecognised third argument — exits 2
-   (`src/NovaTerminal.App/Shell/VtReportCommand.cs`, `ParseArguments`). This dispatch
+   (`src/Ntilde.App/Shell/VtReportCommand.cs`, `ParseArguments`). This dispatch
    runs before Avalonia's `AppBuilder` is touched (`Program.cs`), so it needs no
    display server. Empirically confirmed via a Windows build
-   (`scripts/build.sh build src/NovaTerminal.App` then
-   `NovaTerminal.exe --vt-report` → exit code 0); the equivalent Linux binary was not
+   (`scripts/build.sh build src/Ntilde.App` then
+   `Ntilde.exe --vt-report` → exit code 0); the equivalent Linux binary was not
    built in this task, so the Linux result is source-derived (the code path is
    platform-agnostic — no Avalonia, no P/Invoke) rather than independently verified
    on Linux.
@@ -583,7 +583,7 @@ green local end-to-end run:
 - **AppImage dependencies are not gated the way the `.deb`'s are** — the coverage
   assertion reads `dpkg-query`, which an AppImage has no equivalent of.
 
-Follow-ups: #383 (signed APT repo), #384 (`nova -e` then `x-terminal-emulator`),
+Follow-ups: #383 (signed APT repo), #384 (`ntilde -e` then `x-terminal-emulator`),
 #385 (Flatpak/AUR/RPM/Snap), #390 (the macOS dSYM assertion has the same vacuous shape
 this branch fixed on the Linux side), #391 (a ~1-in-3 Windows PTY flake).
 

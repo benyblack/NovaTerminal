@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: benyblack.ntilde
+PackageVersion: __VERSION__
+
+# Ntilde releases ship as self-contained AOT bundles zipped per platform
+# (see .github/workflows/release.yml). There is no signed installer, so the
+# Windows package is delivered as a portable app extracted from the release zip.
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: Ntilde.exe
+    PortableCommandAlias: ntilde
+
+# Portable packages install per-user and need no elevation.
+UpgradeBehavior: uninstallPrevious
+
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/benyblack/ntilde/releases/download/v__VERSION__/ntilde-win-x64-v__VERSION__.zip
+    InstallerSha256: __SHA256__
+
+ManifestType: installer
+ManifestVersion: 1.6.0

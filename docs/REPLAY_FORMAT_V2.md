@@ -1,6 +1,6 @@
-# Nova Replay Format v2
+# Ntilde Replay Format v2
 
-This document defines the replay file format used by NovaTerminal (`.rec` / `.novarec`).
+This document defines the replay file format used by Ntilde (`.rec` / `.ntilderec`).
 
 ## Overview
 
@@ -14,12 +14,12 @@ This document defines the replay file format used by NovaTerminal (`.rec` / `.no
 The first line must be a JSON object:
 
 ```json
-{"type":"novarec","v":2,"cols":120,"rows":30,"date":"2026-02-13T12:00:00.0000000Z","shell":"pwsh.exe"}
+{"type":"ntilderec","v":2,"cols":120,"rows":30,"date":"2026-02-13T12:00:00.0000000Z","shell":"pwsh.exe"}
 ```
 
 Fields:
 
-- `type` (`string`): must be `"novarec"`
+- `type` (`string`): must be `"ntilderec"`; readers also accept the pre-rebrand `"novarec"`
 - `v` (`int`): format version (`2`)
 - `cols` (`int`): initial terminal columns
 - `rows` (`int`): initial terminal rows
@@ -105,7 +105,7 @@ Snapshot fields:
 ## Compatibility
 
 - Reader behavior:
-  - If first line is a valid v2 header (`type=novarec`, `v=2`), parse as v2.
+  - If first line is a valid v2 header (`type=ntilderec`, `v=2`), parse as v2.
   - Otherwise fallback to legacy v1 lines (`{"t":...,"d":"..."}`).
 - Input events:
   - Reader prefers `d` (base64 bytes), then falls back to legacy `i`.

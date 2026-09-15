@@ -1,4 +1,4 @@
-# NovaTerminal – Implementation Work Plan (Test-Gated)
+# Ntilde – Implementation Work Plan (Test-Gated)
 
 This plan enforces correctness-first development.
 Progression is blocked until gates are satisfied.

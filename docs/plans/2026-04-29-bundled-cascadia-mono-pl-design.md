@@ -1,10 +1,10 @@
 # Bundled Cascadia Mono PL Design
 
-**Goal:** Bundle `Cascadia Mono PL` with NovaTerminal, include its license notice, and make it the first-run terminal font for new users.
+**Goal:** Bundle `Cascadia Mono PL` with Ntilde, include its license notice, and make it the first-run terminal font for new users.
 
 ## Problem
 
-NovaTerminal currently defaults new users to `Consolas` through persisted settings, which produces a weaker first-run appearance than the renderer's preferred monospace stack and does not guarantee Powerline glyph coverage. The app should ship a deterministic default font so first-run UX is consistent across machines.
+Ntilde currently defaults new users to `Consolas` through persisted settings, which produces a weaker first-run appearance than the renderer's preferred monospace stack and does not guarantee Powerline glyph coverage. The app should ship a deterministic default font so first-run UX is consistent across machines.
 
 ## Constraints
 
@@ -29,7 +29,7 @@ Bundle `Cascadia Mono PL` as an Avalonia asset, register it during app startup, 
 
 ### 1. Bundle the font asset
 
-Add the upstream `CascadiaMonoPL-Regular.otf` file under `src/NovaTerminal.App/Assets/Fonts/`. Add the corresponding license text under `src/NovaTerminal.App/Assets/Fonts/LICENSES/` so the notice ships with the app output.
+Add the upstream `CascadiaMonoPL-Regular.otf` file under `src/Ntilde.App/Assets/Fonts/`. Add the corresponding license text under `src/Ntilde.App/Assets/Fonts/LICENSES/` so the notice ships with the app output.
 
 ### 2. Register the bundled font at startup
 

@@ -11,8 +11,8 @@
 **Spec:** `docs/superpowers/specs/2026-06-11-vault-keychain-security-design.md`
 
 **Build/test note (from CLAUDE.md):** ALWAYS use the wrapper scripts, never raw `dotnet`. Test the affected project only for speed:
-`scripts/build.ps1 test tests/NovaTerminal.App.Tests` (Windows) /
-`scripts/build.sh test tests/NovaTerminal.App.Tests` (Linux/macOS).
+`scripts/build.ps1 test tests/Ntilde.App.Tests` (Windows) /
+`scripts/build.sh test tests/Ntilde.App.Tests` (Linux/macOS).
 
 **Native-validation caveat:** The Linux/macOS P/Invoke (Tasks 4–5) cannot be exercised on Windows, and CI Linux runners usually have no unlocked D-Bus keyring, so the keychain integration tests (Task 6) will *skip* there. The native paths MUST be validated manually on a real macOS machine and a Linux desktop session (or VM with GNOME Keyring) before the PR is considered done — see Task 8.
 
@@ -21,46 +21,46 @@
 ## File Structure
 
 **Create:**
-- `src/NovaTerminal.App/Shell/Secrets/ISecretStore.cs` — storage interface.
-- `src/NovaTerminal.App/Shell/Secrets/InMemorySecretStore.cs` — test/in-memory store.
-- `src/NovaTerminal.App/Shell/Secrets/WindowsCredentialStore.cs` — wraps `Win32CredentialManager`.
-- `src/NovaTerminal.App/Shell/Secrets/LinuxSecretStore.cs` — libsecret P/Invoke.
-- `src/NovaTerminal.App/Shell/Secrets/MacKeychainStore.cs` — Security.framework P/Invoke.
-- `src/NovaTerminal.App/Shell/Secrets/SecretStore.cs` — `CreateDefault()` factory + legacy cleanup.
-- `tests/NovaTerminal.App.Tests/Core/InMemorySecretStoreTests.cs`
-- `tests/NovaTerminal.App.Tests/Core/VaultServiceDisabledModeTests.cs`
-- `tests/NovaTerminal.App.Tests/Core/KeychainSecretStoreIntegrationTests.cs`
+- `src/Ntilde.App/Shell/Secrets/ISecretStore.cs` — storage interface.
+- `src/Ntilde.App/Shell/Secrets/InMemorySecretStore.cs` — test/in-memory store.
+- `src/Ntilde.App/Shell/Secrets/WindowsCredentialStore.cs` — wraps `Win32CredentialManager`.
+- `src/Ntilde.App/Shell/Secrets/LinuxSecretStore.cs` — libsecret P/Invoke.
+- `src/Ntilde.App/Shell/Secrets/MacKeychainStore.cs` — Security.framework P/Invoke.
+- `src/Ntilde.App/Shell/Secrets/SecretStore.cs` — `CreateDefault()` factory + legacy cleanup.
+- `tests/Ntilde.App.Tests/Core/InMemorySecretStoreTests.cs`
+- `tests/Ntilde.App.Tests/Core/VaultServiceDisabledModeTests.cs`
+- `tests/Ntilde.App.Tests/Core/KeychainSecretStoreIntegrationTests.cs`
 
 **Modify:**
-- `src/NovaTerminal.App/Shell/VaultService.cs` — delegate to `ISecretStore`; delete file crypto.
-- `src/NovaTerminal.App/Shell/AppPaths.cs` — add `LegacyVaultFilePath`.
-- `src/NovaTerminal.App/MainWindow.axaml.cs:2354` — surface init failure; share instance.
-- `src/NovaTerminal.App/MainWindow.axaml.cs:5278` — `ShowRecordingToast` hides folder button when no folder.
-- `src/NovaTerminal.App/Services/Ssh/RemoteDirectoryBrowserService.cs:37`
-- `src/NovaTerminal.App/Services/Ssh/RemotePathAutocompleteService.cs:33`
-- `src/NovaTerminal.App/Shell/SftpService.cs:596`
-- `tests/NovaTerminal.App.Tests/Core/VaultServiceSshKeyTests.cs` — migrate file-backed tests.
-- `tests/NovaTerminal.App.Tests/Ssh/SshInteractionServiceTests.cs` — migrate 10 file-backed sites.
+- `src/Ntilde.App/Shell/VaultService.cs` — delegate to `ISecretStore`; delete file crypto.
+- `src/Ntilde.App/Shell/AppPaths.cs` — add `LegacyVaultFilePath`.
+- `src/Ntilde.App/MainWindow.axaml.cs:2354` — surface init failure; share instance.
+- `src/Ntilde.App/MainWindow.axaml.cs:5278` — `ShowRecordingToast` hides folder button when no folder.
+- `src/Ntilde.App/Services/Ssh/RemoteDirectoryBrowserService.cs:37`
+- `src/Ntilde.App/Services/Ssh/RemotePathAutocompleteService.cs:33`
+- `src/Ntilde.App/Shell/SftpService.cs:596`
+- `tests/Ntilde.App.Tests/Core/VaultServiceSshKeyTests.cs` — migrate file-backed tests.
+- `tests/Ntilde.App.Tests/Ssh/SshInteractionServiceTests.cs` — migrate 10 file-backed sites.
 
-**Unchanged (intentional):** `src/NovaTerminal.App/Shell/SshAskPassCommand.cs` keeps `new VaultService()` (separate helper process; reads keychain written by main app).
+**Unchanged (intentional):** `src/Ntilde.App/Shell/SshAskPassCommand.cs` keeps `new VaultService()` (separate helper process; reads keychain written by main app).
 
 ---
 
 ## Task 1: `ISecretStore` interface + `InMemorySecretStore`
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/Secrets/ISecretStore.cs`
-- Create: `src/NovaTerminal.App/Shell/Secrets/InMemorySecretStore.cs`
-- Test: `tests/NovaTerminal.App.Tests/Core/InMemorySecretStoreTests.cs`
+- Create: `src/Ntilde.App/Shell/Secrets/ISecretStore.cs`
+- Create: `src/Ntilde.App/Shell/Secrets/InMemorySecretStore.cs`
+- Test: `tests/Ntilde.App.Tests/Core/InMemorySecretStoreTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Core/InMemorySecretStoreTests.cs`:
+Create `tests/Ntilde.App.Tests/Core/InMemorySecretStoreTests.cs`:
 
 ```csharp
-using NovaTerminal.Shell.Secrets;
+using Ntilde.Shell.Secrets;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public class InMemorySecretStoreTests
 {
@@ -115,15 +115,15 @@ public class InMemorySecretStoreTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter InMemorySecretStoreTests`
+Run: `scripts/build.ps1 test tests/Ntilde.App.Tests --filter InMemorySecretStoreTests`
 Expected: FAIL to compile — `ISecretStore`/`InMemorySecretStore` don't exist.
 
 - [ ] **Step 3: Write the interface**
 
-Create `src/NovaTerminal.App/Shell/Secrets/ISecretStore.cs`:
+Create `src/Ntilde.App/Shell/Secrets/ISecretStore.cs`:
 
 ```csharp
-namespace NovaTerminal.Shell.Secrets
+namespace Ntilde.Shell.Secrets
 {
     /// <summary>
     /// Abstracts per-user secret storage. Implementations back onto OS keychains
@@ -150,12 +150,12 @@ namespace NovaTerminal.Shell.Secrets
 
 - [ ] **Step 4: Write the in-memory implementation**
 
-Create `src/NovaTerminal.App/Shell/Secrets/InMemorySecretStore.cs`:
+Create `src/Ntilde.App/Shell/Secrets/InMemorySecretStore.cs`:
 
 ```csharp
 using System.Collections.Generic;
 
-namespace NovaTerminal.Shell.Secrets
+namespace Ntilde.Shell.Secrets
 {
     /// <summary>
     /// Process-local secret store for tests. Not used in production.
@@ -178,13 +178,13 @@ namespace NovaTerminal.Shell.Secrets
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter InMemorySecretStoreTests`
+Run: `scripts/build.ps1 test tests/Ntilde.App.Tests --filter InMemorySecretStoreTests`
 Expected: PASS (6 tests).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/Secrets/ISecretStore.cs src/NovaTerminal.App/Shell/Secrets/InMemorySecretStore.cs tests/NovaTerminal.App.Tests/Core/InMemorySecretStoreTests.cs
+git add src/Ntilde.App/Shell/Secrets/ISecretStore.cs src/Ntilde.App/Shell/Secrets/InMemorySecretStore.cs tests/Ntilde.App.Tests/Core/InMemorySecretStoreTests.cs
 git commit -m "feat: add ISecretStore abstraction with in-memory store (#100)"
 ```
 
@@ -195,20 +195,20 @@ git commit -m "feat: add ISecretStore abstraction with in-memory store (#100)"
 This task removes the weak file crypto and moves Windows credential logic into a store. The existing static policy methods stay untouched.
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/Secrets/WindowsCredentialStore.cs`
-- Modify: `src/NovaTerminal.App/Shell/VaultService.cs`
-- Test: `tests/NovaTerminal.App.Tests/Core/VaultServiceDisabledModeTests.cs`
-- Migrate: `tests/NovaTerminal.App.Tests/Core/VaultServiceSshKeyTests.cs`, `tests/NovaTerminal.App.Tests/Ssh/SshInteractionServiceTests.cs`
+- Create: `src/Ntilde.App/Shell/Secrets/WindowsCredentialStore.cs`
+- Modify: `src/Ntilde.App/Shell/VaultService.cs`
+- Test: `tests/Ntilde.App.Tests/Core/VaultServiceDisabledModeTests.cs`
+- Migrate: `tests/Ntilde.App.Tests/Core/VaultServiceSshKeyTests.cs`, `tests/Ntilde.App.Tests/Ssh/SshInteractionServiceTests.cs`
 
 - [ ] **Step 1: Write the failing disabled-mode test**
 
-Create `tests/NovaTerminal.App.Tests/Core/VaultServiceDisabledModeTests.cs`:
+Create `tests/Ntilde.App.Tests/Core/VaultServiceDisabledModeTests.cs`:
 
 ```csharp
-using NovaTerminal.Shell;
-using NovaTerminal.Shell.Secrets;
+using Ntilde.Shell;
+using Ntilde.Shell.Secrets;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public class VaultServiceDisabledModeTests
 {
@@ -263,18 +263,18 @@ public class VaultServiceDisabledModeTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter VaultServiceDisabledModeTests`
+Run: `scripts/build.ps1 test tests/Ntilde.App.Tests --filter VaultServiceDisabledModeTests`
 Expected: FAIL to compile — `VaultService(ISecretStore)` ctor and `PersistenceAvailable` don't exist.
 
 - [ ] **Step 3: Create `WindowsCredentialStore`**
 
-Move the Windows Credential Manager key-mapping logic out of `VaultService` into a store. Create `src/NovaTerminal.App/Shell/Secrets/WindowsCredentialStore.cs`:
+Move the Windows Credential Manager key-mapping logic out of `VaultService` into a store. Create `src/Ntilde.App/Shell/Secrets/WindowsCredentialStore.cs`:
 
 ```csharp
 using System;
-using NovaTerminal.Shell.Native;
+using Ntilde.Shell.Native;
 
-namespace NovaTerminal.Shell.Secrets
+namespace Ntilde.Shell.Secrets
 {
     /// <summary>
     /// Windows secret store backed by the Win32 Credential Manager (per-user, DPAPI-protected).
@@ -299,10 +299,10 @@ namespace NovaTerminal.Shell.Secrets
         public bool Delete(string key) => Win32CredentialManager.Delete(ToTarget(key));
 
         private static string ToTarget(string key)
-            => key.StartsWith("NovaTerminal:", StringComparison.Ordinal) ? key : $"NovaTerminal:{key}";
+            => key.StartsWith("Ntilde:", StringComparison.Ordinal) ? key : $"Ntilde:{key}";
 
         // Mirrors the legacy VaultService.SetSecret username extraction:
-        // "NovaTerminal:SSH:User@Host" or "NovaTerminal:SSH:ProfileName:User@Host".
+        // "Ntilde:SSH:User@Host" or "Ntilde:SSH:ProfileName:User@Host".
         private static string ExtractUsername(string target)
         {
             string username = "User";
@@ -328,16 +328,16 @@ namespace NovaTerminal.Shell.Secrets
 
 - [ ] **Step 4: Rewrite `VaultService` to delegate to `ISecretStore`**
 
-Replace the entire body of `src/NovaTerminal.App/Shell/VaultService.cs` with the version below. All static policy methods (`GetCanonicalSshProfileKey`, `ApplyRememberPasswordPreference` overloads, `GetLegacySshKeys`, `GetSshPasswordKeysForProfile`, `GetProfileScopedSshPasswordKeysForProfile`, `ResolveSshPasswordForProfile`) are **unchanged** — copy them verbatim from the current file. Only the constructor, fields, and the three instance Read/Write/Delete methods change. The `using System.Security.Cryptography;`, `System.Text;`, `System.Text.Json;` imports and `GetPlatformKey`/`EncryptFallback`/`DecryptFallback`/`Save`/`TryLoadSecrets`/`LoadSecretsOrEmpty`/`ReloadIfFileBacked`/`ListKeys`/`UsesWindowsCredentialManager` members are **deleted**.
+Replace the entire body of `src/Ntilde.App/Shell/VaultService.cs` with the version below. All static policy methods (`GetCanonicalSshProfileKey`, `ApplyRememberPasswordPreference` overloads, `GetLegacySshKeys`, `GetSshPasswordKeysForProfile`, `GetProfileScopedSshPasswordKeysForProfile`, `ResolveSshPasswordForProfile`) are **unchanged** — copy them verbatim from the current file. Only the constructor, fields, and the three instance Read/Write/Delete methods change. The `using System.Security.Cryptography;`, `System.Text;`, `System.Text.Json;` imports and `GetPlatformKey`/`EncryptFallback`/`DecryptFallback`/`Save`/`TryLoadSecrets`/`LoadSecretsOrEmpty`/`ReloadIfFileBacked`/`ListKeys`/`UsesWindowsCredentialManager` members are **deleted**.
 
 The new top-of-class and instance methods:
 
 ```csharp
 using System;
 using System.Collections.Generic;
-using NovaTerminal.Shell.Secrets;
+using Ntilde.Shell.Secrets;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     public interface ISshPasswordVault
     {
@@ -403,11 +403,11 @@ namespace NovaTerminal.Shell
 }
 ```
 
-> NOTE: `SecretStore.CreateDefault()` is created in Task 3. Until then, the production `VaultService()` ctor won't compile. To keep this task green in isolation, temporarily stub it: add `src/NovaTerminal.App/Shell/Secrets/SecretStore.cs` with `public static ISecretStore CreateDefault() => new InMemorySecretStore();` and replace it properly in Task 3. (The disabled-mode tests use the `ISecretStore` ctor and don't depend on the factory.)
+> NOTE: `SecretStore.CreateDefault()` is created in Task 3. Until then, the production `VaultService()` ctor won't compile. To keep this task green in isolation, temporarily stub it: add `src/Ntilde.App/Shell/Secrets/SecretStore.cs` with `public static ISecretStore CreateDefault() => new InMemorySecretStore();` and replace it properly in Task 3. (The disabled-mode tests use the `ISecretStore` ctor and don't depend on the factory.)
 
 - [ ] **Step 5: Migrate `VaultServiceSshKeyTests.cs`**
 
-In `tests/NovaTerminal.App.Tests/Core/VaultServiceSshKeyTests.cs`:
+In `tests/Ntilde.App.Tests/Core/VaultServiceSshKeyTests.cs`:
 
 1. **Replace** `FileBackedVaultInstances_SeeAndRemoveEachOthersSecrets` (lines ~109–134) with a shared-store version:
 
@@ -415,7 +415,7 @@ In `tests/NovaTerminal.App.Tests/Core/VaultServiceSshKeyTests.cs`:
 [Fact]
 public void VaultInstances_SharingAStore_SeeAndRemoveEachOthersSecrets()
 {
-    var store = new NovaTerminal.Shell.Secrets.InMemorySecretStore();
+    var store = new Ntilde.Shell.Secrets.InMemorySecretStore();
     TerminalProfile profile = CreateProfile();
 
     var writer = new VaultService(store);
@@ -434,11 +434,11 @@ public void VaultInstances_SharingAStore_SeeAndRemoveEachOthersSecrets()
 
 2. **Delete** `FileBackedReload_PreservesCachedSecrets_WhenLoadFails` (lines ~136–158) entirely — it tested the file-reload-on-corruption behavior that no longer exists.
 
-3. If `CreateTempDirectory()` is now unused, delete it. Add `using NovaTerminal.Shell.Secrets;` if you prefer the unqualified name.
+3. If `CreateTempDirectory()` is now unused, delete it. Add `using Ntilde.Shell.Secrets;` if you prefer the unqualified name.
 
 - [ ] **Step 6: Migrate `SshInteractionServiceTests.cs`**
 
-In `tests/NovaTerminal.App.Tests/Ssh/SshInteractionServiceTests.cs`, for each of the 10 occurrences, replace this pattern:
+In `tests/Ntilde.App.Tests/Ssh/SshInteractionServiceTests.cs`, for each of the 10 occurrences, replace this pattern:
 
 ```csharp
 string tempRoot = CreateTempDirectory();
@@ -457,7 +457,7 @@ finally
 with:
 
 ```csharp
-var vault = new VaultService(new NovaTerminal.Shell.Secrets.InMemorySecretStore());
+var vault = new VaultService(new Ntilde.Shell.Secrets.InMemorySecretStore());
 ...
 ```
 
@@ -465,13 +465,13 @@ var vault = new VaultService(new NovaTerminal.Shell.Secrets.InMemorySecretStore(
 
 - [ ] **Step 7: Run the affected tests**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "VaultServiceDisabledModeTests|VaultServiceSshKeyTests|SshInteractionServiceTests"`
+Run: `scripts/build.ps1 test tests/Ntilde.App.Tests --filter "VaultServiceDisabledModeTests|VaultServiceSshKeyTests|SshInteractionServiceTests"`
 Expected: PASS. On Windows the production `VaultService()` is not exercised by these tests (they inject stores), so the temporary `CreateDefault` stub is fine.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/VaultService.cs src/NovaTerminal.App/Shell/Secrets/WindowsCredentialStore.cs src/NovaTerminal.App/Shell/Secrets/SecretStore.cs tests/NovaTerminal.App.Tests/Core/VaultServiceDisabledModeTests.cs tests/NovaTerminal.App.Tests/Core/VaultServiceSshKeyTests.cs tests/NovaTerminal.App.Tests/Ssh/SshInteractionServiceTests.cs
+git add src/Ntilde.App/Shell/VaultService.cs src/Ntilde.App/Shell/Secrets/WindowsCredentialStore.cs src/Ntilde.App/Shell/Secrets/SecretStore.cs tests/Ntilde.App.Tests/Core/VaultServiceDisabledModeTests.cs tests/Ntilde.App.Tests/Core/VaultServiceSshKeyTests.cs tests/Ntilde.App.Tests/Ssh/SshInteractionServiceTests.cs
 git commit -m "refactor: VaultService delegates to ISecretStore; drop weak file crypto (#100)"
 ```
 
@@ -480,13 +480,13 @@ git commit -m "refactor: VaultService delegates to ISecretStore; drop weak file 
 ## Task 3: `SecretStore.CreateDefault()` factory + legacy `vault.dat` deletion
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/Secrets/SecretStore.cs` (replace the Task 2 stub)
-- Modify: `src/NovaTerminal.App/Shell/AppPaths.cs`
-- Test: `tests/NovaTerminal.App.Tests/Core/VaultServiceDisabledModeTests.cs` (add legacy-cleanup test)
+- Modify: `src/Ntilde.App/Shell/Secrets/SecretStore.cs` (replace the Task 2 stub)
+- Modify: `src/Ntilde.App/Shell/AppPaths.cs`
+- Test: `tests/Ntilde.App.Tests/Core/VaultServiceDisabledModeTests.cs` (add legacy-cleanup test)
 
 - [ ] **Step 1: Add `LegacyVaultFilePath` to `AppPaths`**
 
-In `src/NovaTerminal.App/Shell/AppPaths.cs`, after the `NativeKnownHostsFilePath` property (line 53), add:
+In `src/Ntilde.App/Shell/AppPaths.cs`, after the `NativeKnownHostsFilePath` property (line 53), add:
 
 ```csharp
         /// <summary>Path of the pre-#100 weakly-encrypted vault file, kept only so it can be deleted.</summary>
@@ -495,19 +495,19 @@ In `src/NovaTerminal.App/Shell/AppPaths.cs`, after the `NativeKnownHostsFilePath
 
 - [ ] **Step 2: Write the failing legacy-cleanup test**
 
-Add to `tests/NovaTerminal.App.Tests/Core/VaultServiceDisabledModeTests.cs`:
+Add to `tests/Ntilde.App.Tests/Core/VaultServiceDisabledModeTests.cs`:
 
 ```csharp
     [Fact]
     public void DeleteLegacyVaultFile_RemovesFile_WhenPresent()
     {
-        string dir = Path.Combine(Path.GetTempPath(), "nova-legacy-" + Guid.NewGuid().ToString("N"));
+        string dir = Path.Combine(Path.GetTempPath(), "ntilde-legacy-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         string legacy = Path.Combine(dir, "vault.dat");
         File.WriteAllBytes(legacy, new byte[] { 1, 2, 3 });
         try
         {
-            NovaTerminal.Shell.Secrets.SecretStore.DeleteLegacyVaultFile(legacy);
+            Ntilde.Shell.Secrets.SecretStore.DeleteLegacyVaultFile(legacy);
             Assert.False(File.Exists(legacy));
         }
         finally
@@ -519,8 +519,8 @@ Add to `tests/NovaTerminal.App.Tests/Core/VaultServiceDisabledModeTests.cs`:
     [Fact]
     public void DeleteLegacyVaultFile_DoesNotThrow_WhenAbsent()
     {
-        NovaTerminal.Shell.Secrets.SecretStore.DeleteLegacyVaultFile(
-            Path.Combine(Path.GetTempPath(), "nova-missing-" + Guid.NewGuid().ToString("N"), "vault.dat"));
+        Ntilde.Shell.Secrets.SecretStore.DeleteLegacyVaultFile(
+            Path.Combine(Path.GetTempPath(), "ntilde-missing-" + Guid.NewGuid().ToString("N"), "vault.dat"));
     }
 ```
 
@@ -528,19 +528,19 @@ Add `using System;` and `using System.IO;` at the top of the file if not already
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter VaultServiceDisabledModeTests`
+Run: `scripts/build.ps1 test tests/Ntilde.App.Tests --filter VaultServiceDisabledModeTests`
 Expected: FAIL to compile — `SecretStore.DeleteLegacyVaultFile` doesn't exist.
 
 - [ ] **Step 4: Implement the factory + cleanup**
 
-Replace `src/NovaTerminal.App/Shell/Secrets/SecretStore.cs` (the Task 2 stub) with:
+Replace `src/Ntilde.App/Shell/Secrets/SecretStore.cs` (the Task 2 stub) with:
 
 ```csharp
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace NovaTerminal.Shell.Secrets
+namespace Ntilde.Shell.Secrets
 {
     /// <summary>Selects the platform secret store and performs one-time legacy cleanup.</summary>
     public static class SecretStore
@@ -587,13 +587,13 @@ namespace NovaTerminal.Shell.Secrets
 
 - [ ] **Step 5: Run test (Windows path + cleanup)**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter VaultServiceDisabledModeTests`
+Run: `scripts/build.ps1 test tests/Ntilde.App.Tests --filter VaultServiceDisabledModeTests`
 Expected: PASS once `LinuxSecretStore`/`MacKeychainStore` exist (Tasks 4–5) or the temporary stub is in place.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/Secrets/SecretStore.cs src/NovaTerminal.App/Shell/AppPaths.cs tests/NovaTerminal.App.Tests/Core/VaultServiceDisabledModeTests.cs
+git add src/Ntilde.App/Shell/Secrets/SecretStore.cs src/Ntilde.App/Shell/AppPaths.cs tests/Ntilde.App.Tests/Core/VaultServiceDisabledModeTests.cs
 git commit -m "feat: platform secret-store factory + legacy vault.dat deletion (#100)"
 ```
 
@@ -603,20 +603,20 @@ git commit -m "feat: platform secret-store factory + legacy vault.dat deletion (
 
 **REQUIRED SUB-SKILL:** Invoke `dotnet:dotnet-pinvoke` before writing the bindings — it covers string marshalling, `SafeHandle`, and lifetime rules used below.
 
-Uses the non-varargs ("vectored") libsecret API with a single-attribute `SecretSchema` and a glib `GHashTable` so we avoid varargs marshalling. Items are namespaced by schema name `com.novaterminal.Vault` and distinguished by a `"key"` attribute.
+Uses the non-varargs ("vectored") libsecret API with a single-attribute `SecretSchema` and a glib `GHashTable` so we avoid varargs marshalling. Items are namespaced by schema name `com.ntilde.Vault` and distinguished by a `"key"` attribute.
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/Secrets/LinuxSecretStore.cs`
+- Create: `src/Ntilde.App/Shell/Secrets/LinuxSecretStore.cs`
 
 - [ ] **Step 1: Implement the store**
 
-Create `src/NovaTerminal.App/Shell/Secrets/LinuxSecretStore.cs`:
+Create `src/Ntilde.App/Shell/Secrets/LinuxSecretStore.cs`:
 
 ```csharp
 using System;
 using System.Runtime.InteropServices;
 
-namespace NovaTerminal.Shell.Secrets
+namespace Ntilde.Shell.Secrets
 {
     /// <summary>
     /// Linux secret store backed by libsecret / Secret Service (GNOME Keyring, KWallet).
@@ -626,7 +626,7 @@ namespace NovaTerminal.Shell.Secrets
     {
         private const string Lib = "libsecret-1.so.0";
         private const string Glib = "libglib-2.0.so.0";
-        private const string SchemaName = "com.novaterminal.Vault";
+        private const string SchemaName = "com.ntilde.Vault";
         private const string KeyAttribute = "key";
 
         // SecretSchemaAttributeType.SECRET_SCHEMA_ATTRIBUTE_STRING = 0
@@ -640,7 +640,7 @@ namespace NovaTerminal.Shell.Secrets
             {
                 _schema = BuildSchema();
                 // Probe: a lookup that returns NULL with no GError means the service is reachable.
-                _ = LookupRaw("__novaterminal_probe__", out bool serviceError);
+                _ = LookupRaw("__ntilde_probe__", out bool serviceError);
                 _available = !serviceError;
             }
             catch (DllNotFoundException) { _available = false; }
@@ -663,7 +663,7 @@ namespace NovaTerminal.Shell.Secrets
             {
                 secret_password_storev_sync(
                     _schema, attrs, IntPtr.Zero /* default collection */,
-                    label: $"NovaTerminal: {key}", password: value,
+                    label: $"Ntilde: {key}", password: value,
                     cancellable: IntPtr.Zero, error: out IntPtr error);
                 FreeError(error);
             }
@@ -783,13 +783,13 @@ namespace NovaTerminal.Shell.Secrets
 
 - [ ] **Step 2: Build to verify it compiles**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.App`
+Run: `scripts/build.ps1 build src/Ntilde.App`
 Expected: SUCCESS (compiles on Windows even though the lib only loads on Linux). Restore any temporary stub from Task 3 step 4.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/Secrets/LinuxSecretStore.cs src/NovaTerminal.App/Shell/Secrets/SecretStore.cs
+git add src/Ntilde.App/Shell/Secrets/LinuxSecretStore.cs src/Ntilde.App/Shell/Secrets/SecretStore.cs
 git commit -m "feat: LinuxSecretStore via libsecret P/Invoke (#100)"
 ```
 
@@ -799,21 +799,21 @@ git commit -m "feat: LinuxSecretStore via libsecret P/Invoke (#100)"
 
 **REQUIRED SUB-SKILL:** Invoke `dotnet:dotnet-pinvoke` before writing the bindings.
 
-Uses Keychain Services generic-password items: `kSecAttrService = "NovaTerminal"`, `kSecAttrAccount = key`. CoreFoundation objects created here are released with `CFRelease`.
+Uses Keychain Services generic-password items: `kSecAttrService = "Ntilde"`, `kSecAttrAccount = key`. CoreFoundation objects created here are released with `CFRelease`.
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/Secrets/MacKeychainStore.cs`
+- Create: `src/Ntilde.App/Shell/Secrets/MacKeychainStore.cs`
 
 - [ ] **Step 1: Implement the store**
 
-Create `src/NovaTerminal.App/Shell/Secrets/MacKeychainStore.cs`:
+Create `src/Ntilde.App/Shell/Secrets/MacKeychainStore.cs`:
 
 ```csharp
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace NovaTerminal.Shell.Secrets
+namespace Ntilde.Shell.Secrets
 {
     /// <summary>
     /// macOS secret store backed by Keychain Services (login keychain, per-user).
@@ -822,7 +822,7 @@ namespace NovaTerminal.Shell.Secrets
     {
         private const string Sec = "/System/Library/Frameworks/Security.framework/Security";
         private const string CF = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
-        private const string ServiceName = "NovaTerminal";
+        private const string ServiceName = "Ntilde";
 
         private const int errSecSuccess = 0;
         private const int errSecItemNotFound = -25300;
@@ -836,7 +836,7 @@ namespace NovaTerminal.Shell.Secrets
             try
             {
                 // Touch the framework so a missing dylib trips DllNotFoundException here.
-                _ = Read("__novaterminal_probe__");
+                _ = Read("__ntilde_probe__");
                 _available = true;
             }
             catch (DllNotFoundException) { _available = false; }
@@ -909,7 +909,7 @@ namespace NovaTerminal.Shell.Secrets
             finally { CFRelease(query); }
         }
 
-        // Builds { class: GenericPassword, service: "NovaTerminal", account: key, [returnData/matchLimit] }.
+        // Builds { class: GenericPassword, service: "Ntilde", account: key, [returnData/matchLimit] }.
         private static IntPtr BuildQuery(string key, bool forReturnData)
         {
             IntPtr dict = CFDictionaryCreateMutable();
@@ -975,13 +975,13 @@ namespace NovaTerminal.Shell.Secrets
 
 - [ ] **Step 2: Build to verify it compiles**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.App`
+Run: `scripts/build.ps1 build src/Ntilde.App`
 Expected: SUCCESS on Windows. Restore the Task 3 factory to `new MacKeychainStore()` if stubbed.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/Secrets/MacKeychainStore.cs src/NovaTerminal.App/Shell/Secrets/SecretStore.cs
+git add src/Ntilde.App/Shell/Secrets/MacKeychainStore.cs src/Ntilde.App/Shell/Secrets/SecretStore.cs
 git commit -m "feat: MacKeychainStore via Security.framework P/Invoke (#100)"
 ```
 
@@ -992,18 +992,18 @@ git commit -m "feat: MacKeychainStore via Security.framework P/Invoke (#100)"
 These exercise the real platform store and **skip** when no keyring is available, so they're safe on Windows/CI.
 
 **Files:**
-- Create: `tests/NovaTerminal.App.Tests/Core/KeychainSecretStoreIntegrationTests.cs`
+- Create: `tests/Ntilde.App.Tests/Core/KeychainSecretStoreIntegrationTests.cs`
 
 - [ ] **Step 1: Write the tests**
 
-Create `tests/NovaTerminal.App.Tests/Core/KeychainSecretStoreIntegrationTests.cs`:
+Create `tests/Ntilde.App.Tests/Core/KeychainSecretStoreIntegrationTests.cs`:
 
 ```csharp
 using System;
 using System.Runtime.InteropServices;
-using NovaTerminal.Shell.Secrets;
+using Ntilde.Shell.Secrets;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public class KeychainSecretStoreIntegrationTests
 {
@@ -1045,13 +1045,13 @@ public class KeychainSecretStoreIntegrationTests
 
 - [ ] **Step 2: Run (will skip on Windows)**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter KeychainSecretStoreIntegrationTests`
+Run: `scripts/build.ps1 test tests/Ntilde.App.Tests --filter KeychainSecretStoreIntegrationTests`
 Expected: PASS (the single test returns early/skips on Windows; it does a real round-trip on macOS/Linux with a keyring).
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add tests/NovaTerminal.App.Tests/Core/KeychainSecretStoreIntegrationTests.cs
+git add tests/Ntilde.App.Tests/Core/KeychainSecretStoreIntegrationTests.cs
 git commit -m "test: skippable keychain integration round-trip (#100)"
 ```
 
@@ -1060,14 +1060,14 @@ git commit -m "test: skippable keychain integration round-trip (#100)"
 ## Task 7: MainWindow surfacing + single shared instance
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` (lines ~2354 and ~5278)
-- Modify: `src/NovaTerminal.App/Services/Ssh/RemoteDirectoryBrowserService.cs:37`
-- Modify: `src/NovaTerminal.App/Services/Ssh/RemotePathAutocompleteService.cs:33`
-- Modify: `src/NovaTerminal.App/Shell/SftpService.cs:596`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` (lines ~2354 and ~5278)
+- Modify: `src/Ntilde.App/Services/Ssh/RemoteDirectoryBrowserService.cs:37`
+- Modify: `src/Ntilde.App/Services/Ssh/RemotePathAutocompleteService.cs:33`
+- Modify: `src/Ntilde.App/Shell/SftpService.cs:596`
 
 - [ ] **Step 1: Surface vault init failure in MainWindow**
 
-In `src/NovaTerminal.App/MainWindow.axaml.cs`, replace line 2354:
+In `src/Ntilde.App/MainWindow.axaml.cs`, replace line 2354:
 
 ```csharp
             try { Vault = new VaultService(); } catch { }
@@ -1097,7 +1097,7 @@ with:
 
 - [ ] **Step 2: Hide the folder button when there's no folder**
 
-So the credential toast doesn't show an irrelevant "Open Folder" action, update `ShowRecordingToast` in `src/NovaTerminal.App/MainWindow.axaml.cs` (~line 5290). After `messageBlock.Text = message;` add:
+So the credential toast doesn't show an irrelevant "Open Folder" action, update `ShowRecordingToast` in `src/Ntilde.App/MainWindow.axaml.cs` (~line 5290). After `messageBlock.Text = message;` add:
 
 ```csharp
             var openFolderButton = this.FindControl<Button>("RecordingToastOpenFolder");
@@ -1111,7 +1111,7 @@ So the credential toast doesn't show an irrelevant "Open Folder" action, update 
 
 In each of the three service files, the constructor currently defaults to `new VaultService()`. Change the fallback to prefer the shared instance, falling back to a fresh one only if the window hasn't constructed it yet.
 
-`src/NovaTerminal.App/Services/Ssh/RemoteDirectoryBrowserService.cs:37` — change:
+`src/Ntilde.App/Services/Ssh/RemoteDirectoryBrowserService.cs:37` — change:
 
 ```csharp
         _passwordResolver = passwordResolver ?? (profile => new VaultService().GetSshPasswordForProfile(profile));
@@ -1123,22 +1123,22 @@ to:
         _passwordResolver = passwordResolver ?? (profile => (MainWindow.Vault ?? new VaultService()).GetSshPasswordForProfile(profile));
 ```
 
-Apply the identical change at `src/NovaTerminal.App/Services/Ssh/RemotePathAutocompleteService.cs:33` and `src/NovaTerminal.App/Shell/SftpService.cs:596`. Add `using` for the `MainWindow` namespace if needed (it is in the root app namespace; confirm by checking an existing reference, e.g. how `MainWindow` is referenced elsewhere in `Services/Ssh`). If a direct type reference is awkward across namespaces, leave that specific site as `new VaultService()` — with keychain backing it still reads the same secrets — and note it.
+Apply the identical change at `src/Ntilde.App/Services/Ssh/RemotePathAutocompleteService.cs:33` and `src/Ntilde.App/Shell/SftpService.cs:596`. Add `using` for the `MainWindow` namespace if needed (it is in the root app namespace; confirm by checking an existing reference, e.g. how `MainWindow` is referenced elsewhere in `Services/Ssh`). If a direct type reference is awkward across namespaces, leave that specific site as `new VaultService()` — with keychain backing it still reads the same secrets — and note it.
 
 > `SshInteractionService.cs:38` default param and `SshAskPassCommand.cs` are intentionally left as `new VaultService()` per the spec (askpass is a separate process; the interaction service is typically constructed with an explicit vault by its callers).
 
 - [ ] **Step 4: Build and run the full app test project**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.App`
+Run: `scripts/build.ps1 build src/Ntilde.App`
 Expected: SUCCESS.
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.App.Tests`
+Run: `scripts/build.ps1 test tests/Ntilde.App.Tests`
 Expected: PASS (no regressions in the migrated/new tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs src/NovaTerminal.App/Services/Ssh/RemoteDirectoryBrowserService.cs src/NovaTerminal.App/Services/Ssh/RemotePathAutocompleteService.cs src/NovaTerminal.App/Shell/SftpService.cs
+git add src/Ntilde.App/MainWindow.axaml.cs src/Ntilde.App/Services/Ssh/RemoteDirectoryBrowserService.cs src/Ntilde.App/Services/Ssh/RemotePathAutocompleteService.cs src/Ntilde.App/Shell/SftpService.cs
 git commit -m "feat: surface vault-unavailable banner; share VaultService instance (#100)"
 ```
 
@@ -1148,18 +1148,18 @@ git commit -m "feat: surface vault-unavailable banner; share VaultService instan
 
 - [ ] **Step 1: Full affected-project test run**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.App.Tests`
+Run: `scripts/build.ps1 test tests/Ntilde.App.Tests`
 Expected: PASS, no skips other than the keychain integration test on Windows.
 
 - [ ] **Step 2: Confirm no weak-crypto remnants**
 
-Run: `rtk grep "GetPlatformKey|NovaVaultSalt|EncryptFallback|machine-id" src`
+Run: `rtk grep "GetPlatformKey|NtildeVaultSalt|EncryptFallback|machine-id" src`
 Expected: no matches in `src/` (only the spec/plan docs may mention them).
 
 - [ ] **Step 3: Windows manual smoke test**
 
 Per the project's GUI smoke-test preference, do this manually:
-1. Launch the app (`scripts/build.ps1 run src/NovaTerminal.App` or the usual run path).
+1. Launch the app (`scripts/build.ps1 run src/Ntilde.App` or the usual run path).
 2. Create an SSH profile, connect, enter a password with "remember" checked.
 3. Restart the app; reconnect — confirm the password is remembered (Credential Manager path still works).
 
@@ -1167,7 +1167,7 @@ Per the project's GUI smoke-test preference, do this manually:
 
 On a real macOS machine and a Linux desktop session (or VM with GNOME Keyring unlocked):
 1. Build & run; repeat the remember-password round-trip from Step 3.
-2. Confirm the secret appears in the OS keychain (macOS: Keychain Access → "NovaTerminal"; Linux: `secret-tool search key "SSH:PROFILE:<guid>"` or Seahorse).
+2. Confirm the secret appears in the OS keychain (macOS: Keychain Access → "Ntilde"; Linux: `secret-tool search key "SSH:PROFILE:<guid>"` or Seahorse).
 3. Confirm restart-and-reconnect remembers the password.
 4. Headless check (Linux, no keyring): run with the keyring locked/absent; confirm the app launches, shows the "Credential storage unavailable" toast, and SSH still connects (just doesn't persist).
 5. Legacy check: drop a dummy `vault.dat` in the app data dir, launch, confirm it's deleted.

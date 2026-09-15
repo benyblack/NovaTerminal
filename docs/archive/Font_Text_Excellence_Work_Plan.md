@@ -2,7 +2,7 @@
 
 **Purpose**
 This document defines a precise, test-gated implementation plan for **Font & Text Excellence**
-in NovaTerminal. It is written for automated coding agents and maintainers.
+in Ntilde. It is written for automated coding agents and maintainers.
 
 Scope:
 - Rendering quality only

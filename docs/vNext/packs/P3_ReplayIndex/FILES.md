@@ -1,14 +1,14 @@
 # Pack P3 — File Ownership Fence (ReplayIndex)
 
 ## Allowed
-- `src/NovaTerminal.Replay/**` (index + seek)
-- `src/NovaTerminal.Core/**` (event contracts only if strictly needed)
+- `src/Ntilde.Replay/**` (index + seek)
+- `src/Ntilde.Core/**` (event contracts only if strictly needed)
 - `tests/**`
-- `src/NovaTerminal.Cli/**` (optional: add a seek test command)
+- `src/Ntilde.Cli/**` (optional: add a seek test command)
 
 ## Not Allowed
-- `src/NovaTerminal.Rendering/**` (do not mix renderer work here)
-- `src/NovaTerminal.Shell/**` (no command markers in this pack)
+- `src/Ntilde.Rendering/**` (do not mix renderer work here)
+- `src/Ntilde.Shell/**` (no command markers in this pack)
 - Any remote/relay code
 
 ## Hot file rule

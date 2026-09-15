@@ -1,9 +1,9 @@
 {
-  "name": "novaterminal-site",
+  "name": "ntilde-site",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Marketing and documentation landing page for NovaTerminal.",
+  "description": "Marketing and documentation landing page for Ntilde.",
   "scripts": {
     "sync:assets": "node scripts/sync-screenshots.mjs",
     "predev": "node scripts/sync-screenshots.mjs",

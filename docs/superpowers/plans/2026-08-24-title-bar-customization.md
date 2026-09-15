@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let the user choose which action icons appear in NovaTerminal's title bar — Pinned, Overflow (`⋯` flyout), or Hidden — so Settings gains a gear icon without the bar getting crowded.
+**Goal:** Let the user choose which action icons appear in Ntilde's title bar — Pinned, Overflow (`⋯` flyout), or Hidden — so Settings gains a gear icon without the bar getting crowded.
 
 **Architecture:** A declarative catalog of title-bar-worthy actions plus a pure resolver that turns catalog + saved settings + active-toggle state into a `{Pinned, Overflow}` layout. `MainWindow` renders whatever the resolver returns; a view factory builds the buttons so rendering is testable without instantiating `MainWindow`. Settings stores only the user's deltas.
 
@@ -13,13 +13,13 @@
 ## Global Constraints
 
 - **Build only via the wrapper scripts.** `scripts/build.ps1 <args>` (PowerShell) or `scripts/build.sh <args>` (bash). A raw `dotnet build` leaves daemons holding stdout and hangs when a parent captures output. Never use raw `dotnet build`.
-- **Fresh worktrees need a CLI restore first.** `scripts/build.ps1 restore src/NovaTerminal.Cli` — the `BuildCliShim` target runs a nested `dotnet build --no-restore` on `NovaTerminal.Cli` and fails with `NETSDK1004` otherwise. Already done in this worktree.
-- **Never run the whole test suite.** Solution-wide `dotnet test` takes 20–30 minutes. Run only `tests/NovaTerminal.App.Tests` and filter to the class under test.
+- **Fresh worktrees need a CLI restore first.** `scripts/build.ps1 restore src/Ntilde.Cli` — the `BuildCliShim` target runs a nested `dotnet build --no-restore` on `Ntilde.Cli` and fails with `NETSDK1004` otherwise. Already done in this worktree.
+- **Never run the whole test suite.** Solution-wide `dotnet test` takes 20–30 minutes. Run only `tests/Ntilde.App.Tests` and filter to the class under test.
 - **`Shell/TitleBar/` code must not reference Avalonia.** Catalog, resolver, and state types stay pure so their tests need no UI thread. Only `TitleBarViewFactory` touches Avalonia.
 - **Do not resolve actions through `CommandRegistry`.** `SetupCommandPalette()` is lazy — it runs on palette-open and settings-save, never at startup (see the comment at `MainWindow.axaml.cs:2207`). A title bar reading the registry comes up dead on a cold start.
-- **No new test project.** Everything lands in `tests/NovaTerminal.App.Tests`, so `ci.yml`'s artifact path list and unit-test loop need no changes.
-- **Follow the folder's existing style:** file-scoped namespaces, `sealed record` primitives, collection expressions (`[...]`) for static tables. Mirror `src/NovaTerminal.App/Shell/Shortcuts/`.
-- Test namespace is `NovaTerminal.Tests`; test assembly root namespace is `NovaTerminal.AppTests`.
+- **No new test project.** Everything lands in `tests/Ntilde.App.Tests`, so `ci.yml`'s artifact path list and unit-test loop need no changes.
+- **Follow the folder's existing style:** file-scoped namespaces, `sealed record` primitives, collection expressions (`[...]`) for static tables. Mirror `src/Ntilde.App/Shell/Shortcuts/`.
+- Test namespace is `Ntilde.Tests`; test assembly root namespace is `Ntilde.AppTests`.
 
 ## Deviations from the spec (deliberate, adopted here)
 
@@ -35,54 +35,54 @@ Three refinements found while reading the codebase. They do not change any appro
 
 | File | Responsibility |
 |---|---|
-| `src/NovaTerminal.App/Shell/TitleBar/TitleBarItemState.cs` | The three-state enum |
-| `src/NovaTerminal.App/Shell/TitleBar/TitleBarCatalogEntry.cs` | One catalog row |
-| `src/NovaTerminal.App/Shell/TitleBar/TitleBarCatalog.cs` | The static table of 12 entries |
-| `src/NovaTerminal.App/Shell/TitleBar/TitleBarLayout.cs` | Resolver output |
-| `src/NovaTerminal.App/Shell/TitleBar/TitleBarLayoutResolver.cs` | Pure catalog + settings + toggles → layout |
-| `src/NovaTerminal.App/Shell/TitleBar/TitleBarShortcuts.cs` | Shortcut-label lookup |
-| `src/NovaTerminal.App/Shell/TitleBar/TitleBarViewFactory.cs` | Builds buttons and the `⋯` flyout |
-| `tests/NovaTerminal.App.Tests/TitleBarCatalogTests.cs` | Catalog invariants |
-| `tests/NovaTerminal.App.Tests/TitleBarLayoutResolverTests.cs` | Every resolution rule |
-| `tests/NovaTerminal.App.Tests/TitleBarSettingsRoundTripTests.cs` | Persistence |
-| `tests/NovaTerminal.App.Tests/TitleBarViewFactoryTests.cs` | Rendering, headless |
+| `src/Ntilde.App/Shell/TitleBar/TitleBarItemState.cs` | The three-state enum |
+| `src/Ntilde.App/Shell/TitleBar/TitleBarCatalogEntry.cs` | One catalog row |
+| `src/Ntilde.App/Shell/TitleBar/TitleBarCatalog.cs` | The static table of 12 entries |
+| `src/Ntilde.App/Shell/TitleBar/TitleBarLayout.cs` | Resolver output |
+| `src/Ntilde.App/Shell/TitleBar/TitleBarLayoutResolver.cs` | Pure catalog + settings + toggles → layout |
+| `src/Ntilde.App/Shell/TitleBar/TitleBarShortcuts.cs` | Shortcut-label lookup |
+| `src/Ntilde.App/Shell/TitleBar/TitleBarViewFactory.cs` | Builds buttons and the `⋯` flyout |
+| `tests/Ntilde.App.Tests/TitleBarCatalogTests.cs` | Catalog invariants |
+| `tests/Ntilde.App.Tests/TitleBarLayoutResolverTests.cs` | Every resolution rule |
+| `tests/Ntilde.App.Tests/TitleBarSettingsRoundTripTests.cs` | Persistence |
+| `tests/Ntilde.App.Tests/TitleBarViewFactoryTests.cs` | Rendering, headless |
 
 **Modify**
 
 | File | Change |
 |---|---|
-| `src/NovaTerminal.App/Shell/TerminalSettings.cs` | `TitleBarItems`, `TitleBarOrder` |
-| `src/NovaTerminal.App/Shell/AppJsonContext.cs` | `[JsonSerializable(typeof(List<string>))]` |
-| `src/NovaTerminal.App/MainWindow.axaml` | Title bar becomes an empty host + `ContextMenu` |
-| `src/NovaTerminal.App/MainWindow.axaml.cs` | Handler map, `RebuildTitleBar`, auto-surface, rebuild on save |
-| `src/NovaTerminal.App/SettingsWindow.axaml` | `TITLE BAR` section shell in the Appearance tab |
-| `src/NovaTerminal.App/SettingsWindow.axaml.cs` | Populate rows, persist on save |
+| `src/Ntilde.App/Shell/TerminalSettings.cs` | `TitleBarItems`, `TitleBarOrder` |
+| `src/Ntilde.App/Shell/AppJsonContext.cs` | `[JsonSerializable(typeof(List<string>))]` |
+| `src/Ntilde.App/MainWindow.axaml` | Title bar becomes an empty host + `ContextMenu` |
+| `src/Ntilde.App/MainWindow.axaml.cs` | Handler map, `RebuildTitleBar`, auto-surface, rebuild on save |
+| `src/Ntilde.App/SettingsWindow.axaml` | `TITLE BAR` section shell in the Appearance tab |
+| `src/Ntilde.App/SettingsWindow.axaml.cs` | Populate rows, persist on save |
 
 ---
 
 ## Task 1: Catalog primitives
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/TitleBar/TitleBarItemState.cs`
-- Create: `src/NovaTerminal.App/Shell/TitleBar/TitleBarCatalogEntry.cs`
-- Create: `src/NovaTerminal.App/Shell/TitleBar/TitleBarCatalog.cs`
-- Test: `tests/NovaTerminal.App.Tests/TitleBarCatalogTests.cs`
+- Create: `src/Ntilde.App/Shell/TitleBar/TitleBarItemState.cs`
+- Create: `src/Ntilde.App/Shell/TitleBar/TitleBarCatalogEntry.cs`
+- Create: `src/Ntilde.App/Shell/TitleBar/TitleBarCatalog.cs`
+- Test: `tests/Ntilde.App.Tests/TitleBarCatalogTests.cs`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `enum TitleBarItemState { Pinned, Overflow, Hidden }`; `sealed record TitleBarCatalogEntry(string Id, string Title, string IconGeometry, double IconSize, string ShortcutKey, TitleBarItemState DefaultState, bool IsLocked, bool IsToggle)`; `static IReadOnlyList<TitleBarCatalogEntry> TitleBarCatalog.GetEntries()`. Namespace `NovaTerminal.Shell.TitleBar`.
+- Produces: `enum TitleBarItemState { Pinned, Overflow, Hidden }`; `sealed record TitleBarCatalogEntry(string Id, string Title, string IconGeometry, double IconSize, string ShortcutKey, TitleBarItemState DefaultState, bool IsLocked, bool IsToggle)`; `static IReadOnlyList<TitleBarCatalogEntry> TitleBarCatalog.GetEntries()`. Namespace `Ntilde.Shell.TitleBar`.
 
 - [ ] **Step 1: Write the failing test**
 
-`tests/NovaTerminal.App.Tests/TitleBarCatalogTests.cs`:
+`tests/Ntilde.App.Tests/TitleBarCatalogTests.cs`:
 
 ```csharp
 using System.Linq;
-using NovaTerminal.Shell.Shortcuts;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Shell.Shortcuts;
+using Ntilde.Shell.TitleBar;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class TitleBarCatalogTests
     {
@@ -159,17 +159,17 @@ namespace NovaTerminal.Tests
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TitleBarCatalogTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TitleBarCatalogTests"
 ```
 
 Expected: compile failure — `TitleBarCatalog` and `TitleBarItemState` do not exist.
 
 - [ ] **Step 3: Write the enum**
 
-`src/NovaTerminal.App/Shell/TitleBar/TitleBarItemState.cs`:
+`src/Ntilde.App/Shell/TitleBar/TitleBarItemState.cs`:
 
 ```csharp
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 /// <summary>Where a title bar catalog entry appears.</summary>
 public enum TitleBarItemState
@@ -187,10 +187,10 @@ public enum TitleBarItemState
 
 - [ ] **Step 4: Write the entry record**
 
-`src/NovaTerminal.App/Shell/TitleBar/TitleBarCatalogEntry.cs`:
+`src/Ntilde.App/Shell/TitleBar/TitleBarCatalogEntry.cs`:
 
 ```csharp
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 /// <summary>
 /// One customizable title bar action. <paramref name="ShortcutKey"/> is a
@@ -212,12 +212,12 @@ public sealed record TitleBarCatalogEntry(
 
 - [ ] **Step 5: Write the catalog**
 
-`src/NovaTerminal.App/Shell/TitleBar/TitleBarCatalog.cs`. The Tab List, Record, and Connections geometries are moved verbatim from `MainWindow.axaml`; the rest are Material Design Icons paths except the two split glyphs, which are hand-authored rectangles.
+`src/Ntilde.App/Shell/TitleBar/TitleBarCatalog.cs`. The Tab List, Record, and Connections geometries are moved verbatim from `MainWindow.axaml`; the rest are Material Design Icons paths except the two split glyphs, which are hand-authored rectangles.
 
 ```csharp
 using System.Collections.Generic;
 
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 public static class TitleBarCatalog
 {
@@ -303,7 +303,7 @@ public static class TitleBarCatalog
 - [ ] **Step 6: Run the tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TitleBarCatalogTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TitleBarCatalogTests"
 ```
 
 Expected: 7 passed.
@@ -311,7 +311,7 @@ Expected: 7 passed.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/TitleBar tests/NovaTerminal.App.Tests/TitleBarCatalogTests.cs
+git add src/Ntilde.App/Shell/TitleBar tests/Ntilde.App.Tests/TitleBarCatalogTests.cs
 git commit -m "feat(ui): add the title bar action catalog"
 ```
 
@@ -320,9 +320,9 @@ git commit -m "feat(ui): add the title bar action catalog"
 ## Task 2: Layout resolver
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/TitleBar/TitleBarLayout.cs`
-- Create: `src/NovaTerminal.App/Shell/TitleBar/TitleBarLayoutResolver.cs`
-- Test: `tests/NovaTerminal.App.Tests/TitleBarLayoutResolverTests.cs`
+- Create: `src/Ntilde.App/Shell/TitleBar/TitleBarLayout.cs`
+- Create: `src/Ntilde.App/Shell/TitleBar/TitleBarLayoutResolver.cs`
+- Test: `tests/Ntilde.App.Tests/TitleBarLayoutResolverTests.cs`
 
 **Interfaces:**
 - Consumes: `TitleBarCatalog.GetEntries()`, `TitleBarCatalogEntry`, `TitleBarItemState` from Task 1.
@@ -330,15 +330,15 @@ git commit -m "feat(ui): add the title bar action catalog"
 
 - [ ] **Step 1: Write the failing test**
 
-`tests/NovaTerminal.App.Tests/TitleBarLayoutResolverTests.cs`:
+`tests/Ntilde.App.Tests/TitleBarLayoutResolverTests.cs`:
 
 ```csharp
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Shell.TitleBar;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class TitleBarLayoutResolverTests
     {
@@ -546,19 +546,19 @@ namespace NovaTerminal.Tests
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TitleBarLayoutResolverTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TitleBarLayoutResolverTests"
 ```
 
 Expected: compile failure — `TitleBarLayoutResolver` does not exist.
 
 - [ ] **Step 3: Write the layout record**
 
-`src/NovaTerminal.App/Shell/TitleBar/TitleBarLayout.cs`:
+`src/Ntilde.App/Shell/TitleBar/TitleBarLayout.cs`:
 
 ```csharp
 using System.Collections.Generic;
 
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 /// <summary>What the title bar should show right now.</summary>
 public sealed record TitleBarLayout(
@@ -572,14 +572,14 @@ public sealed record TitleBarLayout(
 
 - [ ] **Step 4: Write the resolver**
 
-`src/NovaTerminal.App/Shell/TitleBar/TitleBarLayoutResolver.cs`:
+`src/Ntilde.App/Shell/TitleBar/TitleBarLayoutResolver.cs`:
 
 ```csharp
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 /// <summary>
 /// Turns the catalog plus the user's saved placement plus the currently-active toggles into the
@@ -671,7 +671,7 @@ public static class TitleBarLayoutResolver
 - [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TitleBarLayoutResolverTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TitleBarLayoutResolverTests"
 ```
 
 Expected: 19 passed.
@@ -679,7 +679,7 @@ Expected: 19 passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/TitleBar tests/NovaTerminal.App.Tests/TitleBarLayoutResolverTests.cs
+git add src/Ntilde.App/Shell/TitleBar tests/Ntilde.App.Tests/TitleBarLayoutResolverTests.cs
 git commit -m "feat(ui): resolve title bar layout from catalog, settings, and toggle state"
 ```
 
@@ -688,9 +688,9 @@ git commit -m "feat(ui): resolve title bar layout from catalog, settings, and to
 ## Task 3: Settings persistence
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/TerminalSettings.cs` (add two properties beside `Keybindings`, around line 63)
-- Modify: `src/NovaTerminal.App/Shell/AppJsonContext.cs:20` (add one attribute)
-- Test: `tests/NovaTerminal.App.Tests/TitleBarSettingsRoundTripTests.cs`
+- Modify: `src/Ntilde.App/Shell/TerminalSettings.cs` (add two properties beside `Keybindings`, around line 63)
+- Modify: `src/Ntilde.App/Shell/AppJsonContext.cs:20` (add one attribute)
+- Test: `tests/Ntilde.App.Tests/TitleBarSettingsRoundTripTests.cs`
 
 **Interfaces:**
 - Consumes: `TitleBarLayoutResolver.Resolve` from Task 2.
@@ -698,17 +698,17 @@ git commit -m "feat(ui): resolve title bar layout from catalog, settings, and to
 
 - [ ] **Step 1: Write the failing test**
 
-`tests/NovaTerminal.App.Tests/TitleBarSettingsRoundTripTests.cs`:
+`tests/Ntilde.App.Tests/TitleBarSettingsRoundTripTests.cs`:
 
 ```csharp
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
-using NovaTerminal.Shell;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Shell;
+using Ntilde.Shell.TitleBar;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class TitleBarSettingsRoundTripTests
     {
@@ -787,14 +787,14 @@ namespace NovaTerminal.Tests
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TitleBarSettingsRoundTripTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TitleBarSettingsRoundTripTests"
 ```
 
 Expected: compile failure — `TitleBarItems` is not a member of `TerminalSettings`.
 
 - [ ] **Step 3: Add the settings properties**
 
-In `src/NovaTerminal.App/Shell/TerminalSettings.cs`, immediately after the `Keybindings` property (line 63):
+In `src/Ntilde.App/Shell/TerminalSettings.cs`, immediately after the `Keybindings` property (line 63):
 
 ```csharp
         // Title bar customization. Deltas only: an id absent here takes its TitleBarCatalog default,
@@ -809,7 +809,7 @@ In `src/NovaTerminal.App/Shell/TerminalSettings.cs`, immediately after the `Keyb
 
 - [ ] **Step 4: Register `List<string>` with the JSON context**
 
-In `src/NovaTerminal.App/Shell/AppJsonContext.cs`, after the `Dictionary<string, string>` line (line 20):
+In `src/Ntilde.App/Shell/AppJsonContext.cs`, after the `Dictionary<string, string>` line (line 20):
 
 ```csharp
     [JsonSerializable(typeof(List<string>))]
@@ -818,7 +818,7 @@ In `src/NovaTerminal.App/Shell/AppJsonContext.cs`, after the `Dictionary<string,
 - [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TitleBarSettingsRoundTripTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TitleBarSettingsRoundTripTests"
 ```
 
 Expected: 4 passed.
@@ -826,7 +826,7 @@ Expected: 4 passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/TerminalSettings.cs src/NovaTerminal.App/Shell/AppJsonContext.cs tests/NovaTerminal.App.Tests/TitleBarSettingsRoundTripTests.cs
+git add src/Ntilde.App/Shell/TerminalSettings.cs src/Ntilde.App/Shell/AppJsonContext.cs tests/Ntilde.App.Tests/TitleBarSettingsRoundTripTests.cs
 git commit -m "feat(ui): persist title bar item placement and order"
 ```
 
@@ -835,9 +835,9 @@ git commit -m "feat(ui): persist title bar item placement and order"
 ## Task 4: View factory
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/TitleBar/TitleBarShortcuts.cs`
-- Create: `src/NovaTerminal.App/Shell/TitleBar/TitleBarViewFactory.cs`
-- Test: `tests/NovaTerminal.App.Tests/TitleBarViewFactoryTests.cs`
+- Create: `src/Ntilde.App/Shell/TitleBar/TitleBarShortcuts.cs`
+- Create: `src/Ntilde.App/Shell/TitleBar/TitleBarViewFactory.cs`
+- Test: `tests/Ntilde.App.Tests/TitleBarViewFactoryTests.cs`
 
 **Interfaces:**
 - Consumes: `TitleBarLayout`, `TitleBarCatalogEntry`, `TitleBarCatalog.OverflowGeometry`, `TitleBarCatalog.NewTabId`.
@@ -852,7 +852,7 @@ git commit -m "feat(ui): persist title bar item placement and order"
 
 - [ ] **Step 1: Write the failing test**
 
-`tests/NovaTerminal.App.Tests/TitleBarViewFactoryTests.cs`:
+`tests/Ntilde.App.Tests/TitleBarViewFactoryTests.cs`:
 
 ```csharp
 using System;
@@ -860,10 +860,10 @@ using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Shell.TitleBar;
 using Xunit;
 
-namespace NovaTerminal.Tests
+namespace Ntilde.Tests
 {
     public class TitleBarViewFactoryTests
     {
@@ -1068,21 +1068,21 @@ namespace NovaTerminal.Tests
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TitleBarViewFactoryTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TitleBarViewFactoryTests"
 ```
 
 Expected: compile failure — `TitleBarShortcuts` and `TitleBarViewFactory` do not exist.
 
 - [ ] **Step 3: Write the shortcut helper**
 
-`src/NovaTerminal.App/Shell/TitleBar/TitleBarShortcuts.cs`:
+`src/Ntilde.App/Shell/TitleBar/TitleBarShortcuts.cs`:
 
 ```csharp
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.Shell.Shortcuts;
+using Ntilde.Shell.Shortcuts;
 
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 /// <summary>
 /// Shortcut labels for title bar tooltips and settings rows. Defaults come from
@@ -1117,7 +1117,7 @@ public static class TitleBarShortcuts
 
 - [ ] **Step 4: Write the view factory**
 
-`src/NovaTerminal.App/Shell/TitleBar/TitleBarViewFactory.cs`:
+`src/Ntilde.App/Shell/TitleBar/TitleBarViewFactory.cs`:
 
 ```csharp
 using System;
@@ -1127,7 +1127,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 
-namespace NovaTerminal.Shell.TitleBar;
+namespace Ntilde.Shell.TitleBar;
 
 /// <summary>
 /// Builds the title bar's buttons from a resolved layout. Separate from MainWindow on purpose:
@@ -1292,7 +1292,7 @@ public static class TitleBarViewFactory
 - [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TitleBarViewFactoryTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TitleBarViewFactoryTests"
 ```
 
 Expected: 17 passed. If `Geometry.Parse` throws on any path, the geometry constant is malformed — fix the constant, do not loosen the test.
@@ -1300,7 +1300,7 @@ Expected: 17 passed. If `Geometry.Parse` throws on any path, the geometry consta
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/TitleBar tests/NovaTerminal.App.Tests/TitleBarViewFactoryTests.cs
+git add src/Ntilde.App/Shell/TitleBar tests/Ntilde.App.Tests/TitleBarViewFactoryTests.cs
 git commit -m "feat(ui): build title bar buttons from a resolved layout"
 ```
 
@@ -1309,8 +1309,8 @@ git commit -m "feat(ui): build title bar buttons from a resolved layout"
 ## Task 5: MainWindow integration
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml:114-180` (the title bar overlay `Grid`)
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` — handler map + `RebuildTitleBar`, wired near the existing record-button wiring (~line 2151) and into `OpenSettings`'s `if (saved)` block (~line 5254)
+- Modify: `src/Ntilde.App/MainWindow.axaml:114-180` (the title bar overlay `Grid`)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` — handler map + `RebuildTitleBar`, wired near the existing record-button wiring (~line 2151) and into `OpenSettings`'s `if (saved)` block (~line 5254)
 
 **Interfaces:**
 - Consumes: `TitleBarViewFactory.Populate`, `TitleBarLayoutResolver.Resolve`, `TitleBarCatalog`.
@@ -1318,7 +1318,7 @@ git commit -m "feat(ui): build title bar buttons from a resolved layout"
 
 - [ ] **Step 1: Replace the title bar markup**
 
-In `src/NovaTerminal.App/MainWindow.axaml`, replace the whole overlay `Grid` (from `<Grid VerticalAlignment="Top" Height="32" ... x:Name="TitleBar"` through its closing `</Grid>`, currently lines 114–180) with:
+In `src/Ntilde.App/MainWindow.axaml`, replace the whole overlay `Grid` (from `<Grid VerticalAlignment="Top" Height="32" ... x:Name="TitleBar"` through its closing `</Grid>`, currently lines 114–180) with:
 
 ```xml
         <!-- Overlay layer for custom buttons (right aligned, leaving space for the system caption
@@ -1369,10 +1369,10 @@ In `src/NovaTerminal.App/MainWindow.axaml`, replace the whole overlay `Grid` (fr
 
 - [ ] **Step 2: Add the using and the toggle set**
 
-At the top of `src/NovaTerminal.App/MainWindow.axaml.cs`, with the other `using` lines:
+At the top of `src/Ntilde.App/MainWindow.axaml.cs`, with the other `using` lines:
 
 ```csharp
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Shell.TitleBar;
 ```
 
 With the other private fields (near `_globalHotkey`, around line 41):
@@ -1447,7 +1447,7 @@ Every name in that map was verified against the current source while this plan w
 `ToggleSearch` (3370), `ToggleRemoteFilesSidebar` (467). If a name has since moved, run:
 
 ```bash
-grep -nE "(private|internal|public|void).*(AddTab|PopulateTabListMenu|ToggleConnections|ToggleCommandPalette|SplitPane|ToggleTransferCenter)\(" src/NovaTerminal.App/MainWindow.axaml.cs
+grep -nE "(private|internal|public|void).*(AddTab|PopulateTabListMenu|ToggleConnections|ToggleCommandPalette|SplitPane|ToggleTransferCenter)\(" src/Ntilde.App/MainWindow.axaml.cs
 ```
 
 - [ ] **Step 4: Retire the per-button wiring and call the rebuild**
@@ -1473,13 +1473,13 @@ In `OpenSettings`, inside the `if (saved)` block, immediately after `ApplySettin
 - [ ] **Step 6: Build and run the existing suite for regressions**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 Expected: 0 errors. Then:
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TitleBar"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TitleBar"
 ```
 
 Expected: all TitleBar tests still pass (47 total across the four classes).
@@ -1487,7 +1487,7 @@ Expected: all TitleBar tests still pass (47 total across the four classes).
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml src/NovaTerminal.App/MainWindow.axaml.cs
+git add src/Ntilde.App/MainWindow.axaml src/Ntilde.App/MainWindow.axaml.cs
 git commit -m "feat(ui): render the title bar from the resolved layout"
 ```
 
@@ -1496,7 +1496,7 @@ git commit -m "feat(ui): render the title bar from the resolved layout"
 ## Task 6: Auto-surface the recording toggle
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` — `OnRecordingStateChanged` and `UpdateRecordButtonUi` (around lines 5854 and 6060)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` — `OnRecordingStateChanged` and `UpdateRecordButtonUi` (around lines 5854 and 6060)
 
 **Interfaces:**
 - Consumes: `_activeTitleBarToggles` and `RebuildTitleBar()` from Task 5.
@@ -1570,7 +1570,7 @@ Leave the rest of the method — the brushes and the three assignments — exact
 - [ ] **Step 3: Check for other references to the retired names**
 
 ```bash
-grep -n "BtnRecord\|IconRecord\|BtnTabList\|IconTabList\|BtnConnections" src/NovaTerminal.App/MainWindow.axaml.cs src/NovaTerminal.App/MainWindow.axaml
+grep -n "BtnRecord\|IconRecord\|BtnTabList\|IconTabList\|BtnConnections" src/Ntilde.App/MainWindow.axaml.cs src/Ntilde.App/MainWindow.axaml
 ```
 
 Expected: no hits. Fix any that remain — a `FindControl` on a retired name returns null silently, so the compiler will not catch it.
@@ -1578,7 +1578,7 @@ Expected: no hits. Fix any that remain — a `FindControl` on a retired name ret
 - [ ] **Step 4: Build**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 Expected: 0 errors.
@@ -1586,7 +1586,7 @@ Expected: 0 errors.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs
+git add src/Ntilde.App/MainWindow.axaml.cs
 git commit -m "feat(ui): surface an overflowed Record button while recording"
 ```
 
@@ -1595,8 +1595,8 @@ git commit -m "feat(ui): surface an overflowed Record button while recording"
 ## Task 7: Settings UI
 
 **Files:**
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml` — a `TITLE BAR` section in the Appearance tab (which starts at line 359)
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml.cs` — populate the rows, persist on save (the save handler ends around line 2315)
+- Modify: `src/Ntilde.App/SettingsWindow.axaml` — a `TITLE BAR` section in the Appearance tab (which starts at line 359)
+- Modify: `src/Ntilde.App/SettingsWindow.axaml.cs` — populate the rows, persist on save (the save handler ends around line 2315)
 
 **Interfaces:**
 - Consumes: `TitleBarCatalog`, `TitleBarItemState`, `TitleBarShortcuts`, `TitleBarCatalog.MaxPinned`.
@@ -1604,7 +1604,7 @@ git commit -m "feat(ui): surface an overflowed Record button while recording"
 
 - [ ] **Step 1: Add the section markup**
 
-In `src/NovaTerminal.App/SettingsWindow.axaml`, inside the Appearance tab's outer `StackPanel`, after the existing `THEME` section:
+In `src/Ntilde.App/SettingsWindow.axaml`, inside the Appearance tab's outer `StackPanel`, after the existing `THEME` section:
 
 ```xml
                             <TextBlock Classes="SectionHeader" Text="TITLE BAR" Margin="0,24,0,14"/>
@@ -1625,7 +1625,7 @@ In `src/NovaTerminal.App/SettingsWindow.axaml`, inside the Appearance tab's oute
 
 - [ ] **Step 2: Add the draft state fields**
 
-In `src/NovaTerminal.App/SettingsWindow.axaml.cs`, beside `_shortcutDraftBindings`:
+In `src/Ntilde.App/SettingsWindow.axaml.cs`, beside `_shortcutDraftBindings`:
 
 ```csharp
         private readonly Dictionary<string, TitleBarItemState> _titleBarDraftStates =
@@ -1636,7 +1636,7 @@ In `src/NovaTerminal.App/SettingsWindow.axaml.cs`, beside `_shortcutDraftBinding
 And the using:
 
 ```csharp
-using NovaTerminal.Shell.TitleBar;
+using Ntilde.Shell.TitleBar;
 ```
 
 - [ ] **Step 3: Seed the draft from settings and build the rows**
@@ -1903,7 +1903,7 @@ In the save handler, immediately before `_settings.Save();` (around line 2314):
 - [ ] **Step 5: Build**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 Expected: 0 errors. Add whichever `using` lines the compiler asks for (`Avalonia.Layout`, `Avalonia.Media`, `System.Linq`).
@@ -1911,7 +1911,7 @@ Expected: 0 errors. Add whichever `using` lines the compiler asks for (`Avalonia
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/SettingsWindow.axaml src/NovaTerminal.App/SettingsWindow.axaml.cs
+git add src/Ntilde.App/SettingsWindow.axaml src/Ntilde.App/SettingsWindow.axaml.cs
 git commit -m "feat(ui): add the title bar section to Appearance settings"
 ```
 
@@ -1920,7 +1920,7 @@ git commit -m "feat(ui): add the title bar section to Appearance settings"
 ## Task 8: Right-click entry point
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` — wire `MenuCustomizeTitleBar` next to the existing `MenuManageProfiles` wiring (~line 2130)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` — wire `MenuCustomizeTitleBar` next to the existing `MenuManageProfiles` wiring (~line 2130)
 
 **Interfaces:**
 - Consumes: the `MenuCustomizeTitleBar` item added to `MainWindow.axaml` in Task 5; `OpenSettings(int)`.
@@ -1943,7 +1943,7 @@ Beside the `MenuManageProfiles` wiring:
 - [ ] **Step 2: Build**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 Expected: 0 errors.
@@ -1951,7 +1951,7 @@ Expected: 0 errors.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs
+git add src/Ntilde.App/MainWindow.axaml.cs
 git commit -m "feat(ui): open title bar settings from a title bar right-click"
 ```
 
@@ -1964,7 +1964,7 @@ git commit -m "feat(ui): open title bar settings from a title bar right-click"
 - [ ] **Step 1: Run the full App.Tests project**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests
+scripts/build.ps1 test tests/Ntilde.App.Tests
 ```
 
 Expected: no new failures against the baseline. Note that this project is the one with a known flaky host-hang: if the run reports a host hang *after* every test has passed, re-run rather than debugging it.
@@ -1972,7 +1972,7 @@ Expected: no new failures against the baseline. Note that this project is the on
 - [ ] **Step 2: Run the architecture tests**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests
+scripts/build.ps1 test tests/Ntilde.Architecture.Tests
 ```
 
 Expected: pass. `ProjectFileLayeringTests` will flag a layering violation if anything under `Shell/TitleBar/` reached for a dependency it should not have.
@@ -1980,7 +1980,7 @@ Expected: pass. `ProjectFileLayeringTests` will flag a layering violation if any
 - [ ] **Step 3: Launch the app and check the icons render**
 
 ```bash
-scripts/build.ps1 run src/NovaTerminal.App
+scripts/build.ps1 run src/Ntilde.App
 ```
 
 Every geometry constant in Task 1 is a literal path string, and a malformed one renders as an empty 32×32 button rather than throwing — the tests cannot catch that, only your eyes can. Walk through:
@@ -2008,7 +2008,7 @@ Every geometry constant in Task 1 is a literal path string, and a malformed one 
 - [ ] **Step 4: Confirm the settings file holds only deltas**
 
 ```bash
-grep -A5 TitleBar "$APPDATA/NovaTerminal/settings.json"
+grep -A5 TitleBar "$APPDATA/Ntilde/settings.json"
 ```
 
 That path works from Git Bash. `$env:APPDATA` is PowerShell syntax and expands to nothing

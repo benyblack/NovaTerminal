@@ -1,11 +1,11 @@
-# NovaTerminal VT vs Ghostty Gap Matrix
+# Ntilde VT vs Ghostty Gap Matrix
 
 Date: 2026-04-19
 
-Purpose: identify what NovaTerminal already has, where `docs/vt_coverage_matrix.md` is stale, and which Ghostty-level VT features are real gaps.
+Purpose: identify what Ntilde already has, where `docs/vt_coverage_matrix.md` is stale, and which Ghostty-level VT features are real gaps.
 
 Sources:
-- Nova local evidence: `src/NovaTerminal.VT/AnsiParser.cs`, `src/NovaTerminal.VT/ModeState.cs`, `src/NovaTerminal.App/Core/TerminalView.cs`, `tests/NovaTerminal.Tests/OscUxTests.cs`, `tests/NovaTerminal.Tests/DecModeTests.cs`, `tests/NovaTerminal.Tests/SgrAttributeTests.cs`, `docs/vt_coverage_matrix.md`
+- Ntilde local evidence: `src/Ntilde.VT/AnsiParser.cs`, `src/Ntilde.VT/ModeState.cs`, `src/Ntilde.App/Core/TerminalView.cs`, `tests/Ntilde.Tests/OscUxTests.cs`, `tests/Ntilde.Tests/DecModeTests.cs`, `tests/Ntilde.Tests/SgrAttributeTests.cs`, `docs/vt_coverage_matrix.md`
 - Ghostty docs: <https://ghostty.org/docs/help/terminfo>, <https://ghostty.org/docs/vt/reference>, <https://ghostty.org/docs/vt/external>, <https://ghostty.org/docs/vt/osc/52>, <https://ghostty.org/docs/install/release-notes/1-3-0>
 
 ## Legend
@@ -24,15 +24,15 @@ Priority:
 
 ## Executive Summary
 
-NovaTerminal is stronger than its current conformance matrix says. The matrix is stale for OSC 7, OSC 8, application cursor keys, DECOM, ICH/DCH/ECH, focus reporting, cursor style, and Unicode/grapheme support.
+Ntilde is stronger than its current conformance matrix says. The matrix is stale for OSC 7, OSC 8, application cursor keys, DECOM, ICH/DCH/ECH, focus reporting, cursor style, and Unicode/grapheme support.
 
 The biggest real Ghostty parity gaps are not basic VT rendering. They are feature discovery, modern keyboard reporting, richer OSC support, complete shell-integration semantics, styled underline/color handling, and systematic conformance documentation.
 
 ## Gap Matrix
 
-| Area | Nova state | Ghostty-level target | Classification | Priority | Evidence / notes |
+| Area | Ntilde state | Ghostty-level target | Classification | Priority | Evidence / notes |
 |---|---|---|---|---:|---|
-| TERM / terminfo advertisement | Forces `TERM=xterm-256color` with `COLORTERM=truecolor`. | Ghostty uses `xterm-ghostty` with a terminfo entry to advertise advanced capabilities. | Real gap | P0 | `src/NovaTerminal.App/native/src/lib.rs`, `src/NovaTerminal.Core/Ssh/Native/NativeSshConnectionOptions.cs`; Ghostty terminfo docs say fallback `xterm-256color` loses advanced features such as styled underlines. |
+| TERM / terminfo advertisement | Forces `TERM=xterm-256color` with `COLORTERM=truecolor`. | Ghostty uses `xterm-ghostty` with a terminfo entry to advertise advanced capabilities. | Real gap | P0 | `src/Ntilde.App/native/src/lib.rs`, `src/Ntilde.Core/Ssh/Native/NativeSshConnectionOptions.cs`; Ghostty terminfo docs say fallback `xterm-256color` loses advanced features such as styled underlines. |
 | Canonical VT matrix accuracy | Several rows say not supported while code supports them. | Source-of-truth matrix should match implementation and evidence. | Doc stale | P0 | `docs/vt_coverage_matrix.md` conflicts with `AnsiParser.cs`, `ModeState.cs`, `OscUxTests.cs`, and `DecModeTests.cs`. |
 | Application cursor keys | Parser tracks `?1`, UI emits SS3 arrow sequences. | Correct DECCKM behavior. | Already have / doc stale | P0 | `ModeState.IsApplicationCursorKeys`, `TerminalView` and `MainWindow` key paths. |
 | Focus events | Parser tracks `?1004`; view sends `CSI I` / `CSI O` on focus transitions. | FocusIn/FocusOut reporting. | Already have / doc stale | P1 | `AnsiParser.cs`, `TerminalView.OnGotFocus`, `TerminalView.OnLostFocus`, `DecModeTests.FocusEventReporting_SetsModeFlag`. |
@@ -54,20 +54,20 @@ The biggest real Ghostty parity gaps are not basic VT rendering. They are featur
 | OSC 22 pointer shape | No implementation found. | Change pointer shape. | Real gap | P2 | Ghostty VT reference lists OSC 22. |
 | OSC 9 desktop notification and OSC 9;4 progress | No implementation found. | Notifications and progress state. | Real gap | P2 | Ghostty VT reference lists OSC 9 and 9;4. |
 | OSC 133 shell integration | Supports A/B/C/D and base64 command payload. | More complete semantic prompt behavior, click-to-move-cursor extensions, richer prompt/output regions. | Partial | P1 | `AnsiParser.cs` supports basic lifecycle markers; Ghostty 1.3 notes call out more complete OSC 133 plus click-events and `cl=line`. |
-| Command-finished notifications | Nova can observe OSC 133 finish; no Ghostty-style notification policy found. | Notify on long-running command finish via shell integration. | Real gap | P2 | Ghostty 1.3 release notes describe notification policy built on OSC 133. |
+| Command-finished notifications | Ntilde can observe OSC 133 finish; no Ghostty-style notification policy found. | Notify on long-running command finish via shell integration. | Real gap | P2 | Ghostty 1.3 release notes describe notification policy built on OSC 133. |
 | SGR italic/strike/faint/blink | Parser and renderer support italic/strike/faint/blink flags. | Core styling parity. | Already have / doc stale | P1 | `SgrAttributeTests`, `TerminalDrawOperation` decoration rendering. |
 | Styled underlines | `4:x` is parsed only as underline on/off; no distinct underline style model. | Colored and styled underlines advertised by Ghostty terminfo. | Partial | P1 | `AnsiParser` consumes underline style selector but collapses it; no `UnderlineStyle` storage. |
 | Underline color `SGR 58/59` | Parameters are consumed, but color is not rendered separately. | Colored underline support. | Partial | P1 | `AnsiParser` comments say underline color is not rendered separately. |
-| Unicode graphemes and emoji | Code and tests support combining attachment, ZWJ emoji, regional indicators, HarfBuzz shaping path. | Ghostty 1.3 calls out Unicode 17 and grapheme conformance for selection, cursor movement, width. | Partial / needs audit | P1 | Nova has `GraphemeAttachmentTests`, `WidthTests`, HarfBuzz renderer; no Unicode-version conformance target is documented. |
+| Unicode graphemes and emoji | Code and tests support combining attachment, ZWJ emoji, regional indicators, HarfBuzz shaping path. | Ghostty 1.3 calls out Unicode 17 and grapheme conformance for selection, cursor movement, width. | Partial / needs audit | P1 | Ntilde has `GraphemeAttachmentTests`, `WidthTests`, HarfBuzz renderer; no Unicode-version conformance target is documented. |
 | Complex script rendering | HarfBuzz shaping path and golden font tests exist. | Correct Brahmic/complex scripts and grapheme clustering. | Partial / likely close | P1 | `GoldenFontPngTests` covers Arabic and Devanagari; compare against Ghostty's broader claim before marking complete. |
 | Graphics protocols | Kitty graphics, iTerm2 inline images, Sixel, and OSC 1339 tunnel exist. | Robust graphics placement, scrolling, query, and platform behavior. | Partial | P1 | `IMAGE_PROTOCOL_SUPPORT.md` is strong; matrix still marks SIXEL scrolling unsupported and Kitty placement partial. |
 | Synchronized output | Parser maps `?2026` to `BeginSync`/`EndSync`. | Synchronized output behavior. | Already have / needs matrix precision | P2 | `AnsiParser.HandleDECPrivateMode`, `SynchronizedRenderingTests`. |
-| Parser robustness / fuzzing | Matrix says partial; fuzz/stress aspirations exist. | Ghostty reports AFL++ fuzzing and robust error-path testing. | Partial | P2 | Nova has tests and replay infra, but no comparable continuous fuzz target documented as release gate. |
+| Parser robustness / fuzzing | Matrix says partial; fuzz/stress aspirations exist. | Ghostty reports AFL++ fuzzing and robust error-path testing. | Partial | P2 | Ntilde has tests and replay infra, but no comparable continuous fuzz target documented as release gate. |
 
 ## Recommended Order
 
 1. Update `docs/vt_coverage_matrix.md` for rows that are plainly stale: OSC 7, OSC 8, DECOM, application cursor keys, ICH/DCH/ECH, focus events, cursor style, Unicode/graphemes.
-2. Add a terminfo/capability-advertising design before adding many more protocols. Without this, apps will keep treating Nova as plain `xterm-256color`.
+2. Add a terminfo/capability-advertising design before adding many more protocols. Without this, apps will keep treating Ntilde as plain `xterm-256color`.
 3. Implement Kitty keyboard protocol / `CSI u` and decide whether to support xterm `modifyOtherKeys`.
 4. Implement secure OSC 52 with explicit policy controls. This needs UI/security design, not just parser code.
 5. Add OSC color query/reset support and styled underline/underline-color rendering.

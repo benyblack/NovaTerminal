@@ -11,9 +11,9 @@
 **Spec:** `docs/superpowers/specs/2026-06-10-pty-teardown-hardening-design.md`
 
 **Build/test commands (from repo root):**
-- Rust: `cargo test --manifest-path src/NovaTerminal.App/native/Cargo.toml`
-- C# (targeted, avoids the Mode-B headless flake): `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "Category=PtySmoke"`
-- C# build: `scripts/build.ps1 build src/NovaTerminal.App`
+- Rust: `cargo test --manifest-path src/Ntilde.App/native/Cargo.toml`
+- C# (targeted, avoids the Mode-B headless flake): `scripts/build.ps1 test tests/Ntilde.App.Tests --filter "Category=PtySmoke"`
+- C# build: `scripts/build.ps1 build src/Ntilde.App`
 
 > **Spec deviation (flagged):** the spec planned to convert all 9 `Parser.On*` lambdas to named handlers. Implementation review found `InitializeSession` (TerminalPane.axaml.cs:1445) recreates the `Parser` on every (re)start, so those handlers GC with the old parser and do **not** accumulate. The handlers that actually accumulate across restarts are on the **reused `TermView`** (`OnResize`, `MetricsChanged`). Part 3 fixes those instead. Net effect on #102 (no restart-time handler accumulation) is the same, with a smaller, lower-risk diff.
 
@@ -23,12 +23,12 @@
 
 | File | Responsibility | Tasks |
 |---|---|---|
-| `src/NovaTerminal.App/native/src/lib.rs` | `pty_cancel_read`; `h_pc`/`h_process` interior mutability | 1–3 |
-| `src/NovaTerminal.Pty/RustPtySession.cs` | `PtySafeHandle`; migrate `Native.*`; ordered idempotent `Dispose` | 4–7 |
-| `tests/NovaTerminal.App.Tests/PtyThreadLifecycleTests.cs` | C# teardown regression guards | 6 |
-| `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs` | idempotent `Dispose`; reused-`TermView` handler idempotency | 8 |
-| `src/NovaTerminal.App/Shell/TerminalView.cs` | stop `_metricsTimer` on detach | 9 |
-| `src/NovaTerminal.App/MainWindow.axaml.cs` | stop `_recordingToastTimer` on close | 10 |
+| `src/Ntilde.App/native/src/lib.rs` | `pty_cancel_read`; `h_pc`/`h_process` interior mutability | 1–3 |
+| `src/Ntilde.Pty/RustPtySession.cs` | `PtySafeHandle`; migrate `Native.*`; ordered idempotent `Dispose` | 4–7 |
+| `tests/Ntilde.App.Tests/PtyThreadLifecycleTests.cs` | C# teardown regression guards | 6 |
+| `src/Ntilde.App/Controls/TerminalPane.axaml.cs` | idempotent `Dispose`; reused-`TermView` handler idempotency | 8 |
+| `src/Ntilde.App/Shell/TerminalView.cs` | stop `_metricsTimer` on detach | 9 |
+| `src/Ntilde.App/MainWindow.axaml.cs` | stop `_recordingToastTimer` on close | 10 |
 
 ---
 
@@ -37,7 +37,7 @@
 ### Task 1: Make `h_pc` / `h_process` interior-mutable
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/src/lib.rs` (struct ~188–197; construction ~344–351, 414–423; readers in `pty_resize` ~504–516, `pty_get_pid` ~545–552, `pty_close` ~573–585)
+- Modify: `src/Ntilde.App/native/src/lib.rs` (struct ~188–197; construction ~344–351, 414–423; readers in `pty_resize` ~504–516, `pty_get_pid` ~545–552, `pty_close` ~573–585)
 
 - [ ] **Step 1: Change the struct fields**
 
@@ -147,13 +147,13 @@ Portable branch (was `h_pc: None, h_process: None`):
 
 - [ ] **Step 4: Build to verify it compiles**
 
-Run: `cargo build --manifest-path src/NovaTerminal.App/native/Cargo.toml`
+Run: `cargo build --manifest-path src/Ntilde.App/native/Cargo.toml`
 Expected: builds clean (on Linux the `#[cfg(windows)]` blocks are skipped — that is fine).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/src/lib.rs
+git add src/Ntilde.App/native/src/lib.rs
 git commit -m "refactor(pty): make h_pc/h_process interior-mutable for cancel/close split (#118)"
 ```
 
@@ -164,7 +164,7 @@ git commit -m "refactor(pty): make h_pc/h_process interior-mutable for cancel/cl
 > **Revised mechanism (2026-06-10):** the original kill-to-EOF plan does not unblock the read on the Windows portable-pty path (the GUI app's path) — `reader` is a duplicated pipe handle that only closes at `pty_close`, which `PtySafeHandle` defers until the read returns (a cycle). So the Windows portable path cancels the blocking `ReadFile` directly via `CancelSynchronousIo` against the read thread. Unix still uses `child.kill()`; Windows passthrough still uses `ClosePseudoConsole`. See spec §B.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/src/lib.rs` (add `read_thread_id` field to `PtyState` + init at both construction sites; record/clear it in `pty_read`; new `pty_cancel_read` export after `pty_get_pid`; new test module at end)
+- Modify: `src/Ntilde.App/native/src/lib.rs` (add `read_thread_id` field to `PtyState` + init at both construction sites; record/clear it in `pty_read`; new `pty_cancel_read` export after `pty_get_pid`; new test module at end)
 
 - [ ] **Step 1: Write the failing Rust test**
 
@@ -236,7 +236,7 @@ mod cancel_read_tests {
 
 - [ ] **Step 2: Run it to verify it fails to compile**
 
-Run: `cargo test --manifest-path src/NovaTerminal.App/native/Cargo.toml cancel_read`
+Run: `cargo test --manifest-path src/Ntilde.App/native/Cargo.toml cancel_read`
 Expected: FAIL — `cannot find function pty_cancel_read in this scope`.
 
 - [ ] **Step 3: Add the read-thread-id field, capture it in `pty_read`, and implement `pty_cancel_read`**
@@ -373,18 +373,18 @@ pub extern "C" fn pty_cancel_read(state_ptr: *mut PtyState) {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cargo test --manifest-path src/NovaTerminal.App/native/Cargo.toml cancel_read`
+Run: `cargo test --manifest-path src/Ntilde.App/native/Cargo.toml cancel_read`
 Expected: PASS.
 
 - [ ] **Step 5: Run the full Rust test suite (no regressions)**
 
-Run: `cargo test --manifest-path src/NovaTerminal.App/native/Cargo.toml`
+Run: `cargo test --manifest-path src/Ntilde.App/native/Cargo.toml`
 Expected: all pass (`ffi_guard_tests`, `passthrough_decision_tests`, `cancel_read_tests`).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/src/lib.rs
+git add src/Ntilde.App/native/src/lib.rs
 git commit -m "feat(pty): add pty_cancel_read to unblock a pending read (#119)"
 ```
 
@@ -396,7 +396,7 @@ git commit -m "feat(pty): add pty_cancel_read to unblock a pending read (#119)"
 
 - [ ] **Step 1: Build the native library in release**
 
-Run: `cargo build --release --manifest-path src/NovaTerminal.App/native/Cargo.toml`
+Run: `cargo build --release --manifest-path src/Ntilde.App/native/Cargo.toml`
 Expected: produces `rusty_pty` (`.dll`/`.so`) in the native `target/release`.
 
 > Note: the `.csproj` copies the native artifact during the app build. If a task below reports a missing `pty_cancel_read` entrypoint at runtime, re-run this step and rebuild the app.
@@ -408,7 +408,7 @@ Expected: produces `rusty_pty` (`.dll`/`.so`) in the native `target/release`.
 ### Task 4: Add `PtySafeHandle`
 
 **Files:**
-- Modify: `src/NovaTerminal.Pty/RustPtySession.cs` (add nested type + `using`)
+- Modify: `src/Ntilde.Pty/RustPtySession.cs` (add nested type + `using`)
 
 - [ ] **Step 1: Add the using**
 
@@ -441,13 +441,13 @@ Inside the `RustPtySession` class (e.g. directly after the `Native` class), add:
 
 - [ ] **Step 3: Build to verify it compiles**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.Pty`
+Run: `scripts/build.ps1 build src/Ntilde.Pty`
 Expected: builds (warnings ok). `pty_close(IntPtr)` still exists in `Native`, so `ReleaseHandle` resolves.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/NovaTerminal.Pty/RustPtySession.cs
+git add src/Ntilde.Pty/RustPtySession.cs
 git commit -m "feat(pty): add PtySafeHandle wrapping the native PTY pointer (#118)"
 ```
 
@@ -456,7 +456,7 @@ git commit -m "feat(pty): add PtySafeHandle wrapping the native PTY pointer (#11
 ### Task 5: Migrate `Native.*` signatures and the `_ptyState` field to `PtySafeHandle`
 
 **Files:**
-- Modify: `src/NovaTerminal.Pty/RustPtySession.cs` (`Native` class 39–66; field 14; ctor 233/237/240–243; `IsProcessRunning` 35; `HasActiveChildProcesses` 75–78; `Pid` 86–88; `ReadLoop` 349/351; `SendInput` 431/436; `Resize` 441/445)
+- Modify: `src/Ntilde.Pty/RustPtySession.cs` (`Native` class 39–66; field 14; ctor 233/237/240–243; `IsProcessRunning` 35; `HasActiveChildProcesses` 75–78; `Pid` 86–88; `ReadLoop` 349/351; `SendInput` 431/436; `Resize` 441/445)
 
 - [ ] **Step 1: Update the `Native` P/Invoke signatures**
 
@@ -589,7 +589,7 @@ A marshalled `pty_read(_handle, …)` throws `ObjectDisposedException` if `Dispo
 
 - [ ] **Step 6: Build to verify it compiles (Dispose still references old `_ptyState` — expected fail)**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.Pty`
+Run: `scripts/build.ps1 build src/Ntilde.Pty`
 Expected: FAIL — `Dispose()` still uses `_ptyState`/`Native.pty_close(_ptyState)`. Fixed in Task 6. (If you prefer a green build here, do Task 6 Step 3 now.)
 
 ---
@@ -597,8 +597,8 @@ Expected: FAIL — `Dispose()` still uses `_ptyState`/`Native.pty_close(_ptyStat
 ### Task 6: Ordered, idempotent `Dispose` + C# regression tests
 
 **Files:**
-- Modify: `src/NovaTerminal.Pty/RustPtySession.cs` (`Dispose` 449–474; add fields/const)
-- Test: `tests/NovaTerminal.App.Tests/PtyThreadLifecycleTests.cs`
+- Modify: `src/Ntilde.Pty/RustPtySession.cs` (`Dispose` 449–474; add fields/const)
+- Test: `tests/Ntilde.App.Tests/PtyThreadLifecycleTests.cs`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -652,7 +652,7 @@ Add these to `PtyThreadLifecycleTests`:
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "Category=PtySmoke"`
+Run: `scripts/build.ps1 test tests/Ntilde.App.Tests --filter "Category=PtySmoke"`
 Expected: build FAIL (the old `Dispose` still references `_ptyState`) — or, if Task 5 left it red, that compile error.
 
 - [ ] **Step 3: Add fields/const and rewrite `Dispose`**
@@ -731,14 +731,14 @@ Replace `Dispose()` (449–474) with:
 
 - [ ] **Step 4: Build the native lib + app dependency, then run the tests**
 
-Run: `cargo build --release --manifest-path src/NovaTerminal.App/native/Cargo.toml`
-Then: `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "Category=PtySmoke"`
+Run: `cargo build --release --manifest-path src/Ntilde.App/native/Cargo.toml`
+Then: `scripts/build.ps1 test tests/Ntilde.App.Tests --filter "Category=PtySmoke"`
 Expected: PASS — all `PtySmoke` tests green (existing thread test + the two new ones).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Pty/RustPtySession.cs tests/NovaTerminal.App.Tests/PtyThreadLifecycleTests.cs
+git add src/Ntilde.Pty/RustPtySession.cs tests/Ntilde.App.Tests/PtyThreadLifecycleTests.cs
 git commit -m "feat(pty): ordered idempotent Dispose (cancel->join->close) (#119 #118 #103)"
 ```
 
@@ -750,7 +750,7 @@ git commit -m "feat(pty): ordered idempotent Dispose (cancel->join->close) (#119
 
 - [ ] **Step 1: Build the app**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.App`
+Run: `scripts/build.ps1 build src/Ntilde.App`
 Expected: builds clean. Fix any remaining `_ptyState` references the compiler flags (there should be none).
 
 - [ ] **Step 2: Commit (only if fixes were needed)**
@@ -767,7 +767,7 @@ git commit -m "fix(pty): finish PtySafeHandle migration call sites"
 ### Task 8: Idempotent pane `Dispose` + reused-`TermView` handler idempotency
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs` (fields near 96; `InitializeSession` resize/metrics subs 1629–1648; `Dispose` 2183–2201)
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs` (fields near 96; `InitializeSession` resize/metrics subs 1629–1648; `Dispose` 2183–2201)
 
 - [ ] **Step 1: Add a disposed guard field and named-handler fields**
 
@@ -851,7 +851,7 @@ Replace `Dispose` (2183–2201) with:
 
 - [ ] **Step 4: Build to verify it compiles**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.App`
+Run: `scripts/build.ps1 build src/Ntilde.App`
 Expected: builds clean.
 
 - [ ] **Step 5: Manual smoke verification** (headless UI tests hit the Mode-B flake — verify by hand per the project's GUI smoke-test preference)
@@ -865,7 +865,7 @@ Run the app (`scripts/build.ps1` run target or launch the built exe), then:
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml.cs
 git commit -m "fix(pane): idempotent Dispose + idempotent TermView handlers across restart (#103 #102)"
 ```
 
@@ -876,7 +876,7 @@ git commit -m "fix(pane): idempotent Dispose + idempotent TermView handlers acro
 ### Task 9: Stop `_metricsTimer` on detach in `TerminalView`
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/TerminalView.cs` (`OnAttachedToVisualTree` 761–782; `OnDetachedFromVisualTree` 784–796)
+- Modify: `src/Ntilde.App/Shell/TerminalView.cs` (`OnAttachedToVisualTree` 761–782; `OnDetachedFromVisualTree` 784–796)
 
 - [ ] **Step 1: Stop `_metricsTimer` on detach**
 
@@ -898,13 +898,13 @@ In `OnAttachedToVisualTree`, after `RefreshUiTimerState();` (765), add:
 
 - [ ] **Step 3: Build to verify it compiles**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.App`
+Run: `scripts/build.ps1 build src/Ntilde.App`
 Expected: builds clean.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/TerminalView.cs
+git add src/Ntilde.App/Shell/TerminalView.cs
 git commit -m "fix(view): stop _metricsTimer on detach to drop the per-view leak (#102)"
 ```
 
@@ -913,7 +913,7 @@ git commit -m "fix(view): stop _metricsTimer on detach to drop the per-view leak
 ### Task 10: Stop `_recordingToastTimer` on close in `MainWindow`
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` (`OnClosing` 5031–5040)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` (`OnClosing` 5031–5040)
 
 - [ ] **Step 1: Stop the toast timer in `OnClosing`**
 
@@ -925,13 +925,13 @@ In `OnClosing`, before `_globalHotkey?.Dispose();` (5039), add:
 
 - [ ] **Step 2: Build to verify it compiles**
 
-Run: `scripts/build.ps1 build src/NovaTerminal.App`
+Run: `scripts/build.ps1 build src/Ntilde.App`
 Expected: builds clean.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs
+git add src/Ntilde.App/MainWindow.axaml.cs
 git commit -m "fix(window): stop _recordingToastTimer in OnClosing (#102)"
 ```
 
@@ -939,15 +939,15 @@ git commit -m "fix(window): stop _recordingToastTimer in OnClosing (#102)"
 
 ## Final verification
 
-- [ ] **Rust:** `cargo test --manifest-path src/NovaTerminal.App/native/Cargo.toml` → all pass.
-- [ ] **Native rebuilt:** `cargo build --release --manifest-path src/NovaTerminal.App/native/Cargo.toml`.
-- [ ] **C# contract tests:** `scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "Category=PtySmoke"` → all pass.
-- [ ] **App builds:** `scripts/build.ps1 build src/NovaTerminal.App` → clean.
+- [ ] **Rust:** `cargo test --manifest-path src/Ntilde.App/native/Cargo.toml` → all pass.
+- [ ] **Native rebuilt:** `cargo build --release --manifest-path src/Ntilde.App/native/Cargo.toml`.
+- [ ] **C# contract tests:** `scripts/build.ps1 test tests/Ntilde.App.Tests --filter "Category=PtySmoke"` → all pass.
+- [ ] **App builds:** `scripts/build.ps1 build src/Ntilde.App` → clean.
 - [ ] **Manual smoke** (Task 8 Step 5) performed.
 - [ ] **Issues:** confirm the PR closes #119, #118, #103, and the targeted part of #102. Note in the PR that the `rusty_ssh` SafeHandle mirror and full-`CompositeDisposable` adoption are intentionally out of scope (follow-ups), and that Mode-B re-gating remains tracked in #117.
 
 ## Notes for the implementer
 
-- **Do not** run the whole `NovaTerminal.App.Tests` project or full-solution `dotnet test` — the headless Avalonia lane hits the upstream Mode-B deadlock (#81/#117). Always filter to `Category=PtySmoke` for the contract tests, which are non-headless.
+- **Do not** run the whole `Ntilde.App.Tests` project or full-solution `dotnet test` — the headless Avalonia lane hits the upstream Mode-B deadlock (#81/#117). Always filter to `Category=PtySmoke` for the contract tests, which are non-headless.
 - Always build via `scripts/build.ps1` / `scripts/build.sh`, never raw `dotnet build` (it hangs when stdout is piped — see CLAUDE.md).
 - The native artifact must be rebuilt (Task 3) before the C# side can resolve `pty_cancel_read` at runtime.

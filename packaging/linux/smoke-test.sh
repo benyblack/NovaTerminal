@@ -3,7 +3,7 @@
 # machine rather than the build runner.
 #
 # Usage: smoke-test.sh <artifact-dir>
-#   <artifact-dir> must contain novaterminal_*.deb and may contain *.AppImage.
+#   <artifact-dir> must contain ntilde_*.deb and may contain *.AppImage.
 #
 # Requires Docker on the host. Runs two containers, and THE ORDER MATTERS - see the
 # warnings below before editing.
@@ -14,8 +14,8 @@ artifact_dir="$(cd "$artifact_dir" && pwd)"
 image="${SMOKE_IMAGE:-ubuntu:22.04}"
 here="$(cd "$(dirname "$0")" && pwd)"
 
-ls "$artifact_dir"/novaterminal_*.deb >/dev/null 2>&1 \
-  || { echo "no novaterminal_*.deb in $artifact_dir" >&2; exit 1; }
+ls "$artifact_dir"/ntilde_*.deb >/dev/null 2>&1 \
+  || { echo "no ntilde_*.deb in $artifact_dir" >&2; exit 1; }
 
 # The dlopen gate in Phase A is DERIVED from build-deb.sh's DLOPEN_LIBS table, not
 # hand-maintained here. Before this, the sonames were a second hardcoded list in this
@@ -72,10 +72,10 @@ docker run --rm -v "$artifact_dir:/art:ro" \
   # If you need a tool, put it in phase B.
   # ---------------------------------------------------------------------------
   apt-get update -qq
-  apt-get install -y -qq /art/novaterminal_*.deb    # fails if Depends are incomplete
+  apt-get install -y -qq /art/ntilde_*.deb    # fails if Depends are incomplete
   echo "  ok: .deb installed with its declared Depends only"
 
-  # Every ELF under the bundle, not just NovaTerminal: this is the ONLY place an
+  # Every ELF under the bundle, not just Ntilde: this is the ONLY place an
   # undeclared LINKED dependency can be caught honestly. Container 2 below installs
   # xvfb+xdotool before ever launching the app, which drag in libx11-6/libxext6/
   # libxi6/libxrandr2/libxkbcommon0 and Mesa/GL - exactly the libraries most likely
@@ -105,23 +105,23 @@ docker run --rm -v "$artifact_dir:/art:ro" \
   while IFS= read -r f; do
     [ "$(head -c4 "$f" | od -An -tx1 | tr -d " \n")" = "7f454c46" ] || continue
     elf_count=$((elf_count + 1))
-    if [ "$f" = "/usr/lib/novaterminal/NovaTerminal" ]; then main_checked=1; fi
+    if [ "$f" = "/usr/lib/ntilde/Ntilde" ]; then main_checked=1; fi
     ldd_out="$(ldd "$f")" \
       || { echo "  FAIL: ldd failed on $f" >&2; exit 1; }
     if grep "not found" <<<"$ldd_out"; then
       echo "  FAIL: unresolved linked libraries in $f above" >&2; exit 1
     fi
-  done < <(find /usr/lib/novaterminal -type f)
+  done < <(find /usr/lib/ntilde -type f)
 
   # Anti-vacuity assertions, because a silently zero-iteration loop is exactly how
   # this check stopped working before. Expectation is DERIVED from the bundle, not
   # hardcoded: every *.so plus the main AOT binary must have been ldd-ed, so adding
   # or removing a native library needs no edit here, while a discovery regression
   # (or a *.so that is somehow not an ELF) fails loudly.
-  so_total="$(find /usr/lib/novaterminal -type f -name "*.so" | wc -l)"
+  so_total="$(find /usr/lib/ntilde -type f -name "*.so" | wc -l)"
   expected=$((so_total + 1))
   if [ "$main_checked" != 1 ]; then
-    echo "  FAIL: ELF discovery never reached /usr/lib/novaterminal/NovaTerminal - the check did not run" >&2; exit 1
+    echo "  FAIL: ELF discovery never reached /usr/lib/ntilde/Ntilde - the check did not run" >&2; exit 1
   fi
   if [ "$elf_count" -lt "$expected" ]; then
     echo "  FAIL: ELF discovery checked $elf_count file(s) but the bundle has $so_total *.so plus the main binary ($expected)" >&2; exit 1
@@ -160,9 +160,9 @@ docker run --rm -v "$artifact_dir:/art:ro" \
   # (or whose derivation silently dropped it) fails here instead of at a users
   # dlopen. Whitespace is squeezed on both sides because dpkg normalises the field
   # it re-emits, and the relation may be an alternatives group ("a | b").
-  installed_depends="$(dpkg-query -f "\${Depends}" -W novaterminal | tr -s " ")"
+  installed_depends="$(dpkg-query -f "\${Depends}" -W ntilde | tr -s " ")"
   [ -n "$installed_depends" ] \
-    || { echo "  FAIL: dpkg-query returned an empty Depends: for novaterminal - the coverage check below would prove nothing" >&2; exit 1; }
+    || { echo "  FAIL: dpkg-query returned an empty Depends: for ntilde - the coverage check below would prove nothing" >&2; exit 1; }
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     grep -qF -- "$(tr -s " " <<<"$rel")" <<<"$installed_depends" \
@@ -171,27 +171,27 @@ docker run --rm -v "$artifact_dir:/art:ro" \
   done <<<"$DLOPEN_RELATIONS"
   echo "  ok: installed Depends: covers every relation in the dlopen table"
 
-  test -x /usr/lib/novaterminal/NovaTerminal || { echo "  FAIL: bundle binary not executable" >&2; exit 1; }
-  test -L /usr/bin/nova                      || { echo "  FAIL: /usr/bin/nova is not a symlink" >&2; exit 1; }
-  test -f /usr/share/man/man1/nova.1.gz      || { echo "  FAIL: man page not installed" >&2; exit 1; }
+  test -x /usr/lib/ntilde/Ntilde || { echo "  FAIL: bundle binary not executable" >&2; exit 1; }
+  test -L /usr/bin/ntilde                      || { echo "  FAIL: /usr/bin/ntilde is not a symlink" >&2; exit 1; }
+  test -f /usr/share/man/man1/ntilde.1.gz      || { echo "  FAIL: man page not installed" >&2; exit 1; }
   echo "  ok: layout"
 
   # Headless CLI mode: exercises the AOT binary and the VT core with no X server.
   # Argument shape confirmed by the Task 0 spike - adjust there, not here.
-  nova --vt-report > /tmp/vt-report.txt
+  ntilde --vt-report > /tmp/vt-report.txt
   test -s /tmp/vt-report.txt || { echo "  FAIL: --vt-report produced no output" >&2; exit 1; }
-  echo "  ok: nova --vt-report ran headless"
+  echo "  ok: ntilde --vt-report ran headless"
 
   # ---------------------------------------------------------------------------
   # PHASE B - validators. Tooling may be installed now: every assertion above has
   # already passed, so later installs cannot invalidate them.
   # ---------------------------------------------------------------------------
   apt-get install -y -qq lintian desktop-file-utils man-db
-  desktop-file-validate /usr/share/applications/novaterminal.desktop
+  desktop-file-validate /usr/share/applications/ntilde.desktop
   echo "  ok: desktop entry validates"
-  lintian --fail-on error /art/novaterminal_*.deb
+  lintian --fail-on error /art/ntilde_*.deb
   echo "  ok: lintian clean at error level"
-  man nova > /dev/null
+  man ntilde > /dev/null
   echo "  ok: man page renders"
 '
 
@@ -234,7 +234,7 @@ docker run --rm --device /dev/fuse --cap-add SYS_ADMIN --security-opt apparmor:u
   rm -f /etc/dpkg/dpkg.cfg.d/excludes
 
   apt-get update -qq
-  apt-get install -y -qq /art/novaterminal_*.deb
+  apt-get install -y -qq /art/ntilde_*.deb
   apt-get install -y -qq xvfb xdotool
 
   launches() {                     # launches <label> <command...>
@@ -258,7 +258,7 @@ docker run --rm --device /dev/fuse --cap-add SYS_ADMIN --security-opt apparmor:u
       for _ in $(seq 1 20); do
         sleep 1
         kill -0 "$app" 2>/dev/null || exit 2
-        if xdotool search --onlyvisible --class -- NovaTerminal >/dev/null 2>&1; then
+        if xdotool search --onlyvisible --class -- Ntilde >/dev/null 2>&1; then
           kill "$app" 2>/dev/null || true; exit 0
         fi
       done
@@ -271,7 +271,7 @@ docker run --rm --device /dev/fuse --cap-add SYS_ADMIN --security-opt apparmor:u
     esac
   }
 
-  launches "deb install (/usr/bin/nova)" nova
+  launches "deb install (/usr/bin/ntilde)" ntilde
 
   # The AppImage is tested TWICE on purpose. Ubuntu 22.04+ ships no FUSE 2 by
   # default, so a stock type-2 AppImage fails there with a confusing FUSE error -
@@ -290,10 +290,10 @@ docker run --rm --device /dev/fuse --cap-add SYS_ADMIN --security-opt apparmor:u
   # the mounted launch below then succeeded.
   shopt -s nullglob
   for img in /art/*.AppImage; do
-    cp "$img" /tmp/nova.AppImage && chmod +x /tmp/nova.AppImage
-    launches "AppImage (extracted, no FUSE)" /tmp/nova.AppImage --appimage-extract-and-run
+    cp "$img" /tmp/ntilde.AppImage && chmod +x /tmp/ntilde.AppImage
+    launches "AppImage (extracted, no FUSE)" /tmp/ntilde.AppImage --appimage-extract-and-run
     apt-get install -y -qq fuse
-    launches "AppImage (FUSE-mounted)" /tmp/nova.AppImage
+    launches "AppImage (FUSE-mounted)" /tmp/ntilde.AppImage
   done
 '
 

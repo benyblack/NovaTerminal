@@ -1,7 +1,7 @@
-# NovaTerminal Tabs User Manual
+# Ntilde Tabs User Manual
 
 Date: 2026-09-03  
-Audience: End users of NovaTerminal tabs
+Audience: End users of Ntilde tabs
 
 ## 1. Quick Start
 
@@ -50,7 +50,7 @@ Title precedence:
 2. Shell-reported title / working directory source
 3. Fallback title
 
-Tab labels may be truncated to fit. When labels collide, NovaTerminal appends a uniqueness hint.
+Tab labels may be truncated to fit. When labels collide, Ntilde appends a uniqueness hint.
 
 ## 3. Activity and Status Indicators
 
@@ -163,7 +163,7 @@ Flow:
 
 ## 9. Workspace Bundles (M3)
 
-Bundles are portable `.novaws.json` files for handoff/import/open workflows.
+Bundles are portable `.ntildews.json` files for handoff/import/open workflows.
 
 Commands:
 - `Workspace: Export Bundle...` (from saved workspace)
@@ -178,7 +178,7 @@ Security and integrity:
 ## 10. Enterprise Policy Hooks (Managed Environments)
 
 Policy file:
-- `%LOCALAPPDATA%\NovaTerminal\policy\workspace_policy.json`
+- `%LOCALAPPDATA%\ntilde\policy\workspace_policy.json`
 
 Supported policy fields:
 - `AllowWorkspaceBundleExport` (bool)
@@ -198,7 +198,7 @@ Behavior:
 ## 11. Audit Log
 
 Workspace/bundle/template operations are logged to:
-- `%LOCALAPPDATA%\NovaTerminal\logs\workspace_audit.log`
+- `%LOCALAPPDATA%\ntilde\logs\workspace_audit.log`
 
 Audit includes:
 - UTC timestamp
@@ -211,7 +211,7 @@ Audit includes:
 
 ### I do not see bundle commands
 - Your policy may disable bundle export/import.
-- Check `%LOCALAPPDATA%\NovaTerminal\policy\workspace_policy.json`.
+- Check `%LOCALAPPDATA%\ntilde\policy\workspace_policy.json`.
 
 ### Import/open fails with hash mismatch
 - Bundle content was modified/corrupted.

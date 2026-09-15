@@ -1,6 +1,6 @@
-# NovaTerminal vNext — Target Architecture (12-Month Plan)
+# Ntilde vNext — Target Architecture (12-Month Plan)
 
-> Goal: evolve NovaTerminal into a **deterministic, observable, structured terminal platform**  
+> Goal: evolve Ntilde into a **deterministic, observable, structured terminal platform**  
 > (GPU-first renderer + replay correctness + command awareness + shareability).
 
 This document is meant to be the **single reference** for coding agents and human reviewers.
@@ -34,7 +34,7 @@ This document is meant to be the **single reference** for coding agents and huma
 ```
 +--------------------+        +-----------------------+
 |      UI Shell      |        |        CLI Tool       |
-|  Avalonia (App)    |        |   novaterm (cli)      |
+|  Avalonia (App)    |        |   ntilde (cli)      |
 +---------+----------+        +-----------+-----------+
           |                               |
           | ViewModels / Commands         | Record/Compare/Run suites
@@ -48,7 +48,7 @@ This document is meant to be the **single reference** for coding agents and huma
           v
 +--------------------+     events     +--------------------+
 |  Terminal Core     |--------------->| Recording Writer   |
-|  (State + VT)      |                | (.novarec + idx)   |
+|  (State + VT)      |                | (.ntilderec + idx)   |
 +---------+----------+                +---------+----------+
           |                                        |
           | render model                            | read + seek
@@ -139,7 +139,7 @@ This document is meant to be the **single reference** for coding agents and huma
 
 ## 3. Recording & Replay Architecture
 
-### 3.1 Recording Format vNext (.novarec)
+### 3.1 Recording Format vNext (.ntilderec)
 **Principle:** record events, not pixels.
 
 **Core event types**
@@ -177,8 +177,8 @@ This document is meant to be the **single reference** for coding agents and huma
 **Goal:** O(1) seek, O(log n) marker queries.
 
 **Index artifacts**
-- `.novarec.idx` (binary)
-- Optional `.novarec.meta.json` for quick display
+- `.ntilderec.idx` (binary)
+- Optional `.ntilderec.meta.json` for quick display
 
 **Index tables**
 - `TimeToOffset[]`
@@ -273,7 +273,7 @@ Projections derived from replay + index:
   - use bundled fonts in test assets where possible.
 
 **Artifacts**
-- `.novarec` recording
+- `.ntilderec` recording
 - `snapshot.json` (canonical state)
 - `snapshot.png` (visual)
 - `diff.png` (heatmap)
@@ -284,7 +284,7 @@ Projections derived from replay + index:
 **Goal:** correctness credibility and regression gating.
 
 **Runner**
-- CLI: `novaterm vttest run`
+- CLI: `ntilde vttest run`
 - Emits:
   - pass/fail summary
   - compatibility score
@@ -301,8 +301,8 @@ Projections derived from replay + index:
 
 ### 5.3 Performance Regression Guard
 **CLI**
-- `novaterm perf record <workload>`
-- `novaterm perf compare <baseline> <candidate>`
+- `ntilde perf record <workload>`
+- `ntilde perf compare <baseline> <candidate>`
 
 **Comparison model**
 - tolerant thresholds:
@@ -324,7 +324,7 @@ Projections derived from replay + index:
 
 **Data model**
 - Stream the same event model used by replay:
-  - “live .novarec stream” (append-only)
+  - “live .ntilderec stream” (append-only)
 - Viewer can:
   - follow live tail
   - pause and scrub recent buffer
@@ -343,7 +343,7 @@ Projections derived from replay + index:
 
 ### 6.2 Remote Replay Viewer (Upload)
 **Model**
-- Upload `.novarec` + `.idx`
+- Upload `.ntilderec` + `.idx`
 - Browser playback with markers
 
 **Key requirement**
@@ -374,13 +374,13 @@ Projections derived from replay + index:
 
 ```
 src/
-  NovaTerminal.Core/           (Terminal core, events, replay contracts)
-  NovaTerminal.Rendering/      (GPU renderer, glyph cache, overlays)
-  NovaTerminal.Replay/         (reader/player/index)
-  NovaTerminal.Shell/          (shell integration snippets + helpers)
-  NovaTerminal.Cli/            (vttest/perf/snapshot/share commands)
-  NovaTerminal.App/            (Avalonia UI shell)
-  NovaTerminal.Remote/         (relay client/server protocols) [Q4]
+  Ntilde.Core/           (Terminal core, events, replay contracts)
+  Ntilde.Rendering/      (GPU renderer, glyph cache, overlays)
+  Ntilde.Replay/         (reader/player/index)
+  Ntilde.Shell/          (shell integration snippets + helpers)
+  Ntilde.Cli/            (vttest/perf/snapshot/share commands)
+  Ntilde.App/            (Avalonia UI shell)
+  Ntilde.Remote/         (relay client/server protocols) [Q4]
 tests/
   Core.Tests/
   Rendering.Tests/

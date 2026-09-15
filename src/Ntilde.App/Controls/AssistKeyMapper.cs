@@ -1,0 +1,62 @@
+using Avalonia.Input;
+using Ntilde.CommandAssist.Application;
+
+namespace Ntilde.Controls
+{
+    /// <summary>
+    /// Translates Avalonia input types into the Avalonia-free vocabulary Command Assist uses.
+    /// </summary>
+    /// <remarks>
+    /// This is the single App-side boundary between <c>Avalonia.Input</c> and
+    /// <c>Ntilde.CommandAssist</c>; the assist assembly must not reference Avalonia
+    /// (enforced by <c>CommandAssist_must_not_depend_on_Avalonia</c> in the architecture tests).
+    /// </remarks>
+    internal static class AssistKeyMapper
+    {
+        internal static AssistKey ToAssistKey(Key key) => key switch
+        {
+            Key.Escape => AssistKey.Escape,
+            Key.Up => AssistKey.Up,
+            Key.Down => AssistKey.Down,
+            Key.Enter => AssistKey.Enter,
+            Key.Tab => AssistKey.Tab,
+
+            // No letters. The only one that was ever mapped was P, for the pin clause the router
+            // carried on Ctrl+Shift+P; V2 Phase 3b moved pin to its own catalogue entry dispatched
+            // from the window, where the whole key space is available. Every unmapped key becomes
+            // None, and AssistKeyBinding.Matches refuses to match None.
+            _ => AssistKey.None,
+        };
+
+        internal static AssistModifiers ToAssistModifiers(KeyModifiers modifiers)
+        {
+            AssistModifiers result = AssistModifiers.None;
+            if ((modifiers & KeyModifiers.Alt) != 0)
+            {
+                result |= AssistModifiers.Alt;
+            }
+
+            if ((modifiers & KeyModifiers.Control) != 0)
+            {
+                result |= AssistModifiers.Control;
+            }
+
+            if ((modifiers & KeyModifiers.Shift) != 0)
+            {
+                result |= AssistModifiers.Shift;
+            }
+
+            // Meta is mapped even though nothing in Command Assist binds it. The accept-on-Enter rule
+            // is "no modifiers at all", so a dropped modifier is not a harmless omission: it made
+            // Win+Enter read as unmodified in the router while TerminalPane's own
+            // `modifiers == KeyModifiers.None` guard read it correctly, so the two disagreed about who
+            // owned the key and the hint strip could promise an accept that never happened.
+            if ((modifiers & KeyModifiers.Meta) != 0)
+            {
+                result |= AssistModifiers.Meta;
+            }
+
+            return result;
+        }
+    }
+}

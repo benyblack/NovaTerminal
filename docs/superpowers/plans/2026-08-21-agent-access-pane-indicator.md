@@ -14,8 +14,8 @@ Design: [`docs/superpowers/specs/2026-08-21-agent-access-pane-indicator-design.m
 
 - **Build and test only through the wrappers:** `scripts/build.ps1 <args>` (PowerShell) or `scripts/build.sh <args>` (bash). A raw `dotnet build` hangs when stdout is captured. See CLAUDE.md.
 - **Never run the whole solution's tests** — that is 20–30 minutes of headless Avalonia. Run the one project, with a `--filter`.
-- The first build in a fresh worktree compiles the Rust natives via cargo (several minutes). Do not pass `SKIP_RUST_NATIVE_BUILD=1` for the `[AvaloniaFact]` tasks here: `NovaTerminal.App.Tests` panes need `rusty_pty.dll` in the output.
-- `NovaTerminal.App.Tests` also runs on ubuntu. No `FileShare.None` locking semantics, no font-metric assumptions.
+- The first build in a fresh worktree compiles the Rust natives via cargo (several minutes). Do not pass `SKIP_RUST_NATIVE_BUILD=1` for the `[AvaloniaFact]` tasks here: `Ntilde.App.Tests` panes need `rusty_pty.dll` in the output.
+- `Ntilde.App.Tests` also runs on ubuntu. No `FileShare.None` locking semantics, no font-metric assumptions.
 - **Thresholds, exactly:** `AgentAttentionMachine.ReadDecaySeconds = 3`, `AgentAttentionMachine.WriteFloorSeconds = 10`.
 - **Setting name and values, exactly:** `AgentIndicatorTabRollup`, one of `"WritesOnly"` or `"All"`, default `"WritesOnly"`. Unrecognised values behave as `"WritesOnly"` — a typo must not make the chrome noisier than the default.
 - **Do not** add `AgentIndicatorTabRollup` to `TerminalPane.ApplySettings`'s `effectiveSettings` whitelist. `MainWindow` is the only consumer, exactly like its sibling `ShellExitPolicy`.
@@ -27,20 +27,20 @@ Design: [`docs/superpowers/specs/2026-08-21-agent-access-pane-indicator-design.m
 
 | File | Responsibility | Task |
 |---|---|---|
-| `src/NovaTerminal.App/AgentHost/AgentAttentionMachine.cs` (new) | Pure tier state machine + snapshot type | 1 |
-| `src/NovaTerminal.App/AgentHost/AgentSessionRegistration.cs` | Hosts the machine; publishes actability; forwards focus | 2 |
-| `src/NovaTerminal.App/AgentHost/AgentHostService.cs` | Pushes read/write/tick signals; actability; in-flight poll count | 3 |
-| `src/NovaTerminal.App/Controls/TerminalPane.axaml` | `AgentStatusSegment` in the status bar | 4 |
-| `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs` | `UpdateStatusBarVisibility`, segment rendering, focus push | 4 |
-| `src/NovaTerminal.App/Shell/TerminalSettings.cs` | `AgentIndicatorTabRollup` | 5 |
-| `src/NovaTerminal.App/SettingsWindow.axaml` + `.axaml.cs` | Rollup dropdown | 5 |
-| `src/NovaTerminal.App/MainWindow.axaml.cs` | Tab label marker + rollup policy | 6 |
-| `src/NovaTerminal.App/MainWindow.axaml` | Window observe indicator | 7 |
-| `tests/NovaTerminal.App.Tests/AgentHost/AgentAttentionMachineTests.cs` (new) | Tier rules | 1 |
-| `tests/NovaTerminal.App.Tests/AgentHost/AgentAttentionRegistrationTests.cs` (new) | Registration plumbing | 2 |
-| `tests/NovaTerminal.App.Tests/AgentHost/AgentHostAttentionProtocolTests.cs` (new) | Endpoint signal wiring | 3 |
-| `tests/NovaTerminal.App.Tests/Controls/PaneAgentStatusBarTests.cs` (new) | Status-bar composition | 4 |
-| `tests/NovaTerminal.App.Tests/Core/AgentIndicatorTabRollupTests.cs` (new) | Setting fallback + rollup policy | 5, 6 |
+| `src/Ntilde.App/AgentHost/AgentAttentionMachine.cs` (new) | Pure tier state machine + snapshot type | 1 |
+| `src/Ntilde.App/AgentHost/AgentSessionRegistration.cs` | Hosts the machine; publishes actability; forwards focus | 2 |
+| `src/Ntilde.App/AgentHost/AgentHostService.cs` | Pushes read/write/tick signals; actability; in-flight poll count | 3 |
+| `src/Ntilde.App/Controls/TerminalPane.axaml` | `AgentStatusSegment` in the status bar | 4 |
+| `src/Ntilde.App/Controls/TerminalPane.axaml.cs` | `UpdateStatusBarVisibility`, segment rendering, focus push | 4 |
+| `src/Ntilde.App/Shell/TerminalSettings.cs` | `AgentIndicatorTabRollup` | 5 |
+| `src/Ntilde.App/SettingsWindow.axaml` + `.axaml.cs` | Rollup dropdown | 5 |
+| `src/Ntilde.App/MainWindow.axaml.cs` | Tab label marker + rollup policy | 6 |
+| `src/Ntilde.App/MainWindow.axaml` | Window observe indicator | 7 |
+| `tests/Ntilde.App.Tests/AgentHost/AgentAttentionMachineTests.cs` (new) | Tier rules | 1 |
+| `tests/Ntilde.App.Tests/AgentHost/AgentAttentionRegistrationTests.cs` (new) | Registration plumbing | 2 |
+| `tests/Ntilde.App.Tests/AgentHost/AgentHostAttentionProtocolTests.cs` (new) | Endpoint signal wiring | 3 |
+| `tests/Ntilde.App.Tests/Controls/PaneAgentStatusBarTests.cs` (new) | Status-bar composition | 4 |
+| `tests/Ntilde.App.Tests/Core/AgentIndicatorTabRollupTests.cs` (new) | Setting fallback + rollup policy | 5, 6 |
 | `docs/mcp/security.md`, `docs/agent-host/DIRECTION.md` | Document the surface | 8 |
 
 ---
@@ -50,23 +50,23 @@ Design: [`docs/superpowers/specs/2026-08-21-agent-access-pane-indicator-design.m
 Pure logic with an injectable clock. Nothing is wired, so behaviour does not change.
 
 **Files:**
-- Create: `src/NovaTerminal.App/AgentHost/AgentAttentionMachine.cs`
-- Test: `tests/NovaTerminal.App.Tests/AgentHost/AgentAttentionMachineTests.cs`
+- Create: `src/Ntilde.App/AgentHost/AgentAttentionMachine.cs`
+- Test: `tests/Ntilde.App.Tests/AgentHost/AgentAttentionMachineTests.cs`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `enum NovaTerminal.AgentHost.AgentAttentionTier { Idle, Watched, Wrote }`; `readonly record struct NovaTerminal.AgentHost.AgentAttentionSnapshot(AgentAttentionTier Tier, DateTimeOffset? LastWriteUtc, string? LastWriteMethod)`; `sealed class NovaTerminal.AgentHost.AgentAttentionMachine` with `const int ReadDecaySeconds = 3`, `const int WriteFloorSeconds = 10`, ctor `(Func<DateTimeOffset>? nowProvider = null)`, methods `void NoteRead()`, `void NoteWrote(string method)`, `void NoteFocusChanged(bool isFocused)`, `void Tick()`, `AgentAttentionSnapshot Snapshot()`, and `event Action<AgentAttentionSnapshot>? Changed`.
+- Produces: `enum Ntilde.AgentHost.AgentAttentionTier { Idle, Watched, Wrote }`; `readonly record struct Ntilde.AgentHost.AgentAttentionSnapshot(AgentAttentionTier Tier, DateTimeOffset? LastWriteUtc, string? LastWriteMethod)`; `sealed class Ntilde.AgentHost.AgentAttentionMachine` with `const int ReadDecaySeconds = 3`, `const int WriteFloorSeconds = 10`, ctor `(Func<DateTimeOffset>? nowProvider = null)`, methods `void NoteRead()`, `void NoteWrote(string method)`, `void NoteFocusChanged(bool isFocused)`, `void Tick()`, `AgentAttentionSnapshot Snapshot()`, and `event Action<AgentAttentionSnapshot>? Changed`.
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/NovaTerminal.App.Tests/AgentHost/AgentAttentionMachineTests.cs`:
+Create `tests/Ntilde.App.Tests/AgentHost/AgentAttentionMachineTests.cs`:
 
 ```csharp
 using System;
 using System.Collections.Generic;
-using NovaTerminal.AgentHost;
+using Ntilde.AgentHost;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// Deterministic tests for the per-pane agent attention tiers
@@ -246,19 +246,19 @@ public class AgentAttentionMachineTests
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentAttentionMachineTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentAttentionMachineTests"
 ```
 
 Expected: compile failure — `AgentAttentionMachine` does not exist.
 
 - [ ] **Step 3: Write the implementation**
 
-Create `src/NovaTerminal.App/AgentHost/AgentAttentionMachine.cs`:
+Create `src/Ntilde.App/AgentHost/AgentAttentionMachine.cs`:
 
 ```csharp
 using System;
 
-namespace NovaTerminal.AgentHost
+namespace Ntilde.AgentHost
 {
     /// <summary>How much agent attention a pane is currently getting.</summary>
     public enum AgentAttentionTier
@@ -405,7 +405,7 @@ namespace NovaTerminal.AgentHost
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentAttentionMachineTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentAttentionMachineTests"
 ```
 
 Expected: PASS, 11 tests.
@@ -413,7 +413,7 @@ Expected: PASS, 11 tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/AgentHost/AgentAttentionMachine.cs tests/NovaTerminal.App.Tests/AgentHost/AgentAttentionMachineTests.cs
+git add src/Ntilde.App/AgentHost/AgentAttentionMachine.cs tests/Ntilde.App.Tests/AgentHost/AgentAttentionMachineTests.cs
 git commit -m "feat(agent-host): per-pane agent attention state machine"
 ```
 
@@ -424,8 +424,8 @@ git commit -m "feat(agent-host): per-pane agent attention state machine"
 Give every registered pane a machine, publish act-reachability onto the registration, and forward the pane's focus state into it. Still no UI.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/AgentHost/AgentSessionRegistration.cs` (ctor around line 52; `IsActive` around line 295; `UpdateSnapshot`)
-- Test: `tests/NovaTerminal.App.Tests/AgentHost/AgentAttentionRegistrationTests.cs` (create)
+- Modify: `src/Ntilde.App/AgentHost/AgentSessionRegistration.cs` (ctor around line 52; `IsActive` around line 295; `UpdateSnapshot`)
+- Test: `tests/Ntilde.App.Tests/AgentHost/AgentAttentionRegistrationTests.cs` (create)
 
 **Interfaces:**
 - Consumes: `AgentAttentionMachine`, `AgentAttentionTier`, `AgentAttentionSnapshot` from Task 1.
@@ -433,14 +433,14 @@ Give every registered pane a machine, publish act-reachability onto the registra
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/NovaTerminal.App.Tests/AgentHost/AgentAttentionRegistrationTests.cs`:
+Create `tests/Ntilde.App.Tests/AgentHost/AgentAttentionRegistrationTests.cs`:
 
 ```csharp
 using System;
-using NovaTerminal.AgentHost;
-using NovaTerminal.VT;
+using Ntilde.AgentHost;
+using Ntilde.VT;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// The registration owns a pane's attention machine and its published
@@ -491,14 +491,14 @@ public class AgentAttentionRegistrationTests
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentAttentionRegistrationTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentAttentionRegistrationTests"
 ```
 
 Expected: compile failure — `AttentionMachine` and `IsAgentActable` do not exist.
 
 - [ ] **Step 3: Write the implementation**
 
-In `src/NovaTerminal.App/AgentHost/AgentSessionRegistration.cs`, add the backing field beside the other gated fields (near `private Guid? _profileId;`):
+In `src/Ntilde.App/AgentHost/AgentSessionRegistration.cs`, add the backing field beside the other gated fields (near `private Guid? _profileId;`):
 
 ```csharp
         private bool _isAgentActable;
@@ -546,7 +546,7 @@ In `UpdateSnapshot`, after the existing assignment of `_isActive`, forward focus
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentAttentionRegistrationTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentAttentionRegistrationTests"
 ```
 
 Expected: PASS, 3 tests.
@@ -554,7 +554,7 @@ Expected: PASS, 3 tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/AgentHost/AgentSessionRegistration.cs tests/NovaTerminal.App.Tests/AgentHost/AgentAttentionRegistrationTests.cs
+git add src/Ntilde.App/AgentHost/AgentSessionRegistration.cs tests/Ntilde.App.Tests/AgentHost/AgentAttentionRegistrationTests.cs
 git commit -m "feat(agent-host): host the attention machine on the session registration"
 ```
 
@@ -565,8 +565,8 @@ git commit -m "feat(agent-host): host the attention machine on the session regis
 Push signals from the real request handlers, publish actability, and count in-flight long polls. Behaviour is now observable through the registration but still not rendered.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/AgentHost/AgentHostService.cs` — `ActEnabled` setter (~line 120), `SweepStatuses` (~line 430), `HandleGetSessionStatus` (~685), `HandleWaitForEventsAsync` (~701), `HandleCaptureScreen` (~780), `HandleSendInput` (~872), `HandleSpawnSessionAsync` (~945), `HandleCloseSessionAsync` (~1002), `HandleReadScreen` (~1074), `HandleReadScrollback` (~1116)
-- Test: `tests/NovaTerminal.App.Tests/AgentHost/AgentHostAttentionProtocolTests.cs` (create)
+- Modify: `src/Ntilde.App/AgentHost/AgentHostService.cs` — `ActEnabled` setter (~line 120), `SweepStatuses` (~line 430), `HandleGetSessionStatus` (~685), `HandleWaitForEventsAsync` (~701), `HandleCaptureScreen` (~780), `HandleSendInput` (~872), `HandleSpawnSessionAsync` (~945), `HandleCloseSessionAsync` (~1002), `HandleReadScreen` (~1074), `HandleReadScrollback` (~1116)
+- Test: `tests/Ntilde.App.Tests/AgentHost/AgentHostAttentionProtocolTests.cs` (create)
 
 **Interfaces:**
 - Consumes: `AgentSessionRegistration.AttentionMachine` and `.IsAgentActable` from Task 2.
@@ -574,22 +574,22 @@ Push signals from the real request handlers, publish actability, and count in-fl
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/NovaTerminal.App.Tests/AgentHost/AgentHostAttentionProtocolTests.cs`. The harness
+Create `tests/Ntilde.App.Tests/AgentHost/AgentHostAttentionProtocolTests.cs`. The harness
 below is exactly the one `AgentHostStatusProtocolTests.cs` already uses — `HandleRequestLineAsync`
 is the existing internal seam, so do **not** add a new test-only seam to the service.
 `StubExecutor` already exists at
-`tests/NovaTerminal.App.Tests/AgentHost/AgentHostActProtocolTests.cs:323`; move it into its own
-file under `tests/NovaTerminal.App.Tests/AgentHost/` so both test classes share one copy.
+`tests/Ntilde.App.Tests/AgentHost/AgentHostActProtocolTests.cs:323`; move it into its own
+file under `tests/Ntilde.App.Tests/AgentHost/` so both test classes share one copy.
 
 ```csharp
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using NovaTerminal.AgentHost;
-using NovaTerminal.AgentHost.Contracts;
-using NovaTerminal.VT;
+using Ntilde.AgentHost;
+using Ntilde.AgentHost.Contracts;
+using Ntilde.VT;
 
-namespace NovaTerminal.AppTests.AgentHost;
+namespace Ntilde.AppTests.AgentHost;
 
 /// <summary>
 /// The endpoint pushes attention signals from the real handlers: reads mark
@@ -602,7 +602,7 @@ public class AgentHostAttentionProtocolTests : IDisposable
 
     public AgentHostAttentionProtocolTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "nova-agentattention-tests-" + Guid.NewGuid().ToString("N"));
+        _tempDir = Path.Combine(Path.GetTempPath(), "ntilde-agentattention-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
     }
 
@@ -615,7 +615,7 @@ public class AgentHostAttentionProtocolTests : IDisposable
     private AgentHostService NewRunningService(AgentSessionRegistry registry, bool act)
     {
         var endpoint = OperatingSystem.IsWindows()
-            ? "novaterminal-agent-attention-test-" + Guid.NewGuid().ToString("N")
+            ? "ntilde-agent-attention-test-" + Guid.NewGuid().ToString("N")
             : Path.Combine(_tempDir, Guid.NewGuid().ToString("N")[..8] + ".sock");
         var service = new AgentHostService(registry, endpoint, _tempDir);
         service.ActEnabled = act;
@@ -782,7 +782,7 @@ Add `using System.Threading;` to that file for `Interlocked` / `Volatile`.
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentHostAttentionProtocolTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentHostAttentionProtocolTests"
 ```
 
 Expected: compile failure — `InFlightPollCount` and `RefreshActability` do not exist.
@@ -897,7 +897,7 @@ Add `using System.Threading;` if not already present.
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentHostAttentionProtocolTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentHostAttentionProtocolTests"
 ```
 
 Expected: PASS, 6 tests.
@@ -905,7 +905,7 @@ Expected: PASS, 6 tests.
 - [ ] **Step 5: Check for regressions in the existing agent-host suite**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AppTests.AgentHost"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AppTests.AgentHost"
 ```
 
 Expected: PASS. The signal pushes must not change any existing protocol response.
@@ -913,7 +913,7 @@ Expected: PASS. The signal pushes must not change any existing protocol response
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/AgentHost/AgentHostService.cs tests/NovaTerminal.App.Tests/AgentHost/AgentHostAttentionProtocolTests.cs
+git add src/Ntilde.App/AgentHost/AgentHostService.cs tests/Ntilde.App.Tests/AgentHost/AgentHostAttentionProtocolTests.cs
 git commit -m "feat(agent-host): push attention signals and act-reachability from the endpoint"
 ```
 
@@ -924,9 +924,9 @@ git commit -m "feat(agent-host): push attention signals and act-reachability fro
 Render the tier in the pane's existing status bar, and make the visibility invariant structural.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml:154` (add the segment)
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs:3991` and `:4083` (route through the new visibility helper), plus the registration site at `:578`
-- Test: `tests/NovaTerminal.App.Tests/Controls/PaneAgentStatusBarTests.cs` (create)
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml:154` (add the segment)
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs:3991` and `:4083` (route through the new visibility helper), plus the registration site at `:578`
+- Test: `tests/Ntilde.App.Tests/Controls/PaneAgentStatusBarTests.cs` (create)
 
 **Interfaces:**
 - Consumes: `AgentSessionRegistration.AttentionMachine`, `.IsAgentActable`, `AgentAttentionSnapshot`, `AgentAttentionTier`.
@@ -934,16 +934,16 @@ Render the tier in the pane's existing status bar, and make the visibility invar
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/NovaTerminal.App.Tests/Controls/PaneAgentStatusBarTests.cs`:
+Create `tests/Ntilde.App.Tests/Controls/PaneAgentStatusBarTests.cs`:
 
 ```csharp
 using System;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.AgentHost;
-using NovaTerminal.Controls;
+using Ntilde.AgentHost;
+using Ntilde.Controls;
 
-namespace NovaTerminal.Tests.Controls;
+namespace Ntilde.Tests.Controls;
 
 /// <summary>
 /// The agent segment shares the pane status bar with SSH port forwards.
@@ -1037,7 +1037,7 @@ public class PaneAgentStatusBarTests
     }
 
     // Neighbouring pane tests reach controls with FindControl<T> (see
-    // tests/NovaTerminal.App.Tests/Controls/PaneAssistInsertionTests.cs:850),
+    // tests/Ntilde.App.Tests/Controls/PaneAssistInsertionTests.cs:850),
     // which is nullable — assert the type rather than dereferencing blind.
     private static Border GetStatusBar(TerminalPane pane)
         => Assert.IsType<Border>(pane.FindControl<Border>("StatusBar"));
@@ -1053,7 +1053,7 @@ public class PaneAgentStatusBarTests
 
     // An SSH pane with one local forward, so the SSH half of the visibility OR
     // is exercised. NOTE the type: TerminalPane's profile ctor takes
-    // NovaTerminal.Shell.TerminalProfile — NOT the Platform-layer SshProfile.
+    // Ntilde.Shell.TerminalProfile — NOT the Platform-layer SshProfile.
     // TerminalProfile.Forwards is List<ForwardingRule>; SshProfile.Forwards is
     // List<PortForward> and is a different thing entirely. No real session is
     // started: the status bar only reads Profile.Forwards.
@@ -1076,24 +1076,24 @@ public class PaneAgentStatusBarTests
 ```
 
 Usings that test file needs: `System`, `Avalonia.Controls`, `Avalonia.Headless.XUnit`,
-`NovaTerminal.AgentHost`, `NovaTerminal.Controls`, `NovaTerminal.Shell` (for
+`Ntilde.AgentHost`, `Ntilde.Controls`, `Ntilde.Shell` (for
 `TerminalProfile`, `ForwardingRule`, `ConnectionType`, `ForwardingType`), and
-`NovaTerminal.Platform` for `SshDiagnosticsLevel` — verify that last namespace against
-`src/NovaTerminal.Platform/Ssh/Launch/SshDiagnosticsLevel.cs` rather than assuming.
+`Ntilde.Platform` for `SshDiagnosticsLevel` — verify that last namespace against
+`src/Ntilde.Platform/Ssh/Launch/SshDiagnosticsLevel.cs` rather than assuming.
 
 If `TerminalPane` has no `GetControl<T>` accessible from tests, use the same lookup the neighbouring pane tests use (check `PaneAssistInsertionTests.cs`) rather than widening the pane's API.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~PaneAgentStatusBarTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~PaneAgentStatusBarTests"
 ```
 
 Expected: compile failure — `ApplyAgentAttention` does not exist.
 
 - [ ] **Step 3: Add the segment to the XAML**
 
-In `src/NovaTerminal.App/Controls/TerminalPane.axaml`, inside the status bar's `StackPanel`, immediately after the `StatusBarRules` panel:
+In `src/Ntilde.App/Controls/TerminalPane.axaml`, inside the status bar's `StackPanel`, immediately after the `StatusBarRules` panel:
 
 ```xml
                     <StackPanel Name="AgentStatusSegment" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center" IsVisible="False">
@@ -1196,7 +1196,7 @@ Unsubscribe where the pane unregisters (`:3872`, beside `AgentSessionRegistry.In
 - [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~PaneAgentStatusBarTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~PaneAgentStatusBarTests"
 ```
 
 Expected: PASS, 5 tests.
@@ -1204,7 +1204,7 @@ Expected: PASS, 5 tests.
 - [ ] **Step 6: Check the SSH status bar still behaves**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Tests.Ssh"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Tests.Ssh"
 ```
 
 Expected: PASS — the forwarding status bar is unchanged for SSH panes.
@@ -1212,7 +1212,7 @@ Expected: PASS — the forwarding status bar is unchanged for SSH panes.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.App.Tests/Controls/PaneAgentStatusBarTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml src/Ntilde.App/Controls/TerminalPane.axaml.cs tests/Ntilde.App.Tests/Controls/PaneAgentStatusBarTests.cs
 git commit -m "feat(agent-host): show agent attention in the pane status bar"
 ```
 
@@ -1223,25 +1223,25 @@ git commit -m "feat(agent-host): show agent attention in the pane status bar"
 The setting and its parse policy, plus the Settings UI. Nothing reads it yet.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/TerminalSettings.cs:62` (add beside `ShellExitPolicy`)
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml:951` (after the act toggle row)
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml.cs` (~2022 load, ~2277 save)
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` (add the policy function beside `ShouldClosePaneOnExit`)
-- Test: `tests/NovaTerminal.App.Tests/Core/AgentIndicatorTabRollupTests.cs` (create)
+- Modify: `src/Ntilde.App/Shell/TerminalSettings.cs:62` (add beside `ShellExitPolicy`)
+- Modify: `src/Ntilde.App/SettingsWindow.axaml:951` (after the act toggle row)
+- Modify: `src/Ntilde.App/SettingsWindow.axaml.cs` (~2022 load, ~2277 save)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` (add the policy function beside `ShouldClosePaneOnExit`)
+- Test: `tests/Ntilde.App.Tests/Core/AgentIndicatorTabRollupTests.cs` (create)
 
 **Interfaces:**
 - Consumes: `AgentAttentionTier` from Task 1.
-- Produces: `TerminalSettings.AgentIndicatorTabRollup` (string, default `"WritesOnly"`); `internal static bool NovaTerminal.MainWindow.ShouldShowTierInTabStrip(string? rollupPolicy, AgentAttentionTier tier)`.
+- Produces: `TerminalSettings.AgentIndicatorTabRollup` (string, default `"WritesOnly"`); `internal static bool Ntilde.MainWindow.ShouldShowTierInTabStrip(string? rollupPolicy, AgentAttentionTier tier)`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Core/AgentIndicatorTabRollupTests.cs`:
+Create `tests/Ntilde.App.Tests/Core/AgentIndicatorTabRollupTests.cs`:
 
 ```csharp
-using NovaTerminal.AgentHost;
-using NovaTerminal.Shell;
+using Ntilde.AgentHost;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// Which attention tiers reach the tab strip. Pure policy — no window, no
@@ -1284,7 +1284,7 @@ public sealed class AgentIndicatorTabRollupTests
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentIndicatorTabRollupTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentIndicatorTabRollupTests"
 ```
 
 Expected: compile failure — `ShouldShowTierInTabStrip` and `AgentIndicatorTabRollup` do not exist.
@@ -1367,7 +1367,7 @@ and in the save block beside them (~2277):
 - [ ] **Step 4: Run the test to verify it passes**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentIndicatorTabRollupTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentIndicatorTabRollupTests"
 ```
 
 Expected: PASS, 13 cases.
@@ -1375,7 +1375,7 @@ Expected: PASS, 13 cases.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/TerminalSettings.cs src/NovaTerminal.App/MainWindow.axaml.cs src/NovaTerminal.App/SettingsWindow.axaml src/NovaTerminal.App/SettingsWindow.axaml.cs tests/NovaTerminal.App.Tests/Core/AgentIndicatorTabRollupTests.cs
+git add src/Ntilde.App/Shell/TerminalSettings.cs src/Ntilde.App/MainWindow.axaml.cs src/Ntilde.App/SettingsWindow.axaml src/Ntilde.App/SettingsWindow.axaml.cs tests/Ntilde.App.Tests/Core/AgentIndicatorTabRollupTests.cs
 git commit -m "feat(agent-host): add the AgentIndicatorTabRollup setting"
 ```
 
@@ -1406,10 +1406,10 @@ is also the colourblind-safe choice. Colour stays in the pane segment, where it 
 control.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs:111` (`TabRuntimeState`), `:612`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs:111` (`TabRuntimeState`), `:612`
   (`GetTabMenuLabel`), `:924` (`BuildTabDisplayLabels`), `:3142` (automation label), `:4125`
   (`UpdateTabVisuals`)
-- Test: `tests/NovaTerminal.App.Tests/Core/AgentIndicatorTabRollupTests.cs` (extend)
+- Test: `tests/Ntilde.App.Tests/Core/AgentIndicatorTabRollupTests.cs` (extend)
 
 **Interfaces:**
 - Consumes: `MainWindow.ShouldShowTierInTabStrip` (Task 5), `AgentSessionRegistry.Instance`,
@@ -1418,10 +1418,10 @@ control.
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `tests/NovaTerminal.App.Tests/Core/AgentIndicatorTabRollupTests.cs`. Use
+Append to `tests/Ntilde.App.Tests/Core/AgentIndicatorTabRollupTests.cs`. Use
 `TestMainWindowFactory.Create()` — the existing way MainWindow is built in tests
-(`tests/NovaTerminal.App.Tests/Core/TestMainWindowFactory.cs`). Add
-`using Avalonia.Controls; using Avalonia.Headless.XUnit; using System.Linq; using NovaTerminal.AgentHost;`.
+(`tests/Ntilde.App.Tests/Core/TestMainWindowFactory.cs`). Add
+`using Avalonia.Controls; using Avalonia.Headless.XUnit; using System.Linq; using Ntilde.AgentHost;`.
 
 ```csharp
     [AvaloniaFact]
@@ -1511,7 +1511,7 @@ attribute for that reason, put this class in the same collection.
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentIndicatorTabRollupTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentIndicatorTabRollupTests"
 ```
 
 Expected: compile failure — `RefreshTabAgentAttention`, `AgentWroteGlyph`, `AgentWatchedGlyph`
@@ -1647,7 +1647,7 @@ Task 7 before running the full suite, or stub the call and fill it in there.
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentIndicatorTabRollupTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentIndicatorTabRollupTests"
 ```
 
 Expected: PASS.
@@ -1673,7 +1673,7 @@ truncation, set the `Wrote` tier, and assert on the visible label:
 - [ ] **Step 5: Check the tab suite for regressions**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TabSystemTests|FullyQualifiedName~MainWindowTabLookupTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TabSystemTests|FullyQualifiedName~MainWindowTabLookupTests"
 ```
 
 Expected: PASS. Labels gain a suffix only when an agent tier is set, so bell / activity /
@@ -1682,7 +1682,7 @@ forwarding markers must be untouched.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.App.Tests/Core/AgentIndicatorTabRollupTests.cs
+git add src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.App.Tests/Core/AgentIndicatorTabRollupTests.cs
 git commit -m "feat(agent-host): roll pane agent attention up to tab labels"
 ```
 
@@ -1693,9 +1693,9 @@ git commit -m "feat(agent-host): roll pane agent attention up to tab labels"
 One app-level light for "agent access is on", picking up the polling and observe-only read states.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml:150` (after `TabOverflowBadge`)
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs:2004` and `:5283` (the two settings-apply sites)
-- Test: `tests/NovaTerminal.App.Tests/Core/AgentObserveIndicatorTests.cs` (create)
+- Modify: `src/Ntilde.App/MainWindow.axaml:150` (after `TabOverflowBadge`)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs:2004` and `:5283` (the two settings-apply sites)
+- Test: `tests/Ntilde.App.Tests/Core/AgentObserveIndicatorTests.cs` (create)
 
 **Interfaces:**
 - Consumes: `AgentHostService.Instance.InFlightPollCount`, `.ObserveActivityChanged` (Task 3); `AgentSessionRegistry`.
@@ -1709,14 +1709,14 @@ matters for testability: the earlier draft of this plan tested the indicator by 
 `AgentHostService.Instance.Apply(true)`, which starts a **real IPC endpoint on a process-wide
 singleton** inside a unit test sharing a process with ~150 other AgentHost tests. Do not do that.
 
-Create `tests/NovaTerminal.App.Tests/Core/AgentObserveIndicatorTests.cs`:
+Create `tests/Ntilde.App.Tests/Core/AgentObserveIndicatorTests.cs`:
 
 ```csharp
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Xunit;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 /// <summary>
 /// The window-level agent light. It is a permission indicator first — visible
@@ -1773,7 +1773,7 @@ public class AgentObserveIndicatorTests
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentObserveIndicatorTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentObserveIndicatorTests"
 ```
 
 Expected: compile failure — `ComputeObserveIndicatorState` and the `AgentObserveIndicator` control
@@ -1868,7 +1868,7 @@ Call `RefreshAgentObserveIndicator();` at both settings-apply sites — after `A
 - [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentObserveIndicatorTests"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentObserveIndicatorTests"
 ```
 
 Expected: PASS — 7 theory cases plus 1 wiring test.
@@ -1876,7 +1876,7 @@ Expected: PASS — 7 theory cases plus 1 wiring test.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.App.Tests/Core/AgentObserveIndicatorTests.cs
+git add src/Ntilde.App/MainWindow.axaml src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.App.Tests/Core/AgentObserveIndicatorTests.cs
 git commit -m "feat(agent-host): window-level agent observe indicator"
 ```
 
@@ -1936,10 +1936,10 @@ git commit -m "docs(agent-host): document the live agent-access indicators"
 
 ## Verification before calling this done
 
-- [ ] `scripts/build.sh build src/NovaTerminal.App` succeeds.
-- [ ] `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AppTests.AgentHost"` passes.
-- [ ] `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Tests.Core"` passes.
-- [ ] `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Tests.Controls"` passes.
+- [ ] `scripts/build.sh build src/Ntilde.App` succeeds.
+- [ ] `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AppTests.AgentHost"` passes.
+- [ ] `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Tests.Core"` passes.
+- [ ] `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Tests.Controls"` passes.
 - [ ] Manual smoke test (GUI automation is unreliable here — do these by hand):
   1. Launch the app. Confirm no agent light in the chrome and no pane status bar.
   2. Settings → Agent Access → enable observe. Confirm the window light appears; panes still show no bar.

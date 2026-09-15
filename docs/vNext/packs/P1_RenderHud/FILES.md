@@ -3,17 +3,17 @@
 You may modify **ONLY** the following areas:
 
 ## Allowed
-- `src/NovaTerminal.Rendering/**`
-- `src/NovaTerminal.App/**` (only command binding & minimal UI wiring)
+- `src/Ntilde.Rendering/**`
+- `src/Ntilde.App/**` (only command binding & minimal UI wiring)
 - `tests/**` (add new tests; minimal updates to existing tests)
 
 ## Allowed (New Files Preferred)
-- `src/NovaTerminal.Rendering/Overlays/**`
-- `src/NovaTerminal.App/Features/**` (registration only)
+- `src/Ntilde.Rendering/Overlays/**`
+- `src/Ntilde.App/Features/**` (registration only)
 
 ## Not Allowed
-- `src/NovaTerminal.Core/**`
-- `src/NovaTerminal.Replay/**`
+- `src/Ntilde.Core/**`
+- `src/Ntilde.Replay/**`
 - Any recording/index format code
 - Any global refactor across many files
 

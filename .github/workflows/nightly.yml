@@ -40,8 +40,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            src/NovaTerminal.App/native/target/release
-            src/NovaTerminal.App/native/target_linux/release
+            src/Ntilde.App/native/target/release
+            src/Ntilde.App/native/target_linux/release
           # Key version bumped to v3 for the rusty_pty input-hash stamp
           # (native/target/release/.nova-rust-inputs.sha256). A v2 payload predates the stamp,
           # so restoring one would make BuildRustNative call the binary stale and invoke cargo -
@@ -49,7 +49,7 @@ jobs:
           # registry cache. Worse, actions/cache does not re-save on an exact key hit, so the
           # stamp would never enter the v2 payload and every hit would pay that rebuild forever.
           # Bumping forces one miss, whose save captures the stamp.
-          key: native-bin-v3-ubuntu-latest-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
+          key: native-bin-v3-ubuntu-latest-${{ hashFiles('src/Ntilde.App/native/src/**', 'src/Ntilde.App/native/Cargo.toml', 'src/Ntilde.App/native/Cargo.lock') }}
 
       - name: Install Rust
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
@@ -59,12 +59,12 @@ jobs:
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
-          workspaces: src/NovaTerminal.App/native
+          workspaces: src/Ntilde.App/native
 
       - name: Build Rust (Linux)
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
         run: |
-          cd src/NovaTerminal.App/native
+          cd src/Ntilde.App/native
           cargo build --release --locked
           mkdir -p target_linux/release
           cp target/release/librusty_pty.so target_linux/release/
@@ -102,7 +102,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The fuzz target only references NovaTerminal.VT — no native/Rust build needed.
+      # The fuzz target only references Ntilde.VT — no native/Rust build needed.
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -122,12 +122,12 @@ jobs:
           clang -fsanitize=fuzzer libfuzzer-dotnet.cc -o libfuzzer-dotnet
 
       - name: Publish fuzz project
-        run: dotnet publish tests/NovaTerminal.Benchmarks -c ${{ env.CONFIGURATION }} -o fuzz-bin
+        run: dotnet publish tests/Ntilde.Benchmarks -c ${{ env.CONFIGURATION }} -o fuzz-bin
 
-      - name: Instrument NovaTerminal.VT
+      - name: Instrument Ntilde.VT
         run: |
           export PATH="$PATH:$HOME/.dotnet/tools"
-          sharpfuzz fuzz-bin/NovaTerminal.VT.dll
+          sharpfuzz fuzz-bin/Ntilde.VT.dll
 
       # Persist the corpus between nightly runs so coverage accumulates.
       - name: Restore fuzz corpus
@@ -142,13 +142,13 @@ jobs:
       - name: Fuzz AnsiParser (parser target, 10 min)
         run: |
           mkdir -p corpus-parser crashes
-          ./libfuzzer-dotnet --target_path=fuzz-bin/NovaTerminal.Benchmarks --target_arg=--fuzz \
+          ./libfuzzer-dotnet --target_path=fuzz-bin/Ntilde.Benchmarks --target_arg=--fuzz \
             -timeout=25 -max_total_time=600 -artifact_prefix=crashes/parser- corpus-parser
 
       - name: Fuzz parse + resize (reflow target, 10 min)
         run: |
           mkdir -p corpus-resize crashes
-          ./libfuzzer-dotnet --target_path=fuzz-bin/NovaTerminal.Benchmarks --target_arg=--fuzz-resize \
+          ./libfuzzer-dotnet --target_path=fuzz-bin/Ntilde.Benchmarks --target_arg=--fuzz-resize \
             -timeout=25 -max_total_time=600 -artifact_prefix=crashes/resize- corpus-resize
 
       # Any libFuzzer crash/hang fails the step above and leaves a reproducing input in crashes/.
@@ -179,7 +179,7 @@ jobs:
         id: native-bin-cache
         uses: actions/cache@v4
         with:
-          path: src/NovaTerminal.App/native/target/release
+          path: src/Ntilde.App/native/target/release
           # Key version bumped to v3 for the rusty_pty input-hash stamp
           # (native/target/release/.nova-rust-inputs.sha256). A v2 payload predates the stamp,
           # so restoring one would make BuildRustNative call the binary stale and invoke cargo -
@@ -189,7 +189,7 @@ jobs:
           # Bumping forces one miss, whose save captures the stamp.
           # Kept in its own namespace: this job caches only target/release, and sharing a
           # key with ci.yml's fuller payload is what the v2 bump existed to undo.
-          key: native-bin-target-only-v3-${{ matrix.os }}-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
+          key: native-bin-target-only-v3-${{ matrix.os }}-${{ hashFiles('src/Ntilde.App/native/src/**', 'src/Ntilde.App/native/Cargo.toml', 'src/Ntilde.App/native/Cargo.lock') }}
 
       - name: Install Rust
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
@@ -199,11 +199,11 @@ jobs:
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
-          workspaces: src/NovaTerminal.App/native
+          workspaces: src/Ntilde.App/native
 
       - name: Build Rust (Windows)
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
-        run: cd src/NovaTerminal.App/native && cargo build --release --locked
+        run: cd src/Ntilde.App/native && cargo build --release --locked
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4

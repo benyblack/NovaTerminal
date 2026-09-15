@@ -19,14 +19,14 @@ const {
   ogImage = '/og.svg',
 } = Astro.props;
 
-const siteName = 'NovaTerminal';
+const siteName = 'Ntilde';
 const fullTitle = title === siteName ? title : `${title} — ${siteName}`;
 const canonicalUrl =
   canonical ?? new URL(Astro.url.pathname, Astro.site).toString();
 // `Astro.site` is origin-only; the path prefix is exposed by Astro as the
 // `import.meta.env.BASE_URL` Vite env. Combine the two so OG / favicon /
 // sitemap references resolve on the project Pages site
-// (e.g. `/NovaTerminal/og.svg`).
+// (e.g. `/Ntilde/og.svg`).
 const basePrefix = (import.meta.env.BASE_URL ?? '/').endsWith('/')
   ? import.meta.env.BASE_URL
   : `${import.meta.env.BASE_URL}/`;
@@ -69,7 +69,7 @@ const ogImageUrl = new URL(ogImagePath, Astro.site).toString();
   <body class="flex min-h-screen flex-col antialiased">
     <a
       href="#main"
-      class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-nova-600 focus:px-3 focus:py-2 focus:text-sm focus:text-white"
+      class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-ntilde-600 focus:px-3 focus:py-2 focus:text-sm focus:text-white"
     >
       Skip to content
     </a>

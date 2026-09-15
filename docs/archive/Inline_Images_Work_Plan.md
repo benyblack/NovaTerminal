@@ -2,7 +2,7 @@
 
 Purpose:
 This document defines a precise, test-gated implementation plan for Inline Images
-in NovaTerminal. Primary target is the iTerm2 image protocol; Kitty graphics support
+in Ntilde. Primary target is the iTerm2 image protocol; Kitty graphics support
 is optional and secondary.
 
 Audience:

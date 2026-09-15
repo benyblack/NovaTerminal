@@ -4,38 +4,38 @@ Manual verification of A1–A4 on a real build before tagging 0.4.0. Layered —
 after any layer. Each check lists the action, the expected result, and the red flag.
 
 Paths assume the repo at its current location; adjust as needed. Config/state lives
-under `%LOCALAPPDATA%\NovaTerminal` (settings.json, agent-endpoint.json, recordings\).
+under `%LOCALAPPDATA%\ntilde` (settings.json, agent-endpoint.json, recordings\).
 
 ## 0. Build & launch
 
 - [ ] Build everything:
   ```
-  scripts/build.ps1 build NovaTerminal.sln
+  scripts/build.ps1 build Ntilde.sln
   ```
   Expected: 0 errors. Red flag: any error (a warning flood is normal).
 
 - [ ] Launch the app (run the built exe directly — the wrapper doesn't do `run`):
   ```
-  src\NovaTerminal.App\bin\Debug\net10.0\NovaTerminal.exe
+  src\Ntilde.App\bin\Debug\net10.0\Ntilde.exe
   ```
   Expected: window opens, a shell tab is live. Red flag: crash → check
-  `%LOCALAPPDATA%\NovaTerminal\logs\startup_error.txt`.
+  `%LOCALAPPDATA%\ntilde\logs\startup_error.txt`.
 
 - [ ] Build the MCP server (Release) and wire it to Claude Code:
   ```
-  scripts/build.ps1 build -c Release src/NovaTerminal.McpServer
-  claude mcp add novaterminal -- dotnet "<REPO>\src\NovaTerminal.McpServer\bin\Release\net10.0\NovaTerminal.McpServer.dll"
+  scripts/build.ps1 build -c Release src/Ntilde.McpServer
+  claude mcp add ntilde -- dotnet "<REPO>\src\Ntilde.McpServer\bin\Release\net10.0\Ntilde.McpServer.dll"
   ```
   (Any MCP client works; do NOT use `dotnet run` — it corrupts stdio.) In a Claude
-  Code session, confirm the `novaterminal.*` tools appear.
+  Code session, confirm the `ntilde.*` tools appear.
 
 ## 1. Off-is-off (default state)
 
 With **all** agent toggles off (fresh settings):
 
-- [ ] Ask the agent: run `novaterminal.list_sessions`.
+- [ ] Ask the agent: run `ntilde.list_sessions`.
   Expected: the "unavailable / enable Agent access (observe)" guidance, not data.
-- [ ] Confirm there is **no** `%LOCALAPPDATA%\NovaTerminal\agent-endpoint.json` (or it is
+- [ ] Confirm there is **no** `%LOCALAPPDATA%\ntilde\agent-endpoint.json` (or it is
   empty). Red flag: an endpoint file exists while observe is off.
 
 ## 2. Settings toggles persist (UI)
@@ -45,7 +45,7 @@ Settings → the Agent access rows:
 - [ ] Verify three toggles exist: **Agent access (observe)**, **Agent replay
   export** (indented), **Agent access (act)** (indented). Toggle observe on,
   others off; Save. (Screenshots have no toggle of their own - they ride observe.)
-- [ ] Reopen Settings — observe still on. Check `%LOCALAPPDATA%\NovaTerminal\settings.json`:
+- [ ] Reopen Settings — observe still on. Check `%LOCALAPPDATA%\ntilde\settings.json`:
   `AgentAccessObserveEnabled: true`, `AgentReplayExportEnabled: false`,
   `AgentAccessActEnabled: false`. Red flag: values don't round-trip.
 - [ ] With observe now on, `agent-endpoint.json` appears next to settings.json.
@@ -54,30 +54,30 @@ Settings → the Agent access rows:
 
 Have a couple of tabs open; run something interactive (e.g. `vim` or a `ping -t`).
 
-- [ ] `novaterminal.list_sessions` → lists panes with paneId, title, kind, size,
+- [ ] `ntilde.list_sessions` → lists panes with paneId, title, kind, size,
   status. Red flag: empty while tabs are open, or wrong kind.
-- [ ] `novaterminal.read_screen <paneId>` → the visible grid matches what you see,
+- [ ] `ntilde.read_screen <paneId>` → the visible grid matches what you see,
   including cursor position. Red flag: stale/garbled content, wrong wrapping.
-- [ ] `novaterminal.read_scrollback <paneId>` → history lines, oldest first.
+- [ ] `ntilde.read_scrollback <paneId>` → history lines, oldest first.
 - [ ] Start a long command (`ping -n 20 localhost`), then
-  `novaterminal.get_session_status <paneId>` → `running`; after it finishes →
+  `ntilde.get_session_status <paneId>` → `running`; after it finishes →
   `idle`/`awaitingInput`. Red flag: status stuck on the wrong state.
-- [ ] `novaterminal.wait_for_events` with the long command running → returns a
+- [ ] `ntilde.wait_for_events` with the long command running → returns a
   `commandFinished` (or status) event when it completes, rather than timing out
   every call. Red flag: never delivers the completion event.
 
 ## 4. Replay export (A4) — enable "Agent replay export"
 
 - [ ] With observe + replay-export on, produce some output in a pane, then
-  `novaterminal.export_replay <paneId>`.
-  Expected: returns a path under `%LOCALAPPDATA%\NovaTerminal\recordings\agent-exports\`
+  `ntilde.export_replay <paneId>`.
+  Expected: returns a path under `%LOCALAPPDATA%\ntilde\recordings\agent-exports\`
   and an event count. Red flag: `exportDisabled` (toggle didn't apply) or a path
   that doesn't exist.
 - [ ] Confirm the file exists and, opening it, that it contains `data`/`resize`
   lines but **no `input` lines** (privacy). Red flag: any `"type":"input"`.
 - [ ] Replay it headlessly through the CLI:
   ```
-  dotnet src\NovaTerminal.Cli\bin\Debug\net10.0\NovaTerminal.Cli.dll --replay "<exported .rec path>"
+  dotnet src\Ntilde.Cli\bin\Debug\net10.0\Ntilde.Cli.dll --replay "<exported .rec path>"
   ```
   Expected: prints the final screen; exit code 0. Red flag: crash, or an empty
   screen for a session that clearly had output.
@@ -85,8 +85,8 @@ Have a couple of tabs open; run something interactive (e.g. `vim` or a `ping -t`
 
 ## 4b. Screenshots (A5) - observe only, no extra toggle
 
-- [ ] With only observe on, `capture_screen <paneId>` returns a `nova_screen_*.png`
-  path under `%LOCALAPPDATA%\NovaTerminal\recordings\agent-exports\`, with the
+- [ ] With only observe on, `capture_screen <paneId>` returns a `ntilde_screen_*.png`
+  path under `%LOCALAPPDATA%\ntilde\recordings\agent-exports\`, with the
   pane's grid size. Open it: it should look like that pane - same font, same theme,
   same text - with no tab bar or other chrome. Red flag: `captureDisabled` (the
   gate was supposed to be gone), transparent background, or the wrong pane.
@@ -120,9 +120,9 @@ Have a couple of tabs open; run something interactive (e.g. `vim` or a `ping -t`
 ## 5. Act gating (A3) — the security-critical checks
 
 **5a. Act still OFF (observe on):**
-- [ ] `novaterminal.send_input` (any paneId, text `"echo hi\r"`) → **`actDisabled`**;
+- [ ] `ntilde.send_input` (any paneId, text `"echo hi\r"`) → **`actDisabled`**;
   nothing is typed into the terminal. Red flag: the text actually runs.
-- [ ] `novaterminal.spawn_session` and `novaterminal.close_session` likewise →
+- [ ] `ntilde.spawn_session` and `ntilde.close_session` likewise →
   `actDisabled`.
 
 **5b. Turn "Agent access (act)" ON:**
@@ -155,7 +155,7 @@ Have a couple of tabs open; run something interactive (e.g. `vim` or a `ping -t`
 ## 7. Revocation
 
 - [ ] Turn **Agent access (observe)** off (Save). `agent-endpoint.json` is emptied,
-  and any `novaterminal.*` tool now returns the unavailable guidance — including the
+  and any `ntilde.*` tool now returns the unavailable guidance — including the
   act tools (act rides on observe being up). Red flag: tools still work after observe
   is off.
 
@@ -164,9 +164,9 @@ Have a couple of tabs open; run something interactive (e.g. `vim` or a `ping -t`
 ### Notes
 - If a tool returns "could not be parsed", the app and MCP server are from different
   builds — rebuild both.
-- Step 4 uses the dev CLI (`NovaTerminal.Cli`) for convenience. The release bundle
+- Step 4 uses the dev CLI (`Ntilde.Cli`) for convenience. The release bundle
   ships no separate CLI — the app executable serves `--replay` itself
-  (`NovaTerminal --replay "<.rec>"`), so that is the end-user invocation.
+  (`Ntilde --replay "<.rec>"`), so that is the end-user invocation.
 - These are the surfaces verified by build/logic tests but not visually in this
   cycle: the four toggles, the SSH allowlist checkbox, and the Agent Activity
   window. Steps 2, 5c, and 6 are the highest-value manual confirmations.

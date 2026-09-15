@@ -2,7 +2,7 @@
 
 Milestone **A4** of `docs/agent-host/DIRECTION.md` — the moat: "debug what your
 agent did in the terminal, frame by frame." An agent (or its human) can export
-a session's recent activity as a standard NovaTerminal replay file and re-run
+a session's recent activity as a standard Ntilde replay file and re-run
 it headlessly with pixel/byte determinism. A3 (acting) is intentionally
 skipped for now; A4 is still observe-only.
 
@@ -11,10 +11,10 @@ skipped for now; A4 is still observe-only.
 - **Flight recorder:** while Agent Access is enabled, each session retains a
   bounded in-memory ring of its recent raw PTY output (+ resizes) — no disk
   writes until asked.
-- **`novaterminal.export_replay`** — MCP tool that writes the ring to a
+- **`ntilde.export_replay`** — MCP tool that writes the ring to a
   standard v2 `.rec` file under a dedicated agent-exports folder and returns
   the path.
-- **`NovaTerminal.Cli --replay <file>`** — headless: replay the file through
+- **`Ntilde.Cli --replay <file>`** — headless: replay the file through
   the deterministic core and print the final screen (`BufferSnapshot`
   formatted text), for CI and agent postmortems.
 
@@ -24,7 +24,7 @@ The change must:
   machinery — no second format, no second code path for correctness
 - preserve original inter-chunk timing (the format's `t` field), which
   requires explicit-timestamp write overloads on `PtyRecorder`
-- respect layering: raw bytes exist only in `NovaTerminal.Pty`; Pty may
+- respect layering: raw bytes exist only in `Ntilde.Pty`; Pty may
   reference Replay (it already does) but never VT
 - stay observe-only and default-off: the flight ring only exists while the
   observe endpoint is running, and export is additionally gated by its own
@@ -35,7 +35,7 @@ The change must:
 
 - Recording taps **raw bytes** in `RustPtySession.ReadLoop`
   (`_recorder?.RecordChunk(buffer, read)`) before UTF-8 decoding; input and
-  resize are also recorded. `PtyRecorder` (NovaTerminal.Replay) writes v2
+  resize are also recorded. `PtyRecorder` (Ntilde.Replay) writes v2
   JSON-Lines but only to a file path and only with enqueue-time timestamps —
   no explicit-timestamp API.
 - The App layer only ever sees decoded strings; **no rolling raw-byte history
@@ -43,11 +43,11 @@ The change must:
 - `ReplayRunner.RunAsync(...)` in Virtual mode + `BufferSnapshot.Capture` +
   `ToFormattedString()` is exactly the headless-replay primitive; golden
   tests already consume it.
-- CLI commands are static classes in `NovaTerminal.App/Shell`
+- CLI commands are static classes in `Ntilde.App/Shell`
   (`IsSupportedCliMode` / `Execute(args, stdout, stderr)`) dispatched from
-  `NovaTerminal.Cli/Program.cs`.
+  `Ntilde.Cli/Program.cs`.
 - Manual recordings: `AppPaths.RecordingsDirectory`,
-  `nova_rec_{yyyyMMdd_HHmmss}_{suffix}.rec`.
+  `ntilde_rec_{yyyyMMdd_HHmmss}_{suffix}.rec`.
 
 ## Design
 
@@ -60,9 +60,9 @@ prompts). Replay rendering correctness needs only output + resize; input
 events are ignored by the render path anyway. Documented in the tool
 description and the settings toggle text.
 
-### Flight recorder (NovaTerminal.Replay + Pty integration)
+### Flight recorder (Ntilde.Replay + Pty integration)
 
-- **`FlightRecordingBuffer`** (new, `NovaTerminal.Replay`): thread-safe
+- **`FlightRecordingBuffer`** (new, `Ntilde.Replay`): thread-safe
   bounded ring of `(tMs, kind: chunk|resize, payload)` entries, bounded by
   total payload bytes (default 2 MiB per session, constant in contracts).
   Tracks the **geometry at the start of the retained window**: when trimming
@@ -96,21 +96,21 @@ description and the settings toggle text.
 - Server handler: requires the new setting (below) — otherwise a dedicated
   `exportDisabled` error code with guidance; resolves the registration,
   calls `TryExportFlightRecording` targeting
-  `AppPaths.RecordingsDirectory/agent-exports/nova_rec_{stamp}_{suffix}.rec`
+  `AppPaths.RecordingsDirectory/agent-exports/ntilde_rec_{stamp}_{suffix}.rec`
   (existing naming convention, dedicated subfolder so agent artifacts are
   visually separate from manual recordings).
 - **Setting:** `AgentReplayExportEnabled` (default **false**), settings-window
   sub-toggle under Agent access; validator lists updated. Both toggles must
   be on for export to work — this is the "explicit export action" tier from
   the DIRECTION permission table.
-- MCP tool `novaterminal.export_replay(paneId)` — returns the file path, the
+- MCP tool `ntilde.export_replay(paneId)` — returns the file path, the
   time range, the truncation flag, and a hint to replay it with
-  `NovaTerminal.Cli --replay <path>`.
+  `Ntilde.Cli --replay <path>`.
 
 ### Headless CLI
 
-- **`ReplayCommand`** (`NovaTerminal.App/Shell`, dispatched from
-  `NovaTerminal.Cli/Program.cs` after the existing two commands):
+- **`ReplayCommand`** (`Ntilde.App/Shell`, dispatched from
+  `Ntilde.Cli/Program.cs` after the existing two commands):
   `--replay <file> [--attributes] [--fast-forward-ms N]`.
   Virtual-mode `ReplayRunner.RunAsync` → UTF-8 decode → `AnsiParser.Process`
   → `buffer.Resize` on resize events → `BufferSnapshot.Capture(buffer,
@@ -171,6 +171,6 @@ description and the settings toggle text.
    behavior change (nothing enables it yet).
 2. **Protocol + tool:** service lifecycle wiring, `exportReplay` method +
    `exportDisabled` error code, `AgentReplayExportEnabled` setting + toggle,
-   MCP `novaterminal.export_replay`, protocol/privacy tests.
+   MCP `ntilde.export_replay`, protocol/privacy tests.
 3. **CLI + docs:** `ReplayCommand` + tests, README (`--replay` usage, module
    notes), DIRECTION A4 checkboxes.

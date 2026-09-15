@@ -6,7 +6,7 @@
 ## Problem
 
 Users who run several AI agent CLIs (Claude Code, Codex, aider, …) in parallel keep one
-NovaTerminal tab per agent. The horizontal tab strip fails them three ways:
+Ntilde tab per agent. The horizontal tab strip fails them three ways:
 
 1. With many tabs the strip overflows and titles truncate, so tabs stop being identifiable.
 2. There is no way to tell at a glance which agent is still working, which finished, and

@@ -10,19 +10,19 @@
 
 **Design doc:** [docs/superpowers/specs/2026-08-24-windows-installer-velopack-design.md](../specs/2026-08-24-windows-installer-velopack-design.md) — read it before Task 1.
 
-**Tracking issue:** [#91](https://github.com/benyblack/NovaTerminal/issues/91). This plan covers the installer + auto-update half only; **code signing stays open on #91.**
+**Tracking issue:** [#91](https://github.com/benyblack/ntilde/issues/91). This plan covers the installer + auto-update half only; **code signing stays open on #91.**
 
 ## Global Constraints
 
 - **Never run raw `dotnet build` / `dotnet test`.** Use `scripts/build.ps1 <args…>` (PowerShell) or `scripts/build.sh <args…>`. Raw invocations leave MSBuild daemons holding the pipe and hang the harness. See `CLAUDE.md`.
 - **Run test projects individually, never the whole solution** — a full-solution test run takes 20–30 minutes because of headless Avalonia.
 - **Velopack version is pinned to `1.2.0`**, and the `vpk` tool version must equal the NuGet package version. Pin the NuGet version in `Directory.Packages.props` (the repo uses central package management: `ManagePackageVersionsCentrally=true`), never in a csproj.
-- **`tests/NovaTerminal.App.Tests` also runs on ubuntu in CI.** No test added by this plan may require Windows, a real Velopack install, or network access.
-- **`tests/NovaTerminal.Architecture.Tests` builds with `TreatWarningsAsErrors`.** Constant array arguments trip CA1861 — hoist any array literal used in an assertion into a `private static readonly string[]` field, matching that file's existing style.
-- **Repo URL for the update feed:** `https://github.com/benyblack/NovaTerminal`
+- **`tests/Ntilde.App.Tests` also runs on ubuntu in CI.** No test added by this plan may require Windows, a real Velopack install, or network access.
+- **`tests/Ntilde.Architecture.Tests` builds with `TreatWarningsAsErrors`.** Constant array arguments trip CA1861 — hoist any array literal used in an assertion into a `private static readonly string[]` field, matching that file's existing style.
+- **Repo URL for the update feed:** `https://github.com/benyblack/ntilde`
 - **Never rename Velopack's `*.nupkg` or `releases.win.json`.** `GithubSource` resolves them by name; renaming breaks every client's update check. Only `Setup.exe` may be renamed.
-- **Existing release assets are frozen.** `NovaTerminal-win-x64-<tag>.zip` keeps its exact name and contents so `packaging/winget/` needs no manifest change.
-- `tests/NovaTerminal.App.Tests` has `<Using Include="Xunit" />` globally — test files need no `using Xunit;`.
+- **Existing release assets are frozen.** `ntilde-win-x64-<tag>.zip` keeps its exact name and contents so `packaging/winget/` needs no manifest change.
+- `tests/Ntilde.App.Tests` has `<Using Include="Xunit" />` globally — test files need no `using Xunit;`.
 
 ---
 
@@ -32,26 +32,26 @@ This is the spike the design calls for. Velopack's docs never mention NativeAOT 
 
 **Files:**
 - Modify: `Directory.Packages.props` (add `PackageVersion`)
-- Modify: `src/NovaTerminal.App/NovaTerminal.App.csproj` (add `PackageReference`)
-- Modify: `src/NovaTerminal.App/Program.cs:19-25` (hook as first statement in `Main`)
-- Test: `tests/NovaTerminal.Architecture.Tests/ProjectFileLayeringTests.cs` (append one fact)
+- Modify: `src/Ntilde.App/Ntilde.App.csproj` (add `PackageReference`)
+- Modify: `src/Ntilde.App/Program.cs:19-25` (hook as first statement in `Main`)
+- Test: `tests/Ntilde.Architecture.Tests/ProjectFileLayeringTests.cs` (append one fact)
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: the `Velopack` package is available to `NovaTerminal.App` only; `VelopackApp.Build().Run()` has already run by the time any other code in `Main` executes.
+- Produces: the `Velopack` package is available to `Ntilde.App` only; `VelopackApp.Build().Run()` has already run by the time any other code in `Main` executes.
 
 - [ ] **Step 1: Write the failing architecture test**
 
-Append to `tests/NovaTerminal.Architecture.Tests/ProjectFileLayeringTests.cs`. Note the hoisted field — this project treats warnings as errors and CA1861 fires on inline array arguments.
+Append to `tests/Ntilde.Architecture.Tests/ProjectFileLayeringTests.cs`. Note the hoisted field — this project treats warnings as errors and CA1861 fires on inline array arguments.
 
 ```csharp
     // Same CA1861 reasoning as VtOnly above.
     private static readonly string[] ProjectsAllowedToReferenceVelopack =
-        ["src/NovaTerminal.App/NovaTerminal.App.csproj"];
+        ["src/Ntilde.App/Ntilde.App.csproj"];
 
     /// <summary>
     /// Velopack is the Windows install/update host. It is referenced for exactly one reason -
-    /// <c>VelopackApp.Build().Run()</c> and the update seam in <c>NovaTerminal.App/Update</c> - and
+    /// <c>VelopackApp.Build().Run()</c> and the update seam in <c>Ntilde.App/Update</c> - and
     /// must not spread. A second project taking the reference would put install-location and
     /// restart-the-process concerns behind a library boundary where nothing can see them, and would
     /// drag an unsigned-updater dependency into layers that are meant to be host-agnostic.
@@ -74,10 +74,10 @@ Append to `tests/NovaTerminal.Architecture.Tests/ProjectFileLayeringTests.cs`. N
 - [ ] **Step 2: Run it and watch it pass vacuously, then confirm it can fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests --filter "FullyQualifiedName~Velopack_is_referenced_only_by_the_App"
+scripts/build.ps1 test tests/Ntilde.Architecture.Tests --filter "FullyQualifiedName~Velopack_is_referenced_only_by_the_App"
 ```
 
-Expected: PASS (no project references Velopack yet). This test is a guard, not a red-green driver — so prove it *can* fail: temporarily add `<PackageReference Include="Velopack" />` to `src/NovaTerminal.VT/NovaTerminal.VT.csproj`, re-run, confirm FAIL with `NovaTerminal.VT/NovaTerminal.VT.csproj` listed, then revert that edit.
+Expected: PASS (no project references Velopack yet). This test is a guard, not a red-green driver — so prove it *can* fail: temporarily add `<PackageReference Include="Velopack" />` to `src/Ntilde.VT/Ntilde.VT.csproj`, re-run, confirm FAIL with `Ntilde.VT/Ntilde.VT.csproj` listed, then revert that edit.
 
 - [ ] **Step 3: Pin the package version**
 
@@ -91,7 +91,7 @@ In `Directory.Packages.props`, add a new group after the MCP block:
 
 - [ ] **Step 4: Reference it from the app**
 
-In `src/NovaTerminal.App/NovaTerminal.App.csproj`, add to the first `ItemGroup` that holds `PackageReference` items (after the `SkiaSharp.NativeAssets.Linux` line):
+In `src/Ntilde.App/Ntilde.App.csproj`, add to the first `ItemGroup` that holds `PackageReference` items (after the `SkiaSharp.NativeAssets.Linux` line):
 
 ```xml
     <!-- Windows installer + auto-update (#91). Version is pinned centrally in
@@ -101,7 +101,7 @@ In `src/NovaTerminal.App/NovaTerminal.App.csproj`, add to the first `ItemGroup` 
 
 - [ ] **Step 5: Add the startup hook as the first statement in `Main`**
 
-In `src/NovaTerminal.App/Program.cs`, add the `using` and make the hook the first thing inside the `try`. Ordering is load-bearing: Velopack re-invokes this executable with its own hook arguments during install, update and uninstall, and the `IsSupportedCliMode` checks below must never see or swallow them.
+In `src/Ntilde.App/Program.cs`, add the `using` and make the hook the first thing inside the `try`. Ordering is load-bearing: Velopack re-invokes this executable with its own hook arguments during install, update and uninstall, and the `IsSupportedCliMode` checks below must never see or swallow them.
 
 ```csharp
 using Velopack;
@@ -124,11 +124,11 @@ using Velopack;
 - [ ] **Step 6: Build and run the architecture test**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests --filter "FullyQualifiedName~Velopack_is_referenced_only_by_the_App"
+scripts/build.ps1 test tests/Ntilde.Architecture.Tests --filter "FullyQualifiedName~Velopack_is_referenced_only_by_the_App"
 ```
 
 Expected: build succeeds, test PASSES.
@@ -136,23 +136,23 @@ Expected: build succeeds, test PASSES.
 - [ ] **Step 7: The actual spike — publish NativeAOT and read every warning**
 
 ```bash
-scripts/build.ps1 publish src/NovaTerminal.App/NovaTerminal.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o artifacts/publish/aot-spike
+scripts/build.ps1 publish src/Ntilde.App/Ntilde.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o artifacts/publish/aot-spike
 ```
 
 Expected: publish **succeeds**. Then scan the output for trim/AOT diagnostics:
 
 ```bash
-scripts/build.ps1 publish src/NovaTerminal.App/NovaTerminal.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o artifacts/publish/aot-spike 2>&1 | grep -E "IL2026|IL2104|IL3050|IL3053|warning IL" | sort -u
+scripts/build.ps1 publish src/Ntilde.App/Ntilde.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o artifacts/publish/aot-spike 2>&1 | grep -E "IL2026|IL2104|IL3050|IL3053|warning IL" | sort -u
 ```
 
 Any `IL2026` (reflection in a trimmed app) or `IL3050` (dynamic code in AOT) attributed to a `Velopack.*` call is the finding this spike exists to surface.
 
 - [ ] **Step 8: Smoke-test the published exe**
 
-Run `artifacts/publish/aot-spike/NovaTerminal.exe`. Expected: the app starts normally and behaves exactly as before — `VelopackApp.Run()` is a no-op outside an install. Then confirm the CLI paths still work, because Step 5 inserted a statement ahead of them:
+Run `artifacts/publish/aot-spike/Ntilde.exe`. Expected: the app starts normally and behaves exactly as before — `VelopackApp.Run()` is a no-op outside an install. Then confirm the CLI paths still work, because Step 5 inserted a statement ahead of them:
 
 ```bash
-artifacts/publish/aot-spike/NovaTerminal.exe --help
+artifacts/publish/aot-spike/Ntilde.exe --help
 ```
 
 - [ ] **Step 9: Decide, and record the decision**
@@ -168,7 +168,7 @@ While the AOT publish is open, also confirm one API fact the plan depends on: wh
 - [ ] **Step 10: Commit**
 
 ```bash
-git add Directory.Packages.props src/NovaTerminal.App/NovaTerminal.App.csproj src/NovaTerminal.App/Program.cs tests/NovaTerminal.Architecture.Tests/ProjectFileLayeringTests.cs
+git add Directory.Packages.props src/Ntilde.App/Ntilde.App.csproj src/Ntilde.App/Program.cs tests/Ntilde.Architecture.Tests/ProjectFileLayeringTests.cs
 git commit -m "feat(update): reference Velopack and service its startup hooks
 
 Velopack's install/update/uninstall hooks re-invoke the exe with their own
@@ -177,7 +177,7 @@ in Main or a hook argument reaches VtReportCommand instead.
 
 Verified against a win-x64 NativeAOT publish, which the design flagged as the
 one real unknown (Velopack documents no AOT support). An architecture test
-pins the package reference to NovaTerminal.App.
+pins the package reference to Ntilde.App.
 
 Refs #91"
 ```
@@ -195,7 +195,7 @@ Packaging comes before the in-app update code because the in-app path cannot be 
 
 **Interfaces:**
 - Consumes: nothing from Task 1.
-- Produces: release assets `NovaTerminal-Setup-win-x64-<tag>.exe`, `NovaTerminal-<version>-full.nupkg`, `NovaTerminal-<version>-delta.nupkg` (second and later releases only), `releases.win.json`. A new workflow output `needs.release_metadata.outputs.release_version` — the tag with its leading `v` stripped.
+- Produces: release assets `ntilde-Setup-win-x64-<tag>.exe`, `ntilde-<version>-full.nupkg`, `ntilde-<version>-delta.nupkg` (second and later releases only), `releases.win.json`. A new workflow output `needs.release_metadata.outputs.release_version` — the tag with its leading `v` stripped.
 
 - [ ] **Step 1: Add a tag-without-`v` output to `release_metadata`**
 
@@ -232,7 +232,7 @@ In the `publish_aot` job, replace the `Publish AOT` step's `run:` so the executa
       - name: Publish AOT
         env:
           SKIP_RUST_NATIVE_BUILD: "1"
-        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true -p:Version=${{ needs.release_metadata.outputs.release_version }} -p:InformationalVersion=${{ needs.release_metadata.outputs.release_version }} -o artifacts/publish/${{ matrix.rid }}
+        run: dotnet publish src/Ntilde.App/Ntilde.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true -p:Version=${{ needs.release_metadata.outputs.release_version }} -p:InformationalVersion=${{ needs.release_metadata.outputs.release_version }} -o artifacts/publish/${{ matrix.rid }}
 ```
 
 - [ ] **Step 3: Install the pinned `vpk` tool (win-x64 only)**
@@ -262,7 +262,7 @@ Velopack builds a delta only when the previous full `.nupkg` is present in the o
           New-Item -ItemType Directory -Force -Path artifacts/velopack | Out-Null
           # First release ever, or no prior Velopack assets: nothing to download, and a
           # full-only release is the correct outcome rather than a failed one.
-          vpk download github --repoUrl https://github.com/benyblack/NovaTerminal --token $env:GH_TOKEN --outputDir artifacts/velopack
+          vpk download github --repoUrl https://github.com/benyblack/ntilde --token $env:GH_TOKEN --outputDir artifacts/velopack
 ```
 
 - [ ] **Step 5: Pack the installer**
@@ -275,16 +275,16 @@ Velopack builds a delta only when the previous full `.nupkg` is present in the o
           $ver = "${{ needs.release_metadata.outputs.release_version }}"
           $tag = "${{ needs.release_metadata.outputs.release_tag }}"
           vpk pack `
-            --packId NovaTerminal `
+            --packId Ntilde `
             --packVersion $ver `
             --packDir artifacts/publish/win-x64 `
-            --mainExe NovaTerminal.exe `
-            --packTitle NovaTerminal `
+            --mainExe Ntilde.exe `
+            --packTitle Ntilde `
             --packAuthors benyblack `
-            --icon src/NovaTerminal.App/Assets/nova_icon.ico `
+            --icon src/Ntilde.App/Assets/ntilde_icon.ico `
             --outputDir artifacts/velopack `
             --noPortable
-          # --noPortable: the release already ships NovaTerminal-win-x64-<tag>.zip, and two
+          # --noPortable: the release already ships ntilde-win-x64-<tag>.zip, and two
           # near-identical zips on the releases page is a support question waiting to happen.
 
           # The installer's file name is ours to choose - nothing resolves it by name - so
@@ -292,7 +292,7 @@ Velopack builds a delta only when the previous full `.nupkg` is present in the o
           # includes the channel in the name it produces.
           $setup = Get-ChildItem artifacts/velopack -Filter "*Setup.exe" | Select-Object -First 1
           if (-not $setup) { throw "vpk pack produced no Setup.exe" }
-          Move-Item $setup.FullName "artifacts/velopack/NovaTerminal-Setup-win-x64-$tag.exe"
+          Move-Item $setup.FullName "artifacts/velopack/ntilde-Setup-win-x64-$tag.exe"
 
           Write-Host "Velopack output:"
           Get-ChildItem artifacts/velopack | Select-Object Name, Length | Format-Table
@@ -309,9 +309,9 @@ Step 4 deliberately drops the *previous* release's `.nupkg` into the same direct
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: |
-            artifacts/velopack/NovaTerminal-Setup-win-x64-${{ needs.release_metadata.outputs.release_tag }}.exe
-            artifacts/velopack/NovaTerminal-${{ needs.release_metadata.outputs.release_version }}-full.nupkg
-            artifacts/velopack/NovaTerminal-${{ needs.release_metadata.outputs.release_version }}-delta.nupkg
+            artifacts/velopack/ntilde-Setup-win-x64-${{ needs.release_metadata.outputs.release_tag }}.exe
+            artifacts/velopack/ntilde-${{ needs.release_metadata.outputs.release_version }}-full.nupkg
+            artifacts/velopack/ntilde-${{ needs.release_metadata.outputs.release_version }}-delta.nupkg
             artifacts/velopack/releases.win.json
 ```
 
@@ -329,13 +329,13 @@ Then re-read the diff and confirm all four of these hold: every new step carries
 rtk git diff .github/workflows/release.yml
 ```
 
-- [ ] **Step 8: Update the docs that describe how NovaTerminal is installed**
+- [ ] **Step 8: Update the docs that describe how Ntilde is installed**
 
 In `packaging/winget/README.md`, the opening paragraph currently states "there is no signed installer" as the reason for the portable manifest. That reasoning survives — the installer is unsigned — but the flat claim no longer does. Replace the first paragraph of the intro section's second sentence with:
 
 ```markdown
 The Windows release ships a self-contained, AOT-compiled **zip** *and*, since #91's packaging
-half landed, an unsigned Velopack installer (`NovaTerminal-Setup-win-x64-<tag>.exe`). Neither is
+half landed, an unsigned Velopack installer (`ntilde-Setup-win-x64-<tag>.exe`). Neither is
 code-signed. The winget manifest deliberately packages the **zip** as a **portable** app
 (`InstallerType: zip`, `NestedInstallerType: portable`) rather than pointing at the installer:
 that keeps winget's install out of Velopack's updater's way, so the two never both believe they
@@ -347,13 +347,13 @@ In `README.md`, add the installer to the install instructions alongside the exis
 ```markdown
 **Windows**
 
-- **Installer** — download `NovaTerminal-Setup-win-x64-<tag>.exe` from the
-  [latest release](https://github.com/benyblack/NovaTerminal/releases/latest). Installs per-user
+- **Installer** — download `ntilde-Setup-win-x64-<tag>.exe` from the
+  [latest release](https://github.com/benyblack/ntilde/releases/latest). Installs per-user
   (no admin prompt), adds a Start Menu entry, and updates itself in the background.
-- **Portable** — download `NovaTerminal-win-x64-<tag>.zip` and extract it anywhere. No updater.
-- **winget** — `winget install benyblack.NovaTerminal` (portable package).
+- **Portable** — download `ntilde-win-x64-<tag>.zip` and extract it anywhere. No updater.
+- **winget** — `winget install benyblack.ntilde` (portable package).
 
-The installer and the executables are **not code-signed yet** ([#91](https://github.com/benyblack/NovaTerminal/issues/91)),
+The installer and the executables are **not code-signed yet** ([#91](https://github.com/benyblack/ntilde/issues/91)),
 so SmartScreen will warn on first run. Choose *More info → Run anyway*.
 ```
 
@@ -364,7 +364,7 @@ git add .github/workflows/release.yml packaging/winget/README.md README.md
 git commit -m "feat(release): publish a Windows installer and Velopack update feed
 
 Wraps the existing win-x64 AOT publish output with vpk pack, adding
-NovaTerminal-Setup-win-x64-<tag>.exe plus the full/delta nupkgs and
+ntilde-Setup-win-x64-<tag>.exe plus the full/delta nupkgs and
 releases.win.json to the release. The portable zip keeps its exact name and
 contents, so packaging/winget needs no manifest change.
 
@@ -384,30 +384,30 @@ Refs #91"
 The coordinator holds every rule the design states (honour the settings toggle, never surface failures, no-op when not installed) and knows nothing about Velopack or Avalonia. That is what makes the rules testable on ubuntu with no network and no install.
 
 **Files:**
-- Create: `src/NovaTerminal.App/Update/IUpdateService.cs`
-- Create: `src/NovaTerminal.App/Update/UpdateCoordinator.cs`
-- Test: `tests/NovaTerminal.App.Tests/Update/UpdateCoordinatorTests.cs`
+- Create: `src/Ntilde.App/Update/IUpdateService.cs`
+- Create: `src/Ntilde.App/Update/UpdateCoordinator.cs`
+- Test: `tests/Ntilde.App.Tests/Update/UpdateCoordinatorTests.cs`
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
 - Produces:
-  - `NovaTerminal.Update.IUpdateService` — `bool IsSupported { get; }`, `Task<UpdateAvailability> CheckAndDownloadAsync(CancellationToken)`, `void ApplyAndRestart()`
+  - `Ntilde.Update.IUpdateService` — `bool IsSupported { get; }`, `Task<UpdateAvailability> CheckAndDownloadAsync(CancellationToken)`, `void ApplyAndRestart()`
   - `readonly record struct UpdateAvailability(bool HasUpdate, string? Version)`
   - `enum UpdateCheckOutcome { Unsupported, Disabled, UpToDate, Failed, UpdateReady }`
   - `sealed class UpdateCoordinator(IUpdateService service, Func<bool> automaticChecksEnabled, Action<string> onUpdateReady, Action<string> log)` with `Task<UpdateCheckOutcome> RunAutomaticCheckAsync(CancellationToken ct = default)`, `Task<UpdateCheckOutcome> RunManualCheckAsync(CancellationToken ct = default)`, `bool IsUpdateStaged { get; }`, `string? StagedVersion { get; }`, `void ApplyStagedUpdate()`
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/NovaTerminal.App.Tests/Update/UpdateCoordinatorTests.cs`:
+Create `tests/Ntilde.App.Tests/Update/UpdateCoordinatorTests.cs`:
 
 ```csharp
 using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.Update;
+using Ntilde.Update;
 
-namespace NovaTerminal.AppTests.Update;
+namespace Ntilde.AppTests.Update;
 
 public class UpdateCoordinatorTests
 {
@@ -564,20 +564,20 @@ public class UpdateCoordinatorTests
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~UpdateCoordinatorTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~UpdateCoordinatorTests"
 ```
 
-Expected: FAIL at compile time — `NovaTerminal.Update` does not exist.
+Expected: FAIL at compile time — `Ntilde.Update` does not exist.
 
 - [ ] **Step 3: Write the seam**
 
-Create `src/NovaTerminal.App/Update/IUpdateService.cs`:
+Create `src/Ntilde.App/Update/IUpdateService.cs`:
 
 ```csharp
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Update
+namespace Ntilde.Update
 {
     /// <summary>
     /// What an update host can do, expressed without reference to Velopack, Avalonia or the
@@ -616,14 +616,14 @@ namespace NovaTerminal.Update
 
 - [ ] **Step 4: Write the coordinator**
 
-Create `src/NovaTerminal.App/Update/UpdateCoordinator.cs`:
+Create `src/Ntilde.App/Update/UpdateCoordinator.cs`:
 
 ```csharp
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Update
+namespace Ntilde.Update
 {
     /// <summary>Why a check ended the way it did. Returned for tests and logging, not for display.</summary>
     public enum UpdateCheckOutcome
@@ -752,7 +752,7 @@ namespace NovaTerminal.Update
 - [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~UpdateCoordinatorTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~UpdateCoordinatorTests"
 ```
 
 Expected: all 9 tests PASS.
@@ -760,7 +760,7 @@ Expected: all 9 tests PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Update/IUpdateService.cs src/NovaTerminal.App/Update/UpdateCoordinator.cs tests/NovaTerminal.App.Tests/Update/UpdateCoordinatorTests.cs
+git add src/Ntilde.App/Update/IUpdateService.cs src/Ntilde.App/Update/UpdateCoordinator.cs tests/Ntilde.App.Tests/Update/UpdateCoordinatorTests.cs
 git commit -m "feat(update): add the update coordinator behind a Velopack-free seam
 
 Every rule the design states - honour the settings toggle, never surface a
@@ -778,27 +778,27 @@ Refs #91"
 ### Task 4: `VelopackUpdateService` — the real implementation
 
 **Files:**
-- Create: `src/NovaTerminal.App/Update/VelopackUpdateService.cs`
-- Test: `tests/NovaTerminal.App.Tests/Update/VelopackUpdateServiceTests.cs`
+- Create: `src/Ntilde.App/Update/VelopackUpdateService.cs`
+- Test: `tests/Ntilde.App.Tests/Update/VelopackUpdateServiceTests.cs`
 
 **Interfaces:**
 - Consumes: `IUpdateService`, `UpdateAvailability` from Task 3.
-- Produces: `sealed class VelopackUpdateService : IUpdateService` with `VelopackUpdateService(string repoUrl, Action<string> log)` and `const string DefaultRepoUrl = "https://github.com/benyblack/NovaTerminal"`.
+- Produces: `sealed class VelopackUpdateService : IUpdateService` with `VelopackUpdateService(string repoUrl, Action<string> log)` and `const string DefaultRepoUrl = "https://github.com/benyblack/ntilde"`.
 
 > **If Task 1 Step 9 landed on outcome 3** (AOT warnings on `UpdateManager` / `GithubSource`), stop: this task's implementation is the one the fallback replaces, and it needs re-planning against `Update.exe` rather than the in-process SDK.
 
 - [ ] **Step 1: Write the failing test**
 
-Only one behaviour here is testable without a real install — and it happens to be the one that protects every non-installed user. Create `tests/NovaTerminal.App.Tests/Update/VelopackUpdateServiceTests.cs`:
+Only one behaviour here is testable without a real install — and it happens to be the one that protects every non-installed user. Create `tests/Ntilde.App.Tests/Update/VelopackUpdateServiceTests.cs`:
 
 ```csharp
 using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.Update;
+using Ntilde.Update;
 
-namespace NovaTerminal.AppTests.Update;
+namespace Ntilde.AppTests.Update;
 
 public class VelopackUpdateServiceTests
 {
@@ -841,14 +841,14 @@ public class VelopackUpdateServiceTests
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~VelopackUpdateServiceTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~VelopackUpdateServiceTests"
 ```
 
 Expected: FAIL at compile time — `VelopackUpdateService` does not exist.
 
 - [ ] **Step 3: Write the implementation**
 
-Create `src/NovaTerminal.App/Update/VelopackUpdateService.cs`:
+Create `src/Ntilde.App/Update/VelopackUpdateService.cs`:
 
 ```csharp
 using System;
@@ -857,7 +857,7 @@ using System.Threading.Tasks;
 using Velopack;
 using Velopack.Sources;
 
-namespace NovaTerminal.Update
+namespace Ntilde.Update
 {
     /// <summary>
     /// <see cref="IUpdateService"/> over Velopack, reading releases straight off this repo's
@@ -869,7 +869,7 @@ namespace NovaTerminal.Update
     /// </remarks>
     public sealed class VelopackUpdateService : IUpdateService
     {
-        public const string DefaultRepoUrl = "https://github.com/benyblack/NovaTerminal";
+        public const string DefaultRepoUrl = "https://github.com/benyblack/ntilde";
 
         private readonly Action<string> _log;
         private readonly UpdateManager _manager;
@@ -932,7 +932,7 @@ namespace NovaTerminal.Update
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~VelopackUpdateServiceTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~VelopackUpdateServiceTests"
 ```
 
 Expected: 3 tests PASS. If compilation fails on `update.TargetFullRelease.Version`, fix it against the real Velopack 1.2.0 API rather than casting around it — that property path is the one member name in this plan taken from documentation rather than read off this repo.
@@ -942,7 +942,7 @@ Expected: 3 tests PASS. If compilation fails on `update.TargetFullRelease.Versio
 Task 1's spike only had the startup hook. This is the first build where `UpdateManager`, `GithubSource` and the JSON feed parsing are reachable from `Main`, which is where AOT problems would actually appear.
 
 ```bash
-scripts/build.ps1 publish src/NovaTerminal.App/NovaTerminal.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o artifacts/publish/aot-spike2 2>&1 | grep -E "IL2026|IL2104|IL3050|IL3053|warning IL" | sort -u
+scripts/build.ps1 publish src/Ntilde.App/Ntilde.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o artifacts/publish/aot-spike2 2>&1 | grep -E "IL2026|IL2104|IL3050|IL3053|warning IL" | sort -u
 ```
 
 Expected: publish succeeds. Any Velopack-attributed `IL2026`/`IL3050` here is the design's fallback trigger — stop and report rather than shipping an updater that fails only in the AOT build users actually get.
@@ -950,7 +950,7 @@ Expected: publish succeeds. Any Velopack-attributed `IL2026`/`IL3050` here is th
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Update/VelopackUpdateService.cs tests/NovaTerminal.App.Tests/Update/VelopackUpdateServiceTests.cs
+git add src/Ntilde.App/Update/VelopackUpdateService.cs tests/Ntilde.App.Tests/Update/VelopackUpdateServiceTests.cs
 git commit -m "feat(update): implement the update service over Velopack + GitHub releases
 
 Reads releases straight off this repo with prerelease:false, so a prerelease
@@ -970,10 +970,10 @@ Refs #91"
 ### Task 5: The `AutomaticUpdateChecks` setting
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/TerminalSettings.cs` (new property near the notification settings)
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml:596-601` (new row after "Long command notifications")
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml.cs:2023-2024` (load) and `:2278-2279` (save)
-- Test: `tests/NovaTerminal.App.Tests/Update/UpdateSettingsTests.cs`
+- Modify: `src/Ntilde.App/Shell/TerminalSettings.cs` (new property near the notification settings)
+- Modify: `src/Ntilde.App/SettingsWindow.axaml:596-601` (new row after "Long command notifications")
+- Modify: `src/Ntilde.App/SettingsWindow.axaml.cs:2023-2024` (load) and `:2278-2279` (save)
+- Test: `tests/Ntilde.App.Tests/Update/UpdateSettingsTests.cs`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -981,13 +981,13 @@ Refs #91"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/NovaTerminal.App.Tests/Update/UpdateSettingsTests.cs`. The round-trip matters because settings are serialized through a source-generated `JsonSerializerContext` (`Shell/AppJsonContext.cs`) for AOT — a property that is not carried by that context silently loses the user's choice.
+Create `tests/Ntilde.App.Tests/Update/UpdateSettingsTests.cs`. The round-trip matters because settings are serialized through a source-generated `JsonSerializerContext` (`Shell/AppJsonContext.cs`) for AOT — a property that is not carried by that context silently loses the user's choice.
 
 ```csharp
 using System.Text.Json;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.AppTests.Update;
+namespace Ntilde.AppTests.Update;
 
 public class UpdateSettingsTests
 {
@@ -1025,14 +1025,14 @@ public class UpdateSettingsTests
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~UpdateSettingsTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~UpdateSettingsTests"
 ```
 
 Expected: FAIL at compile time — `AutomaticUpdateChecks` does not exist.
 
 - [ ] **Step 3: Add the property**
 
-In `src/NovaTerminal.App/Shell/TerminalSettings.cs`, add next to the other notification-shaped booleans:
+In `src/Ntilde.App/Shell/TerminalSettings.cs`, add next to the other notification-shaped booleans:
 
 ```csharp
         // Governs the once-per-launch background update check (#91). Default on: an installed
@@ -1047,14 +1047,14 @@ In `src/NovaTerminal.App/Shell/TerminalSettings.cs`, add next to the other notif
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~UpdateSettingsTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~UpdateSettingsTests"
 ```
 
 Expected: 3 tests PASS. `AppJsonContext` already declares `[JsonSerializable(typeof(TerminalSettings))]`, so the source generator picks up the new property with no change there.
 
 - [ ] **Step 5: Add the settings row**
 
-In `src/NovaTerminal.App/SettingsWindow.axaml`, after the "Long command notifications" `Grid` and its trailing `Border` separator:
+In `src/Ntilde.App/SettingsWindow.axaml`, after the "Long command notifications" `Grid` and its trailing `Border` separator:
 
 ```xml
                             <Grid ColumnDefinitions="*,360">
@@ -1069,7 +1069,7 @@ In `src/NovaTerminal.App/SettingsWindow.axaml`, after the "Long command notifica
 
 - [ ] **Step 6: Wire load and save**
 
-In `src/NovaTerminal.App/SettingsWindow.axaml.cs`, after the `longCommandNotificationsToggle` **load** line (~2023):
+In `src/Ntilde.App/SettingsWindow.axaml.cs`, after the `longCommandNotificationsToggle` **load** line (~2023):
 
 ```csharp
             var automaticUpdateChecksToggle = this.FindControl<CheckBox>("AutomaticUpdateChecksToggle");
@@ -1086,11 +1086,11 @@ and after the `longCommandNotificationsToggle` **save** line (~2278):
 - [ ] **Step 7: Build and re-run the tests**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~UpdateSettingsTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~UpdateSettingsTests"
 ```
 
 Expected: build succeeds, 3 tests PASS.
@@ -1098,7 +1098,7 @@ Expected: build succeeds, 3 tests PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Shell/TerminalSettings.cs src/NovaTerminal.App/SettingsWindow.axaml src/NovaTerminal.App/SettingsWindow.axaml.cs tests/NovaTerminal.App.Tests/Update/UpdateSettingsTests.cs
+git add src/Ntilde.App/Shell/TerminalSettings.cs src/Ntilde.App/SettingsWindow.axaml src/Ntilde.App/SettingsWindow.axaml.cs tests/Ntilde.App.Tests/Update/UpdateSettingsTests.cs
 git commit -m "feat(update): add the automatic-update-checks setting
 
 Defaults to on, and a settings file written before the property existed
@@ -1115,8 +1115,8 @@ Refs #91"
 ### Task 6: Wire it into the window — toast, startup check, palette
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml` (new `UpdateToast` border after the `RecordingToast` border, ~line 226)
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` (fields; `OnOpened` ~line 132; `SetupCommandPalette` ~line 4440; new methods near `ShowRecordingToast` ~line 6005)
+- Modify: `src/Ntilde.App/MainWindow.axaml` (new `UpdateToast` border after the `RecordingToast` border, ~line 226)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` (fields; `OnOpened` ~line 132; `SetupCommandPalette` ~line 4440; new methods near `ShowRecordingToast` ~line 6005)
 
 **Interfaces:**
 - Consumes: `UpdateCoordinator`, `UpdateCheckOutcome` (Task 3); `VelopackUpdateService` (Task 4); `TerminalSettings.AutomaticUpdateChecks` (Task 5).
@@ -1124,7 +1124,7 @@ Refs #91"
 
 - [ ] **Step 1: Add the toast markup**
 
-In `src/NovaTerminal.App/MainWindow.axaml`, immediately after the `RecordingToast` `Border`'s closing tag. It sits **bottom**-right while the recording toast sits top-right: the two are independent notices and can be live at once, so they must not share a surface or a position.
+In `src/Ntilde.App/MainWindow.axaml`, immediately after the `RecordingToast` `Border`'s closing tag. It sits **bottom**-right while the recording toast sits top-right: the two are independent notices and can be live at once, so they must not share a surface or a position.
 
 ```xml
         <!-- Update-ready notice (#91). Deliberately not the RecordingToast: a recording toast and
@@ -1180,10 +1180,10 @@ In `src/NovaTerminal.App/MainWindow.axaml`, immediately after the `RecordingToas
 
 - [ ] **Step 2: Add the fields**
 
-In `src/NovaTerminal.App/MainWindow.axaml.cs`, next to the `_recordingToast*` fields (~line 89):
+In `src/Ntilde.App/MainWindow.axaml.cs`, next to the `_recordingToast*` fields (~line 89):
 
 ```csharp
-        private NovaTerminal.Update.UpdateCoordinator? _updateCoordinator;
+        private Ntilde.Update.UpdateCoordinator? _updateCoordinator;
         private readonly DispatcherTimer _updateCheckTimer = new() { Interval = TimeSpan.FromSeconds(10) };
 ```
 
@@ -1206,7 +1206,7 @@ Next to `ShowRecordingToast` / `HideRecordingToast` (~line 6005):
                 return;
             }
 
-            messageBlock.Text = $"NovaTerminal {version} is downloaded and will be applied when you restart.";
+            messageBlock.Text = $"Ntilde {version} is downloaded and will be applied when you restart.";
             toast.IsVisible = true;
         }
 
@@ -1226,9 +1226,9 @@ Next to `ShowRecordingToast` / `HideRecordingToast` (~line 6005):
         /// </summary>
         private void StartUpdateChecks()
         {
-            _updateCoordinator = new NovaTerminal.Update.UpdateCoordinator(
-                new NovaTerminal.Update.VelopackUpdateService(
-                    NovaTerminal.Update.VelopackUpdateService.DefaultRepoUrl,
+            _updateCoordinator = new Ntilde.Update.UpdateCoordinator(
+                new Ntilde.Update.VelopackUpdateService(
+                    Ntilde.Update.VelopackUpdateService.DefaultRepoUrl,
                     message => TerminalLogger.Log(message)),
                 () => _settings.AutomaticUpdateChecks,
                 version => Dispatcher.UIThread.Post(() =>
@@ -1319,24 +1319,24 @@ A manual check is the one case that reports failure — the user asked, so silen
             var outcome = await _updateCoordinator.RunManualCheckAsync();
             switch (outcome)
             {
-                case NovaTerminal.Update.UpdateCheckOutcome.UpdateReady:
+                case Ntilde.Update.UpdateCheckOutcome.UpdateReady:
                     // The coordinator's onUpdateReady callback already raised the toast.
                     break;
-                case NovaTerminal.Update.UpdateCheckOutcome.UpToDate:
+                case Ntilde.Update.UpdateCheckOutcome.UpToDate:
                     ShowRecordingToast("Up to date", "You are running the newest version.", null, null, autoHide: true);
                     break;
-                case NovaTerminal.Update.UpdateCheckOutcome.Unsupported:
+                case Ntilde.Update.UpdateCheckOutcome.Unsupported:
                     ShowRecordingToast(
                         "Updates unavailable",
-                        "This build was not installed by the NovaTerminal installer, so it cannot update itself. Download the installer from the releases page to get automatic updates.",
+                        "This build was not installed by the Ntilde installer, so it cannot update itself. Download the installer from the releases page to get automatic updates.",
                         null,
                         null,
                         autoHide: true);
                     break;
-                case NovaTerminal.Update.UpdateCheckOutcome.Failed:
+                case Ntilde.Update.UpdateCheckOutcome.Failed:
                     ShowRecordingToast("Update check failed", "Could not reach GitHub. See the debug log for details.", null, null, autoHide: true);
                     break;
-                case NovaTerminal.Update.UpdateCheckOutcome.Disabled:
+                case Ntilde.Update.UpdateCheckOutcome.Disabled:
                     // Unreachable: a manual check ignores the automatic-checks setting.
                     break;
             }
@@ -1346,7 +1346,7 @@ A manual check is the one case that reports failure — the user asked, so silen
 - [ ] **Step 7: Build**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 Expected: succeeds. If `Dispatcher` or `DispatcherTimer` is unresolved, add `using Avalonia.Threading;` — check the existing usings first, since `_recordingToastTimer` is a `DispatcherTimer` in the same file and the namespace is almost certainly already imported.
@@ -1354,7 +1354,7 @@ Expected: succeeds. If `Dispatcher` or `DispatcherTimer` is unresolved, add `usi
 - [ ] **Step 8: Run the App.Tests suite for regressions**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "Category!=ShellIntegration"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "Category!=ShellIntegration"
 ```
 
 Expected: no new failures versus the pre-change baseline. `ShellIntegration` is excluded because those tests are the known trigger for the headless dispatcher deadlock (#81).
@@ -1363,17 +1363,17 @@ Expected: no new failures versus the pre-change baseline. `ShellIntegration` is 
 
 Automated GUI checks are unreliable here, so verify by hand:
 
-1. `scripts/build.ps1 run --project src/NovaTerminal.App` (or launch the built exe).
+1. `scripts/build.ps1 run --project src/Ntilde.App` (or launch the built exe).
 2. The app starts normally; no update toast appears (a dev run is not a Velopack install).
 3. Open the command palette. **"Update: Check for updates"** is present.
-4. Run it. Expect the *"Updates unavailable — this build was not installed by the NovaTerminal installer"* toast, **not** a failure toast and not silence.
+4. Run it. Expect the *"Updates unavailable — this build was not installed by the Ntilde installer"* toast, **not** a failure toast and not silence.
 5. Open Settings → find **Automatic update checks**, confirm it is on, toggle it off, save, reopen Settings, confirm it stayed off. Toggle it back on.
 6. Confirm the debug log (`AppLogger.GetLogFilePath()`) contains no update-related exception.
 
 - [ ] **Step 10: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml src/NovaTerminal.App/MainWindow.axaml.cs
+git add src/Ntilde.App/MainWindow.axaml src/Ntilde.App/MainWindow.axaml.cs
 git commit -m "feat(update): surface staged updates in the window and palette
 
 The check fires once, 10 seconds after the window opens, so it stays off the
@@ -1406,11 +1406,11 @@ The manual end-to-end run is the only thing that proves the whole chain — and 
 - [ ] **Step 1: Confirm the whole test surface is green before releasing anything**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests
+scripts/build.ps1 test tests/Ntilde.Architecture.Tests
 ```
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "Category!=ShellIntegration"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "Category!=ShellIntegration"
 ```
 
 - [ ] **Step 2: Cut the first release carrying the installer**
@@ -1427,7 +1427,7 @@ rtk gh run list --workflow release.yml --limit 3
 rtk gh release view <tag>
 ```
 
-Expected on the release: the three existing zips **unchanged in name**, plus `NovaTerminal-Setup-win-x64-<tag>.exe`, `NovaTerminal-<version>-full.nupkg`, and `releases.win.json`. No `*-delta.nupkg` on this first one — there was no prior Velopack release to diff against, which is expected, and the `Download previous Velopack release` step is expected to have logged a miss without failing.
+Expected on the release: the three existing zips **unchanged in name**, plus `ntilde-Setup-win-x64-<tag>.exe`, `ntilde-<version>-full.nupkg`, and `releases.win.json`. No `*-delta.nupkg` on this first one — there was no prior Velopack release to diff against, which is expected, and the `Download previous Velopack release` step is expected to have logged a miss without failing.
 
 - [ ] **Step 4: Verify winget was not disturbed**
 
@@ -1435,7 +1435,7 @@ Expected on the release: the three existing zips **unchanged in name**, plus `No
 rtk gh release view <tag> --json assets --jq '.assets[].name'
 ```
 
-Confirm `NovaTerminal-win-x64-<tag>.zip` is present with exactly that name. The winget manifest's `InstallerUrl` pattern depends on it.
+Confirm `ntilde-win-x64-<tag>.zip` is present with exactly that name. The winget manifest's `InstallerUrl` pattern depends on it.
 
 - [ ] **Step 5: Install and inspect**
 
@@ -1446,7 +1446,7 @@ Download and run the installer on Windows. Verify: it installs without a UAC pro
 Cut a second release (bump `Version` in `Directory.Build.props` and push the next tag). Then, in the *installed* vN app:
 
 1. Launch it and wait ~15 seconds.
-2. The update toast appears: "NovaTerminal <vN+1> is downloaded and will be applied when you restart."
+2. The update toast appears: "Ntilde <vN+1> is downloaded and will be applied when you restart."
 3. The palette shows **"Update: Restart to apply <vN+1>"**.
 4. Click **Restart now**. The app restarts on vN+1 — confirm via the debug log's `Build:` line.
 5. Confirm the vN+1 release carries a `*-delta.nupkg`, and that the debug log shows the delta being used rather than the full package.
@@ -1454,7 +1454,7 @@ Cut a second release (bump `Version` in `Directory.Build.props` and push the nex
 
 - [ ] **Step 7: Record what happened**
 
-If everything passes, comment the verified behaviour on [#91](https://github.com/benyblack/NovaTerminal/issues/91) and note that only code signing remains open there. If anything failed, open a defect issue per failure with the log excerpt rather than patching blind — an updater that half-works is worse than one that is honestly absent.
+If everything passes, comment the verified behaviour on [#91](https://github.com/benyblack/ntilde/issues/91) and note that only code signing remains open there. If anything failed, open a defect issue per failure with the log excerpt rather than patching blind — an updater that half-works is worse than one that is honestly absent.
 
 ---
 

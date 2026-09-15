@@ -13,7 +13,7 @@
 ### Task 1: Add failing calculator tests for the SSH cursor-band fallback
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistAnchorCalculatorTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -28,7 +28,7 @@
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistAnchorCalculatorTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistAnchorCalculatorTests"
 ```
 
 Expected: FAIL because the current unreliable-anchor path always uses the static lower safe zone.
@@ -36,7 +36,7 @@ Expected: FAIL because the current unreliable-anchor path always uses the static
 ### Task 2: Implement the calculator fallback
 
 **Files:**
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistAnchorCalculator.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistAnchorCalculator.cs`
 
 **Step 1: Write minimal implementation**
 
@@ -50,7 +50,7 @@ Expected: FAIL because the current unreliable-anchor path always uses the static
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistAnchorCalculatorTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistAnchorCalculatorTests"
 ```
 
 Expected: PASS.
@@ -58,7 +58,7 @@ Expected: PASS.
 ### Task 3: Add failing pane-level SSH layout tests
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -70,7 +70,7 @@ Expected: PASS.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistLayoutTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistLayoutTests"
 ```
 
 Expected: FAIL on the new settled-SSH case before `TerminalPane` feeds the calculator correctly.
@@ -78,7 +78,7 @@ Expected: FAIL on the new settled-SSH case before `TerminalPane` feeds the calcu
 ### Task 4: Wire the pane into the new fallback
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
 
 **Step 1: Write minimal implementation**
 
@@ -91,7 +91,7 @@ Expected: FAIL on the new settled-SSH case before `TerminalPane` feeds the calcu
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistLayoutTests|FullyQualifiedName~CommandAssistAnchorCalculatorTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistLayoutTests|FullyQualifiedName~CommandAssistAnchorCalculatorTests"
 ```
 
 Expected: PASS.
@@ -106,7 +106,7 @@ Expected: PASS.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~NovaTerminal.Tests.CommandAssist"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~Ntilde.Tests.CommandAssist"
 ```
 
 Expected: PASS.
@@ -116,7 +116,7 @@ Expected: PASS.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release
 ```
 
 Expected: PASS.

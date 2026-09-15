@@ -1,7 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <ItemGroup>
-    <ProjectReference Include="..\NovaTerminal.VT\NovaTerminal.VT.csproj" />
-  </ItemGroup>
-
-</Project>

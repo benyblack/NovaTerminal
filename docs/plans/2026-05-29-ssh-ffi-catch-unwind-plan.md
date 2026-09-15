@@ -16,13 +16,13 @@
 
 | File | Change |
 |---|---|
-| `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs` | add `ffi_guard` + `NOVA_SSH_RESULT_PANIC`; wrap 13 `extern "C"` fns; poison-tolerant locks; `#[cfg(test)]` tests |
-| `src/NovaTerminal.App/native/src/lib.rs` (rusty_pty) | add `ffi_guard`; wrap 8 `extern "C"` fns; `#[cfg(test)]` test |
-| `src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs` | add `ResultPanic = -7` constant + message |
+| `src/Ntilde.App/native/rusty_ssh/src/lib.rs` | add `ffi_guard` + `NOVA_SSH_RESULT_PANIC`; wrap 13 `extern "C"` fns; poison-tolerant locks; `#[cfg(test)]` tests |
+| `src/Ntilde.App/native/src/lib.rs` (rusty_pty) | add `ffi_guard`; wrap 8 `extern "C"` fns; `#[cfg(test)]` test |
+| `src/Ntilde.Platform/Ssh/Native/NativeSshInterop.cs` | add `ResultPanic = -7` constant + message |
 
 **Crate dirs** (run `cargo` from these):
-- rusty_ssh: `src/NovaTerminal.App/native/rusty_ssh`
-- rusty_pty: `src/NovaTerminal.App/native`
+- rusty_ssh: `src/Ntilde.App/native/rusty_ssh`
+- rusty_pty: `src/Ntilde.App/native`
 
 **Out of scope:** rewriting all 45 `.unwrap()` (the guard neutralizes them), `panic = "abort"` (rejected — incompatible with `catch_unwind`), any `Cargo.toml` `[profile]` change.
 
@@ -64,7 +64,7 @@
 ## Task 1: rusty_ssh — `ffi_guard` helper + `NOVA_SSH_RESULT_PANIC` (TDD)
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs` (result-code block ~line 93–100; add helper + tests)
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs` (result-code block ~line 93–100; add helper + tests)
 
 - [ ] **Step 1: Add the panic result code** after line 100 (`NOVA_SSH_RESULT_CANCELED`):
 
@@ -113,13 +113,13 @@ mod ffi_guard_tests {
 
 - [ ] **Step 4: Run the tests — verify they pass.**
 
-Run (from `src/NovaTerminal.App/native/rusty_ssh`): `cargo test ffi_guard`
+Run (from `src/Ntilde.App/native/rusty_ssh`): `cargo test ffi_guard`
 Expected: `test result: ok. 2 passed`. (If `ffi_guard` is reported as dead code with `#[deny(warnings)]`, ignore for now — Task 2 uses it.)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs
+git add src/Ntilde.App/native/rusty_ssh/src/lib.rs
 git commit -m "feat(ssh-ffi): add ffi_guard catch_unwind helper + NOVA_SSH_RESULT_PANIC (#75)"
 ```
 
@@ -128,7 +128,7 @@ git commit -m "feat(ssh-ffi): add ffi_guard catch_unwind helper + NOVA_SSH_RESUL
 ## Task 2: rusty_ssh — wrap all 13 extern fns + poison-tolerant locks
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs` (the 13 `extern "C"` fns; the `.lock().expect("… poisoned")` sites)
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs` (the 13 `extern "C"` fns; the `.lock().expect("… poisoned")` sites)
 
 - [ ] **Step 1: Wrap each `extern "C"` body in `ffi_guard`.** For every function in the rusty_ssh table above, wrap the existing body. The transform is mechanical — keep the body verbatim, indent it inside the closure. Example for `nova_ssh_poll_event` (currently lines ~589–624):
 
@@ -188,14 +188,14 @@ So e.g. `self.closed.lock().expect("closed mutex poisoned")` becomes `self.close
 
 - [ ] **Step 3: Catch any remaining bare std-Mutex unwraps.** Search for stragglers:
 
-Run (from `src/NovaTerminal.App/native/rusty_ssh`): `rg -n "\.lock\(\)\s*\.\s*(unwrap|expect)" src/lib.rs`
+Run (from `src/Ntilde.App/native/rusty_ssh`): `rg -n "\.lock\(\)\s*\.\s*(unwrap|expect)" src/lib.rs`
 Expected: **no matches**. If any remain on a `std::sync::Mutex`, convert them to `.unwrap_or_else(|e| e.into_inner())` too. (Leave `tokio::sync::Mutex` `.lock().await` calls untouched — they don't poison and return a guard directly.)
 
 - [ ] **Step 4: Verify every extern fn is guarded.** Run: `rg -n "pub extern \"C\" fn" src/lib.rs` → 13 functions; spot-check that each body now begins with `ffi_guard(`.
 
 - [ ] **Step 5: Build + test.**
 
-Run (from `src/NovaTerminal.App/native/rusty_ssh`): `cargo build --release` then `cargo test`
+Run (from `src/Ntilde.App/native/rusty_ssh`): `cargo build --release` then `cargo test`
 Expected: build succeeds (0 errors); all tests pass.
 
 - [ ] **Step 6: Add a boundary smoke test** at the end of the `ffi_guard_tests` module — call a real guarded fn with a null arg and assert it returns a defined code, not a crash:
@@ -213,7 +213,7 @@ Run: `cargo test` → passes.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs
+git add src/Ntilde.App/native/rusty_ssh/src/lib.rs
 git commit -m "fix(ssh-ffi): guard all extern \"C\" fns with catch_unwind; poison-tolerant locks (#75)"
 ```
 
@@ -222,7 +222,7 @@ git commit -m "fix(ssh-ffi): guard all extern \"C\" fns with catch_unwind; poiso
 ## Task 3: rusty_pty — `ffi_guard` helper + wrap all 8 extern fns (TDD)
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/src/lib.rs` (top of file; the 8 `extern "C"` fns; tests at end)
+- Modify: `src/Ntilde.App/native/src/lib.rs` (top of file; the 8 `extern "C"` fns; tests at end)
 
 - [ ] **Step 1: Add the `ffi_guard` helper** near the top of `lib.rs` (after the existing `use` block). Add `use std::panic::{catch_unwind, AssertUnwindSafe};` if not present:
 
@@ -258,21 +258,21 @@ mod ffi_guard_tests {
 
 - [ ] **Step 3: Run the test.**
 
-Run (from `src/NovaTerminal.App/native`): `cargo test ffi_guard`
+Run (from `src/Ntilde.App/native`): `cargo test ffi_guard`
 Expected: `1 passed`.
 
 - [ ] **Step 4: Wrap each of the 8 `extern "C"` bodies** in `ffi_guard` using the `on_panic` value from the rusty_pty table (pointer fns → `std::ptr::null_mut()`, `c_int` fns → `-1`, void fns → `()`). Same mechanical transform as Task 2 Step 1: keep the body verbatim inside `ffi_guard(<default>, || { ... })`.
 
 - [ ] **Step 5: Verify all guarded + build + test.**
 
-Run (from `src/NovaTerminal.App/native`): `rg -n "pub extern \"C\" fn" src/lib.rs` → 8 fns, each body begins with `ffi_guard(`.
+Run (from `src/Ntilde.App/native`): `rg -n "pub extern \"C\" fn" src/lib.rs` → 8 fns, each body begins with `ffi_guard(`.
 Run: `cargo build --release` then `cargo test`
 Expected: build 0 errors; tests pass. (rusty_pty locks are already `if let Ok(..) = ..lock()` poison-tolerant — no lock changes needed.)
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/src/lib.rs
+git add src/Ntilde.App/native/src/lib.rs
 git commit -m "fix(pty-ffi): guard all extern \"C\" fns with catch_unwind (#75)"
 ```
 
@@ -281,7 +281,7 @@ git commit -m "fix(pty-ffi): guard all extern \"C\" fns with catch_unwind (#75)"
 ## Task 4: Managed — `ResultPanic` constant for clear messaging
 
 **Files:**
-- Modify: `src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs` (the result-code constants block, ~lines 12–17)
+- Modify: `src/Ntilde.Platform/Ssh/Native/NativeSshInterop.cs` (the result-code constants block, ~lines 12–17)
 
 - [ ] **Step 1: Add the constant** after `ResultCanceled` (line ~17):
 
@@ -308,13 +308,13 @@ If codes are only interpolated raw (no central mapping), add a guard before the 
 
 - [ ] **Step 3: Build the managed assembly.**
 
-Run (from repo root): `scripts/build.ps1 build src/NovaTerminal.Platform/NovaTerminal.Platform.csproj`
+Run (from repo root): `scripts/build.ps1 build src/Ntilde.Platform/Ntilde.Platform.csproj`
 Expected: 0 errors.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs
+git add src/Ntilde.Platform/Ssh/Native/NativeSshInterop.cs
 git commit -m "feat(ssh): surface NOVA_SSH_RESULT_PANIC with a clear managed message (#75)"
 ```
 
@@ -327,30 +327,30 @@ git commit -m "feat(ssh): surface NOVA_SSH_RESULT_PANIC with a clear managed mes
 - [ ] **Step 1: Both crates build in release.**
 
 Run (from repo root):
-`(cd src/NovaTerminal.App/native/rusty_ssh && cargo build --release)`
-`(cd src/NovaTerminal.App/native && cargo build --release)`
+`(cd src/Ntilde.App/native/rusty_ssh && cargo build --release)`
+`(cd src/Ntilde.App/native && cargo build --release)`
 Expected: both succeed, 0 errors.
 
 - [ ] **Step 2: Rust tests pass in both crates.**
 
-Run: `(cd src/NovaTerminal.App/native/rusty_ssh && cargo test)` and `(cd src/NovaTerminal.App/native && cargo test)`
+Run: `(cd src/Ntilde.App/native/rusty_ssh && cargo test)` and `(cd src/Ntilde.App/native && cargo test)`
 Expected: all pass (incl. the `ffi_guard` panic tests proving no abort).
 
 - [ ] **Step 3: No unguarded extern fn remains.**
 
-Run: `rg -n -A1 "pub extern \"C\" fn" src/NovaTerminal.App/native/rusty_ssh/src/lib.rs src/NovaTerminal.App/native/src/lib.rs`
+Run: `rg -n -A1 "pub extern \"C\" fn" src/Ntilde.App/native/rusty_ssh/src/lib.rs src/Ntilde.App/native/src/lib.rs`
 Expected: every signature's next non-signature line opens `ffi_guard(`. (Multi-line signatures: the line after the `) -> T {` opens `ffi_guard(`.)
 
 - [ ] **Step 4: Confirm no `panic = "abort"` was added.**
 
-Run: `rg -n "panic" src/NovaTerminal.App/native/rusty_ssh/Cargo.toml src/NovaTerminal.App/native/Cargo.toml`
+Run: `rg -n "panic" src/Ntilde.App/native/rusty_ssh/Cargo.toml src/Ntilde.App/native/Cargo.toml`
 Expected: **no matches** (default `unwind` preserved).
 
 - [ ] **Step 5: .NET SSH + PTY suites green** (the native libs rebuild via MSBuild targets).
 
 Run (from repo root):
-`scripts/build.ps1 test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj`
-`scripts/build.ps1 test tests/NovaTerminal.Pty.Tests/NovaTerminal.Pty.Tests.csproj` *(if such a project exists; otherwise the Pty tests live in `NovaTerminal.App.Tests` — run that: `scripts/build.ps1 test tests/NovaTerminal.App.Tests/NovaTerminal.App.Tests.csproj`)*
+`scripts/build.ps1 test tests/Ntilde.Platform.Tests/Ntilde.Platform.Tests.csproj`
+`scripts/build.ps1 test tests/Ntilde.Pty.Tests/Ntilde.Pty.Tests.csproj` *(if such a project exists; otherwise the Pty tests live in `Ntilde.App.Tests` — run that: `scripts/build.ps1 test tests/Ntilde.App.Tests/Ntilde.App.Tests.csproj`)*
 Expected: 0 failures (Docker-gated SSH E2E may skip).
 
 - [ ] **Step 6: Confirm acceptance criteria**

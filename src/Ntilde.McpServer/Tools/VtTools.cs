@@ -1,0 +1,360 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Text;
+using ModelContextProtocol.Server;
+using Ntilde.VtContract;
+
+namespace Ntilde.McpServer.Tools;
+
+[McpServerToolType]
+public static class VtTools
+{
+    // Docs that describe VT coverage / known gaps, in preference order.
+    private static readonly string[] ConformanceDocs =
+    {
+        "vt_coverage_matrix.md",
+        "vt_ghostty_gap_matrix.md",
+        "TechnicalGapChecklist.md",
+    };
+
+    [McpServerTool(Name = "ntilde.get_vt_conformance_summary"),
+     Description("Returns Ntilde's VT/ANSI conformance status and known terminal gaps, gathered from the repo's coverage/gap matrices (e.g. docs/vt_coverage_matrix.md). Use before changing parser/rendering behavior to understand what is and isn't supported.")]
+    public static string GetVtConformanceSummary(RepoContext repo)
+    {
+        var sb = new StringBuilder();
+        foreach (var doc in ConformanceDocs)
+        {
+            if (repo.TryReadDoc(doc, out var content, out _))
+            {
+                sb.Append("## Source: docs/").Append(doc).Append("\n\n");
+                sb.Append(content.TrimEnd()).Append("\n\n");
+            }
+        }
+
+        if (sb.Length == 0)
+        {
+            return "VT conformance documents could not be located. " +
+                   "Expected one of: docs/" + string.Join(", docs/", ConformanceDocs) +
+                   " (set NTILDE_REPO_ROOT if running outside the repo).";
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    // Curated explanations for the most common control sequences, keyed by a normalized token.
+    // CSI entries are keyed by final byte ("CSI:J"); OSC by numeric code ("OSC:0"); a few ESC/DCS.
+    private static readonly Dictionary<string, string> ContractSequenceTable =
+        VtCapabilityCatalog.All.ToDictionary(
+            capability => capability.Key,
+            FormatCapabilityDescription,
+            StringComparer.Ordinal);
+
+    private static readonly Dictionary<string, string> SequenceTable = new()
+    {
+        ["CSI:A"] = "CUU — Cursor Up Ps times.",
+        ["CSI:B"] = "CUD — Cursor Down Ps times.",
+        ["CSI:C"] = "CUF — Cursor Forward Ps times.",
+        ["CSI:D"] = "CUB — Cursor Back Ps times.",
+        ["CSI:H"] = "CUP — Cursor Position to row;col (1-based).",
+        ["CSI:J"] = "ED — Erase in Display (0=below, 1=above, 2=all, 3=all+scrollback).",
+        ["CSI:K"] = "EL — Erase in Line (0=right, 1=left, 2=whole line).",
+        ["CSI:L"] = "IL — Insert Ps blank lines.",
+        ["CSI:M"] = "DL — Delete Ps lines.",
+        ["CSI:P"] = "DCH — Delete Ps characters (count clamped to the line width).",
+        ["CSI:S"] = "SU — Scroll Up Ps lines (count clamped, see #124).",
+        ["CSI:T"] = "SD — Scroll Down Ps lines.",
+        ["CSI:X"] = "ECH — Erase Ps characters.",
+        ["CSI:@"] = "ICH — Insert Ps blank characters.",
+        ["CSI:b"] = "REP — Repeat the preceding character Ps times. NOT currently handled by Ntilde's parser (it has no REP handler; CSI params are clamped generically but the sequence is a no-op).",
+        ["CSI:d"] = "VPA — Line Position Absolute (row Ps).",
+        ["CSI:m"] = "SGR — Select Graphic Rendition (colors/bold/underline/etc.).",
+        ["CSI:r"] = "DECSTBM — Set Top/Bottom margins (scroll region).",
+        ["CSI:h"] = "SM / DECSET — Set (mode/private mode), e.g. ?1049h = alt screen, ?25h = show cursor, ?2004h = bracketed paste.",
+        ["CSI:l"] = "RM / DECRST — Reset (mode/private mode), e.g. ?1049l = leave alt screen, ?25l = hide cursor.",
+        ["CSI:n"] = "DSR — Device Status Report (e.g. 6n = cursor position report).",
+        ["CSI:c"] = "DA — Device Attributes (primary/secondary).",
+        ["CSI:q"] = "DECSCUSR (with space intermediate) — set cursor style.",
+        ["OSC:0"] = "Set icon name and window title.",
+        ["OSC:2"] = "Set window title.",
+        ["OSC:7"] = "Report current working directory (file:// URI).",
+        ["OSC:8"] = "Hyperlink (OSC 8 ; params ; URI ST … ST).",
+        ["OSC:52"] = "Clipboard get/set (base64). NOT currently supported by Ntilde — HandleOsc ignores OSC 52 (see docs/vt_coverage_matrix.md).",
+        ["OSC:133"] = "Shell integration markers (A=prompt, B=cmd start, C=cmd accepted, D=cmd finished).",
+        ["OSC:1337"] = "iTerm2 proprietary (incl. inline images: 1337;File=…).",
+        ["OSC:1339"] = "Tunneled Sixel/Kitty image payload.",
+        ["ESC:c"] = "RIS — Reset to Initial State (full terminal reset).",
+        ["ESC:7"] = "DECSC — Save cursor.",
+        ["ESC:8"] = "DECRC — Restore cursor.",
+        ["ESC:M"] = "RI — Reverse Index (scroll down if at top).",
+        ["DCS"] = "Device Control String — used by Ntilde for Sixel images (… q … ST).",
+        ["APC"] = "Application Program Command — used by Ntilde for Kitty graphics (ESC _ G … ST).",
+    };
+
+    /// <summary>
+    /// Final bytes whose bare form is bounded by parameter COUNT as well, because a longer
+    /// parameter list selects a different function. <c>MaxBareParameters</c> is the largest count
+    /// that is still the bare sequence; <c>ExactForms</c> names the counts that are a different
+    /// DEFINED sequence. A count that is neither is simply not a form anyone defined, and saying
+    /// which sequence it is would be a guess. Mirrors the argCount identity guards in
+    /// <c>AnsiParser.HandleCsi</c>.
+    /// </summary>
+    private static readonly Dictionary<char, (int MaxBareParameters, Dictionary<int, string> ExactForms)> ParameterDiscriminatedFinals = new()
+    {
+        // CSI Ps T is SD, one parameter. CSI Ps;Ps;Ps;Ps;Ps T is xterm's
+        // initiate-highlight-mouse-tracking, exactly five. Two to four is neither.
+        ['T'] = (1, new Dictionary<int, string>
+        {
+            [5] = "xterm initiate-highlight-mouse-tracking",
+        }),
+    };
+
+    /// <summary>
+    /// Final bytes that keep a defined meaning when a leader or an intermediate byte is present,
+    /// mapped to the qualifiers they accept. Mirrors the per-case guards in
+    /// <c>AnsiParser.HandleCsi</c> - see the <c>bare</c> local there. A final byte absent from
+    /// this table is only itself in its bare form.
+    /// </summary>
+    private static readonly Dictionary<char, string> QualifiedFinalBytes = new()
+    {
+        ['h'] = "?",    // DECSET
+        ['l'] = "?",    // DECRST
+        ['n'] = "?",    // DECXCPR
+        ['J'] = "?",    // DECSED
+        ['K'] = "?",    // DECSEL
+        ['c'] = ">",    // DA2 - secondary device attributes
+        ['u'] = "?><=", // kitty keyboard protocol
+        ['q'] = " ",    // DECSCUSR (space intermediate)
+        ['p'] = "$?",   // DECRQM
+    };
+
+    [McpServerTool(Name = "ntilde.explain_escape_sequence"),
+     Description("Explains a VT/ANSI escape sequence (standard meaning). Accepts forms like 'ESC[2J', '\\x1b[2J', 'CSI 2 J', 'CSI ?25h', 'OSC 7', or 'ESC c'. Entries note where Ntilde does NOT handle a sequence; for the authoritative support matrix use ntilde.get_vt_conformance_summary.")]
+    public static string ExplainEscapeSequence(
+        [Description("The escape sequence to explain, e.g. 'ESC[2J', 'CSI ?1049h', 'OSC 8', 'ESC c'.")] string sequence)
+    {
+        if (string.IsNullOrWhiteSpace(sequence))
+        {
+            return "Provide a sequence, e.g. 'ESC[2J', 'CSI ?25h', 'OSC 7', or 'ESC c'.";
+        }
+
+        // Normalize common notations to a canonical introducer + body.
+        string s = sequence.Trim()
+            .Replace("", "ESC", System.StringComparison.Ordinal)
+            .Replace("\\x1b", "ESC", System.StringComparison.OrdinalIgnoreCase)
+            .Replace("\\e", "ESC", System.StringComparison.OrdinalIgnoreCase);
+
+        string upper = s.ToUpperInvariant();
+
+        // CSI: "ESC[", "ESC [" or "CSI"
+        string? csiBody = null;
+        if (upper.StartsWith("ESC[", System.StringComparison.Ordinal)) csiBody = s.Substring(4);
+        else if (upper.StartsWith("ESC [", System.StringComparison.Ordinal)) csiBody = s.Substring(5);
+        else if (upper.StartsWith("CSI", System.StringComparison.Ordinal)) csiBody = s.Substring(3);
+        if (csiBody is not null)
+        {
+            // Strip whitespace the user added for readability ("CSI 2 J") so it isn't mistaken for
+            // an intermediate byte. Real intermediates are punctuation (0x21–0x2F) and survive.
+            string body = new string(csiBody.Where(c => !char.IsWhiteSpace(c)).ToArray());
+            if (body.Length == 0) return "Incomplete CSI sequence (no final byte).";
+            char finalByte = body[^1];
+            string prefix = body[..^1]; // leader/params + any intermediate bytes
+
+            // The curated table is keyed by final byte only, but intermediate bytes can select a
+            // different function (e.g. DECSCUSR is `CSI Ps SP q`), so surface them explicitly.
+            string intermediates = new string(prefix.Where(c => c >= '\x21' && c <= '\x2F').ToArray());
+            string note = intermediates.Length > 0
+                ? $" [intermediate byte(s) '{intermediates}' present — may select a different function than the bare final byte]"
+                : string.Empty;
+
+            string key = "CSI:" + finalByte;
+            // A leader or an intermediate byte selects a DIFFERENT function, so neither table's
+            // description of the bare final byte may be used for a qualified spelling unless that
+            // spelling is itself defined. CSI ? 1;1;0 S is XTSMGRAPHICS and CSI > 2 T is XTRMTITLE;
+            // the parser ignores both (#274), so calling them SU and SD tells the reader the
+            // opposite of what Ntilde does.
+            //
+            // CHA used to be special-cased here as a "qualified form ... currently processed as
+            // CHA", mirroring the parser's missing leader guard. That guard now exists, and the
+            // special case is replaced by the general rule below.
+            string qualifiers = new string(prefix.Where(c => !((c >= '0' && c <= '9') || c is ';' or ':')).ToArray());
+            bool hasStandardParameterList = qualifiers.Length == 0;
+            bool isDefinedQualifiedForm = !hasStandardParameterList
+                && QualifiedFinalBytes.TryGetValue(finalByte, out string? accepted)
+                && qualifiers.All(accepted.Contains);
+
+            // A private-parameter byte is a leader only in the FIRST position, and no parameter
+            // byte may follow an intermediate. AnsiParser.HandleCsi discards both shapes outright
+            // (the VT500 state machine sends them to csi_ignore), so they are malformed rather
+            // than "some other function", and saying the latter would be a different wrong answer.
+            bool privateByteOutOfPlace = false;
+            for (int i = 1; i < prefix.Length; i++)
+            {
+                if (prefix[i] >= '\x3C' && prefix[i] <= '\x3F') { privateByteOutOfPlace = true; break; }
+            }
+
+            int firstIntermediateIndex = -1;
+            for (int i = 0; i < prefix.Length; i++)
+            {
+                if (prefix[i] >= '\x21' && prefix[i] <= '\x2F') { firstIntermediateIndex = i; break; }
+            }
+
+            bool parameterAfterIntermediate = false;
+            for (int i = firstIntermediateIndex + 1; firstIntermediateIndex >= 0 && i < prefix.Length; i++)
+            {
+                if (prefix[i] >= '\x30' && prefix[i] <= '\x3F') { parameterAfterIntermediate = true; break; }
+            }
+
+            if (privateByteOutOfPlace || parameterAfterIntermediate)
+            {
+                return $"CSI sequence with final byte '{finalByte}': malformed. "
+                     + (privateByteOutOfPlace
+                         ? "A private-parameter byte ('<', '=', '>', '?') is only meaningful as the leader, in the first position. "
+                         : "No parameter byte may follow an intermediate byte. ")
+                     + "Ntilde's parser discards the whole sequence.";
+            }
+
+            // Parameter count can select a different function too, and the leader/intermediate
+            // gate below cannot see it: CSI 1;2;3;4;5 T has no qualifier bytes at all, so it
+            // reads as a plain parameter list and used to be described as SD - a sequence the
+            // parser deliberately ignores.
+            if (hasStandardParameterList
+                && prefix.Length > 0
+                && ParameterDiscriminatedFinals.TryGetValue(finalByte, out var discriminated))
+            {
+                // Two different counts are needed, and conflating them is what the previous two
+                // revisions of this got wrong in turn.
+                //
+                // "Is it still the bare sequence?" is the parser's question, and AnsiParser's
+                // parameter loop treats ';' and ':' alike (see the estimatedArgs scan and the ':'
+                // case), so CSI 1:2 T is two parameters there and its argCount guard ignores it.
+                // That calls for the flattened count.
+                //
+                // "Then which sequence IS it?" is a different question, and only top-level
+                // parameters answer it: ':' introduces subparameters, and the xterm form below
+                // wants five semicolon-separated fields, not one field with five subparameters.
+                // So a colon anywhere disqualifies the named form even when the flattened count
+                // matches.
+                int flattenedCount = prefix.Split(';', ':').Length;
+                int topLevelCount = prefix.Split(';').Length;
+                bool hasSubParameters = prefix.Contains(':', StringComparison.Ordinal);
+
+                if (flattenedCount > discriminated.MaxBareParameters)
+                {
+                    // Only an exact top-level match names another sequence. Anything else matches
+                    // nothing anyone defined, and naming one would trade one wrong answer for
+                    // another.
+                    return !hasSubParameters && discriminated.ExactForms.TryGetValue(topLevelCount, out string? exactForm)
+                        ? $"CSI sequence with final byte '{finalByte}': {exactForm} ({topLevelCount} parameters), "
+                          + "not the single-parameter form. Not implemented; Ntilde's parser ignores it."
+                        : $"CSI sequence with final byte '{finalByte}': this parameter list matches no "
+                          + $"defined form for this final byte (the bare sequence takes at most "
+                          + $"{discriminated.MaxBareParameters} parameter(s)"
+                          + (hasSubParameters ? ", and ':' subparameters are not part of any form here" : string.Empty)
+                          + "). Ntilde's parser ignores it.";
+                }
+            }
+
+            if (!hasStandardParameterList && !isDefinedQualifiedForm)
+            {
+                return $"CSI sequence with final byte '{finalByte}'{note}: the leader/intermediate "
+                     + $"'{qualifiers}' selects a different function than the bare final byte, and that "
+                     + "form is not in the curated table. Ntilde's parser ignores it.";
+            }
+
+            return ((ContractSequenceTable.TryGetValue(key, out var desc))
+                    || SequenceTable.TryGetValue(key, out desc))
+                ? $"CSI sequence, final byte '{finalByte}'{note}: {desc}"
+                : $"CSI sequence with final byte '{finalByte}'{note}: not in the curated table. Params/intermediates: '{prefix}'.";
+        }
+
+        // OSC: "ESC]", "ESC ]" or "OSC"
+        string? oscBody = null;
+        if (upper.StartsWith("ESC]", System.StringComparison.Ordinal)) oscBody = s.Substring(4);
+        else if (upper.StartsWith("ESC ]", System.StringComparison.Ordinal)) oscBody = s.Substring(5);
+        else if (upper.StartsWith("OSC", System.StringComparison.Ordinal)) oscBody = s.Substring(3);
+        if (oscBody is not null)
+        {
+            string body = oscBody.Trim().TrimStart(' ');
+            // Leading numeric code up to ';' or space.
+            int i = 0;
+            while (i < body.Length && char.IsDigit(body[i])) i++;
+            string code = body[..i];
+            string key = "OSC:" + code;
+            return SequenceTable.TryGetValue(key, out var desc)
+                ? $"OSC {code}: {desc}"
+                : $"OSC sequence (code '{code}'): not in the curated table.";
+        }
+
+        // DCS: literal "DCS" or the 7-bit introducer ESC P ("ESCP" / "ESC P"). Check before the
+        // generic ESC handling so the 'P' isn't misread as a simple ESC sequence.
+        if (upper.StartsWith("DCS", System.StringComparison.Ordinal)
+            || upper.StartsWith("ESCP", System.StringComparison.Ordinal)
+            || upper.StartsWith("ESC P", System.StringComparison.Ordinal))
+            return "DCS: " + SequenceTable["DCS"];
+
+        // APC: literal "APC" or the 7-bit introducer ESC _ ("ESC_" / "ESC _").
+        if (upper.StartsWith("APC", System.StringComparison.Ordinal)
+            || upper.StartsWith("ESC_", System.StringComparison.Ordinal)
+            || upper.StartsWith("ESC _", System.StringComparison.Ordinal))
+            return "APC: " + SequenceTable["APC"];
+
+        // Other ESC Fe / simple ESC sequences: "ESC c", "ESC 7", "ESC M".
+        if (upper.StartsWith("ESC", System.StringComparison.Ordinal))
+        {
+            string rest = s.Substring(3).Trim();
+            if (rest.Length > 0)
+            {
+                string key = "ESC:" + rest[0];
+                if (SequenceTable.TryGetValue(key, out var desc))
+                    return $"ESC {rest[0]}: {desc}";
+            }
+        }
+
+        return $"Unrecognized sequence '{sequence}'. Use forms like 'ESC[2J', 'CSI ?25h', 'OSC 7', 'ESC c', 'DCS', or 'APC'.";
+    }
+
+    private static string FormatCapabilityDescription(VtCapability capability)
+    {
+        string supportNote = capability.Support switch
+        {
+            VtSupport.Supported => string.Empty,
+            VtSupport.Partial => " PARTIALLY supported by Ntilde.",
+            VtSupport.Unsupported => " NOT currently handled by Ntilde's parser.",
+            _ => throw new InvalidOperationException($"Unknown VT support state '{capability.Support}'."),
+        };
+
+        return $"{capability.Mnemonic} — {capability.Description}{supportNote}";
+    }
+
+    [McpServerTool(Name = "ntilde.generate_vt_test_plan"),
+     Description("Generates a structured VT/ANSI test plan for a parser/rendering feature or sequence: cases to cover (parsing, state, reflow, edge cases), where tests live, and how to verify against conformance.")]
+    public static string GenerateVtTestPlan(
+        [Description("The VT feature or sequence under test, e.g. 'OSC 8 hyperlinks' or 'DECSTBM scroll region'.")] string feature)
+    {
+        feature ??= string.Empty;
+        return $$"""
+        # VT test plan: {{feature.Trim()}}
+
+        ## Cases to cover
+        - Happy path: well-formed sequence(s) produce the expected buffer/cursor state.
+        - Parameter handling: default (omitted) params, multiple params, and clamped/oversized
+          params (CSI numeric params are capped — see #124).
+        - Split across writes: the sequence arrives in fragments across multiple Process() calls.
+        - Malformed/partial: truncated or invalid sequences must not throw and must recover so
+          following text renders (see AnsiParserHardeningTests).
+        - Interaction with reflow: behavior survives a resize (lossless reflow invariant, #123).
+        - Alt screen vs main screen, and scrollback, where relevant.
+
+        ## Where tests live
+        - Pure parser/buffer behavior → tests/Ntilde.VT.Tests/.
+        - Replay/regression (real byte streams) → tests/Ntilde.App.Tests/ReplayTests/.
+        - Reflow scenarios → tests/Ntilde.App.Tests/ReflowScenariosTests.cs and BufferTests/.
+
+        ## Verification
+        - Drive input via AnsiParser.Process and assert on TerminalBuffer state under the read lock.
+        - Cross-check against ntilde.get_vt_conformance_summary for known gaps/expectations.
+        - For hostile-input robustness, consider a case in the SharpFuzz harness (#124).
+        """;
+    }
+}

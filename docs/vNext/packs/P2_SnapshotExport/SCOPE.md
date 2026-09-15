@@ -41,10 +41,10 @@ Implement deterministic **snapshot export** for bug reports, CI artifacts, and s
 ## Status note (2026-07-31)
 
 The PNG half of this pack now has a production renderer:
-`NovaTerminal.Shell.TerminalSnapshotRenderer` (promoted out of the render tests'
+`Ntilde.Shell.TerminalSnapshotRenderer` (promoted out of the render tests'
 snapshot infrastructure) renders a buffer through the real draw operation with no
 window or GPU surface, and is what the agent-host `captureScreen` method
-(`novaterminal.capture_screen`) uses. Two captures of an unchanged buffer are
+(`ntilde.capture_screen`) uses. Two captures of an unchanged buffer are
 byte-identical. Anything this pack still owns — `snapshot.ansi`, the versioned
 `snapshot.json` cell grid, and the bug-report bundle — should build on that
 renderer rather than a second capture path.

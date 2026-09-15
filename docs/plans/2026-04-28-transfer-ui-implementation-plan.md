@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Replace NovaTerminal's current SFTP prompt flow with a dedicated transfer dialog, add transfer-history cleanup controls, and make the Transfer Center a movable floating tool surface.
+**Goal:** Replace Ntilde's current SFTP prompt flow with a dedicated transfer dialog, add transfer-history cleanup controls, and make the Transfer Center a movable floating tool surface.
 
 **Architecture:** Keep `SftpService` as the transfer execution boundary and move transfer-input UX into a dedicated Avalonia dialog. The main window will translate entry-point actions into a single transfer-request flow, while the Transfer Center remains a lightweight overlay with better state management and history controls.
 
@@ -13,10 +13,10 @@
 ### Task 1: Add a dedicated transfer request model and dialog contract
 
 **Files:**
-- Create: `src/NovaTerminal.App/Models/TransferDialogRequest.cs`
-- Create: `src/NovaTerminal.App/Models/TransferDialogResult.cs`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Core/TransferDialogRequestTests.cs`
+- Create: `src/Ntilde.App/Models/TransferDialogRequest.cs`
+- Create: `src/Ntilde.App/Models/TransferDialogResult.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Test: `tests/Ntilde.Tests/Core/TransferDialogRequestTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -40,7 +40,7 @@ public void TransferDialogRequest_ForDownloadFile_UsesRemoteDefaults()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~TransferDialogRequestTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~TransferDialogRequestTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the request types do not exist yet.
@@ -78,17 +78,17 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Models/TransferDialogRequest.cs src/NovaTerminal.App/Models/TransferDialogResult.cs tests/NovaTerminal.Tests/Core/TransferDialogRequestTests.cs src/NovaTerminal.App/MainWindow.axaml.cs
+git add src/Ntilde.App/Models/TransferDialogRequest.cs src/Ntilde.App/Models/TransferDialogResult.cs tests/Ntilde.Tests/Core/TransferDialogRequestTests.cs src/Ntilde.App/MainWindow.axaml.cs
 git commit -m "feat: add transfer dialog request contract"
 ```
 
 ### Task 2: Add the Transfer Dialog UI and validation
 
 **Files:**
-- Create: `src/NovaTerminal.App/Controls/TransferDialog.axaml`
-- Create: `src/NovaTerminal.App/Controls/TransferDialog.axaml.cs`
-- Modify: `src/NovaTerminal.App/App.axaml` (only if a new converter/resource is required)
-- Test: `tests/NovaTerminal.Tests/Core/TransferDialogTests.cs`
+- Create: `src/Ntilde.App/Controls/TransferDialog.axaml`
+- Create: `src/Ntilde.App/Controls/TransferDialog.axaml.cs`
+- Modify: `src/Ntilde.App/App.axaml` (only if a new converter/resource is required)
+- Test: `tests/Ntilde.Tests/Core/TransferDialogTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -115,7 +115,7 @@ Add a second test to verify that the remote path `TextBox` receives focus on ope
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~TransferDialogTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~TransferDialogTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the dialog does not exist yet.
@@ -155,17 +155,17 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TransferDialog.axaml src/NovaTerminal.App/Controls/TransferDialog.axaml.cs tests/NovaTerminal.Tests/Core/TransferDialogTests.cs
+git add src/Ntilde.App/Controls/TransferDialog.axaml src/Ntilde.App/Controls/TransferDialog.axaml.cs tests/Ntilde.Tests/Core/TransferDialogTests.cs
 git commit -m "feat: add transfer dialog ui"
 ```
 
 ### Task 3: Replace the old path-prompt transfer flow with the dialog
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs` (only if entry-point wiring changes)
-- Test: `tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs` (only if entry-point wiring changes)
+- Test: `tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -192,7 +192,7 @@ public async Task InitiateTransfer_UsesDialogResultAndQueuesJob()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~MainWindowTransferFlowTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~MainWindowTransferFlowTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the dialog-backed flow does not exist yet.
@@ -229,17 +229,17 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.Tests/Core/MainWindowTransferFlowTests.cs
+git add src/Ntilde.App/MainWindow.axaml src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.Tests/Core/MainWindowTransferFlowTests.cs
 git commit -m "feat: route transfers through transfer dialog"
 ```
 
 ### Task 4: Add Transfer Center cleanup actions
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TransferCenter.axaml`
-- Modify: `src/NovaTerminal.App/Controls/TransferCenter.axaml.cs`
-- Modify: `src/NovaTerminal.App/Core/SftpService.cs`
-- Test: `tests/NovaTerminal.Tests/Core/SftpServiceTests.cs`
+- Modify: `src/Ntilde.App/Controls/TransferCenter.axaml`
+- Modify: `src/Ntilde.App/Controls/TransferCenter.axaml.cs`
+- Modify: `src/Ntilde.App/Core/SftpService.cs`
+- Test: `tests/Ntilde.Tests/Core/SftpServiceTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -264,7 +264,7 @@ public void ClearInactiveJobs_RemovesFinishedFailedAndCanceledOnly()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~SftpServiceTests.ClearInactiveJobs" -p:SkipCliShim=true -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~SftpServiceTests.ClearInactiveJobs" -p:SkipCliShim=true -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because cleanup APIs do not exist yet.
@@ -298,16 +298,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TransferCenter.axaml src/NovaTerminal.App/Controls/TransferCenter.axaml.cs src/NovaTerminal.App/Core/SftpService.cs tests/NovaTerminal.Tests/Core/SftpServiceTests.cs
+git add src/Ntilde.App/Controls/TransferCenter.axaml src/Ntilde.App/Controls/TransferCenter.axaml.cs src/Ntilde.App/Core/SftpService.cs tests/Ntilde.Tests/Core/SftpServiceTests.cs
 git commit -m "feat: add transfer history cleanup actions"
 ```
 
 ### Task 5: Make the Transfer Center movable
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/Core/MainWindowTransferCenterTests.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
+- Test: `tests/Ntilde.Tests/Core/MainWindowTransferCenterTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -315,7 +315,7 @@ git commit -m "feat: add transfer history cleanup actions"
 [AvaloniaFact]
 public void TransferCenterDrag_UpdatesOverlayMargin()
 {
-    var window = new NovaTerminal.MainWindow();
+    var window = new Ntilde.MainWindow();
     Thickness before = window.GetTransferOverlayMarginForTest();
 
     window.MoveTransferOverlayForTest(new Vector(-120, -40));
@@ -330,7 +330,7 @@ public void TransferCenterDrag_UpdatesOverlayMargin()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~MainWindowTransferCenterTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~MainWindowTransferCenterTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because drag behavior and test hooks do not exist yet.
@@ -365,15 +365,15 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.Tests/Core/MainWindowTransferCenterTests.cs
+git add src/Ntilde.App/MainWindow.axaml src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.Tests/Core/MainWindowTransferCenterTests.cs
 git commit -m "feat: make transfer center movable"
 ```
 
 ### Task 6: Remove the old transfer prompt path and update docs
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs`
 - Modify: `docs/USER_MANUAL.md`
 - Modify: `docs/SSH_ROADMAP.md`
 
@@ -385,7 +385,7 @@ For this cleanup task, use a narrow assertion that the transfer flow no longer d
 [Fact]
 public void MainWindow_TransferFlow_NoLongerUsesPathPromptOverlay()
 {
-    string source = File.ReadAllText("src/NovaTerminal.App/MainWindow.axaml.cs");
+    string source = File.ReadAllText("src/Ntilde.App/MainWindow.axaml.cs");
     Assert.DoesNotContain("PromptForRemotePathAsync", source, StringComparison.Ordinal);
 }
 ```
@@ -410,7 +410,7 @@ Expected: FAIL while the old flow remains.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~TransferDialogTests|FullyQualifiedName~MainWindowTransferFlowTests|FullyQualifiedName~MainWindowTransferCenterTests|FullyQualifiedName~SftpServiceTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c NativeSftpUiFixApp --filter "FullyQualifiedName~TransferDialogTests|FullyQualifiedName~MainWindowTransferFlowTests|FullyQualifiedName~MainWindowTransferCenterTests|FullyQualifiedName~SftpServiceTests" -p:SkipCliShim=true -m:1 --nologo -v:minimal
 ```
 
 Expected: PASS.
@@ -418,6 +418,6 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml src/NovaTerminal.App/MainWindow.axaml.cs docs/USER_MANUAL.md docs/SSH_ROADMAP.md
+git add src/Ntilde.App/MainWindow.axaml src/Ntilde.App/MainWindow.axaml.cs docs/USER_MANUAL.md docs/SSH_ROADMAP.md
 git commit -m "docs: update transfer ui workflow"
 ```

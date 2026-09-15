@@ -64,11 +64,11 @@ teardown contract.
 
 | File | Change |
 |---|---|
-| `src/NovaTerminal.App/native/src/lib.rs` | New `pty_cancel_read` export; move `h_pc`/`h_process` behind `Mutex<Option<…>>` so cancel and close don't double-free |
-| `src/NovaTerminal.Pty/RustPtySession.cs` | `PtySafeHandle : SafeHandle`; all `Native.*` signatures take the handle; idempotent ordered `Dispose` |
-| `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs` | Idempotent `Dispose` guard; 9 `Parser.On*` lambdas → named handlers detached on restart + `Dispose` |
-| `src/NovaTerminal.App/Shell/TerminalView.cs` | Stop `_metricsTimer` on detach |
-| `src/NovaTerminal.App/MainWindow.axaml.cs` | Stop `_recordingToastTimer` in `OnClosing` |
+| `src/Ntilde.App/native/src/lib.rs` | New `pty_cancel_read` export; move `h_pc`/`h_process` behind `Mutex<Option<…>>` so cancel and close don't double-free |
+| `src/Ntilde.Pty/RustPtySession.cs` | `PtySafeHandle : SafeHandle`; all `Native.*` signatures take the handle; idempotent ordered `Dispose` |
+| `src/Ntilde.App/Controls/TerminalPane.axaml.cs` | Idempotent `Dispose` guard; 9 `Parser.On*` lambdas → named handlers detached on restart + `Dispose` |
+| `src/Ntilde.App/Shell/TerminalView.cs` | Stop `_metricsTimer` on detach |
+| `src/Ntilde.App/MainWindow.axaml.cs` | Stop `_recordingToastTimer` in `OnClosing` |
 
 ## B. Native cancel + `PtySafeHandle`
 
@@ -165,7 +165,7 @@ if a join times out, and the `IsBackground` thread cannot block process exit.
 
 ## F. Testing strategy (TDD)
 
-All in the **non-headless** lanes (`NovaTerminal.Pty` / lifecycle), unaffected by
+All in the **non-headless** lanes (`Ntilde.Pty` / lifecycle), unaffected by
 the Mode-B headless flake.
 
 - **Rust unit tests** (`lib.rs`):

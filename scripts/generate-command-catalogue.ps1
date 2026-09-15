@@ -6,7 +6,7 @@
 .DESCRIPTION
     Command Assist V2 Phase 4b (docs/plans/2026-08-01-command-assist-v2-plan.md, Phase 4 task 3).
     Reads the markdown pages of a tldr-pages checkout and emits
-    assets/command-knowledge/command-catalogue.json, which NovaTerminal.CommandAssist embeds and
+    assets/command-knowledge/command-catalogue.json, which Ntilde.CommandAssist embeds and
     CommandKnowledgeService serves as Help docs and Recipe rows.
 
     SELECTION POLICY (deterministic, reviewable, and the reason this is a curated list rather than
@@ -19,7 +19,7 @@
          subcommand is where git's real surface lives; `git` alone is close to useless as a help
          target.
       3. $SupplementPath - a small hand-authored file for commands tldr does not cover at all
-         (today: Get-Process, Get-Service). Those entries are marked `"o": "nova"` in the asset so
+         (today: Get-Process, Get-Service). Those entries are marked `"o": "ntilde"` in the asset so
          the CC-BY-SA attribution stays honest about what it does and does not cover.
 
     PAGE PRIORITY: common, linux, windows, osx. "Common pages first" is the plan's wording and it is
@@ -55,7 +55,7 @@
 .NOTES
     LICENSING. tldr-pages content is CC-BY-SA 4.0
     (https://github.com/tldr-pages/tldr/blob/main/LICENSE.md). The attribution and licence URL are
-    written into the asset header by this script, embedded into NovaTerminal.CommandAssist, and
+    written into the asset header by this script, embedded into Ntilde.CommandAssist, and
     surfaced to the user in the Command Assist Help popup footer. Do not strip the header.
 #>
 [CmdletBinding()]
@@ -493,7 +493,7 @@ if (Test-Path -LiteralPath $SupplementPath) {
         $entry['e'] = @($item.e | ForEach-Object { [PSCustomObject]@{ c = $_.c; d = $_.d } })
         # Marks the entry as authored here rather than derived from tldr-pages, so the CC-BY-SA
         # attribution in the header is a claim about exactly the rows it covers.
-        $entry['o'] = 'nova'
+        $entry['o'] = 'ntilde'
         [void]$entries.Add([PSCustomObject]$entry)
         $supplementCount++
     }
@@ -520,7 +520,7 @@ $catalogue = [ordered]@{
     v = 1
     license = 'CC-BY-SA-4.0'
     licenseUrl = 'https://creativecommons.org/licenses/by-sa/4.0/'
-    attribution = 'Command examples from tldr-pages (https://github.com/tldr-pages/tldr), CC BY-SA 4.0. Entries marked "o": "nova" were authored for NovaTerminal and are not tldr-pages content.'
+    attribution = 'Command examples from tldr-pages (https://github.com/tldr-pages/tldr), CC BY-SA 4.0. Entries marked "o": "ntilde" were authored for Ntilde and are not tldr-pages content.'
     generatedFrom = "tldr-pages @ $sourceRevision"
     generatedBy = 'scripts/generate-command-catalogue.ps1'
     entries = $ordered

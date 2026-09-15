@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Leaf library for configuration backup/export/import/snapshot (Task 10a fix round 1).
+    Zero project references, on purpose: Ntilde.McpServer's read-only backup MCP
+    tools (Task 10b) need BackupService without dragging in App, VT, Pty, or Rendering -
+    referencing Ntilde.Platform pulled in Pty transitively and broke that invariant
+    (docs/MODULE_OWNERSHIP.md). Shared by Ntilde.App (the running GUI) and
+    Ntilde.McpServer (the read-only tools). Enforced by
+    Ntilde.Architecture.Tests.
+  -->
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ntilde.App.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -20,7 +20,7 @@
 - **Nesting depth cap is 1.** `MaxFenceDepth = 1`.
 - **Theme brushes resolve per build** via `Find(anchor, "Nt*", fallback)`, degrading to a fixed fallback when the resource is absent.
 - **This branch is stacked on #378.** Do not rebase onto `main` until #378 merges.
-- Close any running NovaTerminal launched from this worktree before building; it locks `NovaTerminal.exe` and the build fails with MSB3027.
+- Close any running Ntilde launched from this worktree before building; it locks `Ntilde.exe` and the build fails with MSB3027.
 
 ---
 
@@ -29,8 +29,8 @@
 Behaviour-neutral refactor. It exists because Tasks 3 and 4 put handlers in separate files, and those handlers need the theme type — which is currently a `private sealed class` nested inside `MarkdownRenderer`.
 
 **Files:**
-- Create: `src/NovaTerminal.App/AgentOutput/MarkdownTheme.cs`
-- Modify: `src/NovaTerminal.App/AgentOutput/MarkdownRenderer.cs` (delete the nested `Theme` class at lines 643-674; retarget every `Theme` reference)
+- Create: `src/Ntilde.App/AgentOutput/MarkdownTheme.cs`
+- Modify: `src/Ntilde.App/AgentOutput/MarkdownRenderer.cs` (delete the nested `Theme` class at lines 643-674; retarget every `Theme` reference)
 - Test: no new test. Verification is the existing suite staying green — that is the correct check for an extraction that must change no behavior.
 
 **Interfaces:**
@@ -43,7 +43,7 @@ Behaviour-neutral refactor. It exists because Tasks 3 and 4 put handlers in sepa
 using Avalonia;
 using Avalonia.Media;
 
-namespace NovaTerminal.AgentOutput;
+namespace Ntilde.AgentOutput;
 
 /// <summary>Resolved brush set for one render pass.</summary>
 /// <remarks>
@@ -105,20 +105,20 @@ In `MarkdownRenderer.cs`, delete the `private sealed class Theme { ... }` block 
 Replace the type name `Theme` with `MarkdownTheme` throughout `MarkdownRenderer.cs`. There are references in `Build` (the `var theme = Theme.Resolve(...)` local) and in the parameter lists of `AppendBlocks`, `BuildHeading`, `BuildParagraph`, `BuildCodeBlock`, `BuildList`, `BuildQuote`, `BuildTable` and the inline builders.
 
 ```bash
-grep -n "Theme" src/NovaTerminal.App/AgentOutput/MarkdownRenderer.cs
+grep -n "Theme" src/Ntilde.App/AgentOutput/MarkdownRenderer.cs
 ```
 
 Expected after the edit: every hit reads `MarkdownTheme`, and none of them is a declaration.
 
 - [ ] **Step 4: Build and run the full AgentOutput suite**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentOutput"`
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentOutput"`
 Expected: PASS, 86 tests, 0 failed. A refactor that changes a count or an expectation has changed behavior and must be corrected, not accepted.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/AgentOutput/MarkdownTheme.cs src/NovaTerminal.App/AgentOutput/MarkdownRenderer.cs
+git add src/Ntilde.App/AgentOutput/MarkdownTheme.cs src/Ntilde.App/AgentOutput/MarkdownRenderer.cs
 git commit -m "refactor(agent-output): extract MarkdownTheme from the renderer
 
 Fence-body handlers land in sibling files and need the theme type, which
@@ -133,10 +133,10 @@ fallbacks, no behavior change."
 Threads two things through the walk that later tasks need: the panel's switch state going down, and a "did any handler transform a block" tally coming back up. No handler exists yet, so `HasTransformBlock` is always false at the end of this task — that is the expected state and the test asserts it.
 
 **Files:**
-- Create: `src/NovaTerminal.App/AgentOutput/MarkdownRenderPass.cs`
-- Modify: `src/NovaTerminal.App/AgentOutput/MarkdownRenderer.cs` (`Build` signature and return, `AppendBlocks`, `BuildCodeBlock`, `BuildList`, `BuildQuote`, `BuildTable`)
-- Modify: `src/NovaTerminal.App/AgentOutput/AgentOutputPanel.axaml.cs:105`
-- Test: `tests/NovaTerminal.App.Tests/AgentOutput/MarkdownRendererTests.cs`
+- Create: `src/Ntilde.App/AgentOutput/MarkdownRenderPass.cs`
+- Modify: `src/Ntilde.App/AgentOutput/MarkdownRenderer.cs` (`Build` signature and return, `AppendBlocks`, `BuildCodeBlock`, `BuildList`, `BuildQuote`, `BuildTable`)
+- Modify: `src/Ntilde.App/AgentOutput/AgentOutputPanel.axaml.cs:105`
+- Test: `tests/Ntilde.App.Tests/AgentOutput/MarkdownRendererTests.cs`
 
 **Interfaces:**
 - Consumes: `MarkdownTheme` (Task 1).
@@ -163,13 +163,13 @@ public void Build_ReportsNoTransformBlock_ForOrdinaryMarkdown()
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Build_ReportsNoTransformBlock"`
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Build_ReportsNoTransformBlock"`
 Expected: FAIL to compile — `MarkdownRenderResult` does not exist and `Build` returns `Control`.
 
 - [ ] **Step 3: Create the render pass**
 
 ```csharp
-namespace NovaTerminal.AgentOutput;
+namespace Ntilde.AgentOutput;
 
 /// <summary>Mutable state for one render pass of <see cref="MarkdownRenderer.Build"/>.</summary>
 /// <remarks>
@@ -257,20 +257,20 @@ MarkdownHost.Children.Add(rendered.Root);
 Every `(StackPanel)MarkdownRenderer.Build(...)` in `MarkdownRendererTests.cs` becomes `(StackPanel)MarkdownRenderer.Build(...).Root`. This is the only permitted edit to those tests; no expectation changes.
 
 ```bash
-grep -c "MarkdownRenderer.Build" tests/NovaTerminal.App.Tests/AgentOutput/MarkdownRendererTests.cs
+grep -c "MarkdownRenderer.Build" tests/Ntilde.App.Tests/AgentOutput/MarkdownRendererTests.cs
 ```
 
 Expected: 15 (the 14 pre-existing plus the new test from Step 1).
 
 - [ ] **Step 8: Run the suite**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentOutput"`
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentOutput"`
 Expected: PASS, 87 tests, 0 failed.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/NovaTerminal.App/AgentOutput/ tests/NovaTerminal.App.Tests/AgentOutput/MarkdownRendererTests.cs
+git add src/Ntilde.App/AgentOutput/ tests/Ntilde.App.Tests/AgentOutput/MarkdownRendererTests.cs
 git commit -m "refactor(agent-output): thread a render pass through the markdown walk
 
 Build returns MarkdownRenderResult instead of a bare Control, and a
@@ -286,12 +286,12 @@ so HasTransformBlock is still always false."
 The diff handler goes first because it is the simpler of the two — no recursion, no switch participation — so it proves the seam before the markdown handler leans on it.
 
 **Files:**
-- Create: `src/NovaTerminal.App/AgentOutput/Fences/IFenceBody.cs`
-- Create: `src/NovaTerminal.App/AgentOutput/Fences/FenceBodyResolver.cs`
-- Create: `src/NovaTerminal.App/AgentOutput/Fences/DiffFenceBody.cs`
-- Modify: `src/NovaTerminal.App/AgentOutput/MarkdownTheme.cs` (three brushes)
-- Modify: `src/NovaTerminal.App/AgentOutput/MarkdownRenderer.cs` (`BuildCodeBlock` consults the resolver)
-- Test: `tests/NovaTerminal.App.Tests/AgentOutput/FenceBodyTests.cs`
+- Create: `src/Ntilde.App/AgentOutput/Fences/IFenceBody.cs`
+- Create: `src/Ntilde.App/AgentOutput/Fences/FenceBodyResolver.cs`
+- Create: `src/Ntilde.App/AgentOutput/Fences/DiffFenceBody.cs`
+- Modify: `src/Ntilde.App/AgentOutput/MarkdownTheme.cs` (three brushes)
+- Modify: `src/Ntilde.App/AgentOutput/MarkdownRenderer.cs` (`BuildCodeBlock` consults the resolver)
+- Test: `tests/Ntilde.App.Tests/AgentOutput/FenceBodyTests.cs`
 
 **Interfaces:**
 - Consumes: `MarkdownTheme` (Task 1), `MarkdownRenderPass` (Task 2).
@@ -305,7 +305,7 @@ The diff handler goes first because it is the simpler of the two — no recursio
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/NovaTerminal.App.Tests/AgentOutput/FenceBodyTests.cs`:
+Create `tests/Ntilde.App.Tests/AgentOutput/FenceBodyTests.cs`:
 
 ```csharp
 using System;
@@ -314,11 +314,11 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
-using NovaTerminal.AgentOutput;
-using NovaTerminal.AgentOutput.Fences;
+using Ntilde.AgentOutput;
+using Ntilde.AgentOutput.Fences;
 using Xunit;
 
-namespace NovaTerminal.Tests.AgentOutput;
+namespace Ntilde.Tests.AgentOutput;
 
 /// <summary>
 /// The fence-body seam: which info strings resolve, and what each handler makes of a body.
@@ -442,12 +442,12 @@ internal static class MarkdownThemeProbe
 }
 ```
 
-`MarkdownTheme` and `MarkdownRenderPass` are `internal`, and `NovaTerminal.App.csproj:510` already grants `InternalsVisibleTo` to `NovaTerminal.App.Tests`, so no visibility change is needed.
+`MarkdownTheme` and `MarkdownRenderPass` are `internal`, and `Ntilde.App.csproj:510` already grants `InternalsVisibleTo` to `Ntilde.App.Tests`, so no visibility change is needed.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~FenceBodyTests"`
-Expected: FAIL to compile — `NovaTerminal.AgentOutput.Fences` does not exist.
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~FenceBodyTests"`
+Expected: FAIL to compile — `Ntilde.AgentOutput.Fences` does not exist.
 
 - [ ] **Step 3: Add the three theme brushes**
 
@@ -478,13 +478,13 @@ In `MarkdownTheme.cs`, add the fallbacks and properties, and resolve them:
 
 - [ ] **Step 4: Create the interface and context**
 
-`src/NovaTerminal.App/AgentOutput/Fences/IFenceBody.cs`:
+`src/Ntilde.App/AgentOutput/Fences/IFenceBody.cs`:
 
 ```csharp
 using System;
 using Avalonia.Controls;
 
-namespace NovaTerminal.AgentOutput.Fences;
+namespace Ntilde.AgentOutput.Fences;
 
 /// <summary>Renders a nested markdown document at the given depth.</summary>
 internal delegate Control NestedMarkdownRenderer(string markdown, int depth);
@@ -519,12 +519,12 @@ internal interface IFenceBody
 
 - [ ] **Step 5: Create the resolver**
 
-`src/NovaTerminal.App/AgentOutput/Fences/FenceBodyResolver.cs`:
+`src/Ntilde.App/AgentOutput/Fences/FenceBodyResolver.cs`:
 
 ```csharp
 using System;
 
-namespace NovaTerminal.AgentOutput.Fences;
+namespace Ntilde.AgentOutput.Fences;
 
 /// <summary>Maps a fence info string to a body handler, or to null for "leave it alone".</summary>
 /// <remarks>
@@ -572,7 +572,7 @@ internal static class FenceBodyResolver
 
 - [ ] **Step 6: Create the diff handler**
 
-`src/NovaTerminal.App/AgentOutput/Fences/DiffFenceBody.cs`:
+`src/Ntilde.App/AgentOutput/Fences/DiffFenceBody.cs`:
 
 ```csharp
 using System;
@@ -580,7 +580,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
 
-namespace NovaTerminal.AgentOutput.Fences;
+namespace Ntilde.AgentOutput.Fences;
 
 /// <summary>Colors a unified diff by each line's leading marker.</summary>
 /// <remarks>
@@ -658,7 +658,7 @@ Task 4 fills this in. For now it must resolve and behave exactly like the unhand
 ```csharp
 using Avalonia.Controls;
 
-namespace NovaTerminal.AgentOutput.Fences;
+namespace Ntilde.AgentOutput.Fences;
 
 /// <summary>Renders a markdown fence as a nested document. Filled in by Task 4.</summary>
 internal sealed class MarkdownFenceBody : IFenceBody
@@ -740,22 +740,22 @@ Add the nested-render helper next to `AppendBlocks`:
     }
 ```
 
-Add `using NovaTerminal.AgentOutput.Fences;` to the file's usings.
+Add `using Ntilde.AgentOutput.Fences;` to the file's usings.
 
 - [ ] **Step 9: Run the fence tests**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~FenceBodyTests"`
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~FenceBodyTests"`
 Expected: PASS, 21 tests, 0 failed.
 
 - [ ] **Step 10: Run the whole AgentOutput suite for regressions**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentOutput"`
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentOutput"`
 Expected: PASS. `FencedCodeBlock_RendersItsText_WithACopyButton` uses ` ```csharp `, which must still resolve to null and render identically.
 
 - [ ] **Step 11: Commit**
 
 ```bash
-git add src/NovaTerminal.App/AgentOutput/ tests/NovaTerminal.App.Tests/AgentOutput/FenceBodyTests.cs
+git add src/Ntilde.App/AgentOutput/ tests/Ntilde.App.Tests/AgentOutput/FenceBodyTests.cs
 git commit -m "feat(agent-output): add the fence-body seam and a diff handler
 
 BuildCodeBlock now asks FenceBodyResolver what a fence's info string
@@ -772,8 +772,8 @@ for every block regardless of handler."
 ### Task 4: The `markdown` handler and the depth cap
 
 **Files:**
-- Modify: `src/NovaTerminal.App/AgentOutput/Fences/MarkdownFenceBody.cs`
-- Test: `tests/NovaTerminal.App.Tests/AgentOutput/MarkdownRendererTests.cs`
+- Modify: `src/Ntilde.App/AgentOutput/Fences/MarkdownFenceBody.cs`
+- Test: `tests/Ntilde.App.Tests/AgentOutput/MarkdownRendererTests.cs`
 
 **Interfaces:**
 - Consumes: `IFenceBody`, `FenceContext`, `NestedMarkdownRenderer` (Task 3); `MarkdownRenderer.MaxFenceDepth` (Task 3); `MarkdownRenderResult` (Task 2).
@@ -853,7 +853,7 @@ public void MarkdownFence_KeepsCopyYieldingRawSource()
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~MarkdownFence"`
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~MarkdownFence"`
 Expected: FAIL. The switch-off test fails because the Task 3 placeholder ignores `RenderFencedMarkdown` and always renders nested.
 
 - [ ] **Step 3: Implement the handler**
@@ -865,7 +865,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
 
-namespace NovaTerminal.AgentOutput.Fences;
+namespace Ntilde.AgentOutput.Fences;
 
 /// <summary>
 /// Renders a <c>markdown</c> / <c>md</c> fence as a nested document rather than as source.
@@ -916,18 +916,18 @@ internal sealed class MarkdownFenceBody : IFenceBody
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~MarkdownFence"`
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~MarkdownFence"`
 Expected: PASS, 4 tests.
 
 - [ ] **Step 5: Run the whole AgentOutput suite**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentOutput"`
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentOutput"`
 Expected: PASS, 0 failed.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/AgentOutput/Fences/MarkdownFenceBody.cs tests/NovaTerminal.App.Tests/AgentOutput/MarkdownRendererTests.cs
+git add src/Ntilde.App/AgentOutput/Fences/MarkdownFenceBody.cs tests/Ntilde.App.Tests/AgentOutput/MarkdownRendererTests.cs
 git commit -m "feat(agent-output): render markdown fences as nested documents
 
 A markdown/md fence recurses back through the renderer's own block walk,
@@ -944,10 +944,10 @@ vanished when flipped would be a one-way door."
 ### Task 5: The panel switch
 
 **Files:**
-- Modify: `src/NovaTerminal.App/AgentOutput/AgentOutputViewModel.cs`
-- Modify: `src/NovaTerminal.App/AgentOutput/AgentOutputPanel.axaml` (header row)
-- Modify: `src/NovaTerminal.App/AgentOutput/AgentOutputPanel.axaml.cs` (pass the flag, gate visibility, handle the click)
-- Test: `tests/NovaTerminal.App.Tests/AgentOutput/AgentOutputViewModelTests.cs`, `tests/NovaTerminal.App.Tests/AgentOutput/AgentOutputPanelTests.cs`
+- Modify: `src/Ntilde.App/AgentOutput/AgentOutputViewModel.cs`
+- Modify: `src/Ntilde.App/AgentOutput/AgentOutputPanel.axaml` (header row)
+- Modify: `src/Ntilde.App/AgentOutput/AgentOutputPanel.axaml.cs` (pass the flag, gate visibility, handle the click)
+- Test: `tests/Ntilde.App.Tests/AgentOutput/AgentOutputViewModelTests.cs`, `tests/Ntilde.App.Tests/AgentOutput/AgentOutputPanelTests.cs`
 
 **Interfaces:**
 - Consumes: `MarkdownRenderResult.HasTransformBlock` (Task 2), `renderFencedMarkdown` parameter on `Build` (Task 2).
@@ -983,7 +983,7 @@ public void RenderFencedMarkdown_RaisesPropertyChanged_OnlyWhenItChanges()
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~RenderFencedMarkdown"`
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~RenderFencedMarkdown"`
 Expected: FAIL to compile — the property does not exist.
 
 - [ ] **Step 3: Add the property**
@@ -1024,7 +1024,7 @@ In `AgentOutputViewModel.cs`, add the backing field beside the others and the pr
 
 - [ ] **Step 4: Run the view-model test to verify it passes**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~RenderFencedMarkdown"`
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~RenderFencedMarkdown"`
 Expected: PASS, 2 tests.
 
 - [ ] **Step 5: Write the failing panel test**
@@ -1117,7 +1117,7 @@ private static IEnumerable<string> TextOf(Control control)
 
 - [ ] **Step 6: Run test to verify it fails**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~FenceSwitch"`
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~FenceSwitch"`
 Expected: FAIL — no control named `BtnRenderFences`.
 
 - [ ] **Step 7: Add the switch to the header**
@@ -1197,7 +1197,7 @@ Extend the property filter at `AgentOutputPanel.axaml.cs:74` so a programmatic c
 
 - [ ] **Step 9: Run the panel tests to verify they pass**
 
-Run: `scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~FenceSwitch"`
+Run: `scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~FenceSwitch"`
 Expected: PASS, 3 tests.
 
 - [ ] **Step 10: Run every affected suite**
@@ -1205,10 +1205,10 @@ Expected: PASS, 3 tests.
 Run each and expect 0 failed:
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~AgentOutput"
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Controls|FullyQualifiedName~TerminalPane" --blame-hang-timeout 5m
-scripts/build.sh test tests/NovaTerminal.VT.Tests
-scripts/build.sh test tests/NovaTerminal.Architecture.Tests
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~AgentOutput"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Controls|FullyQualifiedName~TerminalPane" --blame-hang-timeout 5m
+scripts/build.sh test tests/Ntilde.VT.Tests
+scripts/build.sh test tests/Ntilde.Architecture.Tests
 ```
 
 - [ ] **Step 11: Verify in the running app**
@@ -1216,15 +1216,15 @@ scripts/build.sh test tests/NovaTerminal.Architecture.Tests
 Build and launch from this worktree, then in a pane run a command whose output contains a ` ```markdown ` fence and one containing a ` ```diff ` fence. Confirm: the fence renders as a document, the `md` toggle appears in the panel header, unchecking it shows source, Copy yields raw source in both positions, and a response with no fence shows no toggle.
 
 ```bash
-scripts/build.sh build src/NovaTerminal.App
+scripts/build.sh build src/Ntilde.App
 ```
 
-Launch with an absolute path via `Start-Process`; a `cd`-prefixed background launch has been observed to exit 127 without starting. Close the app before the next build — it locks `NovaTerminal.exe`.
+Launch with an absolute path via `Start-Process`; a `cd`-prefixed background launch has been observed to exit 127 without starting. Close the app before the next build — it locks `Ntilde.exe`.
 
 - [ ] **Step 12: Commit**
 
 ```bash
-git add src/NovaTerminal.App/AgentOutput/ tests/NovaTerminal.App.Tests/AgentOutput/
+git add src/Ntilde.App/AgentOutput/ tests/Ntilde.App.Tests/AgentOutput/
 git commit -m "feat(agent-output): add the panel-level fence rendering switch
 
 One bool on the view model, surfaced as an 'md' toggle in the panel

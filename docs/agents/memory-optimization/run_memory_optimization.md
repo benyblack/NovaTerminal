@@ -1,4 +1,4 @@
-You are implementing the NovaTerminal memory optimization roadmap.
+You are implementing the Ntilde memory optimization roadmap.
 
 Execute the prompts in order:
 

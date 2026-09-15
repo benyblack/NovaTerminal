@@ -33,7 +33,7 @@ Out of scope:
 
 ### Add
 
-`src/NovaTerminal.App/CommandAssist/Models`
+`src/Ntilde.App/CommandAssist/Models`
 - `CommandAssistMode.cs`
 - `CommandHelpQuery.cs`
 - `CommandFailureContext.cs`
@@ -41,7 +41,7 @@ Out of scope:
 - `CommandFixSuggestion.cs`
 - `CommandAssistContextSnapshot.cs`
 
-`src/NovaTerminal.App/CommandAssist/Domain`
+`src/Ntilde.App/CommandAssist/Domain`
 - `ICommandDocsProvider.cs`
 - `IRecipeProvider.cs`
 - `IErrorInsightService.cs`
@@ -49,12 +49,12 @@ Out of scope:
 - `SeedRecipeProvider.cs`
 - `HeuristicErrorInsightService.cs`
 
-`src/NovaTerminal.App/CommandAssist/Application`
+`src/Ntilde.App/CommandAssist/Application`
 - `CommandAssistModeRouter.cs`
 - `CommandAssistResultBuilder.cs`
 - `RecognizedCommandParser.cs`
 
-`tests/NovaTerminal.Tests/CommandAssist`
+`tests/Ntilde.Tests/CommandAssist`
 - `LocalCommandDocsProviderTests.cs`
 - `SeedRecipeProviderTests.cs`
 - `HeuristicErrorInsightServiceTests.cs`
@@ -62,18 +62,18 @@ Out of scope:
 
 ### Modify
 
-- `src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs`
-- `src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
-- `src/NovaTerminal.App/CommandAssist/Models/AssistSuggestion.cs`
-- `src/NovaTerminal.App/CommandAssist/Models/AssistSuggestionType.cs`
-- `src/NovaTerminal.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs`
-- `src/NovaTerminal.App/CommandAssist/Views/CommandAssistBarView.axaml`
-- `src/NovaTerminal.App/Controls/TerminalPane.axaml`
-- `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- `src/NovaTerminal.App/MainWindow.axaml.cs`
-- `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
-- `tests/NovaTerminal.Tests/CommandAssist/CommandAssistLayoutTests.cs`
-- `tests/NovaTerminal.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs`
+- `src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs`
+- `src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
+- `src/Ntilde.App/CommandAssist/Models/AssistSuggestion.cs`
+- `src/Ntilde.App/CommandAssist/Models/AssistSuggestionType.cs`
+- `src/Ntilde.App/CommandAssist/ViewModels/CommandAssistBarViewModel.cs`
+- `src/Ntilde.App/CommandAssist/Views/CommandAssistBarView.axaml`
+- `src/Ntilde.App/Controls/TerminalPane.axaml`
+- `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- `src/Ntilde.App/MainWindow.axaml.cs`
+- `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- `tests/Ntilde.Tests/CommandAssist/CommandAssistLayoutTests.cs`
+- `tests/Ntilde.Tests/CommandAssist/TerminalPaneCommandAssistShortcutTests.cs`
 
 ## TDD Sequence
 
@@ -218,7 +218,7 @@ Do not try to ship a full command encyclopedia in M4.
 ## Verification Plan
 
 Targeted verification after implementation:
-- `dotnet test` for all `tests/NovaTerminal.Tests/CommandAssist/*`
+- `dotnet test` for all `tests/Ntilde.Tests/CommandAssist/*`
 - shell integration regressions
 - alternate-screen regressions
 - existing key-routing tests

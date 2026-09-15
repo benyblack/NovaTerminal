@@ -1,6 +1,6 @@
-# NovaTerminal Performance Refactor Summary: Steps 1-5
+# Ntilde Performance Refactor Summary: Steps 1-5
 
-This document summarizes the major architectural improvements and performance optimizations implemented for the NovaTerminal rendering pipeline between January and February 2026.
+This document summarizes the major architectural improvements and performance optimizations implemented for the Ntilde rendering pipeline between January and February 2026.
 
 ## Architectural Evolution
 The project has evolved from a synchronous, lock-heavy rendering model to a **lock-free, snapshot-based architecture**. This ensures that terminal state management (`TerminalBuffer`) and terminal rendering (`TerminalDrawOperation`) can operate independently without causing UI hangups.

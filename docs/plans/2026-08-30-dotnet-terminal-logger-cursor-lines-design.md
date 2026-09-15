@@ -2,7 +2,7 @@
 
 ## Problem
 
-.NET 10's terminal logger redraws its progress area with `CSI Ps F` (Cursor Preceding Line), followed by carriage return and line feed. NovaTerminal currently does not handle CSI `F`, so the cursor remains on its current row and each refresh advances to another row. The elapsed-time text therefore forms a vertical staircase instead of updating in place.
+.NET 10's terminal logger redraws its progress area with `CSI Ps F` (Cursor Preceding Line), followed by carriage return and line feed. Ntilde currently does not handle CSI `F`, so the cursor remains on its current row and each refresh advances to another row. The elapsed-time text therefore forms a vertical staircase instead of updating in place.
 
 ## Design
 

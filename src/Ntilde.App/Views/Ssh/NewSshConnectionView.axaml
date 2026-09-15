@@ -1,0 +1,195 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:Ntilde.ViewModels.Ssh"
+        xmlns:ssh="clr-namespace:Ntilde.Platform.Ssh.Models;assembly=Ntilde.Platform"
+        x:Class="Ntilde.Views.Ssh.NewSshConnectionView"
+        x:DataType="vm:NewSshConnectionViewModel"
+        Title="New SSH Connection"
+        Width="760"
+        Height="620"
+        CanResize="True"
+        WindowStartupLocation="CenterOwner">
+    <Window.Styles>
+        <Style Selector="TabItem">
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+            <Setter Property="FontSize" Value="14" />
+        </Style>
+        <Style Selector="TabItem:selected">
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TabItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+        </Style>
+        <Style Selector="TabItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="*,Auto,Auto" Margin="16">
+        <TabControl>
+            <TabItem Header="Basic">
+                <Grid Margin="0,10,0,0" ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Name" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Name}" PlaceholderText="My server" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="HostName" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HostName}" PlaceholderText="example.internal" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="User" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding UserName}" PlaceholderText="Optional" />
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Port" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="3" Grid.Column="1" Minimum="1" Maximum="65535" Value="{Binding Port}" />
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Backend" VerticalAlignment="Center" />
+                    <ComboBox Grid.Row="4" Grid.Column="1" Name="BackendKindCombo" SelectedItem="{Binding BackendKind}" />
+
+                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Accent" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding AccentColor}" PlaceholderText="#0078D4 (optional)" />
+
+                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Remote shell" VerticalAlignment="Center" />
+                    <ComboBox Grid.Row="6" Grid.Column="1" Name="RemoteShellKindCombo" SelectedItem="{Binding RemoteShellKind}" />
+
+                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Group" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding Group}" PlaceholderText="General" />
+
+                    <TextBlock Grid.Row="8" Grid.Column="0" Text="Tags" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding TagsText}" PlaceholderText="prod, api, bastion" />
+
+                    <TextBlock Grid.Row="9" Grid.Column="0" Text="Favorite" VerticalAlignment="Center" />
+                    <CheckBox Grid.Row="9" Grid.Column="1" IsChecked="{Binding IsFavorite}" Content="Pin in Connections list" />
+
+                    <TextBlock Grid.Row="10" Grid.Column="0" Text="Notes" VerticalAlignment="Top" />
+                    <TextBox Grid.Row="10"
+                             Grid.Column="1"
+                             Text="{Binding Notes}"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             Height="120"
+                             VerticalContentAlignment="Top"
+                             PlaceholderText="Optional notes..." />
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Auth">
+                <Grid Margin="0,10,0,0" ColumnDefinitions="170,*" RowDefinitions="Auto,Auto" RowSpacing="10">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Auth mode" VerticalAlignment="Center" />
+                    <ComboBox Grid.Row="0" Grid.Column="1" Name="AuthModeCombo" SelectedItem="{Binding AuthMode}" />
+
+                    <TextBlock Grid.Row="1"
+                               Grid.Column="0"
+                               Text="Identity file"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding IsIdentityFileAuth}" />
+                    <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding IsIdentityFileAuth}">
+                        <TextBox Grid.Column="0" Text="{Binding IdentityFilePath}" PlaceholderText="Path to private key" />
+                        <Button Grid.Column="1" Content="Browse..." Click="OnBrowseIdentityFileClick" />
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Jump Hosts">
+                <Grid Margin="0,10,0,0" RowDefinitions="Auto,*" RowSpacing="8">
+                    <Grid ColumnDefinitions="2*,*,Auto,Auto" ColumnSpacing="8">
+                        <TextBox Name="JumpHostInput" Grid.Column="0" PlaceholderText="Host (required)" />
+                        <TextBox Name="JumpUserInput" Grid.Column="1" PlaceholderText="User (optional)" />
+                        <NumericUpDown Name="JumpPortInput" Grid.Column="2" Width="90" Minimum="1" Maximum="65535" Value="22" />
+                        <Button Grid.Column="3" Content="Add" Click="OnAddJumpHostClick" />
+                    </Grid>
+
+                    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <ListBox Name="JumpHostsList" ItemsSource="{Binding JumpHops}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="ssh:SshJumpHop">
+                                    <TextBlock Text="{Binding}" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <StackPanel Grid.Column="1" Spacing="8">
+                            <Button Content="Up" Width="72" Click="OnMoveJumpUpClick" />
+                            <Button Content="Down" Width="72" Click="OnMoveJumpDownClick" />
+                            <Button Content="Remove" Width="72" Click="OnRemoveJumpHostClick" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Port Forwards">
+                <Grid Margin="0,10,0,0" RowDefinitions="Auto,*" RowSpacing="8">
+                    <Grid ColumnDefinitions="Auto,*,Auto,*,Auto,Auto" ColumnSpacing="8">
+                        <ComboBox Name="ForwardKindCombo" Grid.Column="0" Width="100" />
+                        <TextBox Name="ForwardBindInput" Grid.Column="1" PlaceholderText="Bind address (optional)" />
+                        <NumericUpDown Name="ForwardSourcePortInput" Grid.Column="2" Width="90" Minimum="1" Maximum="65535" />
+                        <TextBox Name="ForwardDestHostInput" Grid.Column="3" PlaceholderText="Destination host" />
+                        <NumericUpDown Name="ForwardDestPortInput" Grid.Column="4" Width="90" Minimum="1" Maximum="65535" />
+                        <Button Grid.Column="5" Content="Add" Click="OnAddForwardClick" />
+                    </Grid>
+
+                    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <ListBox Name="ForwardsList" ItemsSource="{Binding Forwards}" />
+                        <StackPanel Grid.Column="1" Spacing="8">
+                            <Button Content="Remove" Width="72" Click="OnRemoveForwardClick" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Reliability">
+                <Grid Margin="0,10,0,0" ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Keepalive interval" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="0" Grid.Column="1" Minimum="1" Maximum="3600" Value="{Binding KeepAliveIntervalSeconds}" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Keepalive count max" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="1" Grid.Column="1" Minimum="1" Maximum="120" Value="{Binding KeepAliveCountMax}" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Multiplexing" VerticalAlignment="Center" />
+                    <CheckBox Grid.Row="2" Grid.Column="1" Content="Enable connection multiplexing" IsChecked="{Binding EnableMux}" />
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="ControlPersist (sec)" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="3" Grid.Column="1" Minimum="0" Maximum="86400" Value="{Binding ControlPersistSeconds}" />
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Advanced">
+                <Grid Margin="0,10,0,0" RowDefinitions="Auto,*,Auto" RowSpacing="8">
+                    <TextBlock Grid.Row="0" Text="Extra ssh args (appended after alias)" Opacity="0.8" />
+                    <TextBox Grid.Row="1"
+                             Text="{Binding ExtraSshArgs}"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             VerticalContentAlignment="Top"
+                             Height="150"
+                             PlaceholderText="-o StrictHostKeyChecking=no" />
+                    <StackPanel Grid.Row="2" Spacing="2">
+                        <CheckBox IsChecked="{Binding AllowAgentAccess}"
+                                  Content="Allow AI agent access to this connection" />
+                        <TextBlock Text="Lets AI agents type into and open this SSH connection, when 'Agent access (act)' is enabled in Settings. Every action is shown in the agent activity journal. Off by default."
+                                   Opacity="0.7" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <StackPanel Grid.Row="1" Margin="0,8,0,8" Spacing="4">
+            <TextBlock Text="{Binding BackendWarning}"
+                       Foreground="#D7BA7D"
+                       TextWrapping="Wrap"
+                       IsVisible="{Binding BackendWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <TextBlock Text="{Binding ValidationError}"
+                       Foreground="#E06C75"
+                       TextWrapping="Wrap"
+                       IsVisible="{Binding ValidationError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <TextBlock Text="{Binding ValidationWarning}"
+                       Foreground="#D7BA7D"
+                       TextWrapping="Wrap"
+                       IsVisible="{Binding ValidationWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0" VerticalAlignment="Bottom">
+            <Button Content="Cancel" Width="90" Click="OnCancelClick" />
+            <Button Content="Save" Width="90" Click="OnSaveClick" />
+            <Button Content="Connect" Width="100" Click="OnConnectClick" />
+        </StackPanel>
+    </Grid>
+</Window>

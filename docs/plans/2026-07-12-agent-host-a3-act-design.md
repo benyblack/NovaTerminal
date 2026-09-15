@@ -7,11 +7,11 @@ version 1.
 
 ## Goal
 
-- **`novaterminal.send_input`** — inject input into a live session, byte-faithful
+- **`ntilde.send_input`** — inject input into a live session, byte-faithful
   and replay-recorded exactly like human keystrokes.
-- **`novaterminal.spawn_session`** — open a new tab running a local profile or
+- **`ntilde.spawn_session`** — open a new tab running a local profile or
   an *allowlisted* SSH profile, by name; returns the new paneId.
-- **`novaterminal.close_session`** — close a live pane.
+- **`ntilde.close_session`** — close a live pane.
 - **Permission model** (DIRECTION table: "off; separate explicit opt-in,
   per-profile allowlist for SSH"): a new default-off `AgentAccessActEnabled`
   settings toggle, plus a per-SSH-profile `AllowAgentAccess` flag (default
@@ -159,7 +159,7 @@ threat model.
 1. **Act gate + sendInput:** contracts (method, error codes, DTOs), settings
    toggle + `ActEnabled` plumbing, `SshProfile.AllowAgentAccess` + allowlist
    probe, registration `ProfileId` + `TrySendInput`, journal core (no UI),
-   `sendInput` handler, MCP `novaterminal.send_input`, acceptance + protocol +
+   `sendInput` handler, MCP `ntilde.send_input`, acceptance + protocol +
    journal tests.
 2. **spawnSession/closeSession:** executor bridge published by MainWindow,
    both handlers + MCP tools, connection-editor allowlist checkbox, tests.

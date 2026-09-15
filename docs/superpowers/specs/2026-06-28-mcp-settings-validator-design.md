@@ -2,24 +2,24 @@
 
 **Date:** 2026-06-28
 **Status:** Design approved, ready for implementation plan
-**Component:** `src/NovaTerminal.McpServer`
+**Component:** `src/Ntilde.McpServer`
 
 ## Summary
 
 Add two read-only MCP tools that let a developer or AI client discover and validate the
-NovaTerminal app **settings** JSON (`settings.json`), completing the theme → connection-profile
+Ntilde app **settings** JSON (`settings.json`), completing the theme → connection-profile
 → settings validation trio:
 
-- `novaterminal.get_settings_schema`
-- `novaterminal.validate_settings_json`
+- `ntilde.get_settings_schema`
+- `ntilde.validate_settings_json`
 
 This brings the server's tool count from **13 → 15** (v0.4).
 
 ## Background — wire format (verified)
 
-`TerminalSettings` (`src/NovaTerminal.App/Shell/TerminalSettings.cs`) is serialized via
-`AppJsonContext` (`src/NovaTerminal.App/Shell/AppJsonContext.cs`) to
-`%LOCALAPPDATA%\NovaTerminal\settings.json` (override dir: `NOVATERM_APPDATA_ROOT`).
+`TerminalSettings` (`src/Ntilde.App/Shell/TerminalSettings.cs`) is serialized via
+`AppJsonContext` (`src/Ntilde.App/Shell/AppJsonContext.cs`) to
+`%LOCALAPPDATA%\Ntilde\settings.json` (override dir: `NTILDE_APPDATA_ROOT`).
 
 `AppJsonContext` sets `WriteIndented = true` and two color converters, but **no**
 `PropertyNamingPolicy` and **no** `JsonStringEnumConverter`. Therefore the on-disk JSON uses
@@ -134,15 +134,15 @@ guidance, marked non-authoritative.
 
 ## Placement & implementation notes
 
-- New static tool class in `src/NovaTerminal.McpServer` (e.g. `SettingsTools`), same
+- New static tool class in `src/Ntilde.McpServer` (e.g. `SettingsTools`), same
   `[McpServerToolType]` / `[McpServerTool]` pattern, `System.Text.Json` (`JsonDocument`)
   parsing, no new dependencies — exactly like the theme and connection-profile tools.
-- A comment names `src/NovaTerminal.App/Shell/TerminalSettings.cs` as the source of truth for
+- A comment names `src/Ntilde.App/Shell/TerminalSettings.cs` as the source of truth for
   the hand-maintained field list, and notes the `[JsonIgnore]` exclusions.
 
 ## Testing
 
-New file `tests/NovaTerminal.McpServer.Tests/SettingsToolsTests.cs` (xUnit v3, theme-tests style):
+New file `tests/Ntilde.McpServer.Tests/SettingsToolsTests.cs` (xUnit v3, theme-tests style):
 
 - **Schema tool:** non-empty; contains the area headings and key field names; the embedded
   example parses as JSON and passes its own validator (self-consistency).
@@ -159,7 +159,7 @@ New file `tests/NovaTerminal.McpServer.Tests/SettingsToolsTests.cs` (xUnit v3, t
   (type-check only, no value warning).
 
 **No reflection drift-guard for settings.** A reflection guard would require a test-only
-`ProjectReference` to `NovaTerminal.App` (which pulls in Avalonia and the full app graph) — too
+`ProjectReference` to `Ntilde.App` (which pulls in Avalonia and the full app graph) — too
 heavy for a field-name check. Instead the known-field list is hand-maintained with a pointer
 comment to `TerminalSettings.cs`. (This matches the already-accepted hand-maintained nature of
 the enum-like-string sets and numeric ranges, which aren't reflectable anyway.)

@@ -1,0 +1,1086 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Ntilde.Platform.Ssh.Models;
+
+namespace Ntilde.Platform.Ssh.Native;
+
+public sealed partial class NativeSshInterop : INativeSshInterop
+{
+    private const string LibName = "rusty_ssh";
+    private const int ResultOk = 0;
+    private const int ResultEventReady = 1;
+    private const int ResultInvalidArgument = -1;
+    private const int ResultBufferTooSmall = -2;
+
+    /// Poll payload scratch buffer, retained across calls and grown on demand. See PollEvent for why
+    /// this is per-thread rather than per-instance.
+    [ThreadStatic]
+    private static byte[]? _pollBuffer;
+    private const int ResultClosed = -3;
+    private const int ResultCanceled = -6;
+    private const int ResultPanic = -7;
+
+    // A forward channel is over its queued-byte budget toward the remote. Surfaced as a false return
+    // from TryWriteChannel, never as an exception: the caller is meant to retry, and that retry is
+    // what applies backpressure to the local socket it is reading from.
+    private const int ResultWouldBlock = -8;
+
+    // The server refused a tcpip-forward request. Its own code because the remedy differs from a
+    // failed channel open: there is no channel, and the forward should be reported unavailable.
+    private const int ResultRemoteForwardFailed = -9;
+    private static readonly NativeSftpTransferProgressCallback SftpTransferProgressCallback = OnNativeSftpTransferProgress;
+    private static readonly IntPtr SftpTransferProgressCallbackPointer =
+        Marshal.GetFunctionPointerForDelegate(SftpTransferProgressCallback);
+
+    public NovaSshSafeHandle Connect(NativeSshConnectionOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        IntPtr hostPtr = IntPtr.Zero;
+        IntPtr userPtr = IntPtr.Zero;
+        IntPtr termPtr = IntPtr.Zero;
+        IntPtr identityPtr = IntPtr.Zero;
+        IntPtr shellDetectionCommandPtr = IntPtr.Zero;
+        IntPtr bashCwdBootstrapPtr = IntPtr.Zero;
+        IntPtr zshCwdBootstrapPtr = IntPtr.Zero;
+        IntPtr fishCwdBootstrapPtr = IntPtr.Zero;
+
+        try
+        {
+            hostPtr = Marshal.StringToCoTaskMemUTF8(options.Host);
+            userPtr = Marshal.StringToCoTaskMemUTF8(options.User);
+            termPtr = Marshal.StringToCoTaskMemUTF8(options.Term);
+            if (!string.IsNullOrWhiteSpace(options.IdentityFilePath))
+            {
+                identityPtr = Marshal.StringToCoTaskMemUTF8(options.IdentityFilePath);
+            }
+            if (!string.IsNullOrWhiteSpace(options.ShellDetectionCommand))
+            {
+                shellDetectionCommandPtr = Marshal.StringToCoTaskMemUTF8(options.ShellDetectionCommand);
+            }
+            if (!string.IsNullOrWhiteSpace(options.BashCwdBootstrap))
+            {
+                bashCwdBootstrapPtr = Marshal.StringToCoTaskMemUTF8(options.BashCwdBootstrap);
+            }
+            if (!string.IsNullOrWhiteSpace(options.ZshCwdBootstrap))
+            {
+                zshCwdBootstrapPtr = Marshal.StringToCoTaskMemUTF8(options.ZshCwdBootstrap);
+            }
+            if (!string.IsNullOrWhiteSpace(options.FishCwdBootstrap))
+            {
+                fishCwdBootstrapPtr = Marshal.StringToCoTaskMemUTF8(options.FishCwdBootstrap);
+            }
+
+            IntPtr jumpHopsJsonPtr = IntPtr.Zero;
+
+            try
+            {
+                if (options.JumpHops.Count > 0)
+                {
+                    // The chain crosses the FFI as one JSON array rather than repeated C fields,
+                    // so any length works without renegotiating the ABI. Same shape as the hops
+                    // in the SFTP request JSON; the Rust side parses both with one struct.
+                    jumpHopsJsonPtr = Marshal.StringToCoTaskMemUTF8(
+                        JsonSerializer.Serialize(
+                            options.JumpHops.Select(JumpHopRequest.From).ToArray(),
+                            NativeSshJsonContext.Default.JumpHopRequestArray));
+                }
+
+                NativeConnectArgs args = new()
+                {
+                    Host = hostPtr,
+                    User = userPtr,
+                    Port = checked((ushort)options.Port),
+                    Cols = checked((ushort)options.Cols),
+                    Rows = checked((ushort)options.Rows),
+                    Term = termPtr,
+                    IdentityFile = identityPtr,
+                    JumpHopsJson = jumpHopsJsonPtr,
+                    KeepAliveIntervalSeconds = checked((uint)Math.Max(0, options.KeepAliveIntervalSeconds)),
+                    KeepAliveCountMax = checked((uint)Math.Max(0, options.KeepAliveCountMax)),
+                    RemoteShellKind = (uint)options.RemoteShellKind,
+                    ShellDetectionCommand = shellDetectionCommandPtr,
+                    BashCwdBootstrap = bashCwdBootstrapPtr,
+                    ZshCwdBootstrap = zshCwdBootstrapPtr,
+                    FishCwdBootstrap = fishCwdBootstrapPtr,
+                    UseAgent = options.UseAgent ? 1u : 0u
+                };
+
+                NovaSshSafeHandle handle = NativeMethods.nova_ssh_connect(in args);
+                if (handle.IsInvalid)
+                {
+                    handle.Dispose();
+                    throw new InvalidOperationException("Failed to create native SSH session.");
+                }
+
+                return handle;
+            }
+            finally
+            {
+                FreeUtf8(jumpHopsJsonPtr);
+            }
+        }
+        finally
+        {
+            FreeUtf8(hostPtr);
+            FreeUtf8(userPtr);
+            FreeUtf8(termPtr);
+            FreeUtf8(identityPtr);
+            FreeUtf8(shellDetectionCommandPtr);
+            FreeUtf8(bashCwdBootstrapPtr);
+            FreeUtf8(zshCwdBootstrapPtr);
+            FreeUtf8(fishCwdBootstrapPtr);
+        }
+    }
+
+    public void RunSftpTransfer(
+        NativeSshConnectionOptions connectionOptions,
+        NativeSftpTransferOptions transferOptions,
+        Action<NativeSftpTransferProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connectionOptions);
+        ArgumentNullException.ThrowIfNull(transferOptions);
+
+        ValidateConnectionOptions(connectionOptions);
+        ValidateSftpConnectionOptions(connectionOptions);
+        transferOptions.Validate();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        SftpTransferRequest request = SftpTransferRequest.From(connectionOptions, transferOptions);
+        string requestJson = SerializeSftpTransferRequest(request);
+
+        IntPtr requestPtr = IntPtr.Zero;
+        IntPtr responsePtr = IntPtr.Zero;
+        GCHandle progressStateHandle = default;
+        string cancellationMarkerPath = Path.Combine(
+            Path.GetTempPath(),
+            $"ntilde-sftp-cancel-{Guid.NewGuid():N}.signal");
+        CancellationTokenRegistration cancellationRegistration = default;
+
+        try
+        {
+            cancellationRegistration = cancellationToken.Register(() =>
+            {
+                try
+                {
+                    File.WriteAllText(cancellationMarkerPath, string.Empty);
+                }
+                catch
+                {
+                }
+            });
+            request = request with
+            {
+                Transfer = request.Transfer with
+                {
+                    CancellationMarkerPath = cancellationMarkerPath
+                }
+            };
+            requestJson = SerializeSftpTransferRequest(request);
+            requestPtr = Marshal.StringToCoTaskMemUTF8(requestJson);
+            if (progress is not null)
+            {
+                // Native SFTP transfer callbacks are expected to stay synchronous within the
+                // nova_ssh_sftp_transfer call, so this GCHandle only needs to live for that invocation.
+                progressStateHandle = GCHandle.Alloc(new NativeSftpTransferProgressCallbackState(progress));
+            }
+
+            int rc = NativeMethods.nova_ssh_sftp_transfer(
+                requestPtr,
+                progressStateHandle.IsAllocated ? SftpTransferProgressCallbackPointer : IntPtr.Zero,
+                progressStateHandle.IsAllocated ? GCHandle.ToIntPtr(progressStateHandle) : IntPtr.Zero,
+                out responsePtr);
+            string? responseJson = TakeNativeUtf8AndFree(ref responsePtr);
+            if (rc == ResultCanceled)
+            {
+                throw new OperationCanceledException(BuildSftpTransferFailureMessage(rc, responseJson), cancellationToken);
+            }
+
+            if (rc == ResultPanic)
+            {
+                throw new InvalidOperationException("Native SSH operation failed: the native layer caught an internal panic at the FFI boundary (operation aborted safely).");
+            }
+
+            if (rc != ResultOk)
+            {
+                throw new InvalidOperationException(BuildSftpTransferFailureMessage(rc, responseJson));
+            }
+        }
+        finally
+        {
+            if (progressStateHandle.IsAllocated)
+            {
+                progressStateHandle.Free();
+            }
+
+            FreeUtf8(requestPtr);
+            if (responsePtr != IntPtr.Zero)
+            {
+                NativeMethods.nova_ssh_string_free(responsePtr);
+            }
+
+            CleanupCancellationMarker(ref cancellationRegistration, cancellationMarkerPath);
+        }
+    }
+
+    internal static void CleanupCancellationMarkerForTests(
+        ref CancellationTokenRegistration cancellationRegistration,
+        string cancellationMarkerPath)
+    {
+        CleanupCancellationMarker(ref cancellationRegistration, cancellationMarkerPath);
+    }
+
+    private static void CleanupCancellationMarker(
+        ref CancellationTokenRegistration cancellationRegistration,
+        string cancellationMarkerPath)
+    {
+        cancellationRegistration.Dispose();
+        try
+        {
+            if (File.Exists(cancellationMarkerPath))
+            {
+                File.Delete(cancellationMarkerPath);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    public IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(
+        NativeSshConnectionOptions connectionOptions,
+        string remotePath,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connectionOptions);
+        ArgumentException.ThrowIfNullOrWhiteSpace(remotePath);
+
+        ValidateConnectionOptions(connectionOptions);
+        ValidateSftpConnectionOptions(connectionOptions);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        RemotePathListRequest request = RemotePathListRequest.From(connectionOptions, remotePath);
+        string requestJson = SerializeRemotePathListRequest(request);
+
+        IntPtr requestPtr = IntPtr.Zero;
+        IntPtr responsePtr = IntPtr.Zero;
+
+        try
+        {
+            requestPtr = Marshal.StringToCoTaskMemUTF8(requestJson);
+            int rc = NativeMethods.nova_ssh_sftp_list_directory(requestPtr, out responsePtr);
+            string? responseJson = TakeNativeUtf8AndFree(ref responsePtr);
+            if (rc == ResultCanceled)
+            {
+                throw new OperationCanceledException(BuildRemotePathListFailureMessage(rc, responseJson), cancellationToken);
+            }
+
+            if (rc == ResultPanic)
+            {
+                throw new InvalidOperationException("Native SSH operation failed: the native layer caught an internal panic at the FFI boundary (operation aborted safely).");
+            }
+
+            if (rc != ResultOk)
+            {
+                throw new InvalidOperationException(BuildRemotePathListFailureMessage(rc, responseJson));
+            }
+
+            if (string.IsNullOrWhiteSpace(responseJson))
+            {
+                return [];
+            }
+
+            return DeserializeRemotePathListResponse(responseJson);
+        }
+        finally
+        {
+            FreeUtf8(requestPtr);
+            if (responsePtr != IntPtr.Zero)
+            {
+                NativeMethods.nova_ssh_string_free(responsePtr);
+            }
+        }
+    }
+
+    public NativeSshEvent? PollEvent(NovaSshSafeHandle sessionHandle)
+    {
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed)
+        {
+            return null;
+        }
+
+        // Reuse the buffer across polls instead of starting from Array.Empty every time.
+        //
+        // Starting empty guaranteed the BUFFER_TOO_SMALL path for *every* non-empty payload: first
+        // call reported the length, we allocated, second call delivered. So each output chunk cost
+        // two FFI transitions and a fresh managed array, forever — the retry was the steady state,
+        // not the exception (#173 item 1). With the buffer retained it happens once per size
+        // increase and then stops.
+        //
+        // ThreadStatic rather than an instance field: NativeSshSession creates its own interop by
+        // default but the dependency is injectable, so an instance field could be shared by two
+        // sessions polling concurrently. PollEvent is synchronous, so a thread cannot change
+        // underneath a single call, which makes per-thread ownership both race-free and enough.
+        byte[] buffer = _pollBuffer ?? Array.Empty<byte>();
+        NativeEventHeader header = default;
+
+        try
+        {
+            while (true)
+            {
+                int rc = NativeMethods.nova_ssh_poll_event(sessionHandle, out header, buffer, (nuint)buffer.Length);
+                if (rc == ResultOk)
+                {
+                    return null;
+                }
+
+                if (rc == ResultBufferTooSmall)
+                {
+                    buffer = new byte[header.PayloadLength];
+                    _pollBuffer = buffer;
+                    continue;
+                }
+
+                if (rc == ResultEventReady)
+                {
+                    int payloadLength = checked((int)header.PayloadLength);
+                    byte[] payload = payloadLength == 0
+                        ? Array.Empty<byte>()
+                        : buffer[..payloadLength];
+                    return new NativeSshEvent((NativeSshEventKind)header.Kind, payload, header.StatusCode, (NativeSshEventFlags)header.Flags);
+                }
+
+                throw new InvalidOperationException($"Native SSH poll failed with result {rc}.");
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            return null;
+        }
+    }
+
+    public void Write(NovaSshSafeHandle sessionHandle, ReadOnlySpan<byte> data)
+    {
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed)
+        {
+            return;
+        }
+
+        byte[] payload = data.ToArray();
+        try
+        {
+            int rc = NativeMethods.nova_ssh_write(sessionHandle, payload, (nuint)payload.Length);
+            if (rc is ResultOk or ResultInvalidArgument)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException($"Native SSH write failed with result {rc}.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    public void Resize(NovaSshSafeHandle sessionHandle, int cols, int rows)
+    {
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed || cols <= 0 || rows <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            int rc = NativeMethods.nova_ssh_resize(sessionHandle, checked((ushort)cols), checked((ushort)rows));
+            if (rc is ResultOk or ResultInvalidArgument)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException($"Native SSH resize failed with result {rc}.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    public int OpenDirectTcpIp(NovaSshSafeHandle sessionHandle, NativePortForwardOpenOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed)
+        {
+            throw new InvalidOperationException("Cannot open a native port-forward channel without a session handle.");
+        }
+
+        IntPtr hostPtr = IntPtr.Zero;
+        IntPtr originatorPtr = IntPtr.Zero;
+
+        try
+        {
+            hostPtr = Marshal.StringToCoTaskMemUTF8(options.HostToConnect);
+            originatorPtr = Marshal.StringToCoTaskMemUTF8(options.OriginatorAddress);
+
+            NativeDirectTcpIpOpenArgs args = new()
+            {
+                HostToConnect = hostPtr,
+                PortToConnect = checked((ushort)options.PortToConnect),
+                OriginatorAddress = originatorPtr,
+                OriginatorPort = checked((ushort)options.OriginatorPort)
+            };
+
+            int channelId = NativeMethods.nova_ssh_open_direct_tcpip(sessionHandle, in args);
+            if (channelId >= 0)
+            {
+                return channelId;
+            }
+
+            throw new InvalidOperationException($"Native SSH direct-tcpip open failed with result {channelId}.");
+        }
+        catch (ObjectDisposedException)
+        {
+            return -1;
+        }
+        finally
+        {
+            FreeUtf8(hostPtr);
+            FreeUtf8(originatorPtr);
+        }
+    }
+
+    public int RequestRemoteForward(NovaSshSafeHandle sessionHandle, string bindAddress, int port)
+    {
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed)
+        {
+            throw new InvalidOperationException("Cannot request a remote forward without a session handle.");
+        }
+
+        if (string.IsNullOrWhiteSpace(bindAddress))
+        {
+            throw new ArgumentException("A bind address is required for a remote forward.", nameof(bindAddress));
+        }
+
+        if (port is < 1 or > 65535)
+        {
+            throw new ArgumentOutOfRangeException(nameof(port), "The remote forward port must be between 1 and 65535.");
+        }
+
+        IntPtr addressPtr = IntPtr.Zero;
+        try
+        {
+            addressPtr = Marshal.StringToCoTaskMemUTF8(bindAddress);
+            int boundPort = NativeMethods.nova_ssh_request_remote_forward(sessionHandle, addressPtr, checked((ushort)port));
+            if (boundPort >= 0)
+            {
+                return boundPort;
+            }
+
+            throw new InvalidOperationException(boundPort == ResultRemoteForwardFailed
+                ? $"The server refused the remote forward on {bindAddress}:{port}."
+                : $"Native SSH remote-forward request failed with result {boundPort}.");
+        }
+        finally
+        {
+            FreeUtf8(addressPtr);
+        }
+    }
+
+    public void WriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
+    {
+        // Callers that cannot handle backpressure get a loud failure rather than silent data loss:
+        // dropping bytes out of a forwarded stream corrupts it invisibly. Production callers use
+        // TryWriteChannel and retry.
+        if (!TryWriteChannel(sessionHandle, channelId, data))
+        {
+            throw new InvalidOperationException(
+                $"Native SSH channel {channelId} has no room for this write. Use TryWriteChannel and retry.");
+        }
+    }
+
+    public bool TryWriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
+    {
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed || channelId < 0)
+        {
+            return true;
+        }
+
+        byte[] payload = data.ToArray();
+        try
+        {
+            int rc = NativeMethods.nova_ssh_channel_write(sessionHandle, checked((uint)channelId), payload, (nuint)payload.Length);
+
+            // Not an error, and nothing was consumed: the channel's queue toward the remote is full.
+            if (rc == ResultWouldBlock)
+            {
+                return false;
+            }
+
+            if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
+            {
+                return true;
+            }
+
+            throw new InvalidOperationException($"Native SSH channel write failed with result {rc}.");
+        }
+        catch (ObjectDisposedException)
+        {
+            return true;
+        }
+    }
+
+    public void SendChannelEof(NovaSshSafeHandle sessionHandle, int channelId)
+    {
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed || channelId < 0)
+        {
+            return;
+        }
+
+        try
+        {
+            int rc = NativeMethods.nova_ssh_channel_eof(sessionHandle, checked((uint)channelId));
+            if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException($"Native SSH channel EOF failed with result {rc}.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    public void CloseChannel(NovaSshSafeHandle sessionHandle, int channelId)
+    {
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed || channelId < 0)
+        {
+            return;
+        }
+
+        try
+        {
+            int rc = NativeMethods.nova_ssh_channel_close(sessionHandle, checked((uint)channelId));
+            if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException($"Native SSH channel close failed with result {rc}.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    public void Close(NovaSshSafeHandle sessionHandle)
+    {
+        // Disposing the SafeHandle runs ReleaseHandle -> nova_ssh_close exactly once,
+        // after any in-flight call's AddRef has been released.
+        sessionHandle?.Dispose();
+    }
+
+    public void SubmitResponse(NovaSshSafeHandle sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
+    {
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed)
+        {
+            return;
+        }
+
+        byte[] payload = data.ToArray();
+        try
+        {
+            int rc = NativeMethods.nova_ssh_submit_response(sessionHandle, (uint)responseKind, payload, (nuint)payload.Length);
+            if (rc is ResultOk or ResultInvalidArgument)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException($"Native SSH submit response failed with result {rc}.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    internal static void InvokeManagedProgressCallbackForTest(
+        Action<NativeSftpTransferProgress> progress,
+        ulong bytesDone,
+        ulong bytesTotal,
+        string currentPath)
+    {
+        ArgumentNullException.ThrowIfNull(progress);
+
+        IntPtr currentPathPtr = IntPtr.Zero;
+
+        try
+        {
+            currentPathPtr = Marshal.StringToCoTaskMemUTF8(currentPath);
+            InvokeManagedProgressCallback(
+                progress,
+                new NativeSftpTransferProgressCallbackData
+                {
+                    BytesDone = bytesDone,
+                    BytesTotal = bytesTotal,
+                    CurrentPath = currentPathPtr
+                });
+        }
+        finally
+        {
+            FreeUtf8(currentPathPtr);
+        }
+    }
+
+    private static void FreeUtf8(IntPtr pointer)
+    {
+        if (pointer != IntPtr.Zero)
+        {
+            Marshal.FreeCoTaskMem(pointer);
+        }
+    }
+
+    private static void OnNativeSftpTransferProgress(IntPtr context, NativeSftpTransferProgressCallbackData progress)
+    {
+        if (context == IntPtr.Zero)
+        {
+            return;
+        }
+
+        GCHandle handle = GCHandle.FromIntPtr(context);
+        if (handle.Target is not NativeSftpTransferProgressCallbackState state)
+        {
+            return;
+        }
+
+        try
+        {
+            InvokeManagedProgressCallback(state.Progress, progress);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void InvokeManagedProgressCallback(
+        Action<NativeSftpTransferProgress> progress,
+        NativeSftpTransferProgressCallbackData nativeProgress)
+    {
+        progress(new NativeSftpTransferProgress
+        {
+            BytesDone = checked((long)nativeProgress.BytesDone),
+            BytesTotal = checked((long)nativeProgress.BytesTotal),
+            CurrentPath = nativeProgress.CurrentPath == IntPtr.Zero
+                ? null
+                : Marshal.PtrToStringUTF8(nativeProgress.CurrentPath)
+        });
+    }
+
+    private static void ValidateConnectionOptions(NativeSshConnectionOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.Host))
+        {
+            throw new ArgumentException("A host is required for native SSH operations.", nameof(options));
+        }
+
+        if (string.IsNullOrWhiteSpace(options.User))
+        {
+            throw new ArgumentException("A user is required for native SSH operations.", nameof(options));
+        }
+
+        if (options.Port is < 1 or > 65535)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "The SSH port must be between 1 and 65535.");
+        }
+
+        foreach (SshJumpHop jumpHop in options.JumpHops)
+        {
+            if (string.IsNullOrWhiteSpace(jumpHop.Host))
+            {
+                throw new ArgumentException("A jump-host name is required for every jump hop.", nameof(options));
+            }
+
+            if (jumpHop.Port is < 1 or > 65535)
+            {
+                throw new ArgumentOutOfRangeException(nameof(options), "Every jump-hop port must be between 1 and 65535.");
+            }
+        }
+    }
+
+    private static void ValidateSftpConnectionOptions(NativeSshConnectionOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.KnownHostsFilePath))
+        {
+            throw new ArgumentException(
+                "A known-hosts store path is required for native SFTP transfers.",
+                nameof(options.KnownHostsFilePath));
+        }
+    }
+
+    private static string BuildSftpTransferFailureMessage(int resultCode, string? responseJson)
+    {
+        string message = $"Native SFTP transfer failed with result {resultCode}.";
+        if (string.IsNullOrWhiteSpace(responseJson))
+        {
+            return message;
+        }
+
+        try
+        {
+            NativeSftpTransferResponse? response = JsonSerializer.Deserialize(
+                responseJson,
+                NativeSshJsonContext.Default.NativeSftpTransferResponse);
+            if (!string.IsNullOrWhiteSpace(response?.Message))
+            {
+                return $"{message} {response.Message}";
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return $"{message} {responseJson}";
+    }
+
+    private static string BuildRemotePathListFailureMessage(int resultCode, string? responseJson)
+    {
+        string message = $"Native remote path listing failed with result {resultCode}.";
+        if (string.IsNullOrWhiteSpace(responseJson))
+        {
+            return message;
+        }
+
+        try
+        {
+            RemotePathListResponse? response = JsonSerializer.Deserialize(
+                responseJson,
+                NativeSshJsonContext.Default.RemotePathListResponse);
+            if (!string.IsNullOrWhiteSpace(response?.Message))
+            {
+                return $"{message} {response.Message}";
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return $"{message} {responseJson}";
+    }
+
+    internal static string SerializeSftpTransferRequestForTests(
+        NativeSshConnectionOptions connectionOptions,
+        NativeSftpTransferOptions transferOptions)
+    {
+        ArgumentNullException.ThrowIfNull(connectionOptions);
+        ArgumentNullException.ThrowIfNull(transferOptions);
+
+        return SerializeSftpTransferRequest(SftpTransferRequest.From(connectionOptions, transferOptions));
+    }
+
+    internal static string SerializeRemotePathListRequestForTests(
+        NativeSshConnectionOptions connectionOptions,
+        string remotePath)
+    {
+        ArgumentNullException.ThrowIfNull(connectionOptions);
+        ArgumentException.ThrowIfNullOrWhiteSpace(remotePath);
+
+        return SerializeRemotePathListRequest(RemotePathListRequest.From(connectionOptions, remotePath));
+    }
+
+    internal static string? DeserializeSftpTransferResponseMessageForTests(string responseJson)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(responseJson);
+
+        NativeSftpTransferResponse? response = JsonSerializer.Deserialize(
+            responseJson,
+            NativeSshJsonContext.Default.NativeSftpTransferResponse);
+        return response?.Message;
+    }
+
+    internal static IReadOnlyList<NativeRemotePathEntry> DeserializeRemotePathListResponseForTests(string responseJson)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(responseJson);
+        return DeserializeRemotePathListResponse(responseJson);
+    }
+
+    private static string SerializeSftpTransferRequest(SftpTransferRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return JsonSerializer.Serialize(
+            request,
+            NativeSshJsonContext.Default.SftpTransferRequest);
+    }
+
+    private static string SerializeRemotePathListRequest(RemotePathListRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return JsonSerializer.Serialize(
+            request,
+            NativeSshJsonContext.Default.RemotePathListRequest);
+    }
+
+    private static IReadOnlyList<NativeRemotePathEntry> DeserializeRemotePathListResponse(string responseJson)
+    {
+        RemotePathListResponse? response = JsonSerializer.Deserialize(
+            responseJson,
+            NativeSshJsonContext.Default.RemotePathListResponse);
+
+        return response?.Entries?
+            .Select(entry => new NativeRemotePathEntry(
+                entry.Name,
+                entry.FullPath,
+                entry.IsDirectory,
+                entry.ModifiedAtUtc ?? ConvertUnixSecondsToUtc(entry.ModifiedAtUnixSeconds)))
+            .ToList() ?? [];
+    }
+
+    private static DateTime? ConvertUnixSecondsToUtc(ulong? modifiedAtUnixSeconds)
+    {
+        if (!modifiedAtUnixSeconds.HasValue)
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTimeOffset
+                .FromUnixTimeSeconds(checked((long)modifiedAtUnixSeconds.Value))
+                .UtcDateTime;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+    }
+
+    private static string? TakeNativeUtf8AndFree(ref IntPtr pointer)
+    {
+        if (pointer == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Marshal.PtrToStringUTF8(pointer);
+        }
+        finally
+        {
+            NativeMethods.nova_ssh_string_free(pointer);
+            pointer = IntPtr.Zero;
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeConnectArgs
+    {
+        public IntPtr Host;
+        public IntPtr User;
+        public ushort Port;
+        public ushort Cols;
+        public ushort Rows;
+        public IntPtr Term;
+        public IntPtr IdentityFile;
+        public IntPtr JumpHopsJson;
+        public uint KeepAliveIntervalSeconds;
+        public uint KeepAliveCountMax;
+        public uint RemoteShellKind;
+        public IntPtr ShellDetectionCommand;
+        public IntPtr BashCwdBootstrap;
+        public IntPtr ZshCwdBootstrap;
+        public IntPtr FishCwdBootstrap;
+        public uint UseAgent;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeEventHeader
+    {
+        public uint Kind;
+        public uint PayloadLength;
+        public int StatusCode;
+        public uint Flags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeDirectTcpIpOpenArgs
+    {
+        public IntPtr HostToConnect;
+        public ushort PortToConnect;
+        public IntPtr OriginatorAddress;
+        public ushort OriginatorPort;
+    }
+
+    private sealed record SftpTransferRequest(SftpConnectionRequest Connection, SftpTransferRequestBody Transfer)
+    {
+        public static SftpTransferRequest From(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions)
+        {
+            return new SftpTransferRequest(
+                new SftpConnectionRequest(
+                    connectionOptions.Host,
+                    connectionOptions.User,
+                    connectionOptions.Port,
+                    string.IsNullOrWhiteSpace(connectionOptions.Password) ? null : connectionOptions.Password,
+                    string.IsNullOrWhiteSpace(connectionOptions.IdentityFilePath) ? null : connectionOptions.IdentityFilePath,
+                    connectionOptions.UseAgent,
+                    connectionOptions.KnownHostsFilePath!,
+                    connectionOptions.JumpHops.Select(JumpHopRequest.From).ToArray()),
+                new SftpTransferRequestBody(
+                    transferOptions.Direction.ToString().ToLowerInvariant(),
+                    transferOptions.Kind.ToString().ToLowerInvariant(),
+                    transferOptions.LocalPath!,
+                    transferOptions.RemotePath!));
+        }
+    }
+
+    private sealed record SftpConnectionRequest(
+        string Host,
+        string User,
+        int Port,
+        string? Password,
+        string? IdentityFilePath,
+        bool UseAgent,
+        string KnownHostsFilePath,
+        IReadOnlyList<JumpHopRequest> JumpHops);
+
+    /// <summary>
+    /// One jump hop as it crosses to the native layer — in the connect args' JSON chain and in
+    /// the SFTP request JSON alike. Null user means "authenticate as the connection's user".
+    /// </summary>
+    private sealed record JumpHopRequest(string Host, string? User, int Port)
+    {
+        public static JumpHopRequest From(SshJumpHop hop) => new(
+            hop.Host,
+            string.IsNullOrWhiteSpace(hop.User) ? null : hop.User,
+            hop.Port);
+    }
+
+    private sealed record RemotePathListRequest(SftpConnectionRequest Connection, string Path)
+    {
+        public static RemotePathListRequest From(NativeSshConnectionOptions connectionOptions, string remotePath)
+        {
+            return new RemotePathListRequest(
+                new SftpConnectionRequest(
+                    connectionOptions.Host,
+                    connectionOptions.User,
+                    connectionOptions.Port,
+                    string.IsNullOrWhiteSpace(connectionOptions.Password) ? null : connectionOptions.Password,
+                    string.IsNullOrWhiteSpace(connectionOptions.IdentityFilePath) ? null : connectionOptions.IdentityFilePath,
+                    connectionOptions.UseAgent,
+                    connectionOptions.KnownHostsFilePath!,
+                    connectionOptions.JumpHops.Select(JumpHopRequest.From).ToArray()),
+                remotePath);
+        }
+    }
+
+    private sealed record SftpTransferRequestBody(
+        string Direction,
+        string Kind,
+        string LocalPath,
+        string RemotePath,
+        string? CancellationMarkerPath = null);
+
+    private sealed class NativeSftpTransferResponse
+    {
+        public string? Status { get; init; }
+        public string? Message { get; init; }
+    }
+
+    private sealed class RemotePathListResponse
+    {
+        public List<RemotePathListResponseEntry>? Entries { get; init; }
+        public string? Status { get; init; }
+        public string? Message { get; init; }
+    }
+
+    private sealed class RemotePathListResponseEntry
+    {
+        public string Name { get; init; } = string.Empty;
+        public string FullPath { get; init; } = string.Empty;
+        public bool IsDirectory { get; init; }
+        public DateTime? ModifiedAtUtc { get; init; }
+        public ulong? ModifiedAtUnixSeconds { get; init; }
+    }
+
+    [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    [JsonSerializable(typeof(SftpTransferRequest))]
+    [JsonSerializable(typeof(SftpConnectionRequest))]
+    [JsonSerializable(typeof(JumpHopRequest))]
+    [JsonSerializable(typeof(JumpHopRequest[]))]
+    [JsonSerializable(typeof(RemotePathListRequest))]
+    [JsonSerializable(typeof(SftpTransferRequestBody))]
+    [JsonSerializable(typeof(NativeSftpTransferResponse))]
+    [JsonSerializable(typeof(RemotePathListResponse))]
+    [JsonSerializable(typeof(RemotePathListResponseEntry))]
+    private sealed partial class NativeSshJsonContext : JsonSerializerContext
+    {
+    }
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void NativeSftpTransferProgressCallback(
+        IntPtr context,
+        NativeSftpTransferProgressCallbackData progress);
+
+    private sealed class NativeSftpTransferProgressCallbackState
+    {
+        public NativeSftpTransferProgressCallbackState(Action<NativeSftpTransferProgress> progress)
+        {
+            Progress = progress;
+        }
+
+        public Action<NativeSftpTransferProgress> Progress { get; }
+    }
+
+    internal static class NativeMethods
+    {
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_connect")]
+        public static extern NovaSshSafeHandle nova_ssh_connect(in NativeConnectArgs args);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_poll_event")]
+        public static extern int nova_ssh_poll_event(NovaSshSafeHandle session, out NativeEventHeader @event, byte[] payload, nuint payloadCapacity);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_write")]
+        public static extern int nova_ssh_write(NovaSshSafeHandle session, byte[] data, nuint dataLength);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_resize")]
+        public static extern int nova_ssh_resize(NovaSshSafeHandle session, ushort cols, ushort rows);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_sftp_list_directory")]
+        public static extern int nova_ssh_sftp_list_directory(IntPtr requestJson, out IntPtr responseJson);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_open_direct_tcpip")]
+        public static extern int nova_ssh_open_direct_tcpip(NovaSshSafeHandle session, in NativeDirectTcpIpOpenArgs args);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_request_remote_forward")]
+        public static extern int nova_ssh_request_remote_forward(NovaSshSafeHandle session, IntPtr address, ushort port);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_channel_write")]
+        public static extern int nova_ssh_channel_write(NovaSshSafeHandle session, uint channelId, byte[] data, nuint dataLength);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_channel_eof")]
+        public static extern int nova_ssh_channel_eof(NovaSshSafeHandle session, uint channelId);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_channel_close")]
+        public static extern int nova_ssh_channel_close(NovaSshSafeHandle session, uint channelId);
+
+        // Raw close used only by NovaSshSafeHandle.ReleaseHandle().
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_close")]
+        public static extern int nova_ssh_close_raw(IntPtr session);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_submit_response")]
+        public static extern int nova_ssh_submit_response(NovaSshSafeHandle session, uint responseKind, byte[] data, nuint dataLength);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_sftp_transfer")]
+        public static extern int nova_ssh_sftp_transfer(
+            IntPtr requestJson,
+            IntPtr progressCallback,
+            IntPtr progressContext,
+            out IntPtr responseJson);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_string_free")]
+        public static extern void nova_ssh_string_free(IntPtr value);
+    }
+}

@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the transfer subsystem separate from terminal VT parsing/rendering. Add a NativeSSH transfer path beside the existing external OpenSSH `scp` path, and route only `SshBackendKind.Native` jobs through the new native SFTP bridge. The Rust backend owns SSH/SFTP protocol work; C# `SftpService` owns queueing, progress, job state, and UI notifications.
 
-**Tech Stack:** C#/.NET 10, Avalonia, existing `SftpService`, Rust native backend in `src/NovaTerminal.App/native/rusty_ssh`, `russh`, `russh-sftp`, FFI exported from Rust to C#.
+**Tech Stack:** C#/.NET 10, Avalonia, existing `SftpService`, Rust native backend in `src/Ntilde.App/native/rusty_ssh`, `russh`, `russh-sftp`, FFI exported from Rust to C#.
 
 ---
 
@@ -30,8 +30,8 @@
 ## Task 1: Add Rust SFTP Dependency And Compile Boundary
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/Cargo.toml`
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/Cargo.lock`
+- Modify: `src/Ntilde.App/native/rusty_ssh/Cargo.toml`
+- Modify: `src/Ntilde.App/native/rusty_ssh/Cargo.lock`
 
 **Step 1: Add the dependency**
 
@@ -43,14 +43,14 @@ Example shape:
 russh-sftp = "2"
 ```
 
-If the selected version pulls an incompatible `russh`, prefer a compatible `russh-sftp` version before changing Nova's existing `russh` version.
+If the selected version pulls an incompatible `russh`, prefer a compatible `russh-sftp` version before changing Ntilde's existing `russh` version.
 
 **Step 2: Build to expose version conflicts**
 
 Run:
 
 ```powershell
-cargo build --manifest-path src\NovaTerminal.App\native\rusty_ssh\Cargo.toml
+cargo build --manifest-path src\Ntilde.App\native\rusty_ssh\Cargo.toml
 ```
 
 Expected: either build succeeds, or dependency errors clearly identify version mismatch.
@@ -62,26 +62,26 @@ If `russh-sftp` requires a different `russh`, test the smallest compatible versi
 **Step 4: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/native/rusty_ssh/Cargo.toml src/NovaTerminal.App/native/rusty_ssh/Cargo.lock
+git add src/Ntilde.App/native/rusty_ssh/Cargo.toml src/Ntilde.App/native/rusty_ssh/Cargo.lock
 git commit -m "build: add native sftp dependency"
 ```
 
 ## Task 2: Define Native Transfer FFI Contract
 
 **Files:**
-- Modify: `src/NovaTerminal.Core/Ssh/Native/INativeSshInterop.cs`
-- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs`
-- Create: `src/NovaTerminal.Core/Ssh/Native/NativeSftpTransferModels.cs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs`
+- Modify: `src/Ntilde.Core/Ssh/Native/INativeSshInterop.cs`
+- Modify: `src/Ntilde.Core/Ssh/Native/NativeSshInterop.cs`
+- Create: `src/Ntilde.Core/Ssh/Native/NativeSftpTransferModels.cs`
+- Test: `tests/Ntilde.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs`
 
 **Step 1: Write failing model/interop tests**
 
 Create tests for DTO defaults and interop argument validation:
 
 ```csharp
-using NovaTerminal.Core.Ssh.Native;
+using Ntilde.Core.Ssh.Native;
 
-namespace NovaTerminal.Core.Tests.Ssh;
+namespace Ntilde.Core.Tests.Ssh;
 
 public sealed class NativeSftpTransferInteropTests
 {
@@ -101,7 +101,7 @@ Run:
 
 ```powershell
 $env:SKIP_RUST_NATIVE_BUILD='1'
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests" --no-restore -m:1
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests" --no-restore -m:1
 ```
 
 Expected: compile failure because the model does not exist.
@@ -111,7 +111,7 @@ Expected: compile failure because the model does not exist.
 Create `NativeSftpTransferModels.cs`:
 
 ```csharp
-namespace NovaTerminal.Core.Ssh.Native;
+namespace Ntilde.Core.Ssh.Native;
 
 public enum NativeSftpTransferDirection
 {
@@ -194,15 +194,15 @@ Expected: tests compile/pass.
 **Step 8: Commit**
 
 ```powershell
-git add src/NovaTerminal.Core/Ssh/Native tests/NovaTerminal.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs
+git add src/Ntilde.Core/Ssh/Native tests/Ntilde.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs
 git commit -m "feat: define native sftp transfer interop contract"
 ```
 
 ## Task 3: Route NativeSSH Transfer Jobs Separately
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Core/SftpService.cs`
-- Test: `tests/NovaTerminal.Tests/Core/SftpServiceTests.cs`
+- Modify: `src/Ntilde.App/Core/SftpService.cs`
+- Test: `tests/Ntilde.Tests/Core/SftpServiceTests.cs`
 
 **Step 1: Write failing routing tests**
 
@@ -240,7 +240,7 @@ Run:
 
 ```powershell
 $env:SKIP_RUST_NATIVE_BUILD='1'
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~SftpServiceTests" --no-restore -p:SkipCliShim=true -m:1
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~SftpServiceTests" --no-restore -p:SkipCliShim=true -m:1
 ```
 
 Expected: compile failure because `SftpTransferBackend` and `SelectTransferBackend` do not exist.
@@ -301,16 +301,16 @@ Expected: routing tests pass.
 **Step 7: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/Core/SftpService.cs tests/NovaTerminal.Tests/Core/SftpServiceTests.cs
+git add src/Ntilde.App/Core/SftpService.cs tests/Ntilde.Tests/Core/SftpServiceTests.cs
 git commit -m "feat: route native ssh transfers to native sftp backend"
 ```
 
 ## Task 4: Build Native Connection Options For Transfer
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Core/SftpService.cs`
-- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeJumpHostConnector.cs` if needed
-- Test: `tests/NovaTerminal.Tests/Core/SftpServiceTests.cs`
+- Modify: `src/Ntilde.App/Core/SftpService.cs`
+- Modify: `src/Ntilde.Core/Ssh/Native/NativeJumpHostConnector.cs` if needed
+- Test: `tests/Ntilde.Tests/Core/SftpServiceTests.cs`
 
 **Step 1: Write failing options test**
 
@@ -355,16 +355,16 @@ Expected: pass.
 **Step 5: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/Core/SftpService.cs src/NovaTerminal.Core/Ssh/Native/NativeJumpHostConnector.cs tests/NovaTerminal.Tests/Core/SftpServiceTests.cs
+git add src/Ntilde.App/Core/SftpService.cs src/Ntilde.Core/Ssh/Native/NativeJumpHostConnector.cs tests/Ntilde.Tests/Core/SftpServiceTests.cs
 git commit -m "feat: build native transfer connection options"
 ```
 
 ## Task 5: Implement Rust FFI Transfer Skeleton
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs`
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs`
+- Modify: `src/Ntilde.Core/Ssh/Native/NativeSshInterop.cs`
+- Test: `tests/Ntilde.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs`
 
 **Step 1: Write failing interop call test with fake invalid args**
 
@@ -424,16 +424,16 @@ Expected: validation tests pass; not-implemented test can assert clear `NotImple
 **Step 7: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs
+git add src/Ntilde.App/native/rusty_ssh/src/lib.rs src/Ntilde.Core/Ssh/Native/NativeSshInterop.cs tests/Ntilde.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs
 git commit -m "feat: add native sftp ffi skeleton"
 ```
 
 ## Task 6: Implement Native File Download
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs`
+- Modify: `src/Ntilde.Core/Ssh/Native/NativeSshInterop.cs`
+- Test: `tests/Ntilde.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
 
 **Step 1: Add Docker E2E failing test**
 
@@ -496,15 +496,15 @@ Expected: pass.
 **Step 6: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs
+git add src/Ntilde.App/native/rusty_ssh/src/lib.rs src/Ntilde.Core/Ssh/Native/NativeSshInterop.cs tests/Ntilde.Core.Tests/Ssh/NativeSshDockerE2eTests.cs
 git commit -m "feat: support native sftp file download"
 ```
 
 ## Task 7: Implement Native File Upload
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs`
+- Test: `tests/Ntilde.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
 
 **Step 1: Add failing upload E2E test**
 
@@ -531,15 +531,15 @@ Expected: pass.
 **Step 5: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs
+git add src/Ntilde.App/native/rusty_ssh/src/lib.rs tests/Ntilde.Core.Tests/Ssh/NativeSshDockerE2eTests.cs
 git commit -m "feat: support native sftp file upload"
 ```
 
 ## Task 8: Wire Native SFTP Into `SftpService`
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Core/SftpService.cs`
-- Test: `tests/NovaTerminal.Tests/Core/SftpServiceTests.cs`
+- Modify: `src/Ntilde.App/Core/SftpService.cs`
+- Test: `tests/Ntilde.Tests/Core/SftpServiceTests.cs`
 
 **Step 1: Add failing service test with fake native transfer runner**
 
@@ -603,15 +603,15 @@ Expected: pass.
 **Step 6: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/Core/SftpService.cs tests/NovaTerminal.Tests/Core/SftpServiceTests.cs
+git add src/Ntilde.App/Core/SftpService.cs tests/Ntilde.Tests/Core/SftpServiceTests.cs
 git commit -m "feat: wire native sftp transfers into service"
 ```
 
 ## Task 9: Add Directory Transfer Recursion
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs`
+- Test: `tests/Ntilde.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
 
 **Step 1: Add failing directory download test**
 
@@ -644,17 +644,17 @@ Expected: pass.
 **Step 5: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs
+git add src/Ntilde.App/native/rusty_ssh/src/lib.rs tests/Ntilde.Core.Tests/Ssh/NativeSshDockerE2eTests.cs
 git commit -m "feat: support native sftp directory transfers"
 ```
 
 ## Task 10: Add Cancellation And Better Errors
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Core/SftpService.cs`
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Test: `tests/NovaTerminal.Tests/Core/SftpServiceTests.cs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Modify: `src/Ntilde.App/Core/SftpService.cs`
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs`
+- Test: `tests/Ntilde.Tests/Core/SftpServiceTests.cs`
+- Test: `tests/Ntilde.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
 
 **Step 1: Add cancellation tests at service level**
 
@@ -694,16 +694,16 @@ Expected: pass.
 **Step 6: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/Core/SftpService.cs src/NovaTerminal.App/native/rusty_ssh/src/lib.rs tests
+git add src/Ntilde.App/Core/SftpService.cs src/Ntilde.App/native/rusty_ssh/src/lib.rs tests
 git commit -m "feat: add native sftp cancellation and errors"
 ```
 
 ## Task 11: Remove NativeSSH AskPass Bridge From Transfer Path
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Core/SftpService.cs`
-- Modify: `tests/NovaTerminal.Tests/Core/SftpServiceTests.cs`
-- Optional Modify: `src/NovaTerminal.App/Core/SshAskPassCommand.cs`
+- Modify: `src/Ntilde.App/Core/SftpService.cs`
+- Modify: `tests/Ntilde.Tests/Core/SftpServiceTests.cs`
+- Optional Modify: `src/Ntilde.App/Core/SshAskPassCommand.cs`
 
 **Step 1: Update tests**
 
@@ -724,7 +724,7 @@ Expected: pass.
 **Step 5: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/Core/SftpService.cs tests/NovaTerminal.Tests/Core/SftpServiceTests.cs src/NovaTerminal.App/Core/SshAskPassCommand.cs src/NovaTerminal.App/Program.cs src/NovaTerminal.Cli/Program.cs
+git add src/Ntilde.App/Core/SftpService.cs tests/Ntilde.Tests/Core/SftpServiceTests.cs src/Ntilde.App/Core/SshAskPassCommand.cs src/Ntilde.App/Program.cs src/Ntilde.Cli/Program.cs
 git commit -m "refactor: remove native ssh transfer askpass bridge"
 ```
 
@@ -764,8 +764,8 @@ Run:
 
 ```powershell
 $env:SKIP_RUST_NATIVE_BUILD='1'
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c NativeSftpFinal --filter "FullyQualifiedName~SftpServiceTests" --no-restore -p:SkipCliShim=true -m:1
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpFinal --filter "FullyQualifiedName~NativeSftp|FullyQualifiedName~NativeSshDockerE2eTests" --no-restore -m:1
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c NativeSftpFinal --filter "FullyQualifiedName~SftpServiceTests" --no-restore -p:SkipCliShim=true -m:1
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c NativeSftpFinal --filter "FullyQualifiedName~NativeSftp|FullyQualifiedName~NativeSshDockerE2eTests" --no-restore -m:1
 ```
 
 Expected: all focused tests pass.
@@ -789,8 +789,8 @@ Before claiming completion:
 
 ```powershell
 $env:SKIP_RUST_NATIVE_BUILD='1'
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c NativeSftpFinal --no-restore -p:SkipCliShim=true -m:1
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpFinal --no-restore -m:1
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c NativeSftpFinal --no-restore -p:SkipCliShim=true -m:1
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c NativeSftpFinal --no-restore -m:1
 ```
 
 Expected: all tests pass, or any unrelated failures are documented with exact test names and failure messages.

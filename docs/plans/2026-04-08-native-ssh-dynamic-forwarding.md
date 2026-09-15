@@ -13,8 +13,8 @@
 ### Task 1: Lock native forwarding scope with failing tests
 
 **Files:**
-- Modify: `d:\projects\nova2\tests\NovaTerminal.Core.Tests\Ssh\NativeSshSessionTests.cs`
-- Modify: `d:\projects\nova2\tests\NovaTerminal.Core.Tests\Ssh\NativePortForwardSessionTests.cs`
+- Modify: `d:\projects\nova2\tests\Ntilde.Core.Tests\Ssh\NativeSshSessionTests.cs`
+- Modify: `d:\projects\nova2\tests\Ntilde.Core.Tests\Ssh\NativePortForwardSessionTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -29,7 +29,7 @@ Add tests that prove:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests|FullyQualifiedName~NativePortForwardSessionTests"
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests|FullyQualifiedName~NativePortForwardSessionTests"
 ```
 
 Expected:
@@ -40,14 +40,14 @@ Expected:
 **Step 3: Commit**
 
 ```powershell
-git add tests\NovaTerminal.Core.Tests\Ssh\NativeSshSessionTests.cs tests\NovaTerminal.Core.Tests\Ssh\NativePortForwardSessionTests.cs
+git add tests\Ntilde.Core.Tests\Ssh\NativeSshSessionTests.cs tests\Ntilde.Core.Tests\Ssh\NativePortForwardSessionTests.cs
 git commit -m "test: capture native dynamic forwarding expectations"
 ```
 
 ### Task 2: Allow native sessions to accept dynamic forwards
 
 **Files:**
-- Modify: `d:\projects\nova2\src\NovaTerminal.Core\Ssh\Sessions\NativeSshSession.cs`
+- Modify: `d:\projects\nova2\src\Ntilde.Core\Ssh\Sessions\NativeSshSession.cs`
 
 **Step 1: Write the minimal implementation**
 
@@ -63,7 +63,7 @@ Keep the rest of session construction unchanged.
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests"
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests"
 ```
 
 Expected:
@@ -74,15 +74,15 @@ Expected:
 **Step 3: Commit**
 
 ```powershell
-git add src\NovaTerminal.Core\Ssh\Sessions\NativeSshSession.cs tests\NovaTerminal.Core.Tests\Ssh\NativeSshSessionTests.cs
+git add src\Ntilde.Core\Ssh\Sessions\NativeSshSession.cs tests\Ntilde.Core.Tests\Ssh\NativeSshSessionTests.cs
 git commit -m "feat: allow dynamic forwards in native ssh session setup"
 ```
 
 ### Task 3: Add SOCKS5 negotiation support to native forwarding
 
 **Files:**
-- Modify: `d:\projects\nova2\src\NovaTerminal.Core\Ssh\Native\NativePortForwardSession.cs`
-- Modify: `d:\projects\nova2\tests\NovaTerminal.Core.Tests\Ssh\NativePortForwardSessionTests.cs`
+- Modify: `d:\projects\nova2\src\Ntilde.Core\Ssh\Native\NativePortForwardSession.cs`
+- Modify: `d:\projects\nova2\tests\Ntilde.Core.Tests\Ssh\NativePortForwardSessionTests.cs`
 
 **Step 1: Write the failing protocol tests**
 
@@ -100,7 +100,7 @@ Use real loopback sockets against the existing test fake interop so the tests ex
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
 ```
 
 Expected:
@@ -135,7 +135,7 @@ Prefer small private helpers for:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
 ```
 
 Expected:
@@ -145,15 +145,15 @@ Expected:
 **Step 5: Commit**
 
 ```powershell
-git add src\NovaTerminal.Core\Ssh\Native\NativePortForwardSession.cs tests\NovaTerminal.Core.Tests\Ssh\NativePortForwardSessionTests.cs
+git add src\Ntilde.Core\Ssh\Native\NativePortForwardSession.cs tests\Ntilde.Core.Tests\Ssh\NativePortForwardSessionTests.cs
 git commit -m "feat: add socks5 dynamic forwarding to native ssh"
 ```
 
 ### Task 4: Harden dynamic forwarding shutdown and mixed-forward behavior
 
 **Files:**
-- Modify: `d:\projects\nova2\src\NovaTerminal.Core\Ssh\Native\NativePortForwardSession.cs`
-- Modify: `d:\projects\nova2\tests\NovaTerminal.Core.Tests\Ssh\NativePortForwardSessionTests.cs`
+- Modify: `d:\projects\nova2\src\Ntilde.Core\Ssh\Native\NativePortForwardSession.cs`
+- Modify: `d:\projects\nova2\tests\Ntilde.Core.Tests\Ssh\NativePortForwardSessionTests.cs`
 
 **Step 1: Add failing shutdown and coexistence tests**
 
@@ -169,7 +169,7 @@ Cover:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
 ```
 
 **Step 3: Implement the hardening**
@@ -185,28 +185,28 @@ Keep the implementation additive:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
 ```
 
 **Step 5: Commit**
 
 ```powershell
-git add src\NovaTerminal.Core\Ssh\Native\NativePortForwardSession.cs tests\NovaTerminal.Core.Tests\Ssh\NativePortForwardSessionTests.cs
+git add src\Ntilde.Core\Ssh\Native\NativePortForwardSession.cs tests\Ntilde.Core.Tests\Ssh\NativePortForwardSessionTests.cs
 git commit -m "test: harden native dynamic forward teardown"
 ```
 
 ### Task 5: Verify Rust interop assumptions stay valid
 
 **Files:**
-- Review: `d:\projects\nova2\src\NovaTerminal.App\native\rusty_ssh\src\lib.rs`
-- Modify only if needed: `d:\projects\nova2\src\NovaTerminal.App\native\rusty_ssh\src\lib.rs`
+- Review: `d:\projects\nova2\src\Ntilde.App\native\rusty_ssh\src\lib.rs`
+- Modify only if needed: `d:\projects\nova2\src\Ntilde.App\native\rusty_ssh\src\lib.rs`
 
 **Step 1: Run the existing native Rust tests**
 
 Run:
 
 ```powershell
-cargo test --manifest-path src\NovaTerminal.App\native\rusty_ssh\Cargo.toml --release
+cargo test --manifest-path src\Ntilde.App\native\rusty_ssh\Cargo.toml --release
 ```
 
 Expected:
@@ -226,7 +226,7 @@ Keep v1 YAGNI: do not add Rust-side SOCKS parsing.
 **Step 3: Commit**
 
 ```powershell
-git add src\NovaTerminal.App\native\rusty_ssh\src\lib.rs
+git add src\Ntilde.App\native\rusty_ssh\src\lib.rs
 git commit -m "fix: align native ssh interop for dynamic forwarding"
 ```
 
@@ -273,7 +273,7 @@ git commit -m "docs: record native dynamic forwarding scope"
 **Step 1: Run core SSH tests**
 
 ```powershell
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
+dotnet test tests\Ntilde.Core.Tests\Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
 ```
 
 Expected:
@@ -283,7 +283,7 @@ Expected:
 **Step 2: Run app SSH tests**
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
 ```
 
 Expected:
@@ -293,7 +293,7 @@ Expected:
 **Step 3: Run Rust tests**
 
 ```powershell
-cargo test --manifest-path src\NovaTerminal.App\native\rusty_ssh\Cargo.toml --release
+cargo test --manifest-path src\Ntilde.App\native\rusty_ssh\Cargo.toml --release
 ```
 
 Expected:
@@ -303,7 +303,7 @@ Expected:
 **Step 4: Build the app**
 
 ```powershell
-dotnet build src\NovaTerminal.App\NovaTerminal.App.csproj -c Release -p:SKIP_RUST_NATIVE_BUILD=1
+dotnet build src\Ntilde.App\Ntilde.App.csproj -c Release -p:SKIP_RUST_NATIVE_BUILD=1
 ```
 
 Expected:

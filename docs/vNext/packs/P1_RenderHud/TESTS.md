@@ -17,6 +17,6 @@
 - Snapshot screenshot of HUD overlay in a deterministic replay (golden baseline) if infra exists.
 
 ## Test Placement
-- Prefer `tests/NovaTerminal.Tests/Rendering/**` (or the closest existing suite)
+- Prefer `tests/Ntilde.Tests/Rendering/**` (or the closest existing suite)
 - Use deterministic fakes and avoid timing flakes:
   - drive sampling via injectable clock or controlled scheduler if possible

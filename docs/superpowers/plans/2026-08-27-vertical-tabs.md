@@ -14,10 +14,10 @@
 
 - **Never run raw `dotnet`.** Always `scripts/build.ps1 <args...>` (PowerShell) or `scripts/build.sh` (bash). Raw `dotnet build` hangs the calling harness (see CLAUDE.md).
 - **Prefix git/gh commands with `rtk`** (e.g. `rtk git add ...`).
-- Test placement convention (documented in `tests/NovaTerminal.App.Tests/TitleBarUiFreedomTests.cs`): pure logic → plain `[Fact]` in `tests/NovaTerminal.App.Tests/` root; anything touching controls → `[AvaloniaFact]` (from `Avalonia.Headless.XUnit`) in `tests/NovaTerminal.App.Tests/Core/`. Test classes are `public sealed`, namespace `NovaTerminal.Tests.Core` for the Core folder.
-- `tests/NovaTerminal.App.Tests` is **non-blocking in CI** (`continue-on-error`) — you must run it locally and it must pass. `Architecture`, `McpServer`, and `VT` test projects ARE gating.
+- Test placement convention (documented in `tests/Ntilde.App.Tests/TitleBarUiFreedomTests.cs`): pure logic → plain `[Fact]` in `tests/Ntilde.App.Tests/` root; anything touching controls → `[AvaloniaFact]` (from `Avalonia.Headless.XUnit`) in `tests/Ntilde.App.Tests/Core/`. Test classes are `public sealed`, namespace `Ntilde.Tests.Core` for the Core folder.
+- `tests/Ntilde.App.Tests` is **non-blocking in CI** (`continue-on-error`) — you must run it locally and it must pass. `Architecture`, `McpServer`, and `VT` test projects ARE gating.
 - **No new test projects** (new projects require sln + ci.yml + release.yml edits). Only new test *files* in existing projects — those need no CI changes.
-- `NovaTerminal.MainWindow` internals are directly visible to App.Tests (existing tests call `MainWindow.GetTabHeaderViewportMargin`, `CountHiddenTabs` directly). New test seams should be `internal`; use reflection only for existing `private` members.
+- `Ntilde.MainWindow` internals are directly visible to App.Tests (existing tests call `MainWindow.GetTabHeaderViewportMargin`, `CountHiddenTabs` directly). New test seams should be `internal`; use reflection only for existing `private` members.
 - Setting values are strings parsed with `Enum.TryParse(..., ignoreCase: true) + Enum.IsDefined`, falling back to the default on anything unrecognized (house pattern; a real enum property would make bad JSON a hard deserialization failure).
 - Canonical constants used across tasks: orientation strings `"Horizontal"` (default) / `"Vertical"`; sidebar width default `220`, clamp `140–600`; `WorkingWindow = 2s`; `MinAttentionBurst = 5s`; status decay timer interval `1s`.
 - `MainWindow.axaml.cs` is ~7255 lines; line numbers below are from 2026-08-27 and may drift — anchor by symbol name, not line number.
@@ -26,28 +26,28 @@
 
 | File | Responsibility |
 |---|---|
-| `src/NovaTerminal.App/Shell/TerminalSettings.cs` | +2 properties (`TabStripOrientation`, `VerticalTabStripWidth`) |
-| `src/NovaTerminal.App/Shell/TabStripLayout.cs` (new) | Pure helpers: orientation parse, width clamp, drag math + `TabStripOrientationKind` enum |
-| `src/NovaTerminal.App/Shell/TabStatusTracker.cs` (new) | Pure per-tab status heuristic + `TabTrackerStatus` enum |
-| `src/NovaTerminal.VT/Export/TerminalExporter.cs` | +`GetLastNonEmptyRowText(TerminalBuffer)` |
-| `src/NovaTerminal.App/MainWindow.axaml` | Tab themes as resources (horizontal = existing template moved; vertical = new), vertical TabItem styles |
-| `src/NovaTerminal.App/MainWindow.axaml.cs` | `ApplyTabLayout()`, vertical header host, viewport guards, status wiring, grip wiring, shortcut/palette entries |
-| `src/NovaTerminal.App/SettingsWindow.axaml(.cs)` | Orientation dropdown in WINDOW section |
-| `src/NovaTerminal.App/Shell/Shortcuts/ShortcutCatalog.cs` | +`toggle_tab_orientation` entry |
-| `src/NovaTerminal.McpServer/Tools/SettingsTools.cs` | Schema/example/`StringFields`/`KnownFields`/numeric validation for the 2 new settings |
-| `tests/NovaTerminal.Architecture.Tests/TabStripSettingsTests.cs` (new) | Settings default/round-trip/upgrade |
-| `tests/NovaTerminal.App.Tests/TabStripLayoutTests.cs` (new) | Pure layout helper tests |
-| `tests/NovaTerminal.App.Tests/TabStatusTrackerTests.cs` (new) | Tracker state-machine tests |
-| `tests/NovaTerminal.VT.Tests/` (existing exporter test file or new one) | Last-row helper tests |
-| `tests/NovaTerminal.App.Tests/Core/VerticalTabStripTests.cs` (new) | Headless window tests for the whole feature |
+| `src/Ntilde.App/Shell/TerminalSettings.cs` | +2 properties (`TabStripOrientation`, `VerticalTabStripWidth`) |
+| `src/Ntilde.App/Shell/TabStripLayout.cs` (new) | Pure helpers: orientation parse, width clamp, drag math + `TabStripOrientationKind` enum |
+| `src/Ntilde.App/Shell/TabStatusTracker.cs` (new) | Pure per-tab status heuristic + `TabTrackerStatus` enum |
+| `src/Ntilde.VT/Export/TerminalExporter.cs` | +`GetLastNonEmptyRowText(TerminalBuffer)` |
+| `src/Ntilde.App/MainWindow.axaml` | Tab themes as resources (horizontal = existing template moved; vertical = new), vertical TabItem styles |
+| `src/Ntilde.App/MainWindow.axaml.cs` | `ApplyTabLayout()`, vertical header host, viewport guards, status wiring, grip wiring, shortcut/palette entries |
+| `src/Ntilde.App/SettingsWindow.axaml(.cs)` | Orientation dropdown in WINDOW section |
+| `src/Ntilde.App/Shell/Shortcuts/ShortcutCatalog.cs` | +`toggle_tab_orientation` entry |
+| `src/Ntilde.McpServer/Tools/SettingsTools.cs` | Schema/example/`StringFields`/`KnownFields`/numeric validation for the 2 new settings |
+| `tests/Ntilde.Architecture.Tests/TabStripSettingsTests.cs` (new) | Settings default/round-trip/upgrade |
+| `tests/Ntilde.App.Tests/TabStripLayoutTests.cs` (new) | Pure layout helper tests |
+| `tests/Ntilde.App.Tests/TabStatusTrackerTests.cs` (new) | Tracker state-machine tests |
+| `tests/Ntilde.VT.Tests/` (existing exporter test file or new one) | Last-row helper tests |
+| `tests/Ntilde.App.Tests/Core/VerticalTabStripTests.cs` (new) | Headless window tests for the whole feature |
 
 ---
 
 ### Task 1: Settings fields
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/TerminalSettings.cs` (properties live around lines 14–80)
-- Test: `tests/NovaTerminal.Architecture.Tests/TabStripSettingsTests.cs` (new)
+- Modify: `src/Ntilde.App/Shell/TerminalSettings.cs` (properties live around lines 14–80)
+- Test: `tests/Ntilde.Architecture.Tests/TabStripSettingsTests.cs` (new)
 
 **Interfaces:**
 - Consumes: nothing.
@@ -55,15 +55,15 @@
 
 - [ ] **Step 1: Check the namespace/pattern of the canonical settings test**
 
-Read `tests/NovaTerminal.Architecture.Tests/Update/UpdateSettingsTests.cs` (45 lines). Note its namespace and using set — the new test file must match them.
+Read `tests/Ntilde.Architecture.Tests/Update/UpdateSettingsTests.cs` (45 lines). Note its namespace and using set — the new test file must match them.
 
 - [ ] **Step 2: Write the failing tests**
 
-Create `tests/NovaTerminal.Architecture.Tests/TabStripSettingsTests.cs` (adjust namespace/usings to what Step 1 found):
+Create `tests/Ntilde.Architecture.Tests/TabStripSettingsTests.cs` (adjust namespace/usings to what Step 1 found):
 
 ```csharp
 using System.Text.Json;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
 public sealed class TabStripSettingsTests
 {
@@ -100,14 +100,14 @@ public sealed class TabStripSettingsTests
 - [ ] **Step 3: Run tests to verify they fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests --filter "FullyQualifiedName~TabStripSettingsTests"
+scripts/build.ps1 test tests/Ntilde.Architecture.Tests --filter "FullyQualifiedName~TabStripSettingsTests"
 ```
 
 Expected: compile FAIL — `TabStripOrientation` not defined.
 
 - [ ] **Step 4: Add the properties**
 
-In `src/NovaTerminal.App/Shell/TerminalSettings.cs`, next to the other window-level settings (near `BlurEffect`), following the house doc-comment style of `ShellExitPolicy`:
+In `src/Ntilde.App/Shell/TerminalSettings.cs`, next to the other window-level settings (near `BlurEffect`), following the house doc-comment style of `ShellExitPolicy`:
 
 ```csharp
         /// <summary>
@@ -135,7 +135,7 @@ Same command as Step 3. Expected: 3 PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-rtk git add src/NovaTerminal.App/Shell/TerminalSettings.cs tests/NovaTerminal.Architecture.Tests/TabStripSettingsTests.cs
+rtk git add src/Ntilde.App/Shell/TerminalSettings.cs tests/Ntilde.Architecture.Tests/TabStripSettingsTests.cs
 rtk git commit -m "feat(settings): TabStripOrientation and VerticalTabStripWidth fields"
 ```
 
@@ -144,8 +144,8 @@ rtk git commit -m "feat(settings): TabStripOrientation and VerticalTabStripWidth
 ### Task 2: MCP SettingsTools registration
 
 **Files:**
-- Modify: `src/NovaTerminal.McpServer/Tools/SettingsTools.cs`
-- Test: existing `tests/NovaTerminal.McpServer.Tests/SettingsToolsDriftGuardTests.cs` (no edits — it reflects over `TerminalSettings`)
+- Modify: `src/Ntilde.McpServer/Tools/SettingsTools.cs`
+- Test: existing `tests/Ntilde.McpServer.Tests/SettingsToolsDriftGuardTests.cs` (no edits — it reflects over `TerminalSettings`)
 
 **Interfaces:**
 - Consumes: Task 1's two properties.
@@ -154,7 +154,7 @@ rtk git commit -m "feat(settings): TabStripOrientation and VerticalTabStripWidth
 - [ ] **Step 1: Run the drift guard to see it fail**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests --filter "FullyQualifiedName~SettingsTools"
+scripts/build.ps1 test tests/Ntilde.McpServer.Tests --filter "FullyQualifiedName~SettingsTools"
 ```
 
 Expected: FAIL — `KnownFields_AreExactlyTheSerializedSettings` reports both new names missing, `StringFields_AreExactlyTheStringSettings` reports `TabStripOrientation` missing.
@@ -191,7 +191,7 @@ Same command as Step 1. Expected: PASS, including `SchemaExample_PassesItsOwnVal
 - [ ] **Step 4: Commit**
 
 ```bash
-rtk git add src/NovaTerminal.McpServer/Tools/SettingsTools.cs
+rtk git add src/Ntilde.McpServer/Tools/SettingsTools.cs
 rtk git commit -m "feat(mcp): register tab strip settings in SettingsTools schema and validators"
 ```
 
@@ -200,19 +200,19 @@ rtk git commit -m "feat(mcp): register tab strip settings in SettingsTools schem
 ### Task 3: TabStripLayout pure helpers
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/TabStripLayout.cs`
-- Test: `tests/NovaTerminal.App.Tests/TabStripLayoutTests.cs` (new, plain `[Fact]`s, project root — mirror the namespace used by `TabBehaviorTests.cs`' siblings in the root, e.g. `TitleBarLayoutResolverTests.cs`)
+- Create: `src/Ntilde.App/Shell/TabStripLayout.cs`
+- Test: `tests/Ntilde.App.Tests/TabStripLayoutTests.cs` (new, plain `[Fact]`s, project root — mirror the namespace used by `TabBehaviorTests.cs`' siblings in the root, e.g. `TitleBarLayoutResolverTests.cs`)
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces (all `internal`, namespace `NovaTerminal.Shell`):
+- Produces (all `internal`, namespace `Ntilde.Shell`):
   - `enum TabStripOrientationKind { Horizontal, Vertical }`
   - `static class TabStripLayout` with `const double MinSidebarWidth = 140`, `MaxSidebarWidth = 600`, `DefaultSidebarWidth = 220`; `static bool IsVertical(string? orientation)`; `static double ClampSidebarWidth(double width)`; `static double ComputeDraggedWidth(double startWidth, double startX, double currentX)`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```csharp
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
 public sealed class TabStripLayoutTests
 {
@@ -253,19 +253,19 @@ public sealed class TabStripLayoutTests
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TabStripLayoutTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TabStripLayoutTests"
 ```
 
 Expected: compile FAIL — `TabStripLayout` not defined.
 
 - [ ] **Step 3: Implement**
 
-`src/NovaTerminal.App/Shell/TabStripLayout.cs`:
+`src/Ntilde.App/Shell/TabStripLayout.cs`:
 
 ```csharp
 using System;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     internal enum TabStripOrientationKind
     {
@@ -312,7 +312,7 @@ Same command as Step 2. Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-rtk git add src/NovaTerminal.App/Shell/TabStripLayout.cs tests/NovaTerminal.App.Tests/TabStripLayoutTests.cs
+rtk git add src/Ntilde.App/Shell/TabStripLayout.cs tests/Ntilde.App.Tests/TabStripLayoutTests.cs
 rtk git commit -m "feat(tabs): pure layout helpers for tab strip orientation and sidebar width"
 ```
 
@@ -321,12 +321,12 @@ rtk git commit -m "feat(tabs): pure layout helpers for tab strip orientation and
 ### Task 4: TabStatusTracker
 
 **Files:**
-- Create: `src/NovaTerminal.App/Shell/TabStatusTracker.cs`
-- Test: `tests/NovaTerminal.App.Tests/TabStatusTrackerTests.cs` (new, plain `[Fact]`s, project root)
+- Create: `src/Ntilde.App/Shell/TabStatusTracker.cs`
+- Test: `tests/Ntilde.App.Tests/TabStatusTrackerTests.cs` (new, plain `[Fact]`s, project root)
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces (all `internal`, namespace `NovaTerminal.Shell`):
+- Produces (all `internal`, namespace `Ntilde.Shell`):
   - `enum TabTrackerStatus { Idle, Working, Attention }`
   - `sealed class TabStatusTracker` with `static readonly TimeSpan WorkingWindow` (2 s), `static readonly TimeSpan MinAttentionBurst` (5 s), `void NoteOutput(DateTime nowUtc)`, `void NoteBell()`, `void NoteSelected()`, `TabTrackerStatus Evaluate(DateTime nowUtc, bool isSelected)`.
 
@@ -336,7 +336,7 @@ rtk git commit -m "feat(tabs): pure layout helpers for tab strip orientation and
 
 ```csharp
 using System;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
 public sealed class TabStatusTrackerTests
 {
@@ -431,19 +431,19 @@ public sealed class TabStatusTrackerTests
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TabStatusTrackerTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~TabStatusTrackerTests"
 ```
 
 Expected: compile FAIL — `TabStatusTracker` not defined.
 
 - [ ] **Step 3: Implement**
 
-`src/NovaTerminal.App/Shell/TabStatusTracker.cs`:
+`src/Ntilde.App/Shell/TabStatusTracker.cs`:
 
 ```csharp
 using System;
 
-namespace NovaTerminal.Shell
+namespace Ntilde.Shell
 {
     internal enum TabTrackerStatus
     {
@@ -525,25 +525,25 @@ Same command as Step 2. Expected: 10 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-rtk git add src/NovaTerminal.App/Shell/TabStatusTracker.cs tests/NovaTerminal.App.Tests/TabStatusTrackerTests.cs
+rtk git add src/Ntilde.App/Shell/TabStatusTracker.cs tests/Ntilde.App.Tests/TabStatusTrackerTests.cs
 rtk git commit -m "feat(tabs): heuristic TabStatusTracker (working/attention/idle)"
 ```
 
 ---
 
-### Task 5: Last-non-empty-row helper in NovaTerminal.VT
+### Task 5: Last-non-empty-row helper in Ntilde.VT
 
 **Files:**
-- Modify: `src/NovaTerminal.VT/Export/TerminalExporter.cs` (existing `ExportToPlainText(TerminalBuffer)` lives here)
-- Test: the existing exporter test file in `tests/NovaTerminal.VT.Tests/` (find it with `rtk grep "ExportToPlainText" tests/NovaTerminal.VT.Tests`), or a new `TerminalExporterLastRowTests.cs` beside it if the existing file is unwieldy.
+- Modify: `src/Ntilde.VT/Export/TerminalExporter.cs` (existing `ExportToPlainText(TerminalBuffer)` lives here)
+- Test: the existing exporter test file in `tests/Ntilde.VT.Tests/` (find it with `rtk grep "ExportToPlainText" tests/Ntilde.VT.Tests`), or a new `TerminalExporterLastRowTests.cs` beside it if the existing file is unwieldy.
 
 **Interfaces:**
 - Consumes: `TerminalBuffer` (`Rows`, `Cols`, `GetCell(col,row)`, `GetGrapheme(col,row)`, `Lock`).
-- Produces: `public static string GetLastNonEmptyRowText(TerminalBuffer buffer)` on `NovaTerminal.VT.Export.TerminalExporter` — acquires the buffer read lock itself (callers must NOT hold it; `TerminalBuffer.Lock` is `ReaderWriterLockSlim` with `NoRecursion`, so double-entry throws). Task 7 consumes this.
+- Produces: `public static string GetLastNonEmptyRowText(TerminalBuffer buffer)` on `Ntilde.VT.Export.TerminalExporter` — acquires the buffer read lock itself (callers must NOT hold it; `TerminalBuffer.Lock` is `ReaderWriterLockSlim` with `NoRecursion`, so double-entry throws). Task 7 consumes this.
 
 - [ ] **Step 1: Read the prior art**
 
-Read `src/NovaTerminal.VT/Export/TerminalExporter.cs` in full (it's small). Note exactly how `ExportToPlainText` (a) takes the read lock, (b) iterates cells, (c) handles `IsWideContinuation` and null/`'\0'` cells. The new method must mirror that cell handling verbatim. Then find the existing exporter tests and note how they construct/populate a `TerminalBuffer` (there will be a helper — reuse it).
+Read `src/Ntilde.VT/Export/TerminalExporter.cs` in full (it's small). Note exactly how `ExportToPlainText` (a) takes the read lock, (b) iterates cells, (c) handles `IsWideContinuation` and null/`'\0'` cells. The new method must mirror that cell handling verbatim. Then find the existing exporter tests and note how they construct/populate a `TerminalBuffer` (there will be a helper — reuse it).
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -578,7 +578,7 @@ Add to the exporter test file (using whatever buffer-construction helper Step 1 
 - [ ] **Step 3: Run to verify failure**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.VT.Tests --filter "FullyQualifiedName~GetLastNonEmptyRowText"
+scripts/build.ps1 test tests/Ntilde.VT.Tests --filter "FullyQualifiedName~GetLastNonEmptyRowText"
 ```
 
 Expected: compile FAIL — method not defined.
@@ -629,7 +629,7 @@ Same command as Step 3. Expected: PASS. Also run the whole exporter test class t
 - [ ] **Step 6: Commit**
 
 ```bash
-rtk git add src/NovaTerminal.VT/Export/TerminalExporter.cs tests/NovaTerminal.VT.Tests
+rtk git add src/Ntilde.VT/Export/TerminalExporter.cs tests/Ntilde.VT.Tests
 rtk git commit -m "feat(vt): TerminalExporter.GetLastNonEmptyRowText for tab preview lines"
 ```
 
@@ -660,9 +660,9 @@ rtk git commit -m "feat(vt): TerminalExporter.GetLastNonEmptyRowText for tab pre
 > everything else in the task (guards, activation hooks, test intent, regression gate) stands.
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml` (TabControl at lines ~71–109, TabItem styles at ~31–45)
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` (`UpdateTabHeaderViewport` ~line 736, `EnsureSelectedTabHeaderVisible` ~line 824, ctor end ~line 2699–2722, `OpenSettings` post-save sequence ~line 5935–5961)
-- Test: `tests/NovaTerminal.App.Tests/Core/VerticalTabStripTests.cs` (new)
+- Modify: `src/Ntilde.App/MainWindow.axaml` (TabControl at lines ~71–109, TabItem styles at ~31–45)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` (`UpdateTabHeaderViewport` ~line 736, `EnsureSelectedTabHeaderVisible` ~line 824, ctor end ~line 2699–2722, `OpenSettings` post-save sequence ~line 5935–5961)
+- Test: `tests/Ntilde.App.Tests/Core/VerticalTabStripTests.cs` (new)
 
 **Interfaces:**
 - Consumes: `TabStripLayout.IsVertical`, `TabStripLayout.ClampSidebarWidth` (Task 3); `_settings.TabStripOrientation` / `.VerticalTabStripWidth` (Task 1).
@@ -670,30 +670,30 @@ rtk git commit -m "feat(vt): TerminalExporter.GetLastNonEmptyRowText for tab pre
 
 - [ ] **Step 1: Write the failing headless tests**
 
-Create `tests/NovaTerminal.App.Tests/Core/VerticalTabStripTests.cs`. Copy the reflection helpers pattern from `MainWindowTitleBarTests.cs` (bottom of that file) for the two private members used here:
+Create `tests/Ntilde.App.Tests/Core/VerticalTabStripTests.cs`. Copy the reflection helpers pattern from `MainWindowTitleBarTests.cs` (bottom of that file) for the two private members used here:
 
 ```csharp
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
-using NovaTerminal.Shell;
+using Ntilde.Shell;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class VerticalTabStripTests
 {
-    private static TerminalSettings GetSettings(NovaTerminal.MainWindow window)
-        => (TerminalSettings)typeof(NovaTerminal.MainWindow)
+    private static TerminalSettings GetSettings(Ntilde.MainWindow window)
+        => (TerminalSettings)typeof(Ntilde.MainWindow)
             .GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(window)!;
 
-    private static ScrollViewer? InvokeFindTabHeaderScrollViewer(NovaTerminal.MainWindow window)
-        => (ScrollViewer?)typeof(NovaTerminal.MainWindow)
+    private static ScrollViewer? InvokeFindTabHeaderScrollViewer(Ntilde.MainWindow window)
+        => (ScrollViewer?)typeof(Ntilde.MainWindow)
             .GetMethod("FindTabHeaderScrollViewer", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(window, null);
 
-    private static NovaTerminal.MainWindow CreateShownWindow()
+    private static Ntilde.MainWindow CreateShownWindow()
     {
         var window = TestMainWindowFactory.Create();
         window.Show();
@@ -779,7 +779,7 @@ public sealed class VerticalTabStripTests
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~VerticalTabStripTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~VerticalTabStripTests"
 ```
 
 Expected: compile FAIL — `ApplyTabLayout` / `IsVerticalTabStripActive` not defined.
@@ -994,7 +994,7 @@ New method (place near `UpdateTabHeaderViewport`):
 - [ ] **Step 7: Run the new tests + the existing tab/title-bar suites**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~VerticalTabStripTests|FullyQualifiedName~TabBehaviorTests|FullyQualifiedName~MainWindowTitleBarTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~VerticalTabStripTests|FullyQualifiedName~TabBehaviorTests|FullyQualifiedName~MainWindowTitleBarTests"
 ```
 
 Expected: all PASS (the horizontal-theme extraction must not change any horizontal behavior — `MainWindowTitleBarTests` is the regression net for that).
@@ -1002,7 +1002,7 @@ Expected: all PASS (the horizontal-theme extraction must not change any horizont
 - [ ] **Step 8: Commit**
 
 ```bash
-rtk git add src/NovaTerminal.App/MainWindow.axaml src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.App.Tests/Core/VerticalTabStripTests.cs
+rtk git add src/Ntilde.App/MainWindow.axaml src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.App.Tests/Core/VerticalTabStripTests.cs
 rtk git commit -m "feat(tabs): vertical tab sidebar layout mode with runtime theme swap"
 ```
 
@@ -1011,8 +1011,8 @@ rtk git commit -m "feat(tabs): vertical tab sidebar layout mode with runtime the
 ### Task 7: Rich vertical rows — status dot, title, preview line
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` (`CreateTabHeaderHost` ~line 538, `ConfigureTabHeader` ~line 560, `UpdateTabVisuals` ~line 4768, `TabRuntimeState` ~line 146)
-- Test: `tests/NovaTerminal.App.Tests/Core/VerticalTabStripTests.cs` (extend)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` (`CreateTabHeaderHost` ~line 538, `ConfigureTabHeader` ~line 560, `UpdateTabVisuals` ~line 4768, `TabRuntimeState` ~line 146)
+- Test: `tests/Ntilde.App.Tests/Core/VerticalTabStripTests.cs` (extend)
 
 **Interfaces:**
 - Consumes: `TerminalExporter.GetLastNonEmptyRowText` (Task 5), `TabTrackerStatus` (Task 4), `ResolvePaneForTab(tab)` (existing), `_isVerticalTabStrip` (Task 6).
@@ -1037,8 +1037,8 @@ rtk git commit -m "feat(tabs): vertical tab sidebar layout mode with runtime the
         var tab = tabs.Items.Cast<TabItem>().First();
 
         // The status dot and preview line exist...
-        Assert.NotNull(NovaTerminal.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot"));
-        var preview = NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
+        Assert.NotNull(Ntilde.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot"));
+        var preview = Ntilde.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine");
         Assert.NotNull(preview);
 
         // ...and the title plumbing (first-TextBlock contract) still resolves the TITLE, not the preview.
@@ -1046,8 +1046,8 @@ rtk git commit -m "feat(tabs): vertical tab sidebar layout mode with runtime the
         Assert.NotEqual("PREVIEW_SENTINEL", GetTabHeaderTextOf(window, tab));
     }
 
-    private static string GetTabHeaderTextOf(NovaTerminal.MainWindow window, TabItem tab)
-        => (string)typeof(NovaTerminal.MainWindow)
+    private static string GetTabHeaderTextOf(Ntilde.MainWindow window, TabItem tab)
+        => (string)typeof(Ntilde.MainWindow)
             .GetMethod("GetTabHeaderText", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(window, new object[] { tab })!;
 
@@ -1057,14 +1057,14 @@ rtk git commit -m "feat(tabs): vertical tab sidebar layout mode with runtime the
         var window = CreateShownWindow(); // default settings = horizontal
         var tabs = window.FindControl<TabControl>("Tabs")!;
         var tab = tabs.Items.Cast<TabItem>().First();
-        Assert.Null(NovaTerminal.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine"));
+        Assert.Null(Ntilde.MainWindow.FindTabHeaderDescendant<TextBlock>(tab.Header, "TabPreviewLine"));
     }
 ```
 
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~VerticalTabStripTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~VerticalTabStripTests"
 ```
 
 Expected: compile FAIL — `FindTabHeaderDescendant` not defined.
@@ -1199,7 +1199,7 @@ and the new method:
 
             // GetLastNonEmptyRowText takes the buffer read lock itself (NoRecursion —
             // do NOT wrap this call in another Lock.EnterReadLock).
-            return NovaTerminal.VT.Export.TerminalExporter.GetLastNonEmptyRowText(buffer);
+            return Ntilde.VT.Export.TerminalExporter.GetLastNonEmptyRowText(buffer);
         }
 ```
 
@@ -1212,7 +1212,7 @@ Same command as Step 2. Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-rtk git add src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.App.Tests/Core/VerticalTabStripTests.cs
+rtk git add src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.App.Tests/Core/VerticalTabStripTests.cs
 rtk git commit -m "feat(tabs): rich vertical rows with status dot and last-output preview"
 ```
 
@@ -1221,8 +1221,8 @@ rtk git commit -m "feat(tabs): rich vertical rows with status dot and last-outpu
 ### Task 8: Status wiring — events → tracker, selection clear, decay timer
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` (`OnPaneOutputReceived` ~line 2992, `OnPaneBellReceived` ~line 3010, the `tabs.SelectionChanged` handler in the ctor ~line 2323, `ApplyTabLayout` from Task 6)
-- Test: `tests/NovaTerminal.App.Tests/Core/VerticalTabStripTests.cs` (extend)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` (`OnPaneOutputReceived` ~line 2992, `OnPaneBellReceived` ~line 3010, the `tabs.SelectionChanged` handler in the ctor ~line 2323, `ApplyTabLayout` from Task 6)
+- Test: `tests/Ntilde.App.Tests/Core/VerticalTabStripTests.cs` (extend)
 
 **Interfaces:**
 - Consumes: `TabRuntimeState.Status` / `.RenderedStatus` (Task 7), `TabStatusTracker` (Task 4).
@@ -1250,7 +1250,7 @@ rtk git commit -m "feat(tabs): rich vertical rows with status dot and last-outpu
         window.RefreshTabStatuses();
         Dispatcher.UIThread.RunJobs();
 
-        var dot = NovaTerminal.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot");
+        var dot = Ntilde.MainWindow.FindTabHeaderDescendant<Avalonia.Controls.Shapes.Ellipse>(tab.Header, "TabStatusDot");
         Assert.NotNull(dot);
         Assert.NotEqual(Avalonia.Media.Brushes.Transparent, dot!.Fill);
 
@@ -1266,7 +1266,7 @@ rtk git commit -m "feat(tabs): rich vertical rows with status dot and last-outpu
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~VerticalTabStripTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~VerticalTabStripTests"
 ```
 
 Expected: compile FAIL — `GetTabStatusTracker` / `RefreshTabStatuses` not defined.
@@ -1350,7 +1350,7 @@ Same command as Step 2. Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-rtk git add src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.App.Tests/Core/VerticalTabStripTests.cs
+rtk git add src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.App.Tests/Core/VerticalTabStripTests.cs
 rtk git commit -m "feat(tabs): wire pane events and decay timer into tab status heuristics"
 ```
 
@@ -1359,8 +1359,8 @@ rtk git commit -m "feat(tabs): wire pane events and decay timer into tab status 
 ### Task 9: Resize grip with persisted width
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` (`ApplyTabLayout`, new grip wiring)
-- Test: `tests/NovaTerminal.App.Tests/Core/VerticalTabStripTests.cs` (extend — presence test only; the drag math is already covered by `TabStripLayoutTests.ComputeDraggedWidth_AddsDeltaAndClamps`)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` (`ApplyTabLayout`, new grip wiring)
+- Test: `tests/Ntilde.App.Tests/Core/VerticalTabStripTests.cs` (extend — presence test only; the drag math is already covered by `TabStripLayoutTests.ComputeDraggedWidth_AddsDeltaAndClamps`)
 
 **Interfaces:**
 - Consumes: `TabStripLayout.ComputeDraggedWidth` (Task 3), template part `PART_TabStripResizeGrip` (Task 6).
@@ -1381,7 +1381,7 @@ rtk git commit -m "feat(tabs): wire pane events and decay timer into tab status 
         Assert.NotNull(FindResizeGrip(window));
     }
 
-    private static Border? FindResizeGrip(NovaTerminal.MainWindow window)
+    private static Border? FindResizeGrip(Ntilde.MainWindow window)
         => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window)
             .OfType<Border>()
             .FirstOrDefault(b => b.Name == "PART_TabStripResizeGrip");
@@ -1390,7 +1390,7 @@ rtk git commit -m "feat(tabs): wire pane events and decay timer into tab status 
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~VerticalMode_HasResizeGrip"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~VerticalMode_HasResizeGrip"
 ```
 
 Expected: FAIL — the grip exists in the template (Task 6) but only materializes after a layout pass; if this already passes, the test still gates the wiring below. (If it passes, continue — the failing part of this task is behavioral, verified manually in Task 12.)
@@ -1455,7 +1455,7 @@ In `ApplyTabLayout()`'s deferred block, extend the post to:
 - [ ] **Step 4: Run the class to verify everything passes**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~VerticalTabStripTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~VerticalTabStripTests"
 ```
 
 Expected: PASS.
@@ -1463,7 +1463,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-rtk git add src/NovaTerminal.App/MainWindow.axaml.cs tests/NovaTerminal.App.Tests/Core/VerticalTabStripTests.cs
+rtk git add src/Ntilde.App/MainWindow.axaml.cs tests/Ntilde.App.Tests/Core/VerticalTabStripTests.cs
 rtk git commit -m "feat(tabs): resizable sidebar grip with persisted width"
 ```
 
@@ -1472,8 +1472,8 @@ rtk git commit -m "feat(tabs): resizable sidebar grip with persisted width"
 ### Task 10: Settings window row
 
 **Files:**
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml` (WINDOW section, blur row at ~lines 524–534)
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml.cs` (`LoadCurrentSettings` ~line 2264, `SaveAndClose` ~line 2510)
+- Modify: `src/Ntilde.App/SettingsWindow.axaml` (WINDOW section, blur row at ~lines 524–534)
+- Modify: `src/Ntilde.App/SettingsWindow.axaml.cs` (`LoadCurrentSettings` ~line 2264, `SaveAndClose` ~line 2510)
 - Test: manual verification in Task 12 (the settings window has no per-row test convention; the round-trip is covered by Task 1's tests + the drift guards)
 
 **Interfaces:**
@@ -1533,8 +1533,8 @@ Do NOT add a live-preview event (no `OnTabOrientationChanged`): live preview wou
 - [ ] **Step 4: Build + run the settings-adjacent suites**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~SettingsWindow"
+scripts/build.ps1 build src/Ntilde.App
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~SettingsWindow"
 ```
 
 Expected: build OK, existing SettingsWindow tests PASS.
@@ -1542,7 +1542,7 @@ Expected: build OK, existing SettingsWindow tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-rtk git add src/NovaTerminal.App/SettingsWindow.axaml src/NovaTerminal.App/SettingsWindow.axaml.cs
+rtk git add src/Ntilde.App/SettingsWindow.axaml src/Ntilde.App/SettingsWindow.axaml.cs
 rtk git commit -m "feat(settings): tab strip orientation dropdown in Window section"
 ```
 
@@ -1551,8 +1551,8 @@ rtk git commit -m "feat(settings): tab strip orientation dropdown in Window sect
 ### Task 11: Shortcut + command palette entry
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Shell/Shortcuts/ShortcutCatalog.cs` (entries list, lines ~9–59)
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` (KeyDown dispatch chain ~lines 2331–2560, `SetupCommandPalette` ~line 4582)
+- Modify: `src/Ntilde.App/Shell/Shortcuts/ShortcutCatalog.cs` (entries list, lines ~9–59)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` (KeyDown dispatch chain ~lines 2331–2560, `SetupCommandPalette` ~line 4582)
 - Test: existing shortcut-catalog tests (run the App.Tests shortcut suites; no new file needed)
 
 **Interfaces:**
@@ -1562,7 +1562,7 @@ rtk git commit -m "feat(settings): tab strip orientation dropdown in Window sect
 - [ ] **Step 1: Verify the default binding is free**
 
 ```bash
-rtk grep "Ctrl+Alt+B" src/NovaTerminal.App
+rtk grep "Ctrl+Alt+B" src/Ntilde.App
 ```
 
 Expected: no hits in `ShortcutCatalog.cs` or the MainWindow dispatch chain. If taken, fall back to `"Ctrl+Alt+U"` (re-grep) and use that consistently in every step below.
@@ -1613,7 +1613,7 @@ In `SetupCommandPalette()` (~line 4582), next to the other "General" tab command
 - [ ] **Step 5: Run the shortcut/palette suites**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~Shortcut|FullyQualifiedName~CommandPalette"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~Shortcut|FullyQualifiedName~CommandPalette"
 ```
 
 Expected: PASS (catalog conflict/consistency tests included, if present).
@@ -1621,7 +1621,7 @@ Expected: PASS (catalog conflict/consistency tests included, if present).
 - [ ] **Step 6: Commit**
 
 ```bash
-rtk git add src/NovaTerminal.App/Shell/Shortcuts/ShortcutCatalog.cs src/NovaTerminal.App/MainWindow.axaml.cs
+rtk git add src/Ntilde.App/Shell/Shortcuts/ShortcutCatalog.cs src/Ntilde.App/MainWindow.axaml.cs
 rtk git commit -m "feat(tabs): shortcut and palette command to toggle vertical tab sidebar"
 ```
 
@@ -1634,15 +1634,15 @@ rtk git commit -m "feat(tabs): shortcut and palette command to toggle vertical t
 - [ ] **Step 1: Run the gating test projects**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.Architecture.Tests
+scripts/build.ps1 test tests/Ntilde.Architecture.Tests
 ```
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.McpServer.Tests
+scripts/build.ps1 test tests/Ntilde.McpServer.Tests
 ```
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.VT.Tests
+scripts/build.ps1 test tests/Ntilde.VT.Tests
 ```
 
 Expected: all PASS. (Do NOT run whole-solution `test` — it takes 20–30 min.)
@@ -1650,7 +1650,7 @@ Expected: all PASS. (Do NOT run whole-solution `test` — it takes 20–30 min.)
 - [ ] **Step 2: Run the App.Tests project with CI's filter**
 
 ```bash
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
 ```
 
 Expected: PASS (this lane is non-blocking in CI, so a local pass is the only gate).
@@ -1658,12 +1658,12 @@ Expected: PASS (this lane is non-blocking in CI, so a local pass is the only gat
 - [ ] **Step 3: Build and hand the user a manual smoke script**
 
 ```bash
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 
 Then report done and give the user these manual steps (do not attempt UI automation — SendKeys/foreground automation is unreliable on this machine):
 
-1. Launch NovaTerminal. Open Settings → WINDOW → set "Tab strip orientation" to Vertical → Save. Tabs should move into a left sidebar; title-bar buttons stay put; the top band still drags the window.
+1. Launch Ntilde. Open Settings → WINDOW → set "Tab strip orientation" to Vertical → Save. Tabs should move into a left sidebar; title-bar buttons stay put; the top band still drags the window.
 2. Open 3+ tabs. In one, run something chatty for >5 s (e.g. `ping -t localhost`, or a Claude Code session). Its row should show a colored "working" dot while streaming; the preview line under the title should show the latest output line. Switch to another tab; when the chatty one goes quiet, its dot should turn amber (Attention) until you select it.
 3. Drag the sidebar's right edge to resize; restart the app; the width and vertical mode should persist.
 4. Press Ctrl+Alt+B (or the chosen binding) to flip back to horizontal; verify the classic strip returns, tabs/sessions intact, overflow badge working.

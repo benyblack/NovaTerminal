@@ -1,0 +1,270 @@
+using Ntilde.CommandAssist.ShellIntegration.Bash;
+
+namespace Ntilde.Tests.CommandAssist.ShellIntegration.Integration;
+
+/// <summary>
+/// End-to-end tests that spawn a real bash with our generated bootstrap
+/// and assert the OSC 7 / 133;A/C/D lifecycle actually comes out. These
+/// catch a class of bugs the substring-based BashBootstrapBuilderTests
+/// cannot reach -- e.g. shell syntax errors, BSD/GNU portability issues,
+/// or DEBUG/PROMPT_COMMAND interaction races.
+///
+/// Skipped at runtime when bash is not on PATH (or Git Bash absent on
+/// Windows). HOME is redirected to a per-test temp dir so the user's
+/// real ~/.bashrc is not sourced.
+/// </summary>
+[Trait("Category", "ShellIntegration")]
+[Collection(nameof(ShellIntegrationCollection))]
+public sealed class BashShellIntegrationTests : IDisposable
+{
+    private readonly string _tempRoot;
+    private readonly string _bootstrapPath;
+
+    public BashShellIntegrationTests()
+    {
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"ntilde_bash_int_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempRoot);
+        _bootstrapPath = BashBootstrapBuilder.WriteScript(_tempRoot);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_tempRoot, recursive: true); } catch { }
+    }
+
+    private HarnessResult RunBash(string stdin, string? extraInitLine = null)
+    {
+        string? bash = ShellHarness.FindBash();
+        if (bash is null)
+        {
+            Assert.Skip("bash not found on this system");
+        }
+
+        string args = $"--rcfile \"{_bootstrapPath}\" -i";
+        // Force HOME to the temp dir so the bootstrap's `. ~/.bashrc`
+        // either no-ops (no file) or sources only a test-controlled file.
+        // Tests that want a synthetic ~/.bashrc write it before running.
+        var env = new Dictionary<string, string>
+        {
+            ["HOME"] = _tempRoot,
+        };
+        if (extraInitLine is not null)
+        {
+            string bashrc = Path.Combine(_tempRoot, ".bashrc");
+            File.WriteAllText(bashrc, extraInitLine + "\n");
+        }
+
+        return ShellHarness.Run(bash, args, stdin, env, TimeSpan.FromSeconds(20));
+    }
+
+    [Fact]
+    public void Bootstrap_EmitsPromptReadyAndAcceptedAndFinished_ForSimpleCommand()
+    {
+        HarnessResult result = RunBash("echo hello\nexit 0\n");
+
+        Assert.Contains(result.Events, e => e.Kind == "A");
+        OscEvent? accepted = result.Events.FirstOrDefault(e => e.Kind == "C" && e.DecodedCommand == "echo hello");
+        Assert.NotNull(accepted);
+        OscEvent? finished = result.Events.FirstOrDefault(e =>
+            e.Kind == "D" && e.DecodedFinish.exitCode == 0);
+        Assert.NotNull(finished);
+    }
+
+    [Fact]
+    public void Bootstrap_EmitsCommandStartMarkPastThePromptText()
+    {
+        // The B mark rides at the tail of PS1, so by the time the parser sees it the
+        // prompt has already been painted and the cursor sits on the first cell of the
+        // user's input -- i.e. at exactly the prompt's display width.
+        //
+        // The exact column is the assertion that matters. "> 0" would also pass if the
+        // \[ \] non-printing brackets were dropped (readline would then miscount the
+        // prompt width), if the mark were emitted mid-prompt, or if a stray cell were
+        // painted after it -- all of which put the anchor on the wrong cell and would
+        // make a Phase 1b grid read return the wrong command text.
+        const string prompt = "ntilde-test$ ";
+        HarnessResult result = RunBash("exit 0\n", extraInitLine: $"PS1='{prompt}'");
+
+        var marks = result.Events.Where(e => e.Kind == "B").ToList();
+        Assert.NotEmpty(marks);
+        Assert.Contains(marks, m => m.MarkPosition is { } p && p.column == prompt.Length);
+    }
+
+    [Fact]
+    public void Bootstrap_DoesNotAccumulatePromptMarksAcrossPromptCycles()
+    {
+        // __ntilde_apply_ps1_mark is called once per prompt; without its
+        // containment guard PS1 would grow one marker per cycle and the
+        // parser would see an ever-increasing burst of B marks.
+        HarnessResult result = RunBash("true\ntrue\nexit 0\n", extraInitLine: "PS1='ntilde-test$ '");
+
+        int prompts = result.Events.Count(e => e.Kind == "A");
+        int marks = result.Events.Count(e => e.Kind == "B");
+
+        // One B per painted prompt, give or take repaints; the failure mode
+        // this guards is quadratic growth, so a generous bound still catches it.
+        Assert.True(marks <= prompts * 2,
+            $"expected at most one B per prompt repaint, got {marks} B for {prompts} A");
+    }
+
+    [Fact]
+    public void Bootstrap_ReportsNonZeroExitCode_ForFailingCommand()
+    {
+        HarnessResult result = RunBash("false\nexit 0\n");
+
+        // The failing command should produce a D marker with exit != 0.
+        // We don't assert exactly 1 because some bash configurations may
+        // return other non-zero codes; the contract is "non-zero".
+        OscEvent? failedFinish = result.Events.FirstOrDefault(e =>
+            e.Kind == "D" && e.DecodedFinish.exitCode is { } code && code != 0);
+        Assert.NotNull(failedFinish);
+    }
+
+    [Fact]
+    public void Bootstrap_PreservesMultilineCommand_ThroughBase64Encoding()
+    {
+        string multiline = "for i in 1 2; do\n  echo $i\ndone";
+        // Bash needs the heredoc to deliver multiline input as a single
+        // logical command; we use a heredoc terminator instead of trying
+        // to send raw \n which would be interpreted as separate commands.
+        string stdin = "cmd=$(cat <<'NTILDE_EOF'\n" + multiline + "\nNTILDE_EOF\n)\neval \"$cmd\"\nexit 0\n";
+        HarnessResult result = RunBash(stdin);
+
+        // The eval line is what's captured by DEBUG, not the inner for-loop.
+        // What we're actually asserting: the bootstrap can emit C markers
+        // for commands that contain shell metacharacters and base64 decodes
+        // back to exactly the text we entered.
+        Assert.Contains(result.Events, e => e.Kind == "C" && e.DecodedCommand == "eval \"$cmd\"");
+        Assert.Contains(result.Events, e => e.Kind == "D" && e.DecodedFinish.exitCode == 0);
+    }
+
+    [Fact]
+    public void Bootstrap_EmitsCwdMarker_WhenWorkingDirectoryChanges()
+    {
+        HarnessResult result = RunBash("cd /\nexit 0\n");
+
+        Assert.Contains(result.Events, e => e.Kind == "7" && e.Payload!.StartsWith("file://"));
+    }
+
+    [Fact]
+    public void Bootstrap_DoesNotProduceShellErrors()
+    {
+        // Regression guard for portability bugs in the bootstrap script.
+        // The classic offender is `date +%s%N` on BSD `date` (macOS), which
+        // emits a literal "%N" and breaks arithmetic with a bash error like
+        // `bash: <seconds>%N: syntax error`. Git Bash's own /etc/bash.bashrc
+        // routinely emits title escapes and a PS1 echo to stderr regardless
+        // of our bootstrap, so we cannot assert "no stderr at all"; we
+        // instead assert that no line of stderr matches a shell-error
+        // pattern that would indicate a bootstrap-level fault.
+        HarnessResult result = RunBash("exit 0\n");
+
+        string[] errorPatterns =
+        {
+            ": command not found",
+            ": syntax error",
+            "unbound variable",
+            "bad substitution",
+            "invalid arithmetic",
+            "%N", // literal %N would indicate BSD-date breakage
+        };
+
+        var offending = result.Stderr.Split('\n')
+            .Where(line => errorPatterns.Any(pat => line.Contains(pat, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        Assert.True(offending.Count == 0,
+            $"Bootstrap produced bash-level errors:\n{string.Join("\n", offending)}");
+    }
+
+    [Fact]
+    public void Bootstrap_CapturesUserTypedCommand_WhenUserBashrcSetsPromptCommand()
+    {
+        // Regression guard for the PROMPT_COMMAND race: if the user's bashrc
+        // sets PROMPT_COMMAND to a helper, the DEBUG trap must NOT capture
+        // that helper as the user's command and skip the actual typed
+        // command. The fixed bootstrap arms its tracking flag AFTER the
+        // user's PROMPT_COMMAND finishes, so the real user command is the
+        // first DEBUG fire that gets through.
+        HarnessResult result = RunBash(
+            "echo target-command\nexit 0\n",
+            extraInitLine: "PROMPT_COMMAND='echo PROMPTHELPER >/dev/null'");
+
+        OscEvent? userCommand = result.Events.FirstOrDefault(e =>
+            e.Kind == "C" && e.DecodedCommand == "echo target-command");
+        Assert.NotNull(userCommand);
+    }
+
+    /// <summary>
+    /// The empty-Enter phantom (found reviewing PR #289; the bug predates it). bash runs
+    /// PROMPT_COMMAND after an empty Enter too, and on that path no user command ran - so nothing
+    /// had raised the DEBUG-trap busy flag, and the first entry of the user's own PROMPT_COMMAND
+    /// chain was captured as the accepted command. Anyone with a prompt framework installed got its
+    /// hook name written to permanent history every time they pressed Enter at an empty prompt.
+    /// </summary>
+    [Fact]
+    public void Bootstrap_OnEmptyEnter_CapturesNothing()
+    {
+        HarnessResult result = RunBash(
+            "\nexit 0\n",
+            extraInitLine: "__user_hook() { :; }\nPROMPT_COMMAND='__user_hook'");
+
+        var captured = result.Events.Where(e => e.Kind == "C").Select(e => e.DecodedCommand).ToList();
+
+        Assert.DoesNotContain(captured, t => t is not null && t.Contains("__user_hook", StringComparison.Ordinal));
+        Assert.Equal(new string?[] { "exit 0" }, captured);
+    }
+
+    /// <summary>
+    /// <c>$BASH_COMMAND</c> is the first SIMPLE COMMAND of the line, not the line: the bootstrap
+    /// recorded <c>true</c> for <c>true &amp;&amp; false</c>, i.e. the wrong text beside the other
+    /// branch's exit code. Reading the line back out of <c>history 1</c> is the fix.
+    /// </summary>
+    [Theory]
+    [InlineData("true && false", 1)]
+    [InlineData("false || true", 0)]
+    [InlineData("echo one | cat | cat", 0)]
+    public void Bootstrap_CapturesTheWholeLine_NotTheFirstSimpleCommand(string line, int expectedExit)
+    {
+        HarnessResult result = RunBash(line + "\nexit 0\n");
+
+        Assert.Contains(result.Events, e => e.Kind == "C" && e.DecodedCommand == line);
+        Assert.Contains(result.Events, e => e.Kind == "D" && e.DecodedFinish.exitCode == expectedExit);
+    }
+
+    /// <summary>
+    /// The DEBUG-trap filter used to skip anything beginning with <c>trap</c> or
+    /// <c>PROMPT_COMMAND</c>, silently dropping real user commands. Only <c>__ntilde_*</c> remains;
+    /// the busy-flag invariant is what actually keeps our own hooks out.
+    /// </summary>
+    [Fact]
+    public void Bootstrap_CapturesACommandBeginningWithTrap()
+    {
+        HarnessResult result = RunBash("trap-something --help 2>/dev/null\nexit 0\n");
+
+        Assert.Contains(
+            result.Events,
+            e => e.Kind == "C" && e.DecodedCommand == "trap-something --help 2>/dev/null");
+    }
+
+    [Fact]
+    public void Bootstrap_DoesNotCapturePromptHelperAsAcceptedCommand()
+    {
+        // The strong negative form of the race test: not only must the
+        // user's typed command appear in the OSC 133;C stream, the user's
+        // PROMPT_COMMAND helper text must NOT appear there. Both halves
+        // matter -- a bootstrap that captured the helper AND the user
+        // command would still satisfy the first test.
+        HarnessResult result = RunBash(
+            "echo target-command\nexit 0\n",
+            extraInitLine: "PROMPT_COMMAND='echo PROMPTHELPER >/dev/null'");
+
+        var capturedTexts = result.Events
+            .Where(e => e.Kind == "C")
+            .Select(e => e.DecodedCommand)
+            .ToList();
+
+        Assert.DoesNotContain(capturedTexts,
+            t => t is not null && t.Contains("PROMPTHELPER"));
+    }
+}

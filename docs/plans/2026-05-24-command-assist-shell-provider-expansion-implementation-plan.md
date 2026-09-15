@@ -13,11 +13,11 @@
 ### Task 1: Close the PowerShell accepted-command gap
 
 **Files:**
-- Modify: `src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
-- Test: `tests/NovaTerminal.Tests/OscShellIntegrationTests.cs`
+- Modify: `src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- Test: `tests/Ntilde.Tests/OscShellIntegrationTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -70,7 +70,7 @@ public async Task HandleShellIntegrationEventAsync_WhenAcceptedThenFinished_Pers
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShellBootstrapBuilderTests|FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~OscShellIntegrationTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShellBootstrapBuilderTests|FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~OscShellIntegrationTests"
 ```
 
 Expected: FAIL because the current PowerShell bootstrap emits `A` and `D`, but not `C`, and the controller path is still hybrid.
@@ -94,7 +94,7 @@ Keep controller changes minimal:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShellBootstrapBuilderTests|FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~OscShellIntegrationTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShellBootstrapBuilderTests|FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~OscShellIntegrationTests"
 ```
 
 Expected: PASS.
@@ -102,15 +102,15 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs tests/NovaTerminal.Tests/OscShellIntegrationTests.cs
+git add src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs tests/Ntilde.Tests/OscShellIntegrationTests.cs
 git commit -m "Complete structured PowerShell command capture for Command Assist"
 ```
 
 ### Task 2: Split shell-kind detection into real shell identities
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -142,7 +142,7 @@ public void DetermineShellKind_ReturnsSpecificShellKinds(string shellCommand, st
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~ShellIntegrationRegistryTests|FullyQualifiedName~DetermineShellKind"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~ShellIntegrationRegistryTests|FullyQualifiedName~DetermineShellKind"
 ```
 
 Expected: FAIL because current detection collapses `bash`, `zsh`, and `sh` into `posix`.
@@ -165,7 +165,7 @@ Do not broaden behavior beyond shell identity. Leave launch-plan selection and r
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~ShellIntegrationRegistryTests|FullyQualifiedName~DetermineShellKind"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~ShellIntegrationRegistryTests|FullyQualifiedName~DetermineShellKind"
 ```
 
 Expected: PASS.
@@ -173,19 +173,19 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs
+git add src/Ntilde.App/Controls/TerminalPane.axaml.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs
 git commit -m "Split Command Assist shell detection by shell type"
 ```
 
 ### Task 3: Add failing Bash provider contract tests
 
 **Files:**
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Bash/BashShellIntegrationProvider.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Bash/BashBootstrapBuilder.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/BashShellIntegrationProviderTests.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/BashBootstrapBuilderTests.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Bash/BashShellIntegrationProvider.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Bash/BashBootstrapBuilder.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/BashShellIntegrationProviderTests.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/BashBootstrapBuilderTests.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -223,7 +223,7 @@ public void BuildScript_ContainsStructuredLifecycleMarkers()
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~BashShellIntegrationProviderTests|FullyQualifiedName~BashBootstrapBuilderTests|FullyQualifiedName~ShellIntegrationRegistryTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~BashShellIntegrationProviderTests|FullyQualifiedName~BashBootstrapBuilderTests|FullyQualifiedName~ShellIntegrationRegistryTests"
 ```
 
 Expected: FAIL with missing provider and bootstrap types.
@@ -245,7 +245,7 @@ Keep the launch-plan shape identical to PowerShell:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~BashShellIntegrationProviderTests|FullyQualifiedName~BashBootstrapBuilderTests|FullyQualifiedName~ShellIntegrationRegistryTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~BashShellIntegrationProviderTests|FullyQualifiedName~BashBootstrapBuilderTests|FullyQualifiedName~ShellIntegrationRegistryTests"
 ```
 
 Expected: PASS.
@@ -253,16 +253,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/ShellIntegration/Bash src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/BashShellIntegrationProviderTests.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/BashBootstrapBuilderTests.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs
+git add src/Ntilde.App/CommandAssist/ShellIntegration/Bash src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/BashShellIntegrationProviderTests.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/BashBootstrapBuilderTests.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs
 git commit -m "Add Bash shell integration provider for Command Assist"
 ```
 
 ### Task 4: Validate Bash end-to-end through parser, tracker, and controller
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/OscShellIntegrationTests.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs`
+- Modify: `tests/Ntilde.Tests/OscShellIntegrationTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -294,7 +294,7 @@ public void Osc133C_WithBase64Command_RaisesAcceptedCommand()
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~ShellLifecycleTrackerTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~ShellLifecycleTrackerTests"
 ```
 
 Expected: FAIL if Bash-specific accepted-command scenarios are not yet covered end to end.
@@ -311,7 +311,7 @@ If any failures expose contract issues:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~ShellLifecycleTrackerTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~ShellLifecycleTrackerTests"
 ```
 
 Expected: PASS.
@@ -319,19 +319,19 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/OscShellIntegrationTests.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs
+git add tests/Ntilde.Tests/OscShellIntegrationTests.cs tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs
 git commit -m "Validate Bash shell integration lifecycle end to end"
 ```
 
 ### Task 5: Add failing Zsh provider contract tests
 
 **Files:**
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Zsh/ZshShellIntegrationProvider.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Zsh/ZshBootstrapBuilder.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ZshShellIntegrationProviderTests.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ZshBootstrapBuilderTests.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Zsh/ZshShellIntegrationProvider.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Zsh/ZshBootstrapBuilder.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ZshShellIntegrationProviderTests.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ZshBootstrapBuilderTests.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -367,7 +367,7 @@ public void BuildScript_PreservesPromptOwnership()
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~ZshShellIntegrationProviderTests|FullyQualifiedName~ZshBootstrapBuilderTests|FullyQualifiedName~ShellIntegrationRegistryTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~ZshShellIntegrationProviderTests|FullyQualifiedName~ZshBootstrapBuilderTests|FullyQualifiedName~ShellIntegrationRegistryTests"
 ```
 
 Expected: FAIL with missing Zsh provider types.
@@ -390,7 +390,7 @@ Do not add Zsh-specific ranking, docs, or UI behavior here.
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~ZshShellIntegrationProviderTests|FullyQualifiedName~ZshBootstrapBuilderTests|FullyQualifiedName~ShellIntegrationRegistryTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~ZshShellIntegrationProviderTests|FullyQualifiedName~ZshBootstrapBuilderTests|FullyQualifiedName~ShellIntegrationRegistryTests"
 ```
 
 Expected: PASS.
@@ -398,15 +398,15 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/ShellIntegration/Zsh src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ZshShellIntegrationProviderTests.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ZshBootstrapBuilderTests.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs
+git add src/Ntilde.App/CommandAssist/ShellIntegration/Zsh src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/ZshShellIntegrationProviderTests.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/ZshBootstrapBuilderTests.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs
 git commit -m "Add Zsh shell integration provider for Command Assist"
 ```
 
 ### Task 6: Validate Zsh lifecycle compatibility
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
-- Modify: `tests/NovaTerminal.Tests/OscShellIntegrationTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- Modify: `tests/Ntilde.Tests/OscShellIntegrationTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -443,7 +443,7 @@ public async Task HandleShellIntegrationEventAsync_ForZshAcceptedCommand_StoresS
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~OscShellIntegrationTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~OscShellIntegrationTests"
 ```
 
 Expected: FAIL if Zsh scenarios reveal shell-kind or controller assumptions.
@@ -457,7 +457,7 @@ Fix only the generic contract assumptions exposed by the tests. Do not add Zsh-s
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~OscShellIntegrationTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~OscShellIntegrationTests"
 ```
 
 Expected: PASS.
@@ -465,19 +465,19 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs tests/NovaTerminal.Tests/OscShellIntegrationTests.cs
+git add tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs tests/Ntilde.Tests/OscShellIntegrationTests.cs
 git commit -m "Harden Command Assist lifecycle handling for Zsh provider"
 ```
 
 ### Task 7: Add failing Fish provider contract tests
 
 **Files:**
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Fish/FishShellIntegrationProvider.cs`
-- Create: `src/NovaTerminal.App/CommandAssist/ShellIntegration/Fish/FishBootstrapBuilder.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/FishShellIntegrationProviderTests.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/FishBootstrapBuilderTests.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Fish/FishShellIntegrationProvider.cs`
+- Create: `src/Ntilde.App/CommandAssist/ShellIntegration/Fish/FishBootstrapBuilder.cs`
+- Modify: `src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/FishShellIntegrationProviderTests.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/FishBootstrapBuilderTests.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -514,7 +514,7 @@ public void BuildScript_ContainsStructuredLifecycleMarkers()
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~FishShellIntegrationProviderTests|FullyQualifiedName~FishBootstrapBuilderTests|FullyQualifiedName~ShellIntegrationRegistryTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~FishShellIntegrationProviderTests|FullyQualifiedName~FishBootstrapBuilderTests|FullyQualifiedName~ShellIntegrationRegistryTests"
 ```
 
 Expected: FAIL with missing Fish provider types.
@@ -535,7 +535,7 @@ Keep this task narrow:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~FishShellIntegrationProviderTests|FullyQualifiedName~FishBootstrapBuilderTests|FullyQualifiedName~ShellIntegrationRegistryTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~FishShellIntegrationProviderTests|FullyQualifiedName~FishBootstrapBuilderTests|FullyQualifiedName~ShellIntegrationRegistryTests"
 ```
 
 Expected: PASS.
@@ -543,7 +543,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/ShellIntegration/Fish src/NovaTerminal.App/CommandAssist/Application/CommandAssistInfrastructure.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/FishShellIntegrationProviderTests.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/FishBootstrapBuilderTests.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs
+git add src/Ntilde.App/CommandAssist/ShellIntegration/Fish src/Ntilde.App/CommandAssist/Application/CommandAssistInfrastructure.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/FishShellIntegrationProviderTests.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/FishBootstrapBuilderTests.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellIntegrationRegistryTests.cs
 git commit -m "Add Fish shell integration provider for Command Assist"
 ```
 
@@ -567,7 +567,7 @@ Update the docs so they reflect the real post-implementation state:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShell|FullyQualifiedName~CommandAssist|FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~TerminalPaneCommandAssistShortcutTests|FullyQualifiedName~TerminalViewKeyHandlingTests"
+dotnet test tests\Ntilde.Tests\Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShell|FullyQualifiedName~CommandAssist|FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~TerminalPaneCommandAssistShortcutTests|FullyQualifiedName~TerminalViewKeyHandlingTests"
 ```
 
 Expected: PASS.
@@ -577,7 +577,7 @@ Expected: PASS.
 Run:
 
 ```powershell
-dotnet test NovaTerminal.sln -c Release
+dotnet test Ntilde.sln -c Release
 ```
 
 Expected: PASS, except for any pre-existing unrelated failures already known in the repo.

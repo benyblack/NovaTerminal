@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for build-arch.sh: version mapping, the dlopen coverage gate, and the shape
-# of the generated PKGBUILD. Needs no Arch host, no Docker and no NovaTerminal
+# of the generated PKGBUILD. Needs no Arch host, no Docker and no Ntilde
 # build - everything here is the generator's own output, inspected.
 #
 # The one thing these tests CANNOT cover is whether the generated PKGBUILD actually
@@ -70,7 +70,7 @@ else
 fi
 
 # ---- the dlopen coverage gate ---------------------------------------------
-# Exercised through the NOVA_DEB_SCRIPT seam with a stub standing in for
+# Exercised through the NTILDE_DEB_SCRIPT seam with a stub standing in for
 # build-deb.sh, so the gate is tested rather than assumed. A gate nobody has seen
 # fire is indistinguishable from one that cannot.
 real_sonames="$("$here/../linux/build-deb.sh" --print-dlopen-sonames)"
@@ -85,7 +85,7 @@ make_stub() {
 # 1. An unmapped soname must fail the build.
 make_stub "$tmp/stub-extra.sh" "$real_sonames
 libfuture-1.so.0"
-out="$(NOVA_DEB_SCRIPT="$tmp/stub-extra.sh" "$script" v0.8.0 "$tmp/gate1" --sha256 "$(printf '0%.0s' {1..64})" 2>&1)"
+out="$(NTILDE_DEB_SCRIPT="$tmp/stub-extra.sh" "$script" v0.8.0 "$tmp/gate1" --sha256 "$(printf '0%.0s' {1..64})" 2>&1)"
 if [[ $? -ne 0 ]] && grep -q "libfuture-1.so.0" <<<"$out"; then
   pass "gate fails on a soname with no Arch mapping, naming it"
 else
@@ -95,7 +95,7 @@ fi
 # 2. A mapping for a soname build-deb.sh no longer declares must also fail - the
 #    other direction, so a removed dependency cannot leave a stale claim behind.
 make_stub "$tmp/stub-fewer.sh" "$(grep -v '^libSM\.so\.6$' <<<"$real_sonames")"
-out="$(NOVA_DEB_SCRIPT="$tmp/stub-fewer.sh" "$script" v0.8.0 "$tmp/gate2" --sha256 "$(printf '0%.0s' {1..64})" 2>&1)"
+out="$(NTILDE_DEB_SCRIPT="$tmp/stub-fewer.sh" "$script" v0.8.0 "$tmp/gate2" --sha256 "$(printf '0%.0s' {1..64})" 2>&1)"
 if [[ $? -ne 0 ]] && grep -q "libSM.so.6" <<<"$out"; then
   pass "gate fails on a stale mapping, naming it"
 else
@@ -104,7 +104,7 @@ fi
 
 # 3. An empty table must fail rather than pass vacuously.
 make_stub "$tmp/stub-empty.sh" ""
-out="$(NOVA_DEB_SCRIPT="$tmp/stub-empty.sh" "$script" v0.8.0 "$tmp/gate3" --sha256 "$(printf '0%.0s' {1..64})" 2>&1)"
+out="$(NTILDE_DEB_SCRIPT="$tmp/stub-empty.sh" "$script" v0.8.0 "$tmp/gate3" --sha256 "$(printf '0%.0s' {1..64})" 2>&1)"
 if [[ $? -ne 0 ]] && grep -qi "vacuous" <<<"$out"; then
   pass "gate fails loudly on an empty dlopen table"
 else
@@ -112,7 +112,7 @@ else
 fi
 
 # ---- generated PKGBUILD ---------------------------------------------------
-fake_tarball="$tmp/NovaTerminal-linux-x64-v0.8.0.tar.gz"
+fake_tarball="$tmp/ntilde-linux-x64-v0.8.0.tar.gz"
 printf 'not really a tarball' > "$fake_tarball"
 fake_sha="$(sha256sum "$fake_tarball" | awk '{print $1}')"
 
@@ -123,14 +123,15 @@ else
   pass "generated a PKGBUILD for v0.8.0"
   pkgbuild="$gen/PKGBUILD"
 
-  grep -q "^pkgname=novaterminal-bin$" "$pkgbuild" && pass "pkgname" || fail "pkgname"
+  grep -q "^pkgname=ntilde-bin$" "$pkgbuild" && pass "pkgname" || fail "pkgname"
   grep -q "^pkgver=0.8.0$"             "$pkgbuild" && pass "pkgver"  || fail "pkgver"
   grep -q "^pkgrel=1$"                 "$pkgbuild" && pass "pkgrel"  || fail "pkgrel"
   grep -q "^_tag=v0.8.0$"              "$pkgbuild" && pass "_tag"    || fail "_tag"
   grep -q "^arch=('x86_64')$"          "$pkgbuild" && pass "arch is x86_64 only" || fail "arch"
   grep -q "^options=('!strip' '!debug')$" "$pkgbuild" && pass "options disable makepkg's blanket strip" || fail "options"
-  grep -q "^provides=('novaterminal')$"   "$pkgbuild" && pass "provides" || fail "provides"
-  grep -q "^conflicts=('novaterminal')$"  "$pkgbuild" && pass "conflicts" || fail "conflicts"
+  grep -q "^provides=('ntilde')$"                                    "$pkgbuild" && pass "provides"  || fail "provides"
+  grep -q "^conflicts=('ntilde' 'novaterminal' 'novaterminal-bin')$" "$pkgbuild" && pass "conflicts" || fail "conflicts"
+  grep -q "^replaces=('novaterminal-bin')$"                          "$pkgbuild" && pass "replaces"  || fail "replaces"
   grep -q "sha256sums_x86_64=('$fake_sha')" "$pkgbuild" && pass "tarball sha256 is the real digest" || fail "tarball sha256"
 
   # No placeholder may survive: makepkg would treat a leftover @TOKEN@ as a literal,
@@ -221,7 +222,7 @@ fi
 # REUSED output directory. A stale .SRCINFO from a previous version is valid and
 # non-empty, so it survives `test -s`, sits beside a freshly overwritten PKGBUILD,
 # and would be pushed to the AUR as metadata for a package it does not describe.
-printf 'pkgbase = novaterminal-bin\npkgver = 0.0.1-stale\n' > "$tmp/nosrcinfo/.SRCINFO"
+printf 'pkgbase = ntilde-bin\npkgver = 0.0.1-stale\n' > "$tmp/nosrcinfo/.SRCINFO"
 PATH="$tmp/fakebin:$PATH" "$script" v0.8.0 "$tmp/nosrcinfo" --tarball "$fake_tarball" >/dev/null 2>&1
 [[ -e "$tmp/nosrcinfo/.SRCINFO" ]] \
   && fail "a stale .SRCINFO from a previous version survived regeneration" \
@@ -229,19 +230,19 @@ PATH="$tmp/fakebin:$PATH" "$script" v0.8.0 "$tmp/nosrcinfo" --tarball "$fake_tar
 
 # ---- --source-ref reads the REF, not the working tree ---------------------
 # The failure this prevents is subtle and would look like someone else's bug: a PR
-# that edits nova.desktop generates a PKGBUILD pinning the BRANCH's sum against the
+# that edits ntilde.desktop generates a PKGBUILD pinning the BRANCH's sum against the
 # TAG's URL, and makepkg fails an integrity check unrelated to the change under
 # review. Proving it needs a file that differs between ref and tree, and all four
 # real ones have been byte-identical across every tag so far - so this builds a
 # throwaway repo where they do differ, rather than asserting nothing on the real one.
 if command -v git >/dev/null 2>&1; then
   fake="$tmp/fakerepo"
-  mkdir -p "$fake/packaging/arch" "$fake/packaging/linux" "$fake/src/NovaTerminal.App/Assets"
+  mkdir -p "$fake/packaging/arch" "$fake/packaging/linux" "$fake/src/Ntilde.App/Assets"
   cp "$script" "$fake/packaging/arch/build-arch.sh"
   cp "$here/../linux/build-deb.sh" "$fake/packaging/linux/build-deb.sh"
-  printf 'desktop-at-ref'  > "$fake/packaging/linux/nova.desktop"
-  printf 'man-at-ref'      > "$fake/packaging/linux/nova.1"
-  printf 'icon-at-ref'     > "$fake/src/NovaTerminal.App/Assets/nova_icon.png"
+  printf 'desktop-at-ref'  > "$fake/packaging/linux/ntilde.desktop"
+  printf 'man-at-ref'      > "$fake/packaging/linux/ntilde.1"
+  printf 'icon-at-ref'     > "$fake/src/Ntilde.App/Assets/ntilde_icon.png"
   printf 'license-at-ref'  > "$fake/LICENSE"
   (
     cd "$fake"
@@ -252,7 +253,7 @@ if command -v git >/dev/null 2>&1; then
   ) >/dev/null 2>&1
 
   sha_at_ref="$(printf 'desktop-at-ref' | sha256sum | awk '{print $1}')"
-  printf 'desktop-in-tree' > "$fake/packaging/linux/nova.desktop"
+  printf 'desktop-in-tree' > "$fake/packaging/linux/ntilde.desktop"
   sha_in_tree="$(printf 'desktop-in-tree' | sha256sum | awk '{print $1}')"
   zero="$(printf '0%.0s' {1..64})"
 

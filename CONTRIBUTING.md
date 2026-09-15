@@ -1,8 +1,8 @@
-# Contributing to NovaTerminal
+# Contributing to Ntilde
 
-Thank you for your interest in contributing to **NovaTerminal**.
+Thank you for your interest in contributing to **Ntilde**.
 
-NovaTerminal is a terminal emulator.  
+Ntilde is a terminal emulator.  
 That means **correctness, determinism, and stability** matter more than feature velocity.
 
 This document explains how to contribute **successfully**.
@@ -19,7 +19,7 @@ first PR. Get it building, pick something small, and we will help from there.
 - **.NET SDK** — the exact version is pinned in `global.json`. Let the SDK
   install it rather than pointing the build at a different band.
 - **Rust toolchain** (`cargo`, `rustc`) — the PTY and SSH backends are native
-  crates under `src/NovaTerminal.App/native/`.
+  crates under `src/Ntilde.App/native/`.
 
 ### 2. Build and test
 
@@ -76,8 +76,8 @@ core. [`help wanted`][hw] issues are larger but still scoped.
 If nothing there appeals, docs fixes, test coverage for an untested class, and
 theme/recipe additions are always welcome and always reviewed.
 
-[gfi]: https://github.com/benyblack/NovaTerminal/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22
-[hw]: https://github.com/benyblack/NovaTerminal/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22
+[gfi]: https://github.com/benyblack/ntilde/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22
+[hw]: https://github.com/benyblack/ntilde/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22
 
 ### 5. Ask
 
@@ -95,19 +95,19 @@ semantics**.
 
 | Project | Owns | Depends on |
 |---|---|---|
-| `NovaTerminal.VT` | The VT/ANSI state machine, screen + alternate buffers, scrollback, reflow, cell/grapheme/width semantics. **The source of truth** — everything else reads it. | *(leaf — BCL only)* |
-| `NovaTerminal.Replay` | Replay format v2, recording, playback, the golden-master harness. | VT |
-| `NovaTerminal.Pty` | Spawning the child process and delivering raw bytes. Does **not** parse VT. | Replay *(recording only)* |
-| `NovaTerminal.Rendering` | Skia draw path, glyph atlas and caches, render metrics. Does **not** interpret VT. | VT |
-| `NovaTerminal.Platform` | OS-specific plumbing: input routing, path mapping (WSL ↔ Windows), process abstraction, the whole SSH stack. | Pty |
-| `NovaTerminal.CommandAssist` | Command Assist domain, ranking, history/snippet storage, shell integration, view-models. Contains **no** Avalonia — the App owns only the views. | *(leaf)* |
-| `NovaTerminal.Backup` | `.novabackup` export/import, automatic snapshots, the category-to-path catalogue. Never touches secret storage. | *(leaf)* |
-| `NovaTerminal.VtContract` | The machine-readable VT capability catalogue (`vt-capabilities.json`) and its schema validation. | *(leaf)* |
-| `NovaTerminal.AgentHost.Contracts` | Wire contracts shared by the app and the MCP server. | *(leaf)* |
-| `NovaTerminal.McpServer` | The opt-in MCP server that agents connect to. | AgentHost.Contracts, Backup, VtContract |
-| `NovaTerminal.App` | Avalonia UI — window, tabs, panes, settings, themes, command palette, Command Assist views, Agent Output panel. Wires it all together. | Platform, VT, Rendering, Pty, Replay, CommandAssist, Backup, AgentHost.Contracts |
-| `NovaTerminal.Cli` | Thin CLI entry point. | App |
-| `NovaTerminal.Conformance` | Validates `docs/vt_coverage_matrix.md` and generates the conformance report. | VtContract |
+| `Ntilde.VT` | The VT/ANSI state machine, screen + alternate buffers, scrollback, reflow, cell/grapheme/width semantics. **The source of truth** — everything else reads it. | *(leaf — BCL only)* |
+| `Ntilde.Replay` | Replay format v2, recording, playback, the golden-master harness. | VT |
+| `Ntilde.Pty` | Spawning the child process and delivering raw bytes. Does **not** parse VT. | Replay *(recording only)* |
+| `Ntilde.Rendering` | Skia draw path, glyph atlas and caches, render metrics. Does **not** interpret VT. | VT |
+| `Ntilde.Platform` | OS-specific plumbing: input routing, path mapping (WSL ↔ Windows), process abstraction, the whole SSH stack. | Pty |
+| `Ntilde.CommandAssist` | Command Assist domain, ranking, history/snippet storage, shell integration, view-models. Contains **no** Avalonia — the App owns only the views. | *(leaf)* |
+| `Ntilde.Backup` | `.ntildebackup` export/import, automatic snapshots, the category-to-path catalogue. Never touches secret storage. | *(leaf)* |
+| `Ntilde.VtContract` | The machine-readable VT capability catalogue (`vt-capabilities.json`) and its schema validation. | *(leaf)* |
+| `Ntilde.AgentHost.Contracts` | Wire contracts shared by the app and the MCP server. | *(leaf)* |
+| `Ntilde.McpServer` | The opt-in MCP server that agents connect to. | AgentHost.Contracts, Backup, VtContract |
+| `Ntilde.App` | Avalonia UI — window, tabs, panes, settings, themes, command palette, Command Assist views, Agent Output panel. Wires it all together. | Platform, VT, Rendering, Pty, Replay, CommandAssist, Backup, AgentHost.Contracts |
+| `Ntilde.Cli` | Thin CLI entry point. | App |
+| `Ntilde.Conformance` | Validates `docs/vt_coverage_matrix.md` and generates the conformance report. | VtContract |
 
 `CommandAssist`, `Backup`, `VtContract` and `AgentHost.Contracts` are leaves with
 zero project references. That is deliberate rather than incidental: it is what
@@ -118,16 +118,16 @@ architecture tests assert the empty reference list on each of them.
 Test projects mirror the source ones. Two things worth knowing before you go
 looking:
 
-- The **buffer, reflow and replay suites live in `tests/NovaTerminal.App.Tests/`**,
-  not in `NovaTerminal.VT.Tests/` — historical, and the reason VT's measured
+- The **buffer, reflow and replay suites live in `tests/Ntilde.App.Tests/`**,
+  not in `Ntilde.VT.Tests/` — historical, and the reason VT's measured
   coverage looks lower than it is.
-- **`tests/NovaTerminal.App.Tests` failures are blocking in CI**, even though the
+- **`tests/Ntilde.App.Tests` failures are blocking in CI**, even though the
   test step itself is `continue-on-error` — a separate allowlist gate reads the
   results and reds the job. See the CI section below before you assume a red
   App.Tests step is somebody else's flake.
 
 The layering rules above are enforced as [NetArchTest] facts in
-`tests/NovaTerminal.Architecture.Tests/` — if you cross a boundary, that suite
+`tests/Ntilde.Architecture.Tests/` — if you cross a boundary, that suite
 tells you before a reviewer does.
 
 For the full invariant-by-invariant breakdown, see `docs/MODULE_OWNERSHIP.md`.
@@ -261,24 +261,24 @@ Features that bypass correctness phases will be rejected.
 
 ## Architectural Rules (Non-Negotiable)
 
-These are enforced by `tests/NovaTerminal.Architecture.Tests/`, so you will get
+These are enforced by `tests/Ntilde.Architecture.Tests/`, so you will get
 told before a reviewer has to.
 
-### Terminal Core — `NovaTerminal.VT`
+### Terminal Core — `Ntilde.VT`
 - Must remain OS-agnostic
 - Must be deterministic
 - Must not depend on UI or rendering
 
-*(“Terminal Core” means the VT engine. There is no `NovaTerminal.Core` project —
-it was renamed to `NovaTerminal.Platform` in #76 and holds OS plumbing, not the
+*(“Terminal Core” means the VT engine. There is no `Ntilde.Core` project —
+it was renamed to `Ntilde.Platform` in #76 and holds OS plumbing, not the
 engine.)*
 
-### Renderer — `NovaTerminal.Rendering`
+### Renderer — `Ntilde.Rendering`
 - Must not interpret VT semantics
 - Must not “fix” buffer issues
 - Must use incremental (cell-diff) rendering
 
-### PTY Layer — `NovaTerminal.Pty`
+### PTY Layer — `Ntilde.Pty`
 - Must not parse VT
 - Must deliver raw bytes
 - Must be bounded and non-blocking
@@ -310,7 +310,7 @@ slower locally but means you are not accidentally skipping anything:
 ```bash
 scripts/build.sh test                              # everything, no filter
 scripts/build.sh test --filter Category=Replay     # just one category
-scripts/build.sh test tests/NovaTerminal.VT.Tests  # just one project — fastest inner loop
+scripts/build.sh test tests/Ntilde.VT.Tests  # just one project — fastest inner loop
 
 # What CI's gating job actually runs (the heavy categories are excluded there
 # because they each get a dedicated job):
@@ -341,8 +341,8 @@ a test that boots the platform, tag it `Lane=PlatformBoot`; if you run App.Tests
 locally, run the two filters the way CI does:
 
 ```bash
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "Lane!=PlatformBoot"
-scripts/build.sh test tests/NovaTerminal.App.Tests --filter "Lane=PlatformBoot"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "Lane!=PlatformBoot"
+scripts/build.sh test tests/Ntilde.App.Tests --filter "Lane=PlatformBoot"
 ```
 
 Three traps worth knowing:
@@ -365,8 +365,8 @@ report must move with it — otherwise the **VT Conformance** check goes red:
 2. Regenerate the report that ships in the app:
 
    ```bash
-   scripts/build.sh run --project src/NovaTerminal.Conformance -- \
-     --validate --report src/NovaTerminal.App/Resources/vt-conformance-report.json
+   scripts/build.sh run --project src/Ntilde.Conformance -- \
+     --validate --report src/Ntilde.App/Resources/vt-conformance-report.json
    ```
 
 3. Commit the regenerated JSON alongside your change.
@@ -490,11 +490,11 @@ that needs three rounds of review is a normal first PR.
 
 ## Final Reminder
 
-NovaTerminal is a terminal emulator.
+Ntilde is a terminal emulator.
 
 Users may forgive missing features.  
 They will not forgive broken behavior.
 
 > **Correctness first. Always.**
 
-Thank you for helping make NovaTerminal better.
+Thank you for helping make Ntilde better.

@@ -1,6 +1,6 @@
-# Nova Terminal: Test Automation Strategy
+# Ntilde: Test Automation Strategy
 
-This document outlines how Nova Terminal leverages automated testing to maintain correctness, performance, and deterministic behavior.
+This document outlines how Ntilde leverages automated testing to maintain correctness, performance, and deterministic behavior.
 
 ## 1. Automation Feasibility Matrix
 
@@ -16,7 +16,7 @@ This document outlines how Nova Terminal leverages automated testing to maintain
 
 ## 2. Testing Layers
 
-### 2.1 Unit Tests (`NovaTerminal.Tests`)
+### 2.1 Unit Tests (`Ntilde.Tests`)
 - **Focus**: Pure logic (Parser, Buffer, Row).
 - **Goal**: 100% coverage of VT sequence state machine.
 - **Key Files**: `TerminalBufferTests.cs`, `PowerShellBehaviorTests.cs`.
@@ -52,9 +52,9 @@ The following areas currently require manual validation:
 ## 5. Running Tests
 
 ### 5.1 Run All Tests
-Execute the full suite from the updated `NovaTerminal.Tests` project:
+Execute the full suite from the updated `Ntilde.Tests` project:
 ```powershell
-dotnet test NovaTerminal.Tests\NovaTerminal.Tests.csproj
+dotnet test Ntilde.Tests\Ntilde.Tests.csproj
 ```
 
 ### 5.2 Category-Specific Runs

@@ -10,25 +10,25 @@
 
 **Spec:** `docs/superpowers/specs/2026-06-04-windows-packaging-velopack-design.md`
 
-**Repo / feed:** `https://github.com/benyblack/NovaTerminal`
+**Repo / feed:** `https://github.com/benyblack/ntilde`
 
 ---
 
 ## File Structure
 
 **Create:**
-- `src/NovaTerminal.App/Services/Updates/IVelopackUpdater.cs` — narrow adapter interface over Velopack's `UpdateManager` (the testable seam).
-- `src/NovaTerminal.App/Services/Updates/UpdateService.cs` — update orchestration logic (check / state / apply); no Velopack types, depends only on `IVelopackUpdater`.
-- `src/NovaTerminal.App/Services/Updates/VelopackUpdater.cs` — real `IVelopackUpdater` wrapping `UpdateManager` + `GithubSource`.
-- `tests/NovaTerminal.App.Tests/Updates/UpdateServiceTests.cs` — unit tests for `UpdateService` against a faked `IVelopackUpdater`.
+- `src/Ntilde.App/Services/Updates/IVelopackUpdater.cs` — narrow adapter interface over Velopack's `UpdateManager` (the testable seam).
+- `src/Ntilde.App/Services/Updates/UpdateService.cs` — update orchestration logic (check / state / apply); no Velopack types, depends only on `IVelopackUpdater`.
+- `src/Ntilde.App/Services/Updates/VelopackUpdater.cs` — real `IVelopackUpdater` wrapping `UpdateManager` + `GithubSource`.
+- `tests/Ntilde.App.Tests/Updates/UpdateServiceTests.cs` — unit tests for `UpdateService` against a faked `IVelopackUpdater`.
 - `docs/packaging/windows-signing.md` — how to enable Authenticode signing later.
 
 **Modify:**
-- `src/NovaTerminal.App/Program.cs` — add `VelopackApp.Build().Run()` as first line of `Main`.
-- `src/NovaTerminal.App/NovaTerminal.App.csproj` — add `Velopack` package reference.
+- `src/Ntilde.App/Program.cs` — add `VelopackApp.Build().Run()` as first line of `Main`.
+- `src/Ntilde.App/Ntilde.App.csproj` — add `Velopack` package reference.
 - `Directory.Packages.props` — add `Velopack` `PackageVersion`.
-- `src/NovaTerminal.App/MainWindow.axaml` — add a hidden "update ready" title-bar indicator.
-- `src/NovaTerminal.App/MainWindow.axaml.cs` — construct `UpdateService`, kick off check on load, toggle indicator, register conditional palette command.
+- `src/Ntilde.App/MainWindow.axaml` — add a hidden "update ready" title-bar indicator.
+- `src/Ntilde.App/MainWindow.axaml.cs` — construct `UpdateService`, kick off check on load, toggle indicator, register conditional palette command.
 - `.github/workflows/release.yml` — add `vpk` download/pack/upload + signing seam to the win-x64 leg.
 
 ---
@@ -50,23 +50,23 @@ Record the exact version printed (e.g. `0.0.xxx`). This exact version is pinned 
 
 - [ ] **Step 2: Add a throwaway Velopack hook + package locally**
 
-Temporarily add to `Directory.Packages.props` `<PackageVersion Include="Velopack" Version="<latest>" />` and to `NovaTerminal.App.csproj` `<PackageReference Include="Velopack" />`, and add `Velopack.VelopackApp.Build().Run();` as the first line of `Program.Main`. (These become permanent in Task 1; here you just need them to build.)
+Temporarily add to `Directory.Packages.props` `<PackageVersion Include="Velopack" Version="<latest>" />` and to `Ntilde.App.csproj` `<PackageReference Include="Velopack" />`, and add `Velopack.VelopackApp.Build().Run();` as the first line of `Program.Main`. (These become permanent in Task 1; here you just need them to build.)
 
 - [ ] **Step 3: Publish AOT exactly as CI does**
 
 Run:
 ```powershell
-dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o D:\tmp\nova-velopack-spike\publish
+dotnet publish src/Ntilde.App/Ntilde.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o D:\tmp\ntilde-velopack-spike\publish
 ```
-Expected: publish succeeds, `D:\tmp\nova-velopack-spike\publish\NovaTerminal.exe` exists.
+Expected: publish succeeds, `D:\tmp\ntilde-velopack-spike\publish\Ntilde.exe` exists.
 
 - [ ] **Step 4: Pack v0.0.1 and install**
 
 Run:
 ```powershell
-vpk pack --packId NovaTerminal --packVersion 0.0.1 --packDir D:\tmp\nova-velopack-spike\publish --mainExe NovaTerminal.exe --outputDir D:\tmp\nova-velopack-spike\releases
+vpk pack --packId Ntilde --packVersion 0.0.1 --packDir D:\tmp\ntilde-velopack-spike\publish --mainExe Ntilde.exe --outputDir D:\tmp\ntilde-velopack-spike\releases
 ```
-Run the produced `D:\tmp\nova-velopack-spike\releases\NovaTerminal-win-Setup.exe`. Confirm: the app installs, launches, and runs normally (open a terminal tab).
+Run the produced `D:\tmp\ntilde-velopack-spike\releases\ntilde-win-Setup.exe`. Confirm: the app installs, launches, and runs normally (open a terminal tab).
 
 - [ ] **Step 5: Pack v0.0.2 and verify self-update path**
 
@@ -88,8 +88,8 @@ Run `vpk pack --help` and record the exact signing flag (expected `--signTemplat
 
 **Files:**
 - Modify: `Directory.Packages.props`
-- Modify: `src/NovaTerminal.App/NovaTerminal.App.csproj`
-- Modify: `src/NovaTerminal.App/Program.cs:16`
+- Modify: `src/Ntilde.App/Ntilde.App.csproj`
+- Modify: `src/Ntilde.App/Program.cs:16`
 
 This task has no unit test — the `VelopackApp` hook is an integration concern validated by the Task 0 spike and a build. TDD resumes in Task 2.
 
@@ -103,14 +103,14 @@ In `Directory.Packages.props`, add under a new comment line after the Crypto blo
 
 - [ ] **Step 2: Reference the package**
 
-In `src/NovaTerminal.App/NovaTerminal.App.csproj`, add inside the main `<ItemGroup>` with the other `PackageReference` entries:
+In `src/Ntilde.App/Ntilde.App.csproj`, add inside the main `<ItemGroup>` with the other `PackageReference` entries:
 ```xml
     <PackageReference Include="Velopack" />
 ```
 
 - [ ] **Step 3: Add the hook as the first line of Main**
 
-In `src/NovaTerminal.App/Program.cs`, the current `Main` body begins with `try {`. Insert the Velopack hook as the very first statement inside `Main`, before the `try`:
+In `src/Ntilde.App/Program.cs`, the current `Main` body begins with `try {`. Insert the Velopack hook as the very first statement inside `Main`, before the `try`:
 ```csharp
     [STAThread]
     public static void Main(string[] args)
@@ -128,14 +128,14 @@ Leave the rest of `Main` unchanged.
 
 Run:
 ```powershell
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 Expected: build succeeds with no new warnings about Velopack trimming/AOT.
 
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add Directory.Packages.props src/NovaTerminal.App/NovaTerminal.App.csproj src/NovaTerminal.App/Program.cs
+git add Directory.Packages.props src/Ntilde.App/Ntilde.App.csproj src/Ntilde.App/Program.cs
 git commit -m "feat(update): add Velopack package + VelopackApp hook in Main (#91)"
 ```
 
@@ -144,19 +144,19 @@ git commit -m "feat(update): add Velopack package + VelopackApp hook in Main (#9
 ## Task 2: UpdateService + IVelopackUpdater (TDD core)
 
 **Files:**
-- Create: `src/NovaTerminal.App/Services/Updates/IVelopackUpdater.cs`
-- Create: `src/NovaTerminal.App/Services/Updates/UpdateService.cs`
-- Test: `tests/NovaTerminal.App.Tests/Updates/UpdateServiceTests.cs`
+- Create: `src/Ntilde.App/Services/Updates/IVelopackUpdater.cs`
+- Create: `src/Ntilde.App/Services/Updates/UpdateService.cs`
+- Test: `tests/Ntilde.App.Tests/Updates/UpdateServiceTests.cs`
 
 `UpdateService` holds all logic and is the only update code with tests. It never references Velopack types — it depends on `IVelopackUpdater`, which Task 3 implements for real and the test fakes.
 
 - [ ] **Step 1: Define the adapter interface**
 
-Create `src/NovaTerminal.App/Services/Updates/IVelopackUpdater.cs`:
+Create `src/Ntilde.App/Services/Updates/IVelopackUpdater.cs`:
 ```csharp
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Services.Updates;
+namespace Ntilde.Services.Updates;
 
 /// <summary>
 /// Narrow seam over Velopack's UpdateManager so UpdateService logic is testable
@@ -180,14 +180,14 @@ public interface IVelopackUpdater
 
 - [ ] **Step 2: Write the failing tests**
 
-Create `tests/NovaTerminal.App.Tests/Updates/UpdateServiceTests.cs`:
+Create `tests/Ntilde.App.Tests/Updates/UpdateServiceTests.cs`:
 ```csharp
 using System.Threading.Tasks;
 using Moq;
-using NovaTerminal.Services.Updates;
+using Ntilde.Services.Updates;
 using Xunit;
 
-namespace NovaTerminal.Tests.Updates;
+namespace Ntilde.Tests.Updates;
 
 public sealed class UpdateServiceTests
 {
@@ -288,19 +288,19 @@ public sealed class UpdateServiceTests
 
 Run:
 ```powershell
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~UpdateServiceTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~UpdateServiceTests"
 ```
 Expected: FAIL — `UpdateService` does not exist (compile error).
 
 - [ ] **Step 4: Implement UpdateService**
 
-Create `src/NovaTerminal.App/Services/Updates/UpdateService.cs`:
+Create `src/Ntilde.App/Services/Updates/UpdateService.cs`:
 ```csharp
 using System;
 using System.Threading.Tasks;
-using NovaTerminal.VT;
+using Ntilde.VT;
 
-namespace NovaTerminal.Services.Updates;
+namespace Ntilde.Services.Updates;
 
 /// <summary>
 /// Orchestrates startup update checks and apply-on-restart. Pure logic over
@@ -370,14 +370,14 @@ public sealed class UpdateService
 
 Run:
 ```powershell
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~UpdateServiceTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~UpdateServiceTests"
 ```
 Expected: PASS — all 7 tests green.
 
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/Services/Updates/IVelopackUpdater.cs src/NovaTerminal.App/Services/Updates/UpdateService.cs tests/NovaTerminal.App.Tests/Updates/UpdateServiceTests.cs
+git add src/Ntilde.App/Services/Updates/IVelopackUpdater.cs src/Ntilde.App/Services/Updates/UpdateService.cs tests/Ntilde.App.Tests/Updates/UpdateServiceTests.cs
 git commit -m "feat(update): testable UpdateService over IVelopackUpdater seam (#91)"
 ```
 
@@ -386,19 +386,19 @@ git commit -m "feat(update): testable UpdateService over IVelopackUpdater seam (
 ## Task 3: Real VelopackUpdater adapter
 
 **Files:**
-- Create: `src/NovaTerminal.App/Services/Updates/VelopackUpdater.cs`
+- Create: `src/Ntilde.App/Services/Updates/VelopackUpdater.cs`
 
 No unit test — this is the thin Velopack binding, validated by build + the Task 0 spike (real network/AOT).
 
 - [ ] **Step 1: Implement the adapter**
 
-Create `src/NovaTerminal.App/Services/Updates/VelopackUpdater.cs`:
+Create `src/Ntilde.App/Services/Updates/VelopackUpdater.cs`:
 ```csharp
 using System.Threading.Tasks;
 using Velopack;
 using Velopack.Sources;
 
-namespace NovaTerminal.Services.Updates;
+namespace Ntilde.Services.Updates;
 
 /// <summary>
 /// Real <see cref="IVelopackUpdater"/> backed by Velopack's UpdateManager against
@@ -406,7 +406,7 @@ namespace NovaTerminal.Services.Updates;
 /// </summary>
 public sealed class VelopackUpdater : IVelopackUpdater
 {
-    private const string RepoUrl = "https://github.com/benyblack/NovaTerminal";
+    private const string RepoUrl = "https://github.com/benyblack/ntilde";
 
     private readonly UpdateManager _manager =
         new(new GithubSource(RepoUrl, accessToken: null, prerelease: false));
@@ -444,14 +444,14 @@ public sealed class VelopackUpdater : IVelopackUpdater
 
 Run:
 ```powershell
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 Expected: build succeeds, no AOT/trim warnings for `VelopackUpdater`.
 
 - [ ] **Step 3: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/Services/Updates/VelopackUpdater.cs
+git add src/Ntilde.App/Services/Updates/VelopackUpdater.cs
 git commit -m "feat(update): real Velopack UpdateManager adapter over GitHub Releases (#91)"
 ```
 
@@ -460,14 +460,14 @@ git commit -m "feat(update): real Velopack UpdateManager adapter over GitHub Rel
 ## Task 4: Wire UpdateService into MainWindow (indicator + palette action)
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml` (TitleBar StackPanel, ~line 177)
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs` (field + ctor + Loaded + SetupCommandPalette)
+- Modify: `src/Ntilde.App/MainWindow.axaml` (TitleBar StackPanel, ~line 177)
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs` (field + ctor + Loaded + SetupCommandPalette)
 
 No unit test — `MainWindow` is code-behind UI (no MVVM, not headless-testable here). The logic is already covered by Task 2; this is wiring, verified by build + the spike's manual launch.
 
 - [ ] **Step 1: Add the hidden indicator to the title bar**
 
-In `src/NovaTerminal.App/MainWindow.axaml`, inside the title-bar `StackPanel` (the one beginning near line 115, after the `BtnConnections` button near line 177), add:
+In `src/Ntilde.App/MainWindow.axaml`, inside the title-bar `StackPanel` (the one beginning near line 115, after the `BtnConnections` button near line 177), add:
 ```xml
         <Button x:Name="BtnUpdate"
                 IsVisible="False"
@@ -481,10 +481,10 @@ In `src/NovaTerminal.App/MainWindow.axaml`, inside the title-bar `StackPanel` (t
 
 - [ ] **Step 2: Add the field and construct the service**
 
-In `src/NovaTerminal.App/MainWindow.axaml.cs`, add a field alongside the other service fields (near `_sshConnectionService`):
+In `src/Ntilde.App/MainWindow.axaml.cs`, add a field alongside the other service fields (near `_sshConnectionService`):
 ```csharp
-        private readonly NovaTerminal.Services.Updates.UpdateService _updateService =
-            new(new NovaTerminal.Services.Updates.VelopackUpdater());
+        private readonly Ntilde.Services.Updates.UpdateService _updateService =
+            new(new Ntilde.Services.Updates.VelopackUpdater());
 ```
 
 - [ ] **Step 3: Wire the indicator + apply action in the constructor**
@@ -534,7 +534,7 @@ In `SetupCommandPalette()` (starts at line 3891), after `CommandRegistry.Clear()
 
 Run:
 ```powershell
-scripts/build.ps1 build src/NovaTerminal.App
+scripts/build.ps1 build src/Ntilde.App
 ```
 Expected: build succeeds.
 
@@ -542,14 +542,14 @@ Expected: build succeeds.
 
 Run:
 ```powershell
-scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~UpdateServiceTests"
+scripts/build.ps1 test tests/Ntilde.App.Tests --filter "FullyQualifiedName~UpdateServiceTests"
 ```
 Expected: PASS (the update tests still green; wiring introduced no compile breakage).
 
 - [ ] **Step 8: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/MainWindow.axaml src/NovaTerminal.App/MainWindow.axaml.cs
+git add src/Ntilde.App/MainWindow.axaml src/Ntilde.App/MainWindow.axaml.cs
 git commit -m "feat(update): title-bar indicator + restart-to-update palette action (#91)"
 ```
 
@@ -588,7 +588,7 @@ In `.github/workflows/release.yml`, in the `publish_aot` job, after the existing
       - name: Download prior Velopack release (for deltas)
         if: matrix.rid == 'win-x64'
         continue-on-error: true
-        run: vpk download github --repoUrl https://github.com/benyblack/NovaTerminal
+        run: vpk download github --repoUrl https://github.com/benyblack/ntilde
 
       - name: Velopack pack
         if: matrix.rid == 'win-x64'
@@ -597,17 +597,17 @@ In `.github/workflows/release.yml`, in the `publish_aot` job, after the existing
           $tag = "${{ needs.release_metadata.outputs.release_tag }}"
           $version = $tag.TrimStart('v')
           vpk pack `
-            --packId NovaTerminal `
+            --packId Ntilde `
             --packVersion $version `
             --packDir artifacts/publish/win-x64 `
-            --mainExe NovaTerminal.exe `
-            --icon src/NovaTerminal.App/Assets/nova_icon.ico `
+            --mainExe Ntilde.exe `
+            --icon src/Ntilde.App/Assets/ntilde_icon.ico `
             --outputDir artifacts/velopack `
             ${{ steps.sign.outputs.args }}
 
       - name: Publish Velopack release to GitHub
         if: matrix.rid == 'win-x64'
-        run: vpk upload github --repoUrl https://github.com/benyblack/NovaTerminal --releaseName ${{ needs.release_metadata.outputs.release_tag }} --tag ${{ needs.release_metadata.outputs.release_tag }} --publish --token ${{ secrets.GITHUB_TOKEN }}
+        run: vpk upload github --repoUrl https://github.com/benyblack/ntilde --releaseName ${{ needs.release_metadata.outputs.release_tag }} --tag ${{ needs.release_metadata.outputs.release_tag }} --publish --token ${{ secrets.GITHUB_TOKEN }}
 ```
 > Note: `vpk upload github` attaches `Setup.exe`, `RELEASES`, and `.nupkg` to the existing release without removing the portable zips. If the pinned `vpk` version's upload flags differ, adjust per `vpk upload github --help` from the spike.
 
@@ -675,7 +675,7 @@ This is the spec's acceptance gate; it requires a Windows machine and a real tag
 
 - [ ] **Step 1: Cut a test tag and let CI run**
 
-Push a pre-release tag (e.g. `v0.3.1-rc1`). Confirm the Release job produces, on the GitHub Release: the existing portable zips **plus** `NovaTerminal-win-Setup.exe`, `RELEASES`, and `.nupkg`.
+Push a pre-release tag (e.g. `v0.3.1-rc1`). Confirm the Release job produces, on the GitHub Release: the existing portable zips **plus** `ntilde-win-Setup.exe`, `RELEASES`, and `.nupkg`.
 
 - [ ] **Step 2: Install N, then publish N+1, verify auto-update**
 

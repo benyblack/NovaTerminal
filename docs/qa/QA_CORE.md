@@ -4,7 +4,7 @@
 
 ## 1. Parser Invariants & Sequences
 - **Status**: `[Automated]`
-- **Action**: Run the `NovaTerminal.Tests` unit test suite (specifically `AnsiParserTests.cs` and `AlternateScreenTests.cs`).
+- **Action**: Run the `Ntilde.Tests` unit test suite (specifically `AnsiParserTests.cs` and `AlternateScreenTests.cs`).
 - **Verification**: `AnsiParser` should correctly identify and dispatch ESC, CSI, OSC, and DEC sequences without corruption.
 - **Mouse Reporting**: Verify `SGR` mouse tracking (CSI < ... m/M). Use a tool like `vttest` or `mouse-test`.
 - **Primary/Secondary DA**: Verification of `CSI > c` and `CSI c` responses for terminal identification.

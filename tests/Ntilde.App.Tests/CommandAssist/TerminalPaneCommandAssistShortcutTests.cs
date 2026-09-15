@@ -1,0 +1,317 @@
+using Ntilde.Shell;
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Ntilde.Controls;
+using Ntilde.CommandAssist.ViewModels;
+using Ntilde.Platform;
+using Ntilde.VT;
+
+namespace Ntilde.Tests.CommandAssist;
+
+public sealed class TerminalPaneCommandAssistShortcutTests
+{
+    [AvaloniaFact]
+    public void ApplySettings_WhenAssistEnabled_DoesNotEagerlyInitializeController()
+    {
+        using var pane = new TerminalPane();
+        pane.CommandAssistServices = TestCommandAssistServices.Instance;
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
+        settings.CommandAssistEnabled = true;
+        settings.CommandAssistHistoryEnabled = true;
+
+        pane.ApplySettings(settings);
+
+        Assert.Null(pane.CommandAssistViewModel);
+    }
+
+    [AvaloniaFact]
+    public void TryToggleCommandAssistPinShortcut_WhenAssistVisibleWithoutSelection_ReturnsFalse()
+    {
+        using var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+        pane.ToggleCommandAssist();
+
+        bool handled = pane.TryToggleCommandAssistPinShortcut();
+
+        Assert.False(handled);
+    }
+
+    /// <summary>
+    /// V2 Phase 3b task 3: history capture off no longer takes the feature down with it. Before the
+    /// decoupling this pane refused every Command Assist entry point, so a user who did not want their
+    /// commands recorded also lost Help, Fix and path suggestions.
+    /// </summary>
+    [AvaloniaFact]
+    public void ToggleCommandAssist_WithHistoryDisabled_StillOpensTheAssist()
+    {
+        using var pane = new TerminalPane();
+        pane.CommandAssistServices = TestCommandAssistServices.Instance;
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
+        settings.CommandAssistEnabled = true;
+        settings.CommandAssistHistoryEnabled = false;
+        pane.ApplySettings(settings);
+
+        pane.ToggleCommandAssist();
+
+        Assert.True(pane.CommandAssistViewModel?.IsVisible);
+    }
+
+    /// <summary>And the master flag still gates everything, which is what makes it the master flag.</summary>
+    [AvaloniaFact]
+    public void ToggleCommandAssist_WithTheMasterFlagOff_OpensNothing()
+    {
+        using var pane = new TerminalPane();
+        pane.CommandAssistServices = TestCommandAssistServices.Instance;
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
+        settings.CommandAssistEnabled = false;
+        settings.CommandAssistHistoryEnabled = true;
+        pane.ApplySettings(settings);
+
+        pane.ToggleCommandAssist();
+
+        Assert.False(pane.CommandAssistViewModel?.IsVisible ?? false);
+    }
+
+    /// <summary>
+    /// The pin shortcut no longer routes through the key router (V2 Phase 3b), so its refusal path is
+    /// worth pinning at the pane: with the feature off it declines rather than throwing or consuming.
+    /// </summary>
+    [AvaloniaFact]
+    public void TryToggleCommandAssistPinShortcut_WhenTheFeatureIsOff_ReturnsFalse()
+    {
+        using var pane = new TerminalPane();
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
+        settings.CommandAssistEnabled = false;
+        pane.ApplySettings(settings);
+
+        Assert.False(pane.TryToggleCommandAssistPinShortcut());
+    }
+
+    [AvaloniaFact]
+    public void TryHandleCommandAssistKey_WhenAssistVisible_DoesNotConsumeTab()
+    {
+        using var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+        pane.ToggleCommandAssist();
+
+        bool handled = pane.TryHandleCommandAssistKey(Key.Tab, KeyModifiers.None);
+
+        Assert.False(handled);
+    }
+
+    [AvaloniaFact]
+    public void OpenCommandAssistHelp_WhenDisabledInSettings_ReturnsFalse()
+    {
+        using var pane = new TerminalPane();
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
+        settings.CommandAssistEnabled = false;
+        settings.CommandAssistHistoryEnabled = true;
+        pane.ApplySettings(settings);
+
+        bool handled = pane.OpenCommandAssistHelp();
+
+        Assert.False(handled);
+        Assert.False(pane.CommandAssistViewModel?.IsVisible ?? false);
+    }
+
+    /// <summary>
+    /// Phase 1c: the pane's query comes off the grid, so this drives the whole real seam - the
+    /// parser sees <c>OSC 133;B</c>, the pane keeps the mark, the controller's lifecycle gate opens,
+    /// and Help resolves its command token by reading the cells between the mark and the cursor.
+    /// The paste that used to seed a shadow buffer here no longer has anything to seed.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task OpenCommandAssistHelp_WhenTheGridHoldsACommand_UsesPaneInfrastructure()
+    {
+        using var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+        pane.ArmShellIntegrationTracker();
+        pane.CreateAndWireParser();
+        await TypeAtAnIntegratedPromptAsync(pane, "Get-ChildItem");
+
+        bool handled = pane.OpenCommandAssistHelp();
+
+        // Waited on the surface rather than on the clock. Help awaits its providers and then posts
+        // the write to the pane's dispatcher, so a fixed delay is a bet on that round trip fitting
+        // inside it - a bet this test was losing about once per full run (#424).
+        await AssistWait.UntilAsync(
+            () => pane.CommandAssistViewModel?.IsVisible == true,
+            "the Help pass published to the assist surface");
+
+        CommandAssistBarViewModel vm = AssertViewModel(pane);
+        Assert.True(handled);
+        Assert.True(vm.IsVisible);
+        Assert.Equal("Help", vm.ModeLabel);
+        Assert.True(vm.HasSuggestions);
+    }
+
+    /// <summary>
+    /// The gate at pane level: outside the <c>B</c>..<c>C</c> window the grid still holds the text,
+    /// and Help still gets nothing from it. Without the gate the same bytes would produce a help
+    /// lookup for whatever the command printed.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task OpenCommandAssistHelp_AfterTheCommandWasSubmitted_TakesNoTokenFromTheGrid()
+    {
+        using var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+        pane.ArmShellIntegrationTracker();
+        pane.CreateAndWireParser();
+        await TypeAtAnIntegratedPromptAsync(pane, "Get-ChildItem");
+
+        await SubmitAsync(pane, "Get-ChildItem");
+
+        pane.OpenCommandAssistHelp();
+        await Task.Delay(50);
+
+        CommandAssistBarViewModel vm = AssertViewModel(pane);
+        Assert.Equal(string.Empty, vm.QueryText);
+        Assert.False(vm.HasSuggestions);
+    }
+
+    /// <summary>
+    /// Drives a real integrated prompt: <c>OSC 133;A</c>, prompt text, <c>OSC 133;B</c>, then the
+    /// command line itself. The delay lets the pane's serialized shell-integration dispatcher
+    /// deliver <c>B</c> to the controller, which is what opens the lifecycle gate.
+    /// </summary>
+    private static async Task TypeAtAnIntegratedPromptAsync(TerminalPane pane, string commandLine)
+    {
+        pane.Parser!.Process("\x1b]133;A\x07PS C:\\> \x1b]133;B\x07" + commandLine);
+        await Task.Delay(50);
+    }
+
+    /// <summary>
+    /// <c>OSC 133;C;&lt;base64&gt;</c>, the way all four bootstraps emit it. The payload matters:
+    /// the parser only raises <c>OnCommandAccepted</c> for a C that decodes to something, so a
+    /// bare <c>133;C</c> would not close the lifecycle gate here.
+    /// </summary>
+    private static async Task SubmitAsync(TerminalPane pane, string commandLine)
+    {
+        string encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(commandLine));
+        pane.Parser!.Process($"\x1b]133;C;{encoded}\x07");
+        await Task.Delay(50);
+    }
+
+    /// <summary>
+    /// A non-zero exit with nothing readable behind it does not raise a surface.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This assertion is inverted from what it used to be, and the inversion is the point of
+    /// the UX-polish round's issue 4.</strong> It previously asserted that any non-zero exit opened
+    /// Fix mode, which is precisely the behaviour the owner reported as "fix comes sometimes when it
+    /// is not needed". There is no output tail in this setup - nothing was painted on the grid - so
+    /// the insight service is on the bottom rung of its ladder and can only offer a name-similarity
+    /// guess. <c>CommandAssistModeRouter.ShouldSurfacePassiveFix</c> requires a recogniser to have
+    /// actually read something, so nothing surfaces.
+    /// </para>
+    /// <para>
+    /// The guess is still computed and still reachable: <c>Ctrl+Space</c> after the failure summons
+    /// it. What it no longer does is volunteer itself over every command that exits non-zero.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task HandleCommandAssistCompletionAsync_WhenNonZeroExitHasNoReadableOutput_StaysQuiet()
+    {
+        using var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+        pane.NotifyCommandAssistPaste("gti status");
+
+        await pane.HandleCommandAssistCompletionAsync(127);
+        await Task.Delay(50);
+
+        CommandAssistBarViewModel vm = AssertViewModel(pane);
+        Assert.False(vm.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public async Task HandleCommandAssistCompletionAsync_WhenZeroExit_DoesNotOpenFixMode()
+    {
+        using var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+        pane.NotifyCommandAssistPaste("gti status");
+
+        await pane.HandleCommandAssistCompletionAsync(0);
+        await Task.Delay(50);
+
+        CommandAssistBarViewModel vm = AssertViewModel(pane);
+        Assert.NotEqual("Fix", vm.ModeLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task HandleCommandAssistCompletionAsync_WhenKnownCommandFails_DoesNotOpenTypoFixMode()
+    {
+        using var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+        pane.NotifyCommandAssistPaste("git commit");
+
+        await pane.HandleCommandAssistCompletionAsync(1);
+        await Task.Delay(50);
+
+        CommandAssistBarViewModel vm = AssertViewModel(pane);
+        Assert.NotEqual("Fix", vm.ModeLabel);
+        Assert.False(vm.IsVisible && vm.ShowEmptyState);
+    }
+
+    [AvaloniaFact]
+    public void CanExplainSelection_WhenSelectionIsEmpty_ReturnsFalse()
+    {
+        using var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+
+        Assert.False(pane.CanExplainSelection());
+    }
+
+    [AvaloniaFact]
+    public async Task ExplainSelectionAsync_WhenSelectionTextProvided_OpensHelp()
+    {
+        using var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+
+        bool canExplain = pane.CanExplainSelection("fatal: not a git repository");
+        bool opened = await pane.ExplainSelectionAsync("fatal: not a git repository");
+        await Task.Delay(50);
+
+        CommandAssistBarViewModel vm = AssertViewModel(pane);
+        Assert.True(canExplain);
+        Assert.True(opened);
+        Assert.Equal("Help", vm.ModeLabel);
+    }
+
+    [AvaloniaFact]
+    public void TryOpenCommandAssistHelp_WhenPaneOpensHelp_ReturnsTrue()
+    {
+        using var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+        pane.NotifyCommandAssistPaste("git checkout");
+
+        bool handled = Ntilde.MainWindow.TryOpenCommandAssistHelp(pane);
+
+        Assert.True(handled);
+    }
+
+    [AvaloniaFact]
+    public void TryOpenCommandAssistHelp_WhenPaneIsMissing_ReturnsFalse()
+    {
+        bool handled = Ntilde.MainWindow.TryOpenCommandAssistHelp(null);
+
+        Assert.False(handled);
+    }
+
+    private static CommandAssistBarViewModel AssertViewModel(TerminalPane pane)
+    {
+        return Assert.IsType<CommandAssistBarViewModel>(pane.CommandAssistViewModel);
+    }
+
+    private static void ConfigureCommandAssist(TerminalPane pane)
+    {
+        // Phase 0b: the pane no longer reaches for a static locator, so the services instance is
+        // injected the same way MainWindow injects it in production.
+        pane.CommandAssistServices = TestCommandAssistServices.Instance;
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
+        settings.CommandAssistEnabled = true;
+        settings.CommandAssistHistoryEnabled = true;
+        pane.ApplySettings(settings);
+    }
+}

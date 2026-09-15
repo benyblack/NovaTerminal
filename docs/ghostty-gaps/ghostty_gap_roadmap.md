@@ -1,14 +1,14 @@
-# NovaTerminal vs Ghostty – Gap Roadmap
+# Ntilde vs Ghostty – Gap Roadmap
 
 _Last reviewed: 2026-04-21._
 
-This document defines the prioritized execution plan to close critical VT gaps between NovaTerminal and Ghostty, based on the VT Conformance Matrix.
+This document defines the prioritized execution plan to close critical VT gaps between Ntilde and Ghostty, based on the VT Conformance Matrix.
 
 ---
 
 ## 🎯 Strategic Goal
 
-Move NovaTerminal from:
+Move Ntilde from:
 - Partial VT correctness + strong architecture
 
 To:
@@ -103,7 +103,7 @@ PR1 status notes:
 
 ### Scope
 
-- [x] VT conformance report generator (`src/NovaTerminal.Conformance`, shipped with VT report CLI)
+- [x] VT conformance report generator (`src/Ntilde.Conformance`, shipped with VT report CLI)
 - [x] CI enforcement of matrix rules (`.github/workflows/vt-conformance.yml`)
 - [x] Machine-readable VT support report (`--vt-report --json`)
 - [ ] Replay-based validation tooling extensions beyond current coverage
@@ -127,7 +127,7 @@ Choose one:
 
 ## 🏁 Final Outcome
 
-NovaTerminal becomes:
+Ntilde becomes:
 
 - Not just “a terminal”
 - But:

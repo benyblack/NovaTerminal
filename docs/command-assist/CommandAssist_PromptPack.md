@@ -1,4 +1,4 @@
-# NovaTerminal Command Assist — Codex / Antigravity Prompt Pack
+# Ntilde Command Assist — Codex / Antigravity Prompt Pack
 
 Use these prompts milestone-by-milestone. They are written to push the coding agent toward a clean architecture, strict boundaries, and TDD-first implementation.
 
@@ -6,7 +6,7 @@ Use these prompts milestone-by-milestone. They are written to push the coding ag
 
 ## Prompt 1 — Architecture and codebase reconnaissance
 
-You are working on NovaTerminal.
+You are working on Ntilde.
 
 Your task is to design and prepare a new feature called **Command Assist** with a Warp-like dedicated UI, but **without** inline ghost text rendered into the terminal grid.
 
@@ -52,7 +52,7 @@ Output format:
 
 ## Prompt 2 — Milestone M1 foundation with strict TDD
 
-Implement **M1: history foundation** for NovaTerminal Command Assist.
+Implement **M1: history foundation** for Ntilde Command Assist.
 
 Requirements:
 - persistent command history store,
@@ -108,7 +108,7 @@ Deliverables:
 
 ## Prompt 3 — M2 ranked suggestions and snippets
 
-Implement **M2: richer suggestions** for NovaTerminal Command Assist.
+Implement **M2: richer suggestions** for Ntilde Command Assist.
 
 Requirements:
 - prefix + token + fuzzy ranking,
@@ -279,7 +279,7 @@ Output:
 
 ## Prompt 7 — Hardening and polish pass
 
-Perform a hardening pass on NovaTerminal Command Assist.
+Perform a hardening pass on Ntilde Command Assist.
 
 Focus:
 - performance,

@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Build NovaTerminal, mirror the fresh output to a fixed sidecar directory, and launch it
+# Build Ntilde, mirror the fresh output to a fixed sidecar directory, and launch it
 # from there. Also mirrors the MCP dev-companion server, which is launched separately by an
 # MCP client rather than by this script.
 #
@@ -14,9 +14,9 @@
 # The running build is identifiable in debug.log via the "Build: sha=... built=... path=..."
 # line (the sidecar path makes it obvious you're on the sidecar, not the repo output).
 #
-# NovaTerminal.McpServer gets the same treatment (#211). It is a long-lived process started
+# Ntilde.McpServer gets the same treatment (#211). It is a long-lived process started
 # by whatever MCP client is configured, and while it ran from the repo tree it held
-# NovaTerminal.AgentHost.Contracts.dll open — which made *every* full repo build fail with
+# Ntilde.AgentHost.Contracts.dll open — which made *every* full repo build fail with
 # MSB3027/MSB3021 on the McpServer copy step, whether or not the app was running. Point the
 # MCP client at the sidecar path this script prints and the repo stays buildable.
 #
@@ -48,8 +48,8 @@ param(
     # IDE file watchers, or `git status`. $env:LOCALAPPDATA is Windows-only; fall back to the
     # XDG-ish data dir elsewhere so the script doesn't throw on a null Join-Path argument.
     [string]$SidecarRoot = $(
-        if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'NovaTerminal-sidecar' }
-        else { Join-Path $HOME '.local/share/NovaTerminal-sidecar' }
+        if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'ntilde-sidecar' }
+        else { Join-Path $HOME '.local/share/ntilde-sidecar' }
     )
 )
 
@@ -58,7 +58,7 @@ $ErrorActionPreference = 'Stop'
 # pwsh (PowerShell 7+) only, as the shebang says. The body uses $IsWindows and multi-segment
 # Join-Path, neither of which exists in Windows PowerShell 5.1: run it as
 # `powershell -File scripts/run-sidecar.ps1` and the first Join-Path below dies with
-# "A positional parameter cannot be found that accepts argument 'NovaTerminal.App'" - a message
+# "A positional parameter cannot be found that accepts argument 'Ntilde.App'" - a message
 # with no connection to the actual requirement. Worse, $IsWindows is simply $null under 5.1, so
 # a script that got past the Join-Paths would silently take the non-Windows branches. Refuse up
 # front and name the fix.
@@ -69,10 +69,10 @@ if ($PSVersionTable.PSEdition -eq 'Desktop') {
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 # Build path segments with Join-Path (no embedded separators) so they're correct on every OS.
-$appProject = Join-Path $repoRoot 'src' 'NovaTerminal.App'
+$appProject = Join-Path $repoRoot 'src' 'Ntilde.App'
 $sourceDir = Join-Path $appProject 'bin' $Configuration $TargetFramework
 
-$mcpProject = Join-Path $repoRoot 'src' 'NovaTerminal.McpServer'
+$mcpProject = Join-Path $repoRoot 'src' 'Ntilde.McpServer'
 $mcpSourceDir = Join-Path $mcpProject 'bin' $Configuration $TargetFramework
 # Separate destination from the app's: both outputs contain the same shared assemblies (VT,
 # Replay, AgentHost.Contracts...), and robocopy /MIR deletes anything not in its source - so
@@ -119,7 +119,7 @@ function Sync-Directory {
 }
 
 if (-not $NoBuild) {
-    Write-Host "[sidecar] Building NovaTerminal.App ($Configuration)..." -ForegroundColor Cyan
+    Write-Host "[sidecar] Building Ntilde.App ($Configuration)..." -ForegroundColor Cyan
     # Use the build wrapper so MSBuild/dotnet daemons don't outlive the build and hang on
     # captured stdout (see CLAUDE.md). The main repo bin is free to build because the
     # currently-running instance is the sidecar copy, not this output.
@@ -130,7 +130,7 @@ if (-not $NoBuild) {
     }
 
     if (-not $SkipMcpServer) {
-        Write-Host "[sidecar] Building NovaTerminal.McpServer ($Configuration)..." -ForegroundColor Cyan
+        Write-Host "[sidecar] Building Ntilde.McpServer ($Configuration)..." -ForegroundColor Cyan
         & (Join-Path $PSScriptRoot 'build.ps1') build $mcpProject -c $Configuration
         if ($LASTEXITCODE -ne 0) {
             # Non-fatal: a stale MCP sidecar must not stop you launching the app. This build
@@ -161,7 +161,7 @@ if (-not $SkipMcpServer) {
     if (Test-Path $mcpSourceDir) {
         Write-Host "[sidecar] Mirroring MCP server -> $mcpDestDir" -ForegroundColor Cyan
         if (Sync-Directory -From $mcpSourceDir -To $mcpDestDir) {
-            $mcpDll = Join-Path $mcpDestDir 'NovaTerminal.McpServer.dll'
+            $mcpDll = Join-Path $mcpDestDir 'Ntilde.McpServer.dll'
             Write-Host "[sidecar] MCP client should point at: dotnet `"$mcpDll`"" -ForegroundColor DarkGray
         }
         else {
@@ -178,7 +178,7 @@ if (-not $SkipMcpServer) {
     }
 }
 
-$exeName = if ($IsWindows) { 'NovaTerminal.exe' } else { 'NovaTerminal' }
+$exeName = if ($IsWindows) { 'Ntilde.exe' } else { 'Ntilde' }
 $exe = Join-Path $destDir $exeName
 if (-not (Test-Path $exe)) {
     Write-Error "[sidecar] Expected executable not found after mirror: $exe"

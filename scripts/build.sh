@@ -75,7 +75,7 @@ require_sdk() {
 # wrapper you happened to use decided whether you got the protection.
 #
 # Windows-only by nature: this is a file-locking problem. Delegated to PowerShell because the
-# match needs each process's command line to scope it to THIS tree. NOVA_KEEP_STALE_HOSTS=1
+# match needs each process's command line to scope it to THIS tree. NTILDE_KEEP_STALE_HOSTS=1
 # opts out (a genuinely concurrent `test` run from this tree would otherwise be killed too).
 sweep_stale_hosts() {
     case "$(uname -s)" in
@@ -87,7 +87,7 @@ sweep_stale_hosts() {
     local repo_root
     repo_root="$(cd "$(dirname "$0")/.." && pwd -W 2>/dev/null || cd "$(dirname "$0")/.." && pwd)"
 
-    KEEP_STALE="${NOVA_KEEP_STALE_HOSTS:-0}" REPO_ROOT="$repo_root" powershell.exe -NoProfile -NonInteractive -Command '
+    KEEP_STALE="${NTILDE_KEEP_STALE_HOSTS:-0}" REPO_ROOT="$repo_root" powershell.exe -NoProfile -NonInteractive -Command '
         # pwd -W hands us forward slashes; process command lines carry backslashes, so a
         # -like match on the raw value would never fire and the sweep would be a silent no-op.
         $repoRoot = ($env:REPO_ROOT -replace "/", "\\")
@@ -95,7 +95,7 @@ sweep_stale_hosts() {
         try {
             $stale = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
                 $_.CommandLine -and $_.CommandLine -like "*$repoRoot*" -and (
-                    ($_.Name -eq "dotnet.exe" -and $_.CommandLine -like "*NovaTerminal.McpServer.dll*") -or
+                    ($_.Name -eq "dotnet.exe" -and $_.CommandLine -like "*Ntilde.McpServer.dll*") -or
                     (-not $keepStale -and ($_.Name -eq "testhost.exe" -or $_.Name -like "*.Tests.exe"))
                 )
             })
@@ -121,7 +121,7 @@ sweep_stale_hosts() {
 # wrapper says so itself, loudly, and fails even when dotnet's own exit code does not.
 run_test_verb() {
     local log status pgid
-    log="$(mktemp -t nova-test-XXXXXX.log)"
+    log="$(mktemp -t ntilde-test-XXXXXX.log)"
 
     # Job control, so the pipeline gets its own process group. Replacing the previous `exec` cost
     # the wrapper its signal semantics: exec made this process *become* dotnet, so a SIGTERM from

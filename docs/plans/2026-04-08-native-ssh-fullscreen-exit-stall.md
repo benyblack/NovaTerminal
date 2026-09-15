@@ -13,7 +13,7 @@
 ### Task 1: Pin the native-side resize intent in core tests
 
 **Files:**
-- Modify: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionTests.cs`
+- Modify: `tests/Ntilde.Core.Tests/Ssh/NativeSshSessionTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -21,7 +21,7 @@ Add or extend a test that issues multiple `Resize(...)` calls on `NativeSshSessi
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests"`
+Run: `dotnet test tests/Ntilde.Core.Tests/Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests"`
 
 Expected: FAIL if the current test suite does not yet pin burst-resize intent clearly enough.
 
@@ -36,14 +36,14 @@ Run the same command and confirm the targeted test passes.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionTests.cs
+git add tests/Ntilde.Core.Tests/Ssh/NativeSshSessionTests.cs
 git commit -m "Add native SSH burst resize intent test"
 ```
 
 ### Task 2: Add a Rust regression test for resize coalescing
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs`
 
 **Step 1: Write the failing test**
 
@@ -51,7 +51,7 @@ Add a Rust unit test around the worker-command handling that enqueues several co
 
 **Step 2: Run test to verify it fails**
 
-Run: `cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml --release resize`
+Run: `cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml --release resize`
 
 Expected: FAIL because the worker currently processes each resize individually.
 
@@ -66,14 +66,14 @@ Run the same command and confirm the new resize test passes.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs
+git add src/Ntilde.App/native/rusty_ssh/src/lib.rs
 git commit -m "Add native SSH resize coalescing regression test"
 ```
 
 ### Task 3: Coalesce consecutive native resize commands in Rust
 
 **Files:**
-- Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
+- Modify: `src/Ntilde.App/native/rusty_ssh/src/lib.rs`
 
 **Step 1: Write the failing test**
 
@@ -81,7 +81,7 @@ If Task 2 used only a narrow helper, add one more failing assertion proving unre
 
 **Step 2: Run test to verify it fails**
 
-Run: `cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml --release resize`
+Run: `cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml --release resize`
 
 Expected: FAIL because the worker still forwards stale intermediate dimensions or does not preserve command ordering around non-resize commands.
 
@@ -102,7 +102,7 @@ Run the same command and confirm the resize tests pass.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs
+git add src/Ntilde.App/native/rusty_ssh/src/lib.rs
 git commit -m "Coalesce native SSH resize commands"
 ```
 
@@ -116,7 +116,7 @@ git commit -m "Coalesce native SSH resize commands"
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
+dotnet test tests/Ntilde.Core.Tests/Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
 ```
 
 Expected: PASS
@@ -126,7 +126,7 @@ Expected: PASS
 Run:
 
 ```bash
-cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml --release
+cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml --release
 ```
 
 Expected: PASS
@@ -136,7 +136,7 @@ Expected: PASS
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
 ```
 
 Expected: PASS

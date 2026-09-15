@@ -1,6 +1,6 @@
 # Image Protocol Support Matrix
 
-This document defines NovaTerminal image protocol behavior across platforms.
+This document defines Ntilde image protocol behavior across platforms.
 
 ## Matrix
 
@@ -14,7 +14,7 @@ This document defines NovaTerminal image protocol behavior across platforms.
 
 ## Windows Fallback Policy (M4.2, relaxed)
 
-- NovaTerminal historically assumed ConPTY filtering was certain on Windows: non-tunneled Kitty
+- Ntilde historically assumed ConPTY filtering was certain on Windows: non-tunneled Kitty
   probe queries (`a=q`) were answered `ERR` and non-tunneled images were skipped, to push clients
   toward Sixel or the OSC 1339 tunnel.
 - Live probing (2026-09) showed modern ConPTY passes well-formed kitty APC through intact — the
@@ -41,7 +41,7 @@ This document defines NovaTerminal image protocol behavior across platforms.
 
 ## Notes
 
-- Decoding is implemented by `NovaTerminal.Rendering.SkiaImageDecoder` (`SixelDecoder` for DCS/OSC 1339 sixel payloads, `SKBitmap.Decode` for Kitty/iTerm2 image bytes); decoded bitmaps render in the grid via `TerminalDrawOperation`'s image pass.
+- Decoding is implemented by `Ntilde.Rendering.SkiaImageDecoder` (`SixelDecoder` for DCS/OSC 1339 sixel payloads, `SKBitmap.Decode` for Kitty/iTerm2 image bytes); decoded bitmaps render in the grid via `TerminalDrawOperation`'s image pass.
 - Lifecycle: images pruned by the buffer (scroll eviction, erase, reflow) retire their bitmap handles; the owning view disposes them at its frame boundary, gated on no in-flight snapshot session predating the retire — an agent-host capture of any duration blocks disposal until it completes (#166).
 - The fallback policy is intentionally conservative to avoid false advertising Kitty support through ConPTY.
 - If a future backend bypasses ConPTY filtering, this policy can be relaxed.

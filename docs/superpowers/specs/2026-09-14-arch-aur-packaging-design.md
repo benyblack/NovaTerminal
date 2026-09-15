@@ -1,4 +1,4 @@
-# Arch Linux publishing: a gated `novaterminal-bin` AUR package
+# Arch Linux publishing: a gated `ntilde-bin` AUR package
 
 Date: 2026-09-14
 Status: implemented; gated on real Arch locally and green in CI (run 34828132584)
@@ -12,9 +12,9 @@ that needs `fuse2` (Arch ships only FUSE 3, so a stock AppImage fails with a
 confusing mount error), or the portable tarball with no system integration. The
 `.deb` does not apply.
 
-This adds **`novaterminal-bin`**, an AUR package repackaging the published
-`linux-x64` tarball into the same layout the `.deb` installs: `/usr/lib/novaterminal`
-for the bundle, `/usr/bin/nova`, a `.desktop` entry, six hicolor icon sizes, and a
+This adds **`ntilde-bin`**, an AUR package repackaging the published
+`linux-x64` tarball into the same layout the `.deb` installs: `/usr/lib/ntilde`
+for the bundle, `/usr/bin/ntilde`, a `.desktop` entry, six hicolor icon sizes, and a
 man page. Three scripts under `packaging/arch/`, one CI job, no change to any
 existing lane.
 
@@ -38,12 +38,12 @@ X11/fontconfig libraries the app needs are invisible to `ldd`**, because Avaloni
 
 | Decision | Why |
 |---|---|
-| `-bin` only, no source-built `novaterminal` | Needs SDK 10.0.400 (pinned in `global.json`, not what Arch's `dotnet-sdk` tracks), the Rust natives, and a NuGet restore inside `build()` — makepkg builds are meant to be network-free after `source=()` |
+| `-bin` only, no source-built `ntilde` | Needs SDK 10.0.400 (pinned in `global.json`, not what Arch's `dotnet-sdk` tracks), the Rust natives, and a NuGet restore inside `build()` — makepkg builds are meant to be network-free after `source=()` |
 | Repackage the tarball, not the `.deb` | The `.deb` is a Debian container whose `Depends:` derivation is wrong for Arch (see below). The tarball is the artifact `README.md` already offers as the portable install |
 | `x86_64` only | The release publishes a `linux-arm64` tarball, but no arm64 build has been verified end to end. A package that fails on a declared architecture is worse than one that declares less |
-| Keep `/usr/bin/nova` | It collides with `python-novaclient`, but pacman surfaces that as a clear file conflict rather than a shadowed command, and renaming would diverge from the `.deb` |
+| Keep `/usr/bin/ntilde` | It collides with `python-ntildeclient`, but pacman surfaces that as a clear file conflict rather than a shadowed command, and renaming would diverge from the `.deb` |
 | No committed `PKGBUILD` | The two fields that change per release — version and tarball `sha256sum` — are exactly the two a human editing a checked-in file gets wrong |
-| No local source files in the AUR repo | Keeps `packaging/linux/nova.desktop` and `nova.1` the single source of truth for both Linux packages, and avoids re-committing a 662 KB icon per release |
+| No local source files in the AUR repo | Keeps `packaging/linux/ntilde.desktop` and `ntilde.1` the single source of truth for both Linux packages, and avoids re-committing a 662 KB icon per release |
 | Manual publish initially | The automation is worth wiring once the package shape has survived a real version bump; the procedure is three commands and is documented in `packaging/arch/README.md` |
 
 ## Dependency derivation — the core of the design
@@ -120,13 +120,13 @@ prerelease, which is exactly when nobody is watching.
 ## Sources, and `--source-ref`
 
 The PKGBUILD pulls five things: the release tarball from the releases endpoint, and
-`nova.desktop`, `nova.1`, `nova_icon.png` and `LICENSE` from `raw.githubusercontent`
+`ntilde.desktop`, `ntilde.1`, `ntilde_icon.png` and `LICENSE` from `raw.githubusercontent`
 at the tag — all five `sha256`-pinned. The AUR repo therefore contains `PKGBUILD` and
 `.SRCINFO` and nothing else.
 
 The generator computes those four sums from the repository. Doing that from the
 *working tree* is correct for a release built at its own tag and wrong everywhere
-else: a PR that edits `nova.desktop` would pin the branch's sum against the tag's
+else: a PR that edits `ntilde.desktop` would pin the branch's sum against the tag's
 URL, and the smoke test would fail an integrity check having nothing to do with the
 change under review — a false red on the one lane meant to catch real ones.
 `--source-ref <git-ref>` reads the blobs from that ref via `git show` instead. CI
@@ -138,12 +138,12 @@ Mirrors the `.deb` exactly, so the two Linux packages are not subtly different
 installs:
 
 ```
-/usr/lib/novaterminal/            the AOT bundle (binary 0755, everything else 0644)
-/usr/bin/nova                     symlink -> /usr/lib/novaterminal/NovaTerminal
-/usr/share/applications/novaterminal.desktop
-/usr/share/icons/hicolor/{16,32,48,64,128,256}x*/apps/novaterminal.png
-/usr/share/man/man1/nova.1.gz     installed uncompressed; makepkg's zipman gzips it
-/usr/share/licenses/novaterminal-bin/LICENSE
+/usr/lib/ntilde/            the AOT bundle (binary 0755, everything else 0644)
+/usr/bin/ntilde                     symlink -> /usr/lib/ntilde/Ntilde
+/usr/share/applications/ntilde.desktop
+/usr/share/icons/hicolor/{16,32,48,64,128,256}x*/apps/ntilde.png
+/usr/share/man/man1/ntilde.1.gz     installed uncompressed; makepkg's zipman gzips it
+/usr/share/licenses/ntilde-bin/LICENSE
 ```
 
 `options=('!strip' '!debug')`, with `package()` doing a selective
@@ -165,7 +165,7 @@ other, and a second arch-only detect job would have to restate that coupling and
 could then disagree with this one.
 
 The job tests **the newest published stable release**, not the linux dry run's
-`0.0.1-ci` build. The AUR package does not build NovaTerminal; it repackages a
+`0.0.1-ci` build. The AUR package does not build Ntilde; it repackages a
 published release, and that tarball is its input. The dry run produces a `.deb` and
 an AppImage but no tarball, and a PKGBUILD generated at `0.0.1-ci` would point at
 release URLs that do not exist — so using the dry-run artifact would mean faking the
@@ -188,15 +188,15 @@ to produce `.SRCINFO`, the file the AUR rejects a push without.
 2. **`archlinux:base`, pristine** — `pacman -U`, which fails outright on a wrong
    dependency name. Then: every bundled ELF `ldd`-clean, all 11 dlopen sonames
    resolving, installed `depends` covering all 15 derived packages, full layout
-   including all six icon sizes, and `nova --vt-report` headless. **Nothing may be
+   including all six icon sizes, and `ntilde --vt-report` headless. **Nothing may be
    installed here** except the package and what pacman pulls in for it — installing
    Xvfb or namcap first would satisfy the package's own missing dependencies and
    mask the exact bug this phase exists to catch. Phase B then adds validators and
    runs namcap.
 3. **`archlinux:base` + Xvfb** — launch, poll for a window with `WM_CLASS`
-   `NovaTerminal`, fail distinctly if the process exits before mapping one.
+   `Ntilde`, fail distinctly if the process exits before mapping one.
 
-`nova --vt-report` is load-bearing on Arch specifically: it forces .NET globalization
+`ntilde --vt-report` is load-bearing on Arch specifically: it forces .NET globalization
 to resolve ICU, so an ICU too far ahead of the floor fails there rather than on a
 user's machine.
 
@@ -212,7 +212,7 @@ v0.8.0 tarball on a live Arch system (icu 78.3, glibc 2.42, pacman 7.1.0):
 - **All 11 dlopen'd libraries resolved and were mapped at runtime**, `libsecret` and
   `glib2` included.
 - **Asset resolution follows the real binary path, not the symlink.** Launched through
-  a symlink standing in for `/usr/bin/nova`, all three bundled fonts opened from the
+  a symlink standing in for `/usr/bin/ntilde`, all three bundled fonts opened from the
   bundle directory, a window mapped, and a PTY shell spawned. This was the open risk
   in the layout and it is now measured rather than assumed.
 - **The full `smoke-test.sh` passes**, all three containers.
@@ -267,21 +267,21 @@ v0.8.0 tarball on a live Arch system (icu 78.3, glibc 2.42, pacman 7.1.0):
   `smoke-test.sh` now seeds any tarball sitting beside the PKGBUILD into the build
   directory. `makepkg` skips downloading a source already present while still
   validating its `sha256` — verified against a real `makepkg` with the release host
-  replaced by an unreachable one: `-> Found NovaTerminal-linux-x64-v0.8.0.tar.gz`,
+  replaced by an unreachable one: `-> Found ntilde-linux-x64-v0.8.0.tar.gz`,
   checksum passed. Seeding is not a weaker check: the PKGBUILD's own sum is still
   enforced, so a seeded file that does not match what the URL will serve fails there
   rather than passing quietly.
 
   The release lane still asserts the pair's content as well — that the pinned
   `sha256sums_x86_64` is the sum of the tarball being uploaded in that run, and that
-  the `.SRCINFO` is a novaterminal-bin one.
+  the `.SRCINFO` is a ntilde-bin one.
 
   Implementing the gate surfaced a second instance of the uid-mapping defect
   described under *Findings*: the generation step chowned the bind-mounted output
   directory to a container-local uid, leaving the runner able to read it but not
   write — which the seeding step must. The same class of bug, in a different place,
   found only because something finally needed to write there.
-- **A source-built `novaterminal`**, `x-terminal-emulator`-style registration
+- **A source-built `ntilde`**, `x-terminal-emulator`-style registration
   (tracked as #384), RPM, Flatpak and Snap (the rest of #385).
 
 ## Risks
@@ -299,9 +299,9 @@ v0.8.0 tarball on a live Arch system (icu 78.3, glibc 2.42, pacman 7.1.0):
 1. `makepkg` builds the generated PKGBUILD against the live release URLs. **Met.**
 2. The package installs on a pristine Arch system with its declared dependencies
    only. **Met.**
-3. NovaTerminal appears in the app menu with its icon (all six hicolor sizes
+3. Ntilde appears in the app menu with its icon (all six hicolor sizes
    present). **Met.**
-4. `nova` launches and maps a window; a shell runs inside it. **Met** (containerised
+4. `ntilde` launches and maps a window; a shell runs inside it. **Met** (containerised
    under Xvfb, and on real hardware).
 5. A dlopen'd dependency cannot be added on the Debian side without failing the Arch
    build until it is mapped. **Met**, asserted with a stub in `test-build-arch.sh`.
@@ -309,9 +309,9 @@ v0.8.0 tarball on a live Arch system (icu 78.3, glibc 2.42, pacman 7.1.0):
    34828132584 on commit `ab9946b`. All three smoke containers executed on the
    runner and every assertion fired, with counts identical to the local run: 5
    bundled ELFs `ldd`-clean, 11 dlopen sonames resolving, installed `depends`
-   covering all 15 derived packages, 6 hicolor icon sizes, `nova --vt-report`
+   covering all 15 derived packages, 6 hicolor icon sizes, `ntilde --vt-report`
    headless, namcap clean at error level, and a window mapped with `WM_CLASS`
-   `NovaTerminal` under Xvfb.
+   `Ntilde` under Xvfb.
 
    It took three runs to get there, and both intermediate failures are recorded
    below. Criterion 6 was marked unmet in the first two revisions of this document

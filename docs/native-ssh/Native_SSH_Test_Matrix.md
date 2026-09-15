@@ -6,13 +6,13 @@ Date: 2026-04-08
 
 Executed in this repo on the native SSH dynamic forwarding branch:
 
-- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false`
+- `dotnet test tests/Ntilde.Core.Tests/Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false`
   Result: PASS, 71/71
-- `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false`
+- `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false`
   Result: PASS, 76/76
-- `cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml --release`
+- `cargo test --manifest-path src/Ntilde.App/native/rusty_ssh/Cargo.toml --release`
   Result: PASS
-- `dotnet build src/NovaTerminal.App/NovaTerminal.App.csproj -c Release -p:SKIP_RUST_NATIVE_BUILD=1`
+- `dotnet build src/Ntilde.App/Ntilde.App.csproj -c Release -p:SKIP_RUST_NATIVE_BUILD=1`
   Result: PASS
 
 ## Coverage Summary
@@ -48,7 +48,7 @@ Verified by automated tests:
 ## Manual Matrix
 
 Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which sets
-`NOVATERM_ENABLE_DOCKER_E2E=1`. Everything else still needs a human against a real endpoint.
+`NTILDE_ENABLE_DOCKER_E2E=1`. Everything else still needs a human against a real endpoint.
 
 | Area | Scenario | Status | Notes |
 | --- | --- | --- | --- |
@@ -74,7 +74,7 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
 ## Rollout Notes
 
 - The Dockerized suite runs in CI as the `Native SSH Docker E2E` job (Linux, blocking).
-  Before that job existed the suite was `[DockerFact]`-gated on `NOVATERM_ENABLE_DOCKER_E2E`
+  Before that job existed the suite was `[DockerFact]`-gated on `NTILDE_ENABLE_DOCKER_E2E`
   and nothing in CI set it, so it was written and then never executed — the reason auth and
   forwarding rows above stayed "pending manual" while a Dockerized suite sat beside them.
 - Native SSH is enabled by default (`TerminalSettings.ExperimentalNativeSshEnabled`,

@@ -13,19 +13,19 @@
 ### Task 1: Create shared shortcut domain types and duplicate validation
 
 **Files:**
-- Create: `src/NovaTerminal.App/Core/Shortcuts/ShortcutScope.cs`
-- Create: `src/NovaTerminal.App/Core/Shortcuts/ShortcutDefinition.cs`
-- Create: `src/NovaTerminal.App/Core/Shortcuts/ShortcutBindingRecord.cs`
-- Create: `src/NovaTerminal.App/Core/Shortcuts/ShortcutNormalizer.cs`
-- Create: `src/NovaTerminal.App/Core/Shortcuts/ShortcutBindingResolver.cs`
-- Test: `tests/NovaTerminal.Tests/Core/ShortcutBindingResolverTests.cs`
+- Create: `src/Ntilde.App/Core/Shortcuts/ShortcutScope.cs`
+- Create: `src/Ntilde.App/Core/Shortcuts/ShortcutDefinition.cs`
+- Create: `src/Ntilde.App/Core/Shortcuts/ShortcutBindingRecord.cs`
+- Create: `src/Ntilde.App/Core/Shortcuts/ShortcutNormalizer.cs`
+- Create: `src/Ntilde.App/Core/Shortcuts/ShortcutBindingResolver.cs`
+- Test: `tests/Ntilde.Tests/Core/ShortcutBindingResolverTests.cs`
 
 **Step 1: Write the failing test**
 
 ```csharp
-using NovaTerminal.Core.Shortcuts;
+using Ntilde.Core.Shortcuts;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class ShortcutBindingResolverTests
 {
@@ -54,14 +54,14 @@ public sealed class ShortcutBindingResolverTests
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~ShortcutBindingResolverTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~ShortcutBindingResolverTests`
 
 Expected: FAIL because the shortcut domain classes and resolver do not exist yet.
 
 **Step 3: Write minimal implementation**
 
 ```csharp
-namespace NovaTerminal.Core.Shortcuts;
+namespace Ntilde.Core.Shortcuts;
 
 public enum ShortcutScope
 {
@@ -123,30 +123,30 @@ public static class ShortcutBindingResolver
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~ShortcutBindingResolverTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~ShortcutBindingResolverTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Core/Shortcuts tests/NovaTerminal.Tests/Core/ShortcutBindingResolverTests.cs
+git add src/Ntilde.App/Core/Shortcuts tests/Ntilde.Tests/Core/ShortcutBindingResolverTests.cs
 git commit -m "feat: add shared shortcut binding resolver"
 ```
 
 ### Task 2: Define the bindable command catalog for app, pane, and Command Assist actions
 
 **Files:**
-- Create: `src/NovaTerminal.App/Core/Shortcuts/ShortcutCatalog.cs`
-- Modify: `src/NovaTerminal.App/Core/CommandRegistry.cs:5-39`
-- Test: `tests/NovaTerminal.Tests/Core/ShortcutCatalogTests.cs`
+- Create: `src/Ntilde.App/Core/Shortcuts/ShortcutCatalog.cs`
+- Modify: `src/Ntilde.App/Core/CommandRegistry.cs:5-39`
+- Test: `tests/Ntilde.Tests/Core/ShortcutCatalogTests.cs`
 
 **Step 1: Write the failing test**
 
 ```csharp
-using NovaTerminal.Core.Shortcuts;
+using Ntilde.Core.Shortcuts;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class ShortcutCatalogTests
 {
@@ -164,14 +164,14 @@ public sealed class ShortcutCatalogTests
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~ShortcutCatalogTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~ShortcutCatalogTests`
 
 Expected: FAIL because the catalog does not exist and `CommandRegistry` does not carry stable ids.
 
 **Step 3: Write minimal implementation**
 
 ```csharp
-namespace NovaTerminal.Core.Shortcuts;
+namespace Ntilde.Core.Shortcuts;
 
 public static class ShortcutCatalog
 {
@@ -206,32 +206,32 @@ public class TerminalCommand
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~ShortcutCatalogTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~ShortcutCatalogTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Core/Shortcuts/ShortcutCatalog.cs src/NovaTerminal.App/Core/CommandRegistry.cs tests/NovaTerminal.Tests/Core/ShortcutCatalogTests.cs
+git add src/Ntilde.App/Core/Shortcuts/ShortcutCatalog.cs src/Ntilde.App/Core/CommandRegistry.cs tests/Ntilde.Tests/Core/ShortcutCatalogTests.cs
 git commit -m "feat: add bindable shortcut catalog"
 ```
 
 ### Task 3: Add persisted command palette usage storage
 
 **Files:**
-- Create: `src/NovaTerminal.App/Core/Shortcuts/CommandPaletteUsageEntry.cs`
-- Create: `src/NovaTerminal.App/Core/Shortcuts/CommandPaletteUsageStore.cs`
-- Modify: `src/NovaTerminal.App/Core/AppPaths.cs`
-- Modify: `src/NovaTerminal.App/Core/AppJsonContext.cs`
-- Test: `tests/NovaTerminal.Tests/Core/CommandPaletteUsageStoreTests.cs`
+- Create: `src/Ntilde.App/Core/Shortcuts/CommandPaletteUsageEntry.cs`
+- Create: `src/Ntilde.App/Core/Shortcuts/CommandPaletteUsageStore.cs`
+- Modify: `src/Ntilde.App/Core/AppPaths.cs`
+- Modify: `src/Ntilde.App/Core/AppJsonContext.cs`
+- Test: `tests/Ntilde.Tests/Core/CommandPaletteUsageStoreTests.cs`
 
 **Step 1: Write the failing test**
 
 ```csharp
-using NovaTerminal.Core.Shortcuts;
+using Ntilde.Core.Shortcuts;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class CommandPaletteUsageStoreTests
 {
@@ -255,7 +255,7 @@ public sealed class CommandPaletteUsageStoreTests
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~CommandPaletteUsageStoreTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~CommandPaletteUsageStoreTests`
 
 Expected: FAIL because no usage store or app path exists yet.
 
@@ -288,36 +288,36 @@ Also add JSON source-generation coverage for the usage entry dictionary in `AppJ
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~CommandPaletteUsageStoreTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~CommandPaletteUsageStoreTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Core/AppPaths.cs src/NovaTerminal.App/Core/AppJsonContext.cs src/NovaTerminal.App/Core/Shortcuts tests/NovaTerminal.Tests/Core/CommandPaletteUsageStoreTests.cs
+git add src/Ntilde.App/Core/AppPaths.cs src/Ntilde.App/Core/AppJsonContext.cs src/Ntilde.App/Core/Shortcuts tests/Ntilde.Tests/Core/CommandPaletteUsageStoreTests.cs
 git commit -m "feat: persist command palette usage"
 ```
 
 ### Task 4: Route runtime shortcut handling through the shared catalog and add Settings shortcut support
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs:200-280`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs:2171-2259`
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs:3972-4004`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs:1305-1363`
-- Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs:1808-1828`
-- Test: `tests/NovaTerminal.Tests/Core/MainWindowStartupTests.cs`
-- Create: `tests/NovaTerminal.Tests/Core/MainWindowShortcutRoutingTests.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs:200-280`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs:2171-2259`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs:3972-4004`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs:1305-1363`
+- Modify: `src/Ntilde.App/Controls/TerminalPane.axaml.cs:1808-1828`
+- Test: `tests/Ntilde.Tests/Core/MainWindowStartupTests.cs`
+- Create: `tests/Ntilde.Tests/Core/MainWindowShortcutRoutingTests.cs`
 
 **Step 1: Write the failing test**
 
 ```csharp
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
-using NovaTerminal.Core;
+using Ntilde.Core;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class MainWindowShortcutRoutingTests
 {
@@ -343,7 +343,7 @@ public sealed class MainWindowShortcutRoutingTests
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~MainWindowShortcutRoutingTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~MainWindowShortcutRoutingTests`
 
 Expected: FAIL because `Settings` has no default shortcut and routing still uses hardcoded fallback strings.
 
@@ -375,33 +375,33 @@ if (IsShortcut(e, "settings"))
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~MainWindowShortcutRoutingTests|FullyQualifiedName~MainWindowStartupTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~MainWindowShortcutRoutingTests|FullyQualifiedName~MainWindowStartupTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.Tests/Core/MainWindowStartupTests.cs tests/NovaTerminal.Tests/Core/MainWindowShortcutRoutingTests.cs
+git add src/Ntilde.App/MainWindow.axaml.cs src/Ntilde.App/Controls/TerminalPane.axaml.cs tests/Ntilde.Tests/Core/MainWindowStartupTests.cs tests/Ntilde.Tests/Core/MainWindowShortcutRoutingTests.cs
 git commit -m "feat: route shortcuts through shared catalog"
 ```
 
 ### Task 5: Rank command palette open-state results by persisted usage
 
 **Files:**
-- Modify: `src/NovaTerminal.App/MainWindow.axaml.cs:4292-4384`
-- Modify: `src/NovaTerminal.App/Core/CommandRegistry.cs:17-39`
-- Create: `src/NovaTerminal.App/Core/Shortcuts/CommandPaletteOrdering.cs`
-- Test: `tests/NovaTerminal.Tests/Core/CommandPaletteOrderingTests.cs`
-- Modify: `tests/NovaTerminal.Tests/Core/MainWindowStartupTests.cs`
+- Modify: `src/Ntilde.App/MainWindow.axaml.cs:4292-4384`
+- Modify: `src/Ntilde.App/Core/CommandRegistry.cs:17-39`
+- Create: `src/Ntilde.App/Core/Shortcuts/CommandPaletteOrdering.cs`
+- Test: `tests/Ntilde.Tests/Core/CommandPaletteOrderingTests.cs`
+- Modify: `tests/Ntilde.Tests/Core/MainWindowStartupTests.cs`
 
 **Step 1: Write the failing test**
 
 ```csharp
-using NovaTerminal.Core;
-using NovaTerminal.Core.Shortcuts;
+using Ntilde.Core;
+using Ntilde.Core.Shortcuts;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class CommandPaletteOrderingTests
 {
@@ -429,7 +429,7 @@ public sealed class CommandPaletteOrderingTests
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~CommandPaletteOrderingTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~CommandPaletteOrderingTests`
 
 Expected: FAIL because the ordering helper does not exist and palette open state still sorts alphabetically.
 
@@ -460,34 +460,34 @@ Update `ToggleCommandPalette` and search refresh logic so:
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~CommandPaletteOrderingTests|FullyQualifiedName~MainWindowStartupTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~CommandPaletteOrderingTests|FullyQualifiedName~MainWindowStartupTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/MainWindow.axaml.cs src/NovaTerminal.App/Core/CommandRegistry.cs src/NovaTerminal.App/Core/Shortcuts/CommandPaletteOrdering.cs tests/NovaTerminal.Tests/Core/CommandPaletteOrderingTests.cs tests/NovaTerminal.Tests/Core/MainWindowStartupTests.cs
+git add src/Ntilde.App/MainWindow.axaml.cs src/Ntilde.App/Core/CommandRegistry.cs src/Ntilde.App/Core/Shortcuts/CommandPaletteOrdering.cs tests/Ntilde.Tests/Core/CommandPaletteOrderingTests.cs tests/Ntilde.Tests/Core/MainWindowStartupTests.cs
 git commit -m "feat: rank command palette by persisted usage"
 ```
 
 ### Task 6: Add the Shortcuts tab to Settings with inline validation and save/reset behavior
 
 **Files:**
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml:283-324`
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml:584-759`
-- Modify: `src/NovaTerminal.App/SettingsWindow.axaml.cs:1113-1375`
-- Create: `src/NovaTerminal.App/Core/Shortcuts/ShortcutEditorRow.cs`
-- Create: `src/NovaTerminal.App/Core/Shortcuts/ShortcutSettingsState.cs`
-- Create: `tests/NovaTerminal.Tests/Core/SettingsWindowShortcutTests.cs`
+- Modify: `src/Ntilde.App/SettingsWindow.axaml:283-324`
+- Modify: `src/Ntilde.App/SettingsWindow.axaml:584-759`
+- Modify: `src/Ntilde.App/SettingsWindow.axaml.cs:1113-1375`
+- Create: `src/Ntilde.App/Core/Shortcuts/ShortcutEditorRow.cs`
+- Create: `src/Ntilde.App/Core/Shortcuts/ShortcutSettingsState.cs`
+- Create: `tests/Ntilde.Tests/Core/SettingsWindowShortcutTests.cs`
 
 **Step 1: Write the failing test**
 
 ```csharp
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Core;
+using Ntilde.Core;
 
-namespace NovaTerminal.Tests.Core;
+namespace Ntilde.Tests.Core;
 
 public sealed class SettingsWindowShortcutTests
 {
@@ -495,7 +495,7 @@ public sealed class SettingsWindowShortcutTests
     public void SaveAndClose_PersistsShortcutOverrides_WhenBindingsAreUnique()
     {
         using var tempRoot = new TempAppDataRoot();
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         window.ApplyShortcutOverrideForTest("settings", "Ctrl+Alt+S");
         window.InvokeSaveAndCloseForTest();
@@ -508,7 +508,7 @@ public sealed class SettingsWindowShortcutTests
     public void SaveAndClose_DoesNotPersistDuplicateShortcut()
     {
         using var tempRoot = new TempAppDataRoot();
-        var window = new NovaTerminal.SettingsWindow();
+        var window = new Ntilde.SettingsWindow();
 
         window.ApplyShortcutOverrideForTest("settings", "Ctrl+Shift+P");
         window.ApplyShortcutOverrideForTest("command_palette", "Ctrl+Shift+P");
@@ -520,7 +520,7 @@ public sealed class SettingsWindowShortcutTests
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~SettingsWindowShortcutTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~SettingsWindowShortcutTests`
 
 Expected: FAIL because the `Shortcuts` tab, editor state, and validation hooks do not exist.
 
@@ -559,14 +559,14 @@ public sealed class ShortcutSettingsState
 
 **Step 4: Run test to verify it passes**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter FullyQualifiedName~SettingsWindowShortcutTests`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter FullyQualifiedName~SettingsWindowShortcutTests`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/SettingsWindow.axaml src/NovaTerminal.App/SettingsWindow.axaml.cs src/NovaTerminal.App/Core/Shortcuts/ShortcutEditorRow.cs src/NovaTerminal.App/Core/Shortcuts/ShortcutSettingsState.cs tests/NovaTerminal.Tests/Core/SettingsWindowShortcutTests.cs
+git add src/Ntilde.App/SettingsWindow.axaml src/Ntilde.App/SettingsWindow.axaml.cs src/Ntilde.App/Core/Shortcuts/ShortcutEditorRow.cs src/Ntilde.App/Core/Shortcuts/ShortcutSettingsState.cs tests/Ntilde.Tests/Core/SettingsWindowShortcutTests.cs
 git commit -m "feat: add shortcut management to settings"
 ```
 
@@ -590,7 +590,7 @@ Document expected behaviors to verify manually:
 
 **Step 2: Run focused automated verification**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~ShortcutBindingResolverTests|FullyQualifiedName~ShortcutCatalogTests|FullyQualifiedName~CommandPaletteUsageStoreTests|FullyQualifiedName~MainWindowShortcutRoutingTests|FullyQualifiedName~CommandPaletteOrderingTests|FullyQualifiedName~SettingsWindowShortcutTests|FullyQualifiedName~MainWindowStartupTests"`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~ShortcutBindingResolverTests|FullyQualifiedName~ShortcutCatalogTests|FullyQualifiedName~CommandPaletteUsageStoreTests|FullyQualifiedName~MainWindowShortcutRoutingTests|FullyQualifiedName~CommandPaletteOrderingTests|FullyQualifiedName~SettingsWindowShortcutTests|FullyQualifiedName~MainWindowStartupTests"`
 
 Expected: PASS
 
@@ -604,7 +604,7 @@ Add short user-facing notes for:
 
 **Step 4: Re-run the focused automated verification**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~ShortcutBindingResolverTests|FullyQualifiedName~ShortcutCatalogTests|FullyQualifiedName~CommandPaletteUsageStoreTests|FullyQualifiedName~MainWindowShortcutRoutingTests|FullyQualifiedName~CommandPaletteOrderingTests|FullyQualifiedName~SettingsWindowShortcutTests|FullyQualifiedName~MainWindowStartupTests"`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~ShortcutBindingResolverTests|FullyQualifiedName~ShortcutCatalogTests|FullyQualifiedName~CommandPaletteUsageStoreTests|FullyQualifiedName~MainWindowShortcutRoutingTests|FullyQualifiedName~CommandPaletteOrderingTests|FullyQualifiedName~SettingsWindowShortcutTests|FullyQualifiedName~MainWindowStartupTests"`
 
 Expected: PASS
 

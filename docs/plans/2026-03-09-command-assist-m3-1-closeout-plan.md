@@ -13,8 +13,8 @@
 ### Task 1: Add failing prompt-preservation tests
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs`
-- Modify: `src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs`
+- Modify: `src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs`
 
 **Step 1: Write the failing test**
 
@@ -39,7 +39,7 @@ public void BuildScript_WrapsExistingPromptImplementation()
     string script = PowerShellBootstrapBuilder.BuildScript();
 
     Assert.Contains("Get-Command prompt", script);
-    Assert.Contains("& $script:NovaOriginalPrompt", script);
+    Assert.Contains("& $script:NtildeOriginalPrompt", script);
 }
 ```
 
@@ -48,17 +48,17 @@ public void BuildScript_WrapsExistingPromptImplementation()
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShellBootstrapBuilderTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShellBootstrapBuilderTests"
 ```
 
 Expected: FAIL because the current script still hardcodes the prompt body.
 
 **Step 3: Write minimal implementation**
 
-Update `src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs` so the generated script:
+Update `src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs` so the generated script:
 - captures the original `prompt` command or scriptblock
 - wraps it in a new `prompt` function
-- emits Nova markers before calling the original prompt
+- emits Ntilde markers before calling the original prompt
 - returns the original prompt output
 
 **Step 4: Run test to verify it passes**
@@ -66,7 +66,7 @@ Update `src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell/PowerShel
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShellBootstrapBuilderTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShellBootstrapBuilderTests"
 ```
 
 Expected: PASS.
@@ -74,15 +74,15 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs
+git add tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs
 git commit -m "Harden PowerShell prompt preservation for Command Assist"
 ```
 
 ### Task 2: Add failing trustworthy-completion tests
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -118,7 +118,7 @@ public async Task HandleShellIntegrationEventAsync_WhenFinishedWithoutAcceptedCo
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~HandleShellIntegrationEventAsync_WhenFinishedWithoutAcceptedCommand_DoesNotPatchHistory"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~HandleShellIntegrationEventAsync_WhenFinishedWithoutAcceptedCommand_DoesNotPatchHistory"
 ```
 
 Expected: FAIL if the current lifecycle still permits synthetic completion handling.
@@ -132,7 +132,7 @@ Update the PowerShell bootstrap and any related controller assumptions so finish
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~ShellLifecycleTrackerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~ShellLifecycleTrackerTests"
 ```
 
 Expected: PASS.
@@ -140,15 +140,15 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs
+git add tests/Ntilde.Tests/CommandAssist/ShellIntegration/ShellLifecycleTrackerTests.cs tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs
 git commit -m "Require accepted commands before completion markers"
 ```
 
 ### Task 3: Add failing multiline shell-integration tests
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/OscShellIntegrationTests.cs`
-- Modify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- Modify: `tests/Ntilde.Tests/OscShellIntegrationTests.cs`
+- Modify: `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -178,7 +178,7 @@ public void Osc133C_WithMultilineBase64Command_RaisesCommandAccepted()
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~Osc133C_WithMultilineBase64Command_RaisesCommandAccepted"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~Osc133C_WithMultilineBase64Command_RaisesCommandAccepted"
 ```
 
 Expected: FAIL if multiline structured handling is not yet explicitly covered or preserved end-to-end.
@@ -192,7 +192,7 @@ If needed, adjust controller persistence or parser handling so multiline accepte
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~CommandAssistControllerTests"
 ```
 
 Expected: PASS.
@@ -200,15 +200,15 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/OscShellIntegrationTests.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs src/NovaTerminal.App/CommandAssist/Application/CommandAssistController.cs
+git add tests/Ntilde.Tests/OscShellIntegrationTests.cs tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs src/Ntilde.App/CommandAssist/Application/CommandAssistController.cs
 git commit -m "Add multiline shell integration coverage"
 ```
 
 ### Task 4: Implement the PowerShell bootstrap hardening
 
 **Files:**
-- Modify: `src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs`
-- Test: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs`
+- Modify: `src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs`
+- Test: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs`
 
 **Step 1: Review the current bootstrap script generation**
 
@@ -230,7 +230,7 @@ Change the generated script to:
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShellBootstrapBuilderTests|FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShellBootstrapBuilderTests|FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~CommandAssistControllerTests"
 ```
 
 Expected: PASS.
@@ -240,7 +240,7 @@ Expected: PASS.
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShell|FullyQualifiedName~ReflowRegressionTests|FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~CommandAssistControllerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShell|FullyQualifiedName~ReflowRegressionTests|FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~CommandAssistControllerTests"
 ```
 
 Expected: PASS with no PowerShell prompt/cursor regressions.
@@ -248,7 +248,7 @@ Expected: PASS with no PowerShell prompt/cursor regressions.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs tests/NovaTerminal.Tests/OscShellIntegrationTests.cs tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs
+git add src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs tests/Ntilde.Tests/OscShellIntegrationTests.cs tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs
 git commit -m "Close PowerShell shell integration lifecycle gaps"
 ```
 
@@ -289,10 +289,10 @@ git commit -m "Document Command Assist PowerShell integration"
 ### Task 6: Final verification
 
 **Files:**
-- Verify: `src/NovaTerminal.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs`
-- Verify: `tests/NovaTerminal.Tests/OscShellIntegrationTests.cs`
-- Verify: `tests/NovaTerminal.Tests/CommandAssist/CommandAssistControllerTests.cs`
-- Verify: `tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs`
+- Verify: `src/Ntilde.App/CommandAssist/ShellIntegration/PowerShell/PowerShellBootstrapBuilder.cs`
+- Verify: `tests/Ntilde.Tests/OscShellIntegrationTests.cs`
+- Verify: `tests/Ntilde.Tests/CommandAssist/CommandAssistControllerTests.cs`
+- Verify: `tests/Ntilde.Tests/CommandAssist/ShellIntegration/PowerShellBootstrapBuilderTests.cs`
 - Verify: `docs/command-assist/CommandAssist_PowerShell_Integration.md`
 - Verify: `docs/command-assist/CommandAssist_ShellIntegration_Gaps.md`
 
@@ -301,7 +301,7 @@ git commit -m "Document Command Assist PowerShell integration"
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~PowerShellBootstrapBuilderTests|FullyQualifiedName~ShellLifecycleTrackerTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~OscShellIntegrationTests|FullyQualifiedName~CommandAssistControllerTests|FullyQualifiedName~PowerShellBootstrapBuilderTests|FullyQualifiedName~ShellLifecycleTrackerTests"
 ```
 
 Expected: PASS.
@@ -311,7 +311,7 @@ Expected: PASS.
 Run:
 
 ```powershell
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShell|FullyQualifiedName~ReflowRegressionTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~PowerShell|FullyQualifiedName~ReflowRegressionTests"
 ```
 
 Expected: PASS.

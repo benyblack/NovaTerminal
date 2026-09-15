@@ -13,10 +13,10 @@
 ### Task 1: Add failing tests for the profile preference flag
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/Ssh/NewSshConnectionViewModelTests.cs`
-- Modify: `tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs`
-- Modify: `src/NovaTerminal.App/ViewModels/Ssh/NewSshConnectionViewModel.cs`
-- Modify: `src/NovaTerminal.Core/Ssh/Models/SshProfile.cs`
+- Modify: `tests/Ntilde.Tests/Ssh/NewSshConnectionViewModelTests.cs`
+- Modify: `tests/Ntilde.Tests/Ssh/SshConnectionServiceTests.cs`
+- Modify: `src/Ntilde.App/ViewModels/Ssh/NewSshConnectionViewModel.cs`
+- Modify: `src/Ntilde.Core/Ssh/Models/SshProfile.cs`
 
 **Step 1: Write the failing test**
 
@@ -26,7 +26,7 @@ Add tests that assert:
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~NewSshConnectionViewModelTests|FullyQualifiedName~SshConnectionServiceTests"`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~NewSshConnectionViewModelTests|FullyQualifiedName~SshConnectionServiceTests"`
 
 Expected: FAIL because the preference does not exist yet.
 
@@ -46,17 +46,17 @@ Run the same command and confirm the new tests pass.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/Ssh/NewSshConnectionViewModelTests.cs tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs src/NovaTerminal.App/ViewModels/Ssh/NewSshConnectionViewModel.cs src/NovaTerminal.Core/Ssh/Models/SshProfile.cs src/NovaTerminal.App/Services/Ssh/SshConnectionService.cs
+git add tests/Ntilde.Tests/Ssh/NewSshConnectionViewModelTests.cs tests/Ntilde.Tests/Ssh/SshConnectionServiceTests.cs src/Ntilde.App/ViewModels/Ssh/NewSshConnectionViewModel.cs src/Ntilde.Core/Ssh/Models/SshProfile.cs src/Ntilde.App/Services/Ssh/SshConnectionService.cs
 git commit -m "Add native SSH remember-password profile flag"
 ```
 
 ### Task 2: Add the native-only editor UI
 
 **Files:**
-- Modify: `src/NovaTerminal.App/Views/Ssh/NewSshConnectionView.axaml`
-- Modify: `src/NovaTerminal.App/Views/Ssh/NewSshConnectionView.axaml.cs`
-- Modify: `src/NovaTerminal.App/ViewModels/Ssh/NewSshConnectionViewModel.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/NewSshConnectionViewModelTests.cs`
+- Modify: `src/Ntilde.App/Views/Ssh/NewSshConnectionView.axaml`
+- Modify: `src/Ntilde.App/Views/Ssh/NewSshConnectionView.axaml.cs`
+- Modify: `src/Ntilde.App/ViewModels/Ssh/NewSshConnectionViewModel.cs`
+- Test: `tests/Ntilde.Tests/Ssh/NewSshConnectionViewModelTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -66,7 +66,7 @@ Add tests that assert:
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~NewSshConnectionViewModelTests"`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~NewSshConnectionViewModelTests"`
 
 Expected: FAIL because the backend gating does not exist yet.
 
@@ -86,17 +86,17 @@ Run the same test command and confirm the new behavior passes.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Views/Ssh/NewSshConnectionView.axaml src/NovaTerminal.App/Views/Ssh/NewSshConnectionView.axaml.cs src/NovaTerminal.App/ViewModels/Ssh/NewSshConnectionViewModel.cs tests/NovaTerminal.Tests/Ssh/NewSshConnectionViewModelTests.cs
+git add src/Ntilde.App/Views/Ssh/NewSshConnectionView.axaml src/Ntilde.App/Views/Ssh/NewSshConnectionView.axaml.cs src/Ntilde.App/ViewModels/Ssh/NewSshConnectionViewModel.cs tests/Ntilde.Tests/Ssh/NewSshConnectionViewModelTests.cs
 git commit -m "Add native SSH remember-password editor option"
 ```
 
 ### Task 3: Add failing tests for vault preference handling
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/Core/VaultServiceSshKeyTests.cs`
-- Modify: `tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs`
-- Modify: `src/NovaTerminal.App/Core/VaultService.cs`
-- Modify: `src/NovaTerminal.App/Services/Ssh/SshConnectionService.cs`
+- Modify: `tests/Ntilde.Tests/Core/VaultServiceSshKeyTests.cs`
+- Modify: `tests/Ntilde.Tests/Ssh/SshConnectionServiceTests.cs`
+- Modify: `src/Ntilde.App/Core/VaultService.cs`
+- Modify: `src/Ntilde.App/Services/Ssh/SshConnectionService.cs`
 
 **Step 1: Write the failing test**
 
@@ -106,7 +106,7 @@ Add tests that assert:
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~VaultServiceSshKeyTests|FullyQualifiedName~SshConnectionServiceTests"`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~VaultServiceSshKeyTests|FullyQualifiedName~SshConnectionServiceTests"`
 
 Expected: FAIL because save/remove behavior is not wired yet.
 
@@ -125,16 +125,16 @@ Run the same test command and confirm the vault behavior passes.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/Core/VaultServiceSshKeyTests.cs tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs src/NovaTerminal.App/Core/VaultService.cs src/NovaTerminal.App/Services/Ssh/SshConnectionService.cs
+git add tests/Ntilde.Tests/Core/VaultServiceSshKeyTests.cs tests/Ntilde.Tests/Ssh/SshConnectionServiceTests.cs src/Ntilde.App/Core/VaultService.cs src/Ntilde.App/Services/Ssh/SshConnectionService.cs
 git commit -m "Wire native SSH password preference to vault cleanup"
 ```
 
 ### Task 4: Add failing tests for runtime password reuse
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/Ssh/SshInteractionServiceTests.cs`
-- Modify: `src/NovaTerminal.App/Services/Ssh/SshInteractionService.cs`
-- Modify: `src/NovaTerminal.App/Core/VaultService.cs`
+- Modify: `tests/Ntilde.Tests/Ssh/SshInteractionServiceTests.cs`
+- Modify: `src/Ntilde.App/Services/Ssh/SshInteractionService.cs`
+- Modify: `src/Ntilde.App/Core/VaultService.cs`
 
 **Step 1: Write the failing test**
 
@@ -144,7 +144,7 @@ Add tests that assert:
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~SshInteractionServiceTests"`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~SshInteractionServiceTests"`
 
 Expected: FAIL because the interaction service does not resolve stored secrets yet.
 
@@ -164,18 +164,18 @@ Run the same test command and confirm the new tests pass.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/Ssh/SshInteractionServiceTests.cs src/NovaTerminal.App/Services/Ssh/SshInteractionService.cs src/NovaTerminal.App/Core/VaultService.cs
+git add tests/Ntilde.Tests/Ssh/SshInteractionServiceTests.cs src/Ntilde.App/Services/Ssh/SshInteractionService.cs src/Ntilde.App/Core/VaultService.cs
 git commit -m "Auto-use saved password for native SSH prompts"
 ```
 
 ### Task 5: Add failing tests for prompt-side save behavior
 
 **Files:**
-- Modify: `tests/NovaTerminal.Tests/Ssh/SshInteractionServiceTests.cs`
-- Modify: `src/NovaTerminal.App/ViewModels/Ssh/AuthPromptViewModel.cs`
-- Modify: `src/NovaTerminal.App/Views/Ssh/AuthPromptDialog.axaml`
-- Modify: `src/NovaTerminal.App/Views/Ssh/AuthPromptDialog.axaml.cs`
-- Modify: `src/NovaTerminal.App/Services/Ssh/SshInteractionService.cs`
+- Modify: `tests/Ntilde.Tests/Ssh/SshInteractionServiceTests.cs`
+- Modify: `src/Ntilde.App/ViewModels/Ssh/AuthPromptViewModel.cs`
+- Modify: `src/Ntilde.App/Views/Ssh/AuthPromptDialog.axaml`
+- Modify: `src/Ntilde.App/Views/Ssh/AuthPromptDialog.axaml.cs`
+- Modify: `src/Ntilde.App/Services/Ssh/SshInteractionService.cs`
 
 **Step 1: Write the failing test**
 
@@ -186,7 +186,7 @@ Add tests that assert:
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~SshInteractionServiceTests"`
+Run: `dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~SshInteractionServiceTests"`
 
 Expected: FAIL because the auth prompt view model does not support remember state yet.
 
@@ -208,25 +208,25 @@ Run the same test command and confirm the new tests pass.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/Ssh/SshInteractionServiceTests.cs src/NovaTerminal.App/ViewModels/Ssh/AuthPromptViewModel.cs src/NovaTerminal.App/Views/Ssh/AuthPromptDialog.axaml src/NovaTerminal.App/Views/Ssh/AuthPromptDialog.axaml.cs src/NovaTerminal.App/Services/Ssh/SshInteractionService.cs
+git add tests/Ntilde.Tests/Ssh/SshInteractionServiceTests.cs src/Ntilde.App/ViewModels/Ssh/AuthPromptViewModel.cs src/Ntilde.App/Views/Ssh/AuthPromptDialog.axaml src/Ntilde.App/Views/Ssh/AuthPromptDialog.axaml.cs src/Ntilde.App/Services/Ssh/SshInteractionService.cs
 git commit -m "Add remember-password option to native SSH prompt"
 ```
 
 ### Task 6: Verify end-to-end native-only behavior
 
 **Files:**
-- Test: `tests/NovaTerminal.Tests/Ssh/NewSshConnectionViewModelTests.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs`
-- Test: `tests/NovaTerminal.Tests/Ssh/SshInteractionServiceTests.cs`
-- Test: `tests/NovaTerminal.Tests/Core/VaultServiceSshKeyTests.cs`
-- Build: `src/NovaTerminal.App/NovaTerminal.App.csproj`
+- Test: `tests/Ntilde.Tests/Ssh/NewSshConnectionViewModelTests.cs`
+- Test: `tests/Ntilde.Tests/Ssh/SshConnectionServiceTests.cs`
+- Test: `tests/Ntilde.Tests/Ssh/SshInteractionServiceTests.cs`
+- Test: `tests/Ntilde.Tests/Core/VaultServiceSshKeyTests.cs`
+- Build: `src/Ntilde.App/Ntilde.App.csproj`
 
 **Step 1: Run the targeted automated tests**
 
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~NewSshConnectionViewModelTests|FullyQualifiedName~SshConnectionServiceTests|FullyQualifiedName~SshInteractionServiceTests|FullyQualifiedName~VaultServiceSshKeyTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~NewSshConnectionViewModelTests|FullyQualifiedName~SshConnectionServiceTests|FullyQualifiedName~SshInteractionServiceTests|FullyQualifiedName~VaultServiceSshKeyTests"
 ```
 
 Expected: PASS
@@ -236,7 +236,7 @@ Expected: PASS
 Run:
 
 ```bash
-dotnet msbuild src/NovaTerminal.App/NovaTerminal.App.csproj /t:Compile /p:Configuration=Release /p:SKIP_RUST_NATIVE_BUILD=1
+dotnet msbuild src/Ntilde.App/Ntilde.App.csproj /t:Compile /p:Configuration=Release /p:SKIP_RUST_NATIVE_BUILD=1
 ```
 
 Expected: PASS

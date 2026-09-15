@@ -5,7 +5,7 @@
 
 ## Problem
 
-NovaTerminal's title bar has no Settings affordance. Settings is reachable only by
+Ntilde's title bar has no Settings affordance. Settings is reachable only by
 `Ctrl+,`, the command palette, and a "Manage Profiles…" item buried in the New Tab
 flyout. A gear icon is the conventional, discoverable answer — but the bar already
 carries four buttons and adding icons one at a time is how title bars get crowded.
@@ -230,7 +230,7 @@ section alone is not discoverable.
 
 ## Testing
 
-In `NovaTerminal.App.Tests`. All pure logic — no Avalonia, no Skia, so it is safe on
+In `Ntilde.App.Tests`. All pure logic — no Avalonia, no Skia, so it is safe on
 the Linux gating leg.
 
 `TitleBarLayoutModelTests`:
@@ -258,20 +258,20 @@ the Linux gating leg.
 
 **New**
 
-- `src/NovaTerminal.App/Shell/TitleBarCatalog.cs`
-- `src/NovaTerminal.App/Shell/TitleBarLayoutModel.cs`
-- `tests/NovaTerminal.App.Tests/TitleBarLayoutModelTests.cs`
-- `tests/NovaTerminal.App.Tests/TitleBarCatalogTests.cs`
+- `src/Ntilde.App/Shell/TitleBarCatalog.cs`
+- `src/Ntilde.App/Shell/TitleBarLayoutModel.cs`
+- `tests/Ntilde.App.Tests/TitleBarLayoutModelTests.cs`
+- `tests/Ntilde.App.Tests/TitleBarCatalogTests.cs`
 
 **Modified**
 
-- `src/NovaTerminal.App/Shell/TerminalSettings.cs` — two properties
-- `src/NovaTerminal.App/Shell/AppJsonContext.cs` — `List<string>`
-- `src/NovaTerminal.App/MainWindow.axaml` — title bar host, context menu
-- `src/NovaTerminal.App/MainWindow.axaml.cs` — `RebuildTitleBar`, handler map,
+- `src/Ntilde.App/Shell/TerminalSettings.cs` — two properties
+- `src/Ntilde.App/Shell/AppJsonContext.cs` — `List<string>`
+- `src/Ntilde.App/MainWindow.axaml` — title bar host, context menu
+- `src/Ntilde.App/MainWindow.axaml.cs` — `RebuildTitleBar`, handler map,
   context menu wiring, rebuild on save and on toggle change
-- `src/NovaTerminal.App/SettingsWindow.axaml` — `TITLE BAR` section
-- `src/NovaTerminal.App/SettingsWindow.axaml.cs` — populate and persist
+- `src/Ntilde.App/SettingsWindow.axaml` — `TITLE BAR` section
+- `src/Ntilde.App/SettingsWindow.axaml.cs` — populate and persist
 
 No new test project, so `ci.yml`'s artifact path list and unit-test loop need no
 changes.

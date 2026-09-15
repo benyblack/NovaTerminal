@@ -1,4 +1,4 @@
-# NovaTerminal vNext — Test Pipeline (Golden + CI Strategy)
+# Ntilde vNext — Test Pipeline (Golden + CI Strategy)
 
 This document defines the **deterministic test pipeline** for vNext features:
 - replay seek + timeline
@@ -28,7 +28,7 @@ Baselines must be keyed by:
 ## 1. Test Asset Types
 
 ### A) Recordings
-- `.novarec` (event stream)
+- `.ntilderec` (event stream)
 - `.idx` (optional committed; or rebuilt in CI)
 
 ### B) Canonical snapshots
@@ -51,7 +51,7 @@ tests/VTTests/Baselines/
     bundled-jetbrainsmono/
       dpi-100/
         case-001/
-          input.novarec
+          input.ntilderec
           expected.snapshot.json
           expected.snapshot.png (optional)
   mac/
@@ -96,7 +96,7 @@ Optional nightly matrix:
 
 ### 5.1 Seek determinism
 For each recording baseline:
-1. Load `.novarec`
+1. Load `.ntilderec`
 2. Build or load `.idx`
 3. Seek to each marker timestamp
 4. Generate `snapshot.json`
@@ -164,12 +164,12 @@ Compute compatibility score:
 ## 8. Performance Regression Guard Pipeline
 
 ### Baseline capture
-`novaterm perf record <workload>`
+`ntilde perf record <workload>`
 - outputs `perf.jsonl`
 - outputs `perf-summary.json`
 
 ### Compare
-`novaterm perf compare baseline candidate`
+`ntilde perf compare baseline candidate`
 - compute per-metric deltas
 - apply tolerances:
   - default ±5%
@@ -196,11 +196,11 @@ Compute compatibility score:
 ## 10. “Golden Baseline Generation” Command
 
 Add a dedicated CLI command:
-- `novaterm testgen baseline --case <id> --os <os> --fontProfileId <id> --dpiProfileId <id>`
+- `ntilde testgen baseline --case <id> --os <os> --fontProfileId <id> --dpiProfileId <id>`
 
 It should:
 1. run the case
-2. produce `.novarec`
+2. produce `.ntilderec`
 3. produce `expected.snapshot.json`
 4. optionally produce png
 5. update `baseline.manifest.json`

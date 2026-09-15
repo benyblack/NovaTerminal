@@ -6,7 +6,7 @@
 # Runs on macOS only (sips + iconutil ship with the OS). The PNG stays the single
 # source of truth for the app icon on every platform; this script derives the
 # Apple-specific format at packaging time instead of committing a binary to the
-# repo. nova_icon.png is 1024x1024, so every iconset size is a high-quality
+# repo. ntilde_icon.png is 1024x1024, so every iconset size is a high-quality
 # downscale.
 set -euo pipefail
 

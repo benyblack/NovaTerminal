@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make remote path entry materially easier in NovaTerminal without turning the app into a remote file browser. The first user-facing integration point is the transfer dialog, but the implementation should be reusable for future remote-path inputs.
+Make remote path entry materially easier in Ntilde without turning the app into a remote file browser. The first user-facing integration point is the transfer dialog, but the implementation should be reusable for future remote-path inputs.
 
 ## Scope
 
@@ -31,7 +31,7 @@ This design does not add:
 
 ## Product Direction
 
-NovaTerminal remains terminal-first. Remote path autocomplete should feel closer to shell completion than to a file manager.
+Ntilde remains terminal-first. Remote path autocomplete should feel closer to shell completion than to a file manager.
 
 That means:
 
@@ -55,7 +55,7 @@ The presence of an active session is a product and UX gate. The actual suggestio
 
 ### Rejected: reuse the terminal session stream
 
-Running completion commands through the visible terminal session would pollute terminal output, interfere with shell state, and create prompt-parsing edge cases. That is not acceptable in NovaTerminal.
+Running completion commands through the visible terminal session would pollute terminal output, interfere with shell state, and create prompt-parsing edge cases. That is not acceptable in Ntilde.
 
 ### Rejected: full remote browser
 

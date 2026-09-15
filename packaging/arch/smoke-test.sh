@@ -61,7 +61,7 @@ cp "$aur_dir/PKGBUILD" "$work/"
 # than ignored. makepkg skips downloading a source that is already present and
 # still validates its sha256 against the PKGBUILD - verified directly, with the
 # release host replaced by an unreachable one: makepkg printed
-# "-> Found NovaTerminal-linux-x64-v0.8.0.tar.gz" and passed the checksum.
+# "-> Found ntilde-linux-x64-v0.8.0.tar.gz" and passed the checksum.
 #
 # This is what lets the RELEASE lane gate this package at all. Its PKGBUILD points
 # at a release URL that 404s until the upload step later in the same job, so
@@ -145,7 +145,7 @@ docker run --rm -v "$work:/art:ro" \
   # false gate, and precisely the trap packaging/linux/smoke-test.sh documents for
   # the ubuntu:22.04 excludes file at /etc/dpkg/dpkg.cfg.d/excludes. Not
   # hypothetical: the first run of this script failed on exactly that, against a
-  # package whose own bsdtar listing showed usr/share/man/man1/nova.1.gz present.
+  # package whose own bsdtar listing showed usr/share/man/man1/ntilde.1.gz present.
   # Removing them makes the container faithful to the machine being tested for.
   # Do not "clean this up" - it is load-bearing, not a leftover.
   sed -i "/^[[:space:]]*NoExtract/d" /etc/pacman.conf
@@ -153,7 +153,7 @@ docker run --rm -v "$work:/art:ro" \
   pacman -U --noconfirm /art/*.pkg.tar.zst      # fails if a depends name is wrong
   echo "  ok: package installed with its declared depends only"
 
-  # Every ELF under the bundle, not just NovaTerminal - the only place an undeclared
+  # Every ELF under the bundle, not just Ntilde - the only place an undeclared
   # LINKED dependency can be caught honestly, because container 2 installs Xvfb
   # before launching anything and would provide those libraries regardless.
   #
@@ -174,14 +174,14 @@ docker run --rm -v "$work:/art:ro" \
   while IFS= read -r f; do
     [ "$(head -c4 "$f" | od -An -tx1 | tr -d " \n")" = "7f454c46" ] || continue
     elf_count=$((elf_count + 1))
-    [ "$f" = "/usr/lib/novaterminal/NovaTerminal" ] && main_checked=1
+    [ "$f" = "/usr/lib/ntilde/Ntilde" ] && main_checked=1
     ldd_out="$(ldd "$f")" || { echo "  FAIL: ldd failed on $f" >&2; exit 1; }
     if grep "not found" <<<"$ldd_out"; then
       echo "  FAIL: unresolved linked libraries in $f above" >&2; exit 1
     fi
-  done < <(find /usr/lib/novaterminal -type f)
+  done < <(find /usr/lib/ntilde -type f)
 
-  so_total="$(find /usr/lib/novaterminal -type f -name "*.so" | wc -l)"
+  so_total="$(find /usr/lib/ntilde -type f -name "*.so" | wc -l)"
   expected=$((so_total + 1))
   [ "$main_checked" = 1 ] \
     || { echo "  FAIL: ELF discovery never reached the main binary - the check did not run" >&2; exit 1; }
@@ -212,7 +212,7 @@ docker run --rm -v "$work:/art:ro" \
   # why - a soname could resolve because some other dependency dragged it in
   # transitively. Together: a library cannot be gated without being depended on, nor
   # depended on without being gated.
-  installed_depends="$(pacman -Qi novaterminal-bin | sed -n "s/^Depends On *: *//p" | tr -s " ")"
+  installed_depends="$(pacman -Qi ntilde-bin | sed -n "s/^Depends On *: *//p" | tr -s " ")"
   [ -n "$installed_depends" ] \
     || { echo "  FAIL: pacman -Qi returned no Depends On - the coverage check would prove nothing" >&2; exit 1; }
   dep_checked=0
@@ -230,17 +230,17 @@ docker run --rm -v "$work:/art:ro" \
     || { echo "  FAIL: checked $dep_checked depend(s) but build-arch.sh declares ${DEPENDS_COUNT:-0}" >&2; exit 1; }
   echo "  ok: installed depends covers all $dep_checked derived package(s)"
 
-  # Layout. The icon assertion is the acceptance criterion "NovaTerminal appears in
+  # Layout. The icon assertion is the acceptance criterion "Ntilde appears in
   # the app menu with its icon" - an iconless package is not degraded, it is broken,
   # so this counts the buckets rather than checking that some icon exists.
-  test -x /usr/lib/novaterminal/NovaTerminal || { echo "  FAIL: bundle binary not executable" >&2; exit 1; }
-  test -L /usr/bin/nova                      || { echo "  FAIL: /usr/bin/nova is not a symlink" >&2; exit 1; }
-  test -f /usr/share/man/man1/nova.1.gz      || { echo "  FAIL: man page not installed (or not gzipped by zipman)" >&2; exit 1; }
-  test -f /usr/share/licenses/novaterminal-bin/LICENSE || { echo "  FAIL: licence not installed" >&2; exit 1; }
-  test -f /usr/share/applications/novaterminal.desktop || { echo "  FAIL: desktop entry not installed" >&2; exit 1; }
+  test -x /usr/lib/ntilde/Ntilde || { echo "  FAIL: bundle binary not executable" >&2; exit 1; }
+  test -L /usr/bin/ntilde                      || { echo "  FAIL: /usr/bin/ntilde is not a symlink" >&2; exit 1; }
+  test -f /usr/share/man/man1/ntilde.1.gz      || { echo "  FAIL: man page not installed (or not gzipped by zipman)" >&2; exit 1; }
+  test -f /usr/share/licenses/ntilde-bin/LICENSE || { echo "  FAIL: licence not installed" >&2; exit 1; }
+  test -f /usr/share/applications/ntilde.desktop || { echo "  FAIL: desktop entry not installed" >&2; exit 1; }
   icon_count=0
   for s in 16 32 48 64 128 256; do
-    test -f "/usr/share/icons/hicolor/${s}x${s}/apps/novaterminal.png" || {
+    test -f "/usr/share/icons/hicolor/${s}x${s}/apps/ntilde.png" || {
       echo "  FAIL: missing ${s}x${s} icon" >&2; exit 1; }
     icon_count=$((icon_count + 1))
   done
@@ -251,20 +251,20 @@ docker run --rm -v "$work:/art:ro" \
   # and - the reason it matters most on Arch - forces .NET globalization to resolve
   # ICU. A libicu too far ahead of the floor fails HERE, loudly, rather than on a
   # users machine.
-  nova --vt-report > /tmp/vt-report.txt
+  ntilde --vt-report > /tmp/vt-report.txt
   test -s /tmp/vt-report.txt || { echo "  FAIL: --vt-report produced no output" >&2; exit 1; }
-  grep -q "NovaTerminal VT Report" /tmp/vt-report.txt \
+  grep -q "Ntilde VT Report" /tmp/vt-report.txt \
     || { echo "  FAIL: --vt-report output is not a VT report" >&2; exit 1; }
-  echo "  ok: nova --vt-report ran headless (ICU resolved)"
+  echo "  ok: ntilde --vt-report ran headless (ICU resolved)"
 
   # ---------------------------------------------------------------------------
   # PHASE B - validators. Tooling may be installed now: every assertion above has
   # already passed, so later installs cannot invalidate them.
   # ---------------------------------------------------------------------------
   pacman -S --noconfirm --needed desktop-file-utils man-db namcap >/dev/null
-  desktop-file-validate /usr/share/applications/novaterminal.desktop
+  desktop-file-validate /usr/share/applications/ntilde.desktop
   echo "  ok: desktop entry validates"
-  man nova > /dev/null
+  man ntilde > /dev/null
   echo "  ok: man page renders"
   # namcap, split by severity - and the split is the whole point.
   #
@@ -307,7 +307,7 @@ docker run --rm -v "$work:/art:ro" "$test_image" bash -euo pipefail -c '
   # false gate, and precisely the trap packaging/linux/smoke-test.sh documents for
   # the ubuntu:22.04 excludes file at /etc/dpkg/dpkg.cfg.d/excludes. Not
   # hypothetical: the first run of this script failed on exactly that, against a
-  # package whose own bsdtar listing showed usr/share/man/man1/nova.1.gz present.
+  # package whose own bsdtar listing showed usr/share/man/man1/ntilde.1.gz present.
   # Removing them makes the container faithful to the machine being tested for.
   # Do not "clean this up" - it is load-bearing, not a leftover.
   sed -i "/^[[:space:]]*NoExtract/d" /etc/pacman.conf
@@ -320,22 +320,22 @@ docker run --rm -v "$work:/art:ro" "$test_image" bash -euo pipefail -c '
   for i in $(seq 1 30); do xdpyinfo >/dev/null 2>&1 && break; sleep 1; done
   xdpyinfo >/dev/null || { echo "  FAIL: Xvfb never came up" >&2; cat /tmp/xvfb.log >&2; exit 1; }
 
-  nova >/tmp/nova.log 2>&1 &
-  nova_pid=$!
+  ntilde >/tmp/ntilde.log 2>&1 &
+  ntilde_pid=$!
   # Poll rather than sleep-and-hope: a fixed sleep either flakes on a slow runner or
   # wastes time on a fast one, and a crash inside the window would still be reported
   # as "no window" instead of as the crash it is.
   mapped=0
   for i in $(seq 1 45); do
-    if ! kill -0 "$nova_pid" 2>/dev/null; then
-      echo "  FAIL: nova exited before mapping a window" >&2; cat /tmp/nova.log >&2; exit 1
+    if ! kill -0 "$ntilde_pid" 2>/dev/null; then
+      echo "  FAIL: ntilde exited before mapping a window" >&2; cat /tmp/ntilde.log >&2; exit 1
     fi
-    if xdotool search --class NovaTerminal 2>/dev/null | grep -q .; then mapped=1; break; fi
+    if xdotool search --class Ntilde 2>/dev/null | grep -q .; then mapped=1; break; fi
     sleep 1
   done
-  [ "$mapped" = 1 ] || { echo "  FAIL: no NovaTerminal window after 45s" >&2; cat /tmp/nova.log >&2; exit 1; }
-  echo "  ok: window mapped with WM_CLASS NovaTerminal"
-  kill "$nova_pid" 2>/dev/null || true
+  [ "$mapped" = 1 ] || { echo "  FAIL: no Ntilde window after 45s" >&2; cat /tmp/ntilde.log >&2; exit 1; }
+  echo "  ok: window mapped with WM_CLASS Ntilde"
+  kill "$ntilde_pid" 2>/dev/null || true
 '
 
 echo

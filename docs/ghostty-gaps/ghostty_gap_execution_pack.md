@@ -171,7 +171,7 @@ Expose correctness as a product feature.
 
 ### Optional
 - CLI:
-  novaterminal --vt-report
+  ntilde --vt-report
 
 ### Done Criteria
 - Machine-readable compatibility report

@@ -1,19 +1,19 @@
 {
-  "//": "VS Code MCP config (.vscode/mcp.json) for the NovaTerminal MCP Dev Companion.",
+  "//": "VS Code MCP config (.vscode/mcp.json) for the Ntilde MCP Dev Companion.",
   "//build": "Build and mirror first: scripts/run-sidecar.ps1 (it prints the exact path below).",
-  "//why-sidecar": "Point at the sidecar copy, NOT ${workspaceFolder}/src/NovaTerminal.McpServer/bin/. The server is long-lived, so from the repo tree it holds NovaTerminal.AgentHost.Contracts.dll open and every full repo build fails with MSB3027 on the McpServer copy step. See issue #211.",
-  "//paths": "${env:LOCALAPPDATA} is substituted by VS Code itself, not by a shell, so it is safe here — unlike the Claude Desktop example, which needs a literal absolute path. Non-Windows: ${userHome}/.local/share/NovaTerminal-sidecar/McpServer/Debug/net10.0/NovaTerminal.McpServer.dll",
+  "//why-sidecar": "Point at the sidecar copy, NOT ${workspaceFolder}/src/Ntilde.McpServer/bin/. The server is long-lived, so from the repo tree it holds Ntilde.AgentHost.Contracts.dll open and every full repo build fails with MSB3027 on the McpServer copy step. See issue #211.",
+  "//paths": "${env:LOCALAPPDATA} is substituted by VS Code itself, not by a shell, so it is safe here — unlike the Claude Desktop example, which needs a literal absolute path. Non-Windows: ${userHome}/.local/share/ntilde-sidecar/McpServer/Debug/net10.0/Ntilde.McpServer.dll",
   "//config": "Swap Debug for Release if you launch the sidecar with -Configuration Release.",
   "//why-not-dotnet-run": "Use the built DLL, not 'dotnet run' — run emits build/restore output to stdout, which corrupts the MCP JSON-RPC stream.",
   "servers": {
-    "novaterminal-dev": {
+    "ntilde-dev": {
       "type": "stdio",
       "command": "dotnet",
       "args": [
-        "${env:LOCALAPPDATA}\\NovaTerminal-sidecar\\McpServer\\Debug\\net10.0\\NovaTerminal.McpServer.dll"
+        "${env:LOCALAPPDATA}\\ntilde-sidecar\\McpServer\\Debug\\net10.0\\Ntilde.McpServer.dll"
       ],
       "env": {
-        "NOVATERMINAL_REPO_ROOT": "${workspaceFolder}"
+        "NTILDE_REPO_ROOT": "${workspaceFolder}"
       }
     }
   }

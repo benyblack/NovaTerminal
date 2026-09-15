@@ -21,7 +21,7 @@
           <!-- Generated and obsolete members are not meaningful coverage targets. -->
           <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
           <!-- Test assemblies measure the product, not themselves. -->
-          <Exclude>[*.Tests]*,[NovaTerminal.Benchmarks]*</Exclude>
+          <Exclude>[*.Tests]*,[Ntilde.Benchmarks]*</Exclude>
           <SingleHit>false</SingleHit>
           <UseSourceLink>true</UseSourceLink>
         </Configuration>

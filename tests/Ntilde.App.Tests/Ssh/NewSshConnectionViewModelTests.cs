@@ -1,0 +1,554 @@
+using Ntilde.Shell;
+using Ntilde.Platform;
+using Ntilde.VT;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.ViewModels.Ssh;
+
+namespace Ntilde.Tests.Ssh;
+
+public sealed class NewSshConnectionViewModelTests
+{
+    [Fact]
+    public void Validate_RequiresHostName()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "Prod",
+            HostName = "   "
+        };
+
+        bool valid = vm.Validate();
+
+        Assert.False(valid);
+        Assert.Equal("Host name is required.", vm.ValidationError);
+    }
+
+    [Fact]
+    public void ToSshProfile_UsesDeterministicNormalization()
+    {
+        var id = Guid.Parse("f413b5c1-2fef-43ba-b8f3-534b6fd201da");
+        var vm = new NewSshConnectionViewModel
+        {
+            ProfileId = id,
+            Name = "  Production  ",
+            HostName = "  host.internal  ",
+            UserName = "  devops  ",
+            Port = 2222,
+            AuthMode = NewSshAuthMode.IdentityFile,
+            IdentityFilePath = "  C:\\keys\\prod_key  "
+        };
+
+        SshProfile first = vm.ToSshProfile();
+        SshProfile second = vm.ToSshProfile();
+
+        Assert.Equal(first.Id, second.Id);
+        Assert.Equal(first.Name, second.Name);
+        Assert.Equal(first.Host, second.Host);
+        Assert.Equal(first.User, second.User);
+        Assert.Equal(first.Port, second.Port);
+        Assert.Equal(first.AuthMode, second.AuthMode);
+        Assert.Equal(first.IdentityFilePath, second.IdentityFilePath);
+
+        Assert.Equal(id, first.Id);
+        Assert.Equal("Production", first.Name);
+        Assert.Equal("host.internal", first.Host);
+        Assert.Equal("devops", first.User);
+        Assert.Equal(2222, first.Port);
+        Assert.Equal(SshAuthMode.IdentityFile, first.AuthMode);
+        Assert.Equal("C:\\keys\\prod_key", first.IdentityFilePath);
+    }
+
+    [Fact]
+    public void Validate_IdentityFileMissingOnDisk_EmitsWarningButStaysValid()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "Prod",
+            HostName = "host.internal",
+            AuthMode = NewSshAuthMode.IdentityFile,
+            IdentityFilePath = Path.Combine(Path.GetTempPath(), $"missing_key_{Guid.NewGuid():N}")
+        };
+
+        bool valid = vm.Validate();
+
+        Assert.True(valid);
+        Assert.Equal(string.Empty, vm.ValidationError);
+        Assert.Contains("does not exist", vm.ValidationWarning, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ToSshProfile_IncludesAdvancedEditorFields()
+    {
+        var id = Guid.Parse("f8097442-2e68-47e4-9f51-42f345f4f0a7");
+        var vm = new NewSshConnectionViewModel
+        {
+            ProfileId = id,
+            Name = "Advanced",
+            HostName = "advanced.internal",
+            UserName = "ops",
+            Port = 2200,
+            KeepAliveIntervalSeconds = 20,
+            KeepAliveCountMax = 6,
+            EnableMux = true,
+            ControlPersistSeconds = 120,
+            ExtraSshArgs = " -o StrictHostKeyChecking=no "
+        };
+
+        vm.JumpHops.Add(new SshJumpHop { Host = "jump-1.internal", Port = 22 });
+        vm.Forwards.Add(new PortForward
+        {
+            Kind = PortForwardKind.Local,
+            BindAddress = "127.0.0.1",
+            SourcePort = 15432,
+            DestinationHost = "db.internal",
+            DestinationPort = 5432
+        });
+
+        SshProfile profile = vm.ToSshProfile();
+
+        Assert.Equal(20, profile.ServerAliveIntervalSeconds);
+        Assert.Equal(6, profile.ServerAliveCountMax);
+        Assert.True(profile.MuxOptions.Enabled);
+        Assert.Equal(120, profile.MuxOptions.ControlPersistSeconds);
+        Assert.Equal("-o StrictHostKeyChecking=no", profile.ExtraSshArgs);
+        Assert.Single(profile.JumpHops);
+        Assert.Single(profile.Forwards);
+    }
+
+    [Fact]
+    public void ToSshProfile_NormalizesGroupAndTagsAlongsideFavorite()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "Prod",
+            HostName = "prod.internal",
+            Group = "  Prod / API  ",
+            TagsText = " zebra, api, favorite, Api, critical ",
+            IsFavorite = true
+        };
+
+        SshProfile profile = vm.ToSshProfile();
+
+        Assert.Equal("Prod / API", profile.GroupPath);
+        Assert.Equal(new[] { "favorite", "api", "critical", "zebra" }, profile.Tags);
+    }
+
+    [Fact]
+    public void ToSshProfile_PreservesZeroControlPersistWhenMuxEnabled()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "ZeroPersist",
+            HostName = "zero.internal",
+            EnableMux = true,
+            ControlPersistSeconds = 0
+        };
+
+        SshProfile profile = vm.ToSshProfile();
+
+        Assert.True(profile.MuxOptions.Enabled);
+        Assert.Equal(0, profile.MuxOptions.ControlPersistSeconds);
+    }
+
+    [Fact]
+    public void ApplySshProfile_PreservesZeroControlPersistValue()
+    {
+        var vm = new NewSshConnectionViewModel();
+        var profile = new SshProfile
+        {
+            Name = "ZeroPersist",
+            Host = "zero.internal",
+            MuxOptions = new SshMuxOptions
+            {
+                Enabled = true,
+                ControlPersistSeconds = 0
+            }
+        };
+
+        vm.ApplySshProfile(profile);
+
+        Assert.Equal(0, vm.ControlPersistSeconds);
+    }
+
+    [Fact]
+    public void ApplySshProfile_RoundTripsBackendKind()
+    {
+        var vm = new NewSshConnectionViewModel();
+        var profile = new SshProfile
+        {
+            Name = "Native",
+            Host = "native.internal"
+        };
+
+        var backendProperty = typeof(SshProfile).GetProperty("BackendKind");
+        Assert.NotNull(backendProperty);
+        backendProperty!.SetValue(profile, Enum.Parse(backendProperty.PropertyType, "Native"));
+
+        var viewModelBackendProperty = typeof(NewSshConnectionViewModel).GetProperty("BackendKind");
+        Assert.NotNull(viewModelBackendProperty);
+
+        vm.ApplySshProfile(profile);
+
+        Assert.Equal("Native", viewModelBackendProperty!.GetValue(vm)?.ToString());
+
+        SshProfile roundTripped = vm.ToSshProfile();
+        Assert.Equal("Native", backendProperty.GetValue(roundTripped)?.ToString());
+    }
+
+    [Fact]
+    public void ApplySshProfile_DoesNotExposeRememberPasswordPreferenceFromStoredProfiles()
+    {
+        var vm = new NewSshConnectionViewModel();
+        var profile = new SshProfile
+        {
+            Name = "Native",
+            Host = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            RememberPasswordInVault = true
+        };
+
+        vm.ApplySshProfile(profile);
+
+        Assert.False(vm.RememberPasswordInVault);
+    }
+
+    [Fact]
+    public void ToSshProfile_DoesNotPersistRememberPasswordPreferenceForNativeProfiles()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "Native",
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            RememberPasswordInVault = true
+        };
+
+        SshProfile profile = vm.ToSshProfile();
+
+        Assert.False(profile.RememberPasswordInVault);
+    }
+
+    [Fact]
+    public void RemoteShellKind_RoundTripsBetweenViewModelAndSshProfile()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "Bash Host",
+            HostName = "bash.internal",
+            RemoteShellKind = RemoteShellKind.Bash
+        };
+
+        SshProfile profile = vm.ToSshProfile();
+        Assert.Equal(RemoteShellKind.Bash, profile.RemoteShellKind);
+
+        var roundTripped = new NewSshConnectionViewModel();
+        roundTripped.ApplySshProfile(profile);
+
+        Assert.Equal(RemoteShellKind.Bash, roundTripped.RemoteShellKind);
+    }
+
+    [Fact]
+    public void ApplySshProfile_ExposesEditableGroupAndNonFavoriteTags()
+    {
+        var vm = new NewSshConnectionViewModel();
+        var profile = new SshProfile
+        {
+            Name = "Prod",
+            Host = "prod.internal",
+            GroupPath = "Prod/API",
+            Tags = new List<string> { "favorite", "api", "critical" }
+        };
+
+        vm.ApplySshProfile(profile);
+
+        Assert.Equal("Prod/API", vm.Group);
+        Assert.Equal("api, critical", vm.TagsText);
+        Assert.True(vm.IsFavorite);
+    }
+
+    [Fact]
+    public void BackendWarning_WhenNativeSelectedAndExperimentalToggleDisabled_IsVisible()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            ExperimentalNativeSshEnabled = false,
+            BackendKind = SshBackendKind.Native
+        };
+
+        Assert.Contains("disabled globally", vm.BackendWarning, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BackendWarning_WhenNativeSelectedAndExperimentalToggleEnabled_IsCleared()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            ExperimentalNativeSshEnabled = true,
+            BackendKind = SshBackendKind.Native
+        };
+
+        Assert.Equal(string.Empty, vm.BackendWarning);
+    }
+
+    [Fact]
+    public void Validate_ForNativeProfileWithRemoteForward_Succeeds()
+    {
+        // This shape used to be refused at save time as the capability gate's last unsupported
+        // one. Remote forwards are served natively now, so it must save cleanly with no warning.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            UserName = "nova",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true
+        };
+        vm.Forwards.Add(new PortForward
+        {
+            Kind = PortForwardKind.Remote,
+            SourcePort = 8080,
+            DestinationHost = "svc.internal",
+            DestinationPort = 80
+        });
+
+        Assert.True(vm.Validate());
+        Assert.Equal(string.Empty, vm.ValidationError);
+        Assert.Equal(string.Empty, vm.BackendWarning);
+    }
+
+    [Fact]
+    public void Validate_ForNativeProfileWithJumpHopChain_Succeeds()
+    {
+        // This shape used to be refused at save time ("Multiple jump hops are not supported").
+        // The native backend serves chains now, so the same editor state must save cleanly and
+        // show no backend warning.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "target.internal",
+            UserName = "nova",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true
+        };
+        vm.JumpHops.Add(new SshJumpHop { Host = "jump-one.internal" });
+        vm.JumpHops.Add(new SshJumpHop { Host = "jump-two.internal" });
+
+        Assert.True(vm.Validate());
+        Assert.Equal(string.Empty, vm.ValidationError);
+        Assert.Equal(string.Empty, vm.BackendWarning);
+    }
+
+    [Fact]
+    public void Validate_ForNativeProfileWithSupportedForwards_Succeeds()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            UserName = "nova",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true
+        };
+        vm.Forwards.Add(new PortForward { Kind = PortForwardKind.Local, SourcePort = 15000, DestinationHost = "svc", DestinationPort = 80 });
+        vm.Forwards.Add(new PortForward { Kind = PortForwardKind.Dynamic, SourcePort = 15001 });
+        vm.JumpHops.Add(new SshJumpHop { Host = "jump.internal" });
+
+        Assert.True(vm.Validate());
+        Assert.Equal(string.Empty, vm.ValidationError);
+    }
+
+    [Fact]
+    public void Validate_ForOpenSshProfileWithRemoteForward_Succeeds()
+    {
+        // The capability gate is native-only: remote forwards are a first-class OpenSSH feature.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "openssh.internal",
+            UserName = "nova",
+            BackendKind = SshBackendKind.OpenSsh
+        };
+        vm.Forwards.Add(new PortForward
+        {
+            Kind = PortForwardKind.Remote,
+            SourcePort = 8080,
+            DestinationHost = "svc.internal",
+            DestinationPort = 80
+        });
+
+        Assert.True(vm.Validate());
+        Assert.Equal(string.Empty, vm.ValidationError);
+    }
+
+    [Fact]
+    public void BackendWarning_WithEveryShapeSupported_ReportsOnlyTheGlobalToggle()
+    {
+        // With no unsupported shapes left, the only thing the warning can legitimately say about a
+        // native profile — however it is shaped — is that the global toggle is off.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = false
+        };
+        vm.Forwards.Add(new PortForward
+        {
+            Kind = PortForwardKind.Remote,
+            SourcePort = 8080,
+            DestinationHost = "svc.internal",
+            DestinationPort = 80
+        });
+
+        Assert.Contains("disabled globally", vm.BackendWarning, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ToSshProfile_WithNoBackendPrimed_FollowsTheGlobalToggle()
+    {
+        // The default backend for a new profile tracks the native toggle: Native where native is
+        // enabled, OpenSSH where it is not — a default must never point at a backend that would
+        // refuse to connect. (The dialog primes BackendKind the same way before showing; this
+        // fallback is for any caller that skips the priming.)
+        var enabled = new NewSshConnectionViewModel
+        {
+            HostName = "flip.internal",
+            ExperimentalNativeSshEnabled = true
+        };
+        var disabled = new NewSshConnectionViewModel
+        {
+            HostName = "flip.internal",
+            ExperimentalNativeSshEnabled = false
+        };
+
+        Assert.Equal(SshBackendKind.Native, enabled.ToSshProfile().BackendKind);
+        Assert.Equal(SshBackendKind.OpenSsh, disabled.ToSshProfile().BackendKind);
+    }
+
+    [Fact]
+    public void ToSshProfile_KeepsAnExplicitBackendChoiceOverTheDefault()
+    {
+        // Only the unset case is defaulted. A profile explicitly on OpenSSH stays there no matter
+        // what the toggle says — existing profiles are never re-defaulted.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "explicit.internal",
+            ExperimentalNativeSshEnabled = true,
+            BackendKind = SshBackendKind.OpenSsh
+        };
+
+        Assert.Equal(SshBackendKind.OpenSsh, vm.ToSshProfile().BackendKind);
+    }
+
+    [Fact]
+    public void BackendWarning_ForNativeProfileWithMux_NamesTheIgnoredSetting()
+    {
+        // Mux (ControlMaster) drives the OpenSSH client; the native backend has no equivalent.
+        // A warning, not a refusal: the setting stays stored so switching back to OpenSSH
+        // restores it — but the user must know it will not apply.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true,
+            EnableMux = true
+        };
+
+        Assert.Contains("Multiplexing", vm.BackendWarning, StringComparison.Ordinal);
+        Assert.Contains("ignores", vm.BackendWarning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BackendWarning_ForNativeProfileWithExtraArgs_NamesTheIgnoredSetting()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true,
+            ExtraSshArgs = "-o Compression=yes"
+        };
+
+        Assert.Contains("Extra SSH arguments", vm.BackendWarning, StringComparison.Ordinal);
+        Assert.Contains("ignores", vm.BackendWarning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BackendWarning_ComposesTheGlobalToggleAndIgnoredSettings()
+    {
+        // Both facts matter at once — the blocking one (toggle) first, the ignored settings
+        // still named rather than swallowed by it.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = false,
+            EnableMux = true,
+            ExtraSshArgs = "-vv"
+        };
+
+        Assert.Contains("disabled globally", vm.BackendWarning, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ignores both", vm.BackendWarning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BackendWarning_ForOpenSshProfileWithMuxAndExtraArgs_IsEmpty()
+    {
+        // The settings apply on OpenSSH; there is nothing to warn about.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "host.internal",
+            BackendKind = SshBackendKind.OpenSsh,
+            EnableMux = true,
+            ExtraSshArgs = "-4"
+        };
+
+        Assert.Equal(string.Empty, vm.BackendWarning);
+    }
+
+    [Fact]
+    public void BackendWarning_IsRaisedWhenMuxOrExtraArgsChange()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true
+        };
+
+        var raised = new List<string>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        vm.EnableMux = true;
+        vm.ExtraSshArgs = "-o Compression=yes";
+
+        Assert.True(
+            raised.Count(name => name == nameof(NewSshConnectionViewModel.BackendWarning)) >= 2,
+            "Toggling mux and editing extra args must each re-evaluate the warning immediately, not at save.");
+    }
+
+    [Fact]
+    public void BackendWarning_IsRaisedWhenForwardsChange()
+    {
+        // The collection hook must keep re-evaluating the warning even while every shape is
+        // supported: it is what lets a future unsupported shape surface as the user edits,
+        // rather than only at save.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true
+        };
+
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, args) => raised.Add(args.PropertyName);
+
+        vm.Forwards.Add(new PortForward
+        {
+            Kind = PortForwardKind.Remote,
+            SourcePort = 8080,
+            DestinationHost = "svc.internal",
+            DestinationPort = 80
+        });
+
+        Assert.Contains(nameof(NewSshConnectionViewModel.BackendWarning), raised);
+        Assert.Equal(string.Empty, vm.BackendWarning);
+    }
+}

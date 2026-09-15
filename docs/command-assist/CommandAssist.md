@@ -1,4 +1,4 @@
-# NovaTerminal Command Assist UI
+# Ntilde Command Assist UI
 
 ## Goal
 
@@ -18,7 +18,7 @@ This should feel modern, fast, and terminal-native rather than intrusive.
 ## 1. Product position
 
 ### Core idea
-NovaTerminal remains a serious terminal emulator.
+Ntilde remains a serious terminal emulator.
 
 The new feature is a separate UI layer called **Command Assist** that attaches to a terminal pane and activates only when relevant.
 
@@ -153,7 +153,7 @@ Settings → Terminal, under "Command assistant":
 | `CommandAssistEnabled` | `false` | The master flag. Everything. |
 | `CommandAssistPassiveBubbleEnabled` | `true` | Whether the passive bubble may draw on history. Off = passive scope is paths only. |
 | `CommandAssistHistoryEnabled` | `true` | Command capture **and** history-sourced suggestions — nothing else. Paths, Help and Fix work with it off. |
-| `CommandAssistShellIntegrationEnabled` | `true` | Whether Nova instruments local shells it starts. |
+| `CommandAssistShellIntegrationEnabled` | `true` | Whether Ntilde instruments local shells it starts. |
 
 The group also carries **Clear history**, which is the first caller `IHistoryStore.ClearAsync` has ever
 had. It arms on the first click ("Confirm clear") and clears on the second, and it goes through the one
@@ -182,7 +182,7 @@ overwrite live entries with their pre-patch selves and drop every exit code and 
 since. Anyone who wants those commands back has the `.bak`; anyone who wants them gone has Clear
 history.
 
-If you ran a Nova build from before PR #286 (V2 Phase 1c, 2026-08-02), assume anything you typed at a
+If you ran a Ntilde build from before PR #286 (V2 Phase 1c, 2026-08-02), assume anything you typed at a
 hidden prompt in a `cmd.exe` or un-instrumented SSH pane may be in your history, and clear it. Builds
 from #286 onward cannot capture it: see the echo gate below.
 
@@ -218,7 +218,7 @@ Shows:
 The rest of this section is the original spec. This part describes what is in the build, and where
 it differs the build wins.
 
-**Where the content comes from.** `CommandKnowledgeService` (in `NovaTerminal.CommandAssist`)
+**Where the content comes from.** `CommandKnowledgeService` (in `Ntilde.CommandAssist`)
 replaced `LocalCommandDocsProvider` and `SeedRecipeProvider`, which between them knew seven
 commands — `git`, `docker`, `ls`, `cd`, `grep`, `Get-ChildItem`, `Set-Location` — and answered
 "No local help found" for everything else (#250). It serves two sources, in order:
@@ -279,7 +279,7 @@ Activated when a command exits non-zero, on the `OSC 133;D` edge. Nothing is sho
 
 **What it reads.** At `OSC 133;C` the pane records where the command's *output region* starts — the
 row after the last row of the input line — as an eviction-stable `ShellIntegrationMark`. At `133;D`,
-and only for a non-zero exit, `CommandOutputReader` (in `NovaTerminal.VT`) walks backwards from the
+and only for a non-zero exit, `CommandOutputReader` (in `Ntilde.VT`) walks backwards from the
 cursor and returns the last **40 logical lines / 8 KB** of that region, joined with `\n`. Soft-wrapped
 physical rows are joined *without* a separator, because they are one logical line: a recogniser
 matching `is not recognized as a name of a cmdlet` must not depend on how wide the pane is.
@@ -297,7 +297,7 @@ that drove the alt screen and left it before `D` resolves against the restored m
 are real, they are just not that program's output, and no recogniser matches them.
 
 **Redaction.** `ISecretsFilter` runs at the single capture site in `TerminalPane`, on the parse
-thread, *after* the cap. Nothing unredacted crosses into `NovaTerminal.CommandAssist`, which is where
+thread, *after* the cap. Nothing unredacted crosses into `Ntilde.CommandAssist`, which is where
 Phase 5's provider seam will eventually sit.
 
 **What it says.** `HeuristicErrorInsightService` runs a table of recognisers
@@ -582,7 +582,7 @@ Keep this out of renderer/VT core.
 ### AI content-provider seam (shipped, V2 Phase 5)
 
 `IAiAssistProvider` above shipped as `IAssistContentProvider`, in
-`src/NovaTerminal.CommandAssist/Providers/`. **The seam exists; no AI provider does.** There is no
+`src/Ntilde.CommandAssist/Providers/`. **The seam exists; no AI provider does.** There is no
 network code, no API client, no credential handling and no model selection anywhere in this
 assembly, and three architecture tests fail the build if any of that arrives.
 
@@ -788,9 +788,9 @@ This feature must feel immediate.
 
 ### Shipped: the regression tripwire (V2 Phase 3b)
 
-`tests/NovaTerminal.App.Tests/Performance/CommandAssistPerformanceTests.cs`, run by CI with the rest of
+`tests/Ntilde.App.Tests/Performance/CommandAssistPerformanceTests.cs`, run by CI with the rest of
 the suite. It is named honestly: a tripwire, not a benchmark. The repo's real BenchmarkDotNet project
-(`tests/NovaTerminal.Benchmarks`) is not run by CI, and what this phase needed was something that fails
+(`tests/Ntilde.Benchmarks`) is not run by CI, and what this phase needed was something that fails
 loudly when a change makes the assist an order of magnitude slower.
 
 Four measurements, with the thresholds set well above the targets above:
@@ -1065,22 +1065,22 @@ This is where the dedicated UI becomes strategically stronger than simple inline
 
 ## 18. Recommended first implementation choice
 
-If I were sequencing this for NovaTerminal, I would do:
+If I were sequencing this for Ntilde, I would do:
 
 **M1 + M2 first, PowerShell-first shell integration in M3**
 
 Reason:
 - high user value quickly
 - manageable complexity
-- NovaTerminal gets a visible modern UX win
+- Ntilde gets a visible modern UX win
 - no need to contaminate VT/rendering core
 
 ---
 
 ## 19. Final recommendation
 
-The best version of this for NovaTerminal is:
+The best version of this for Ntilde is:
 
 **a bottom docked command assist bar, backed by history/snippets/context ranking, with a command palette for search and an optional side panel for help/AI.**
 
-That gives you the Warp-like UX direction while still keeping NovaTerminal serious, modular, and monetizable.
+That gives you the Warp-like UX direction while still keeping Ntilde serious, modular, and monetizable.

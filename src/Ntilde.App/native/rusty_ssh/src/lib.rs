@@ -1,0 +1,6302 @@
+use libc::{c_char, c_int, c_void};
+use russh::client::{self, AuthResult, KeyboardInteractiveAuthResponse};
+use russh::keys::agent::AgentIdentity;
+use russh::keys::agent::client::{AgentClient, AgentStream};
+use russh::keys::{PrivateKeyWithHashAlg, load_secret_key, ssh_key};
+use russh::{ChannelMsg, Disconnect, Signer};
+use russh_sftp::client::SftpSession;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
+use std::ffi::{CStr, CString, OsStr, OsString};
+use std::future::Future;
+use std::io::Cursor;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::{Component, Path, PathBuf};
+use std::ptr;
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc as std_mpsc};
+use std::thread;
+use std::time::Duration;
+use tokio::fs::File as TokioFile;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::runtime::Builder;
+use tokio::sync::mpsc;
+use zeroize::Zeroizing;
+
+const COPY_BUFFER_SIZE: usize = 64 * 1024;
+const CANCELLATION_CHECK_INTERVAL_BYTES: u64 = 1024 * 1024;
+const SHELL_DETECTION_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Ceiling on the cheap SSH-agent protocol operations (connect, identity listing). An agent
+/// socket that accepts but never answers — a wedged agent, or one that died without closing —
+/// must read as "no agent" so authentication reaches its fallbacks, not hang a session (or a
+/// non-interactive transfer) in front of them forever. Generous for a local IPC round trip.
+const AGENT_PROTOCOL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Ceiling on one agent signing request. Much longer than [`AGENT_PROTOCOL_TIMEOUT`] on
+/// purpose: a signature can legitimately wait on a human — a hardware token's touch, a
+/// confirmation dialog — and cutting that short would break exactly the setups agents exist
+/// for. Still bounded, so a wedged agent cannot park authentication forever.
+const AGENT_SIGN_TIMEOUT: Duration = Duration::from_secs(60);
+const SHELL_DETECTION_MAX_OUTPUT_BYTES: usize = 4096;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NovaSshEvent {
+    pub kind: u32,
+    pub payload_len: u32,
+    pub status_code: i32,
+    pub flags: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NovaSshConnectArgs {
+    pub host: *const c_char,
+    pub user: *const c_char,
+    pub port: u16,
+    pub cols: u16,
+    pub rows: u16,
+    pub term: *const c_char,
+    pub identity_file: *const c_char,
+    /// UTF-8 JSON array of jump hops ordered client → target, e.g.
+    /// `[{"host":"bastion","user":"ops","port":22}]`. Null or `[]` means a direct
+    /// connection. JSON rather than a repeated C struct so the chain can be any length
+    /// without renegotiating the ABI.
+    pub jump_hops_json: *const c_char,
+    pub keepalive_interval_seconds: u32,
+    pub keepalive_count_max: u32,
+    pub remote_shell_kind: u32,
+    pub shell_detection_command: *const c_char,
+    pub bash_cwd_bootstrap: *const c_char,
+    pub zsh_cwd_bootstrap: *const c_char,
+    pub fish_cwd_bootstrap: *const c_char,
+    /// Non-zero: try public-key auth with every identity the user's SSH agent holds — after a
+    /// configured identity file (which keeps first position so an over-full agent cannot exhaust
+    /// the server's MaxAuthTries before it), before anything that prompts. The agent is
+    /// discovered the way OpenSSH discovers it — SSH_AUTH_SOCK on Unix; the OpenSSH service pipe
+    /// (or SSH_AUTH_SOCK naming another pipe), then Pageant, on Windows. An unreachable or empty
+    /// agent falls through to the other methods, exactly like `ssh` without an agent running.
+    pub use_agent: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NovaSshDirectTcpIpArgs {
+    pub host_to_connect: *const c_char,
+    pub port_to_connect: u16,
+    pub originator_address: *const c_char,
+    pub originator_port: u16,
+}
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NovaSshEventKind {
+    None = 0,
+    Connected = 1,
+    Data = 2,
+    HostKeyPrompt = 3,
+    PasswordPrompt = 4,
+    PassphrasePrompt = 5,
+    KeyboardInteractivePrompt = 6,
+    ExitStatus = 7,
+    Error = 8,
+    Closed = 9,
+    ForwardChannelData = 10,
+    ForwardChannelEof = 11,
+    ForwardChannelClosed = 12,
+    /// The server opened a forwarded-tcpip channel for a remote forward this session requested.
+    /// status_code carries the channel id; the JSON payload carries the addresses, so the managed
+    /// side can match the connection to its forward rule and dial the local destination.
+    ForwardChannelIncoming = 13,
+}
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NovaSshResponseKind {
+    HostKeyDecision = 1,
+    Password = 2,
+    Passphrase = 3,
+    KeyboardInteractive = 4,
+}
+
+pub const NOVA_SSH_RESULT_OK: c_int = 0;
+pub const NOVA_SSH_RESULT_EVENT_READY: c_int = 1;
+pub const NOVA_SSH_RESULT_INVALID_ARGUMENT: c_int = -1;
+pub const NOVA_SSH_RESULT_BUFFER_TOO_SMALL: c_int = -2;
+pub const NOVA_SSH_RESULT_CLOSED: c_int = -3;
+pub const NOVA_SSH_RESULT_CHANNEL_OPEN_FAILED: c_int = -4;
+pub const NOVA_SSH_RESULT_NOT_IMPLEMENTED: c_int = -5;
+pub const NOVA_SSH_RESULT_CANCELED: c_int = -6;
+pub const NOVA_SSH_RESULT_PANIC: c_int = -7;
+/// A forward channel has more data queued toward the remote than its budget allows. Not an error:
+/// the caller is expected to retry, which is what applies backpressure to the local socket it is
+/// reading from. Only nova_ssh_channel_write returns this.
+pub const NOVA_SSH_RESULT_WOULD_BLOCK: c_int = -8;
+
+/// The server refused a tcpip-forward request (or the request could not be sent). Distinct from
+/// CHANNEL_OPEN_FAILED because nothing channel-shaped exists yet — the refusal is of the remote
+/// listener itself, and the caller's recovery is to report the forward as unavailable, not to
+/// retry a channel.
+pub const NOVA_SSH_RESULT_REMOTE_FORWARD_FAILED: c_int = -9;
+
+/// Per-forward-channel ceiling on bytes queued toward the remote, mirroring the managed side's
+/// budget for the opposite direction. Reaching it makes nova_ssh_channel_write report
+/// NOVA_SSH_RESULT_WOULD_BLOCK rather than growing the queue without limit.
+const MAX_QUEUED_FORWARD_WRITE_BYTES: usize = 1024 * 1024;
+
+/// Ceiling on data-bearing payload bytes (Data, ForwardChannelData) queued toward the managed
+/// poll loop. At the ceiling the channel readers park in `queue_data_event` instead of reading
+/// on; an unread russh channel stops having its window replenished, so SSH flow control makes
+/// the *remote* hold the stream rather than this process buffering it (#173 item 1).
+///
+/// Sized above the SSH channel window (2 MiB in this russh config) so a healthy poll loop can
+/// never trip it — even a full window arriving during one idle poll gap fits — while a stalled
+/// consumer of `cat bigfile` now caps out at this budget plus one in-flight window instead of
+/// accumulating the entire stream. Control events are exempt: see `queue_data_event`.
+const MAX_QUEUED_EVENT_BYTES: usize = 4 * 1024 * 1024;
+
+/// Flat surcharge each data-bearing event contributes to the budget on top of its payload
+/// length, approximating what a queued event actually costs (the QueuedEvent struct, its Vec
+/// header, the VecDeque slot). Without it, zero-length Data messages would be free: they consume
+/// no SSH window either — flow control counts data bytes — so a peer spamming empty data frames
+/// would grow the queue's per-event overhead without bound while the byte counter never moved.
+/// With the surcharge the budget caps the queue at ~64K events even if every one is empty,
+/// keeping real memory within the same order as the budget itself.
+const QUEUED_DATA_EVENT_OVERHEAD_BYTES: usize = 64;
+
+/// What one data-bearing event charges against MAX_QUEUED_EVENT_BYTES. Admission and release
+/// must both use this — an event released cheaper than it was admitted leaks budget until the
+/// producers park forever, and the reverse drifts the cap upward.
+fn queued_data_event_cost(payload_len: usize) -> usize {
+    payload_len.saturating_add(QUEUED_DATA_EVENT_OVERHEAD_BYTES)
+}
+
+/// Runs an FFI body, converting any panic into `on_panic` instead of unwinding
+/// across the C boundary (which is undefined behavior). The body is asserted
+/// unwind-safe because FFI bodies operate on raw pointers owned by the caller.
+fn ffi_guard<R>(on_panic: R, body: impl FnOnce() -> R) -> R {
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(value) => value,
+        Err(_) => on_panic,
+    }
+}
+
+const NOVA_SSH_EVENT_FLAG_JSON: u32 = 1;
+const NOVA_SSH_EVENT_FLAG_BINARY: u32 = 2;
+
+pub struct NovaSshSession {
+    shared: Arc<SharedState>,
+    command_tx: Mutex<Option<mpsc::UnboundedSender<WorkerCommand>>>,
+    worker: Mutex<Option<thread::JoinHandle<()>>>,
+}
+
+static SESSION_REGISTRY: OnceLock<Mutex<HashMap<u64, Arc<NovaSshSession>>>> = OnceLock::new();
+static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(debug_assertions)]
+static OUTSTANDING_FFI_STRINGS: AtomicI64 = AtomicI64::new(0);
+
+// Convert an owned String into a C string handed to the caller. In debug builds,
+// tracks the outstanding count so tests can assert alloc/free balance.
+fn ffi_string_into_raw(value: String) -> *mut c_char {
+    match CString::new(value) {
+        Ok(c) => {
+            #[cfg(debug_assertions)]
+            OUTSTANDING_FFI_STRINGS.fetch_add(1, Ordering::SeqCst);
+            c.into_raw()
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+fn session_registry() -> &'static Mutex<HashMap<u64, Arc<NovaSshSession>>> {
+    SESSION_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn lock_registry() -> std::sync::MutexGuard<'static, HashMap<u64, Arc<NovaSshSession>>> {
+    session_registry().lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Insert a session, returning a fresh non-zero handle id (0 is never issued).
+fn registry_insert(session: NovaSshSession) -> u64 {
+    let id = NEXT_SESSION_ID.fetch_add(1, Ordering::SeqCst);
+    lock_registry().insert(id, Arc::new(session));
+    id
+}
+
+/// Look up a live session by handle token. None ⇒ unknown/closed/stale handle.
+fn registry_get(handle: usize) -> Option<Arc<NovaSshSession>> {
+    let id = handle as u64;
+    if id == 0 {
+        return None;
+    }
+    lock_registry().get(&id).cloned()
+}
+
+/// Remove (close) a session, returning it if present. Second call ⇒ None (double-close).
+fn registry_remove(handle: usize) -> Option<Arc<NovaSshSession>> {
+    let id = handle as u64;
+    if id == 0 {
+        return None;
+    }
+    lock_registry().remove(&id)
+}
+
+/// Sends a command to the session's worker, returning OK or CLOSED.
+fn send_command(session: &NovaSshSession, command: WorkerCommand) -> c_int {
+    let guard = session.command_tx.lock().unwrap_or_else(|p| p.into_inner());
+    match guard.as_ref() {
+        Some(tx) => tx
+            .send(command)
+            .map(|_| NOVA_SSH_RESULT_OK)
+            .unwrap_or(NOVA_SSH_RESULT_CLOSED),
+        None => NOVA_SSH_RESULT_CLOSED,
+    }
+}
+
+struct SharedState {
+    events: Mutex<VecDeque<QueuedEvent>>,
+    responses: Mutex<VecDeque<QueuedResponse>>,
+    response_cv: Condvar,
+    closed: Mutex<bool>,
+    // Async-side companion to `closed`/`response_cv`: lets the worker's session
+    // establishment race against nova_ssh_close so a stuck connect/auth can be
+    // aborted promptly instead of blocking `worker.join()` (and, transitively,
+    // the .NET finalizer thread) indefinitely. See #155.
+    closed_notify: tokio::sync::Notify,
+    // Bytes queued toward the remote per forward channel, so nova_ssh_channel_write can answer
+    // "would this block?" without touching the async side. A std Mutex, not tokio's: the reader is
+    // an FFI thread with no runtime under it. See forward_write_budget.
+    forward_write_budgets: Mutex<HashMap<u32, Arc<AtomicUsize>>>,
+    // Data-bearing payload bytes currently in `events`, kept outside the queue's Mutex so the
+    // async producers can check the budget without contending with the FFI poll thread's lock.
+    queued_data_bytes: AtomicUsize,
+    // Wakes producers parked in `queue_data_event` when the poll loop drains below the budget,
+    // or when the session closes (see mark_closed).
+    event_space_notify: tokio::sync::Notify,
+    // Whether this session ever sent a tcpip-forward global request. A server may only open
+    // forwarded-tcpip channels for listeners the client asked it for (RFC 4254 §7.2); until the
+    // first request is made, any such open is unsolicited and is refused at the handler.
+    remote_forward_requested: AtomicBool,
+}
+
+struct QueuedEvent {
+    kind: NovaSshEventKind,
+    payload: Vec<u8>,
+    status_code: i32,
+    flags: u32,
+}
+
+/// One item for a forward channel's writer task, in the order the managed side asked for it.
+enum ForwardWrite {
+    Data(Vec<u8>),
+    Eof,
+    Close,
+}
+
+/// A live forward channel, represented by a queue into its writer task rather than by the channel's
+/// write half. The write half is owned by that task alone; nothing else can `await` it, which is what
+/// keeps a stalled forward from freezing the session worker's select loop.
+struct ForwardChannelHandle {
+    writes: mpsc::UnboundedSender<ForwardWrite>,
+    writer_task: tokio::task::JoinHandle<()>,
+}
+
+type ForwardChannels = Arc<tokio::sync::Mutex<HashMap<u32, ForwardChannelHandle>>>;
+
+/// A queued event's shape, without its payload. Lets the FFI report `payload_len` so the caller can
+/// size a buffer, without copying anything (#173 item 1).
+#[derive(Clone, Copy)]
+struct EventMeta {
+    kind: NovaSshEventKind,
+    payload_len: usize,
+    status_code: i32,
+    flags: u32,
+}
+
+/// Outcome of a single `take_event_if_fits`.
+enum EventRead {
+    /// Nothing queued.
+    Empty,
+    /// Head event's payload exceeds the supplied capacity; it stays queued for a retry.
+    TooSmall(EventMeta),
+    /// Head event, removed from the queue and owned by the caller.
+    Ready(QueuedEvent),
+}
+
+struct QueuedResponse {
+    kind: NovaSshResponseKind,
+    payload: Vec<u8>,
+}
+
+enum WorkerCommand {
+    Write(Vec<u8>),
+    Resize {
+        cols: u16,
+        rows: u16,
+    },
+    OpenDirectTcpIp {
+        host_to_connect: String,
+        port_to_connect: u32,
+        originator_address: String,
+        originator_port: u32,
+        reply: std_mpsc::Sender<anyhow::Result<u32>>,
+    },
+    RequestRemoteForward {
+        address: String,
+        port: u32,
+        reply: std_mpsc::Sender<anyhow::Result<u32>>,
+    },
+    WriteForwardChannel {
+        channel_id: u32,
+        data: Vec<u8>,
+    },
+    ForwardChannelEof {
+        channel_id: u32,
+    },
+    CloseForwardChannel {
+        channel_id: u32,
+    },
+    Close,
+}
+
+#[derive(Clone)]
+struct ConnectConfig {
+    host: String,
+    user: String,
+    port: u16,
+    cols: u16,
+    rows: u16,
+    term: String,
+    identity_file: Option<String>,
+    /// Agent identities are tried first when set; see NovaSshConnectArgs::use_agent. Applies to
+    /// jump hops too — each hop is a full authentication, and OpenSSH offers agent keys to hops
+    /// the same way.
+    use_agent: bool,
+    /// Ordered client → target; empty means a direct connection.
+    jump_hops: Vec<JumpHostConfig>,
+    keepalive_interval_seconds: u32,
+    keepalive_count_max: u32,
+    remote_shell_kind: RemoteShellKind,
+    shell_detection_command: Option<String>,
+    bash_cwd_bootstrap: Option<String>,
+    zsh_cwd_bootstrap: Option<String>,
+    fish_cwd_bootstrap: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RemoteShellKind {
+    Auto,
+    Bash,
+    Zsh,
+    Fish,
+    Pwsh,
+}
+
+#[derive(Clone)]
+struct JumpHostConfig {
+    host: String,
+    user: String,
+    port: u16,
+}
+
+/// One hop as it crosses the FFI boundary — in the connect args' `jump_hops_json` array and in
+/// the SFTP transfer request JSON. `user` is optional because a hop without one authenticates as
+/// the connection's target user.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JumpHopRequest {
+    host: String,
+    user: Option<String>,
+    port: u16,
+}
+
+/// Parses the FFI jump-hop JSON into resolved configs. Absent or empty means direct. Invalid
+/// JSON, a blank host, or a mangled entry rejects the whole connect — connecting anyway after
+/// dropping or altering a hop would hand credentials to an endpoint the caller never named.
+fn parse_jump_hops(json: Option<&str>, default_user: &str) -> Option<Vec<JumpHostConfig>> {
+    let Some(json) = json else {
+        return Some(Vec::new());
+    };
+
+    let hops: Vec<JumpHopRequest> = serde_json::from_str(json).ok()?;
+    let mut configs = Vec::with_capacity(hops.len());
+    for hop in hops {
+        if hop.host.trim().is_empty() {
+            return None;
+        }
+
+        configs.push(JumpHostConfig {
+            host: hop.host,
+            user: match hop.user {
+                Some(user) if !user.trim().is_empty() => user,
+                _ => default_user.to_owned(),
+            },
+            port: if hop.port == 0 { 22 } else { hop.port },
+        });
+    }
+
+    Some(configs)
+}
+
+#[derive(Clone)]
+struct NovaClientHandler {
+    shared: Arc<SharedState>,
+    host: String,
+    port: u16,
+    /// Where an incoming forwarded-tcpip channel gets wired in, present only on the target
+    /// session's handler. Jump hops carry None: only the target session ever requests a remote
+    /// forward, so a hop server opening a forwarded channel is unsolicited and gets refused.
+    forward_channels: Option<ForwardChannels>,
+}
+
+/// Payload of a ForwardChannelIncoming event: which remote listener the connection arrived on
+/// (so the managed side can match it to a forward rule) and who dialled it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ForwardChannelIncomingPayload<'a> {
+    connected_address: &'a str,
+    connected_port: u32,
+    originator_address: &'a str,
+    originator_port: u32,
+}
+
+#[derive(Clone)]
+struct TransferClientHandler {
+    host: String,
+    port: u16,
+    known_hosts: NativeKnownHostsVerifier,
+}
+
+#[derive(Clone)]
+struct TransferAuthConfig {
+    /// Wrapped so the copy held for the lifetime of a transfer is wiped when the
+    /// transfer ends, rather than lingering in the heap until the allocator reuses it.
+    password: Option<Zeroizing<String>>,
+    identity_file: Option<String>,
+    use_agent: bool,
+}
+
+impl TransferAuthConfig {
+    /// Moves the credential out of a deserialized request.
+    ///
+    /// `take` rather than `clone`: the password then exists as one allocation owned by
+    /// this struct, wiped when it drops, instead of two independent copies with the
+    /// request's copy outliving the transfer. Leaves `connection.password` as `None`,
+    /// so the request cannot be a second source of the secret afterwards.
+    fn take_from(connection: &mut SftpConnectionRequest) -> Self {
+        Self {
+            password: connection.password.take().map(Zeroizing::new),
+            identity_file: connection.identity_file_path.clone(),
+            use_agent: connection.use_agent,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct HostKeyPromptPayload<'a> {
+    host: &'a str,
+    port: u16,
+    algorithm: String,
+    fingerprint: String,
+}
+
+#[derive(Serialize)]
+struct TextPromptPayload<'a> {
+    prompt: &'a str,
+}
+
+#[derive(Serialize)]
+struct KeyboardInteractivePromptPayload {
+    name: String,
+    instructions: String,
+    prompts: Vec<KeyboardPromptPayload>,
+}
+
+#[derive(Serialize)]
+struct KeyboardPromptPayload {
+    prompt: String,
+    echo: bool,
+}
+
+#[derive(Serialize)]
+struct ConnectedPayload<'a> {
+    host: &'a str,
+    port: u16,
+    user: &'a str,
+}
+
+#[derive(Serialize)]
+struct ErrorPayload<'a> {
+    message: &'a str,
+}
+
+#[derive(Serialize)]
+struct ClosedPayload<'a> {
+    reason: &'a str,
+}
+
+#[derive(Serialize)]
+struct ExitStatusPayload {
+    exit_status: u32,
+}
+
+#[derive(serde::Deserialize)]
+struct HostKeyDecisionResponse {
+    accept: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct TextResponse {
+    text: String,
+}
+
+#[derive(serde::Deserialize)]
+struct KeyboardInteractiveResponse {
+    responses: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SftpTransferRequest {
+    connection: SftpConnectionRequest,
+    transfer: SftpTransferRequestBody,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SftpConnectionRequest {
+    host: String,
+    user: String,
+    port: u16,
+    password: Option<String>,
+    identity_file_path: Option<String>,
+    /// Try agent identities when no identity file decides the outcome; see
+    /// NovaSshConnectArgs::use_agent. Defaults false so older callers keep their exact behavior.
+    #[serde(default)]
+    use_agent: bool,
+    known_hosts_file_path: String,
+    /// Ordered client → target; absent or empty means a direct connection.
+    #[serde(default)]
+    jump_hops: Vec<JumpHopRequest>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SftpTransferRequestBody {
+    direction: String,
+    kind: String,
+    local_path: String,
+    remote_path: String,
+    cancellation_marker_path: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemotePathListRequest {
+    connection: SftpConnectionRequest,
+    path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SftpTransferResponse<'a> {
+    status: &'a str,
+    message: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemotePathListResponse<'a> {
+    status: &'a str,
+    message: &'a str,
+    entries: Vec<RemotePathListEntry>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemotePathListEntry {
+    name: String,
+    full_path: String,
+    is_directory: bool,
+    modified_at_unix_seconds: Option<u64>,
+}
+
+#[derive(Clone)]
+struct NativeKnownHostsVerifier {
+    entries: Arc<Vec<NativeKnownHostEntry>>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct NativeKnownHostEntry {
+    host: String,
+    port: u16,
+    algorithm: String,
+    fingerprint: String,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NovaSftpTransferProgressCallbackData {
+    pub bytes_done: u64,
+    pub bytes_total: u64,
+    // ABI contract: current_path points to a transient UTF-8 string buffer that is
+    // only valid for the duration of the callback invocation that receives it.
+    pub current_path: *const c_char,
+}
+
+// ABI contract for native SFTP progress reporting:
+// - callbacks are invoked synchronously during nova_ssh_sftp_transfer
+// - progress_context is borrowed and only valid for that call duration
+// - current_path in NovaSftpTransferProgressCallbackData is only valid for the
+//   duration of the callback invocation
+type NovaSftpTransferProgressCallback =
+    unsafe extern "C" fn(*mut c_void, NovaSftpTransferProgressCallbackData);
+
+#[derive(Clone, Copy)]
+struct SftpProgressEmitter {
+    callback: Option<NovaSftpTransferProgressCallback>,
+    context: *mut c_void,
+}
+
+impl SftpProgressEmitter {
+    fn emit(&self, bytes_done: u64, bytes_total: Option<u64>, current_path: &str) {
+        let Some(callback) = self.callback else {
+            return;
+        };
+
+        let current_path = match CString::new(current_path) {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+
+        unsafe {
+            callback(
+                self.context,
+                NovaSftpTransferProgressCallbackData {
+                    bytes_done,
+                    bytes_total: bytes_total.unwrap_or(0),
+                    current_path: current_path.as_ptr(),
+                },
+            );
+        }
+    }
+}
+
+impl SharedState {
+    fn new() -> Self {
+        Self {
+            events: Mutex::new(VecDeque::new()),
+            responses: Mutex::new(VecDeque::new()),
+            response_cv: Condvar::new(),
+            closed: Mutex::new(false),
+            closed_notify: tokio::sync::Notify::new(),
+            forward_write_budgets: Mutex::new(HashMap::new()),
+            queued_data_bytes: AtomicUsize::new(0),
+            event_space_notify: tokio::sync::Notify::new(),
+            remote_forward_requested: AtomicBool::new(false),
+        }
+    }
+
+    /// Marked before the tcpip-forward request is sent, not after its reply: a server that opens
+    /// a forwarded-tcpip channel the instant it binds the listener must not race the flag.
+    fn mark_remote_forward_requested(&self) {
+        self.remote_forward_requested.store(true, Ordering::SeqCst);
+    }
+
+    fn has_requested_remote_forward(&self) -> bool {
+        self.remote_forward_requested.load(Ordering::SeqCst)
+    }
+
+    /// The queued-byte counter for one forward channel, or `None` if the channel is not (or no
+    /// longer) open. `None` means "do not throttle": an unknown id is either already torn down or was
+    /// never ours, and in both cases the write is a harmless no-op further down.
+    fn forward_write_budget(&self, channel_id: u32) -> Option<Arc<AtomicUsize>> {
+        self.forward_write_budgets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&channel_id)
+            .cloned()
+    }
+
+    fn register_forward_write_budget(&self, channel_id: u32, budget: Arc<AtomicUsize>) {
+        self.forward_write_budgets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(channel_id, budget);
+    }
+
+    /// Dropping the counter is what unblocks a managed pump that is retrying against a channel which
+    /// has since closed: the next write finds no budget, is accepted, and no-ops.
+    fn unregister_forward_write_budget(&self, channel_id: u32) {
+        self.forward_write_budgets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&channel_id);
+    }
+
+    fn is_closed(&self) -> bool {
+        *self.closed.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Resolves once `mark_closed` has been called. Uses the create-notified-then-check
+    /// pattern so a `mark_closed` racing between the check and the await is not missed.
+    async fn wait_closed(&self) {
+        loop {
+            let notified = self.closed_notify.notified();
+            tokio::pin!(notified);
+            // enable() is what makes create-notified-then-check actually sound: a Notified
+            // future only counts as a waiter once polled or enabled, and notify_waiters stores
+            // no permit — so without this, a mark_closed landing between the check below and the
+            // first poll of the await was silently lost.
+            notified.as_mut().enable();
+            if self.is_closed() {
+                return;
+            }
+            notified.await;
+        }
+    }
+
+    /// Queues a control event: prompts, Connected, ExitStatus, Error, Closed, forward
+    /// open/EOF/close notices. Never blocks and never counts toward the data budget — those
+    /// events are few and tiny, and a queue full of stalled terminal output must not be able
+    /// to hold back the very events that let the managed side notice and act.
+    ///
+    /// Data-bearing events (Data, ForwardChannelData) go through `queue_data_event` instead.
+    fn queue_event(&self, event: QueuedEvent) {
+        if *self.closed.lock().unwrap_or_else(|e| e.into_inner()) {
+            return;
+        }
+
+        self.events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push_back(event);
+    }
+
+    /// Queues a data-bearing event, parking until the queue is under MAX_QUEUED_EVENT_BYTES
+    /// first. Parking the caller is the whole mechanism, not a stopgap: the callers are channel
+    /// readers, and a reader that stops consuming lets russh's bounded per-channel buffer fill,
+    /// which stalls the session task's socket reads, which stops window replenishment — so SSH
+    /// flow control makes the remote hold the stream instead of this process buffering an
+    /// unbounded backlog (#173 item 1).
+    ///
+    /// The known cost, accepted deliberately: while a producer is parked the session's select
+    /// loop (or a forward reader) is not doing anything else, so writes, resizes and keepalive
+    /// traffic stall with it. That only happens when the managed poll loop has already stopped
+    /// draining for multiple megabytes' worth of output — a consumer that is stalled, not slow —
+    /// and the alternative was growing the queue by the whole remaining stream.
+    ///
+    /// Ordering is preserved per producer: a parked producer emits nothing else until admitted,
+    /// so its later control events (EOF, Closed) still queue after the data they follow.
+    ///
+    /// Returns false if the session closed while parked; the caller should stop reading.
+    async fn queue_data_event(&self, event: QueuedEvent) -> bool {
+        loop {
+            // Create-notified-then-check, like wait_closed — including the enable(): without it
+            // a drain or close landing between the checks and the first poll of the await was
+            // lost (notify_waiters wakes only registered waiters and stores no permit), and a
+            // producer could park forever on a queue that had already emptied. For the session
+            // select loop that produces terminal output, "forever" meant a frozen terminal.
+            let notified = self.event_space_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.is_closed() {
+                return false;
+            }
+            // Admit while strictly under budget, even if this event overshoots it. The budget is
+            // a soft cap (same rule as the forward-write budget): any single event can always
+            // make progress once the queue drains, so no payload size can wedge a producer.
+            if self.queued_data_bytes.load(Ordering::Acquire) < MAX_QUEUED_EVENT_BYTES {
+                break;
+            }
+            notified.await;
+        }
+
+        self.queued_data_bytes.fetch_add(
+            queued_data_event_cost(event.payload.len()),
+            Ordering::AcqRel,
+        );
+        self.queue_event(event);
+        true
+    }
+
+    /// Removes and returns the head event if its payload fits in `payload_capacity`; otherwise
+    /// reports its shape so the caller can size a buffer and retry, leaving it queued.
+    ///
+    /// One lock acquisition, and — the point — **no payload copy**. The previous shape was
+    /// `peek_event()` (which cloned the whole payload) followed by `pop_event()`, so every event
+    /// travelled through an extra `Vec` allocation and memcpy on the way out, and a
+    /// `BUFFER_TOO_SMALL` retry threw that clone away and did it again. With the managed caller
+    /// starting each poll at a zero-length buffer, that retry was not an edge case: it happened for
+    /// *every* non-empty payload (#173 item 1).
+    ///
+    /// Doing it under a single lock also closes a latent TOCTOU in the old peek-then-pop pair: a
+    /// second consumer could pop between the two calls, and the caller would then receive one
+    /// event's metadata with another's payload. Only one consumer polls today, so this was
+    /// unreachable rather than broken — worth removing while the code is open.
+    fn take_event_if_fits(&self, payload_capacity: usize) -> EventRead {
+        let mut events = self.events.lock().unwrap_or_else(|e| e.into_inner());
+
+        let Some(front) = events.front() else {
+            return EventRead::Empty;
+        };
+
+        let meta = EventMeta {
+            kind: front.kind,
+            payload_len: front.payload.len(),
+            status_code: front.status_code,
+            flags: front.flags,
+        };
+
+        if meta.payload_len > payload_capacity {
+            return EventRead::TooSmall(meta);
+        }
+
+        // Moves the payload out; nothing is duplicated.
+        match events.pop_front() {
+            Some(event) => {
+                if matches!(
+                    event.kind,
+                    NovaSshEventKind::Data | NovaSshEventKind::ForwardChannelData
+                ) {
+                    // Saturating on purpose: FFI tests (and any future direct caller) can queue a
+                    // data-kind event through queue_event without the budget accounting, and an
+                    // underflow here would wrap the counter to a huge value and park every
+                    // producer forever. Short is safe; wrapped is a wedged session.
+                    let cost = queued_data_event_cost(event.payload.len());
+                    let _ = self.queued_data_bytes.fetch_update(
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                        |bytes| Some(bytes.saturating_sub(cost)),
+                    );
+                    self.event_space_notify.notify_waiters();
+                }
+
+                EventRead::Ready(event)
+            }
+            None => EventRead::Empty,
+        }
+    }
+
+    fn queue_response(&self, response: QueuedResponse) {
+        self.responses
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push_back(response);
+        self.response_cv.notify_all();
+    }
+
+    fn wait_for_response(&self, kind: NovaSshResponseKind) -> Option<Vec<u8>> {
+        let mut guard = self.responses.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if let Some(index) = guard.iter().position(|item| item.kind == kind) {
+                return guard.remove(index).map(|item| item.payload);
+            }
+
+            if *self.closed.lock().unwrap_or_else(|e| e.into_inner()) {
+                return None;
+            }
+
+            guard = self
+                .response_cv
+                .wait(guard)
+                .unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    fn mark_closed(&self) {
+        *self.closed.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.response_cv.notify_all();
+        self.closed_notify.notify_waiters();
+        // A producer parked in queue_data_event must observe the close and bail, or
+        // nova_ssh_close would join a worker that is waiting for a drain that will never come.
+        self.event_space_notify.notify_waiters();
+    }
+}
+
+impl client::Handler for NovaClientHandler {
+    type Error = russh::Error;
+
+    /// The server opened a channel for a connection that arrived on a remote-forward listener.
+    /// Wire it into the forward machinery and announce it; the managed side matches the
+    /// announcement to its forward rule and dials the local destination. Runs on the session
+    /// task, so nothing here may block on anything slower than the channels-map lock.
+    fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        connected_address: &str,
+        connected_port: u32,
+        originator_address: &str,
+        originator_port: u32,
+        _session: &mut client::Session,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        let forward_channels = self.forward_channels.clone();
+        let shared = self.shared.clone();
+        let connected_address = connected_address.to_owned();
+        let originator_address = originator_address.to_owned();
+
+        async move {
+            // No map means this session never requests remote forwards — it is a jump hop, and a
+            // hop server opening a forwarded channel is unsolicited. Refuse it outright rather
+            // than plumbing it through for the managed side to refuse later: an unrequested
+            // channel from an intermediary deserves no processing at all.
+            let Some(forward_channels) = forward_channels else {
+                let _ = channel.close().await;
+                return Ok(());
+            };
+
+            // Same verdict for the target session before its first tcpip-forward request: a
+            // channel nobody asked for gets no registration, no reader task, no event. Without
+            // this, a hostile server could park unbounded open channels on a session whose
+            // profile configured no forwards at all — the managed side would never even see them.
+            if !shared.has_requested_remote_forward() {
+                let _ = channel.close().await;
+                return Ok(());
+            }
+
+            register_forward_channel(channel, forward_channels, shared.clone(), |channel_id| {
+                shared.queue_event(QueuedEvent {
+                    kind: NovaSshEventKind::ForwardChannelIncoming,
+                    payload: serde_json::to_vec(&ForwardChannelIncomingPayload {
+                        connected_address: &connected_address,
+                        connected_port,
+                        originator_address: &originator_address,
+                        originator_port,
+                    })
+                    .unwrap_or_default(),
+                    status_code: channel_id as i32,
+                    flags: NOVA_SSH_EVENT_FLAG_JSON,
+                });
+            })
+            .await;
+
+            Ok(())
+        }
+    }
+
+    fn check_server_key(
+        &mut self,
+        server_public_key: &ssh_key::PublicKey,
+    ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
+        let shared = self.shared.clone();
+        let host = self.host.clone();
+        let port = self.port;
+        let algorithm = server_public_key.algorithm().to_string();
+        let fingerprint = server_public_key
+            .fingerprint(ssh_key::HashAlg::Sha256)
+            .to_string();
+
+        async move {
+            if let Ok(payload) = serde_json::to_vec(&HostKeyPromptPayload {
+                host: &host,
+                port,
+                algorithm,
+                fingerprint,
+            }) {
+                shared.queue_event(QueuedEvent {
+                    kind: NovaSshEventKind::HostKeyPrompt,
+                    payload,
+                    status_code: 0,
+                    flags: NOVA_SSH_EVENT_FLAG_JSON,
+                });
+            }
+
+            let response = match shared.wait_for_response(NovaSshResponseKind::HostKeyDecision) {
+                Some(payload) => payload,
+                None => return Ok(false),
+            };
+
+            let accept = serde_json::from_slice::<HostKeyDecisionResponse>(&response)
+                .map(|value| value.accept)
+                .unwrap_or(false);
+            Ok(accept)
+        }
+    }
+}
+
+impl client::Handler for TransferClientHandler {
+    type Error = anyhow::Error;
+
+    fn check_server_key(
+        &mut self,
+        server_public_key: &ssh_key::PublicKey,
+    ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
+        let known_hosts = self.known_hosts.clone();
+        let host = self.host.clone();
+        let port = self.port;
+        let algorithm = server_public_key.algorithm().to_string();
+        let fingerprint = server_public_key
+            .fingerprint(ssh_key::HashAlg::Sha256)
+            .to_string();
+
+        async move {
+            known_hosts.verify(&host, port, &algorithm, &fingerprint)?;
+            Ok(true)
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_connect(args: *const NovaSshConnectArgs) -> usize {
+    ffi_guard(0, || {
+        let config = match ConnectConfig::from_args(args) {
+            Some(config) => config,
+            None => return 0,
+        };
+
+        let shared = Arc::new(SharedState::new());
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let worker_shared = shared.clone();
+        let worker_config = config.clone();
+        let worker = thread::spawn(move || {
+            if let Err(error) = run_session(worker_config, worker_shared.clone(), command_rx) {
+                worker_shared.queue_event(QueuedEvent {
+                    kind: NovaSshEventKind::Error,
+                    payload: serde_json::to_vec(&ErrorPayload {
+                        message: &error.to_string(),
+                    })
+                    .unwrap_or_default(),
+                    status_code: -1,
+                    flags: NOVA_SSH_EVENT_FLAG_JSON,
+                });
+            }
+
+            worker_shared.queue_event(QueuedEvent {
+                kind: NovaSshEventKind::Closed,
+                payload: serde_json::to_vec(&ClosedPayload {
+                    reason: "session-ended",
+                })
+                .unwrap_or_default(),
+                status_code: 0,
+                flags: NOVA_SSH_EVENT_FLAG_JSON,
+            });
+            worker_shared.mark_closed();
+        });
+
+        let session = NovaSshSession {
+            shared,
+            command_tx: Mutex::new(Some(command_tx)),
+            worker: Mutex::new(Some(worker)),
+        };
+
+        registry_insert(session) as usize
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_poll_event(
+    handle: usize,
+    event: *mut NovaSshEvent,
+    payload: *mut u8,
+    payload_capacity: usize,
+) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        if event.is_null() {
+            return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+        }
+
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+        // A null payload pointer can still carry a non-zero capacity from a caller that only wants
+        // the header, so treat it as zero capacity: the event stays queued and the caller learns
+        // payload_len from the header it just received.
+        let effective_capacity = if payload.is_null() { 0 } else { payload_capacity };
+
+        // Both outcomes report the same header, so resolve the metadata first and write it once.
+        // Writing it per-arm would duplicate four raw-pointer stores for no benefit — and each store
+        // is a separate `clippy::not_unsafe_ptr_arg_deref` site, so it would also have grown this
+        // crate's lint baseline from 14 to 18 for a purely cosmetic reason.
+        let (meta, delivered) = match session.shared.take_event_if_fits(effective_capacity) {
+            EventRead::Empty => return NOVA_SSH_RESULT_OK,
+            EventRead::TooSmall(meta) => (meta, None),
+            EventRead::Ready(queued) => (
+                EventMeta {
+                    kind: queued.kind,
+                    payload_len: queued.payload.len(),
+                    status_code: queued.status_code,
+                    flags: queued.flags,
+                },
+                Some(queued),
+            ),
+        };
+
+        unsafe {
+            (*event).kind = meta.kind as u32;
+            (*event).payload_len = meta.payload_len as u32;
+            (*event).status_code = meta.status_code;
+            (*event).flags = meta.flags;
+        }
+
+        let Some(queued) = delivered else {
+            // Still queued; the caller now knows how big a buffer to bring.
+            return NOVA_SSH_RESULT_BUFFER_TOO_SMALL;
+        };
+
+        if !payload.is_null() && !queued.payload.is_empty() {
+            unsafe {
+                ptr::copy_nonoverlapping(queued.payload.as_ptr(), payload, queued.payload.len());
+            }
+        }
+
+        NOVA_SSH_RESULT_EVENT_READY
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_write(
+    handle: usize,
+    data: *const u8,
+    data_len: usize,
+) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        if data.is_null() && data_len != 0 {
+            return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+        }
+
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        let bytes = if data_len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(data, data_len) }.to_vec()
+        };
+
+        send_command(&session, WorkerCommand::Write(bytes))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_resize(handle: usize, cols: u16, rows: u16) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        if cols == 0 || rows == 0 {
+            return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+        }
+
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        send_command(&session, WorkerCommand::Resize { cols, rows })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_open_direct_tcpip(
+    handle: usize,
+    args: *const NovaSshDirectTcpIpArgs,
+) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        if args.is_null() {
+            return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+        }
+
+        let args = unsafe { args.as_ref() }.expect("validated non-null args");
+        let host_to_connect = match read_c_arg(args.host_to_connect).required() {
+            Some(value) => value,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+        // Absent falls back to the loopback default; invalid UTF-8 is rejected rather than mangled.
+        let originator_address = match read_c_arg(args.originator_address).or_default("127.0.0.1") {
+            Some(value) => value,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        let (reply_tx, reply_rx) = std_mpsc::channel();
+        let command = WorkerCommand::OpenDirectTcpIp {
+            host_to_connect,
+            port_to_connect: if args.port_to_connect == 0 {
+                0
+            } else {
+                args.port_to_connect as u32
+            },
+            originator_address,
+            originator_port: args.originator_port as u32,
+            reply: reply_tx,
+        };
+
+        {
+            let guard = session.command_tx.lock().unwrap_or_else(|p| p.into_inner());
+            match guard.as_ref() {
+                Some(tx) => {
+                    if tx.send(command).is_err() {
+                        return NOVA_SSH_RESULT_CLOSED;
+                    }
+                }
+                None => return NOVA_SSH_RESULT_CLOSED,
+            }
+        }
+
+        match reply_rx.recv() {
+            Ok(Ok(channel_id)) => channel_id as c_int,
+            Ok(Err(_)) => NOVA_SSH_RESULT_CHANNEL_OPEN_FAILED,
+            Err(_) => NOVA_SSH_RESULT_CLOSED,
+        }
+    })
+}
+
+/// Asks the server to open a remote-forward listener on `address:port` (a tcpip-forward global
+/// request). Returns the bound port (>= 0) on success — the server may differ from the request
+/// only when asked for port 0 — or a negative NOVA_SSH_RESULT code. Blocks the calling thread
+/// until the server answers, like nova_ssh_open_direct_tcpip; callers should not hold a UI
+/// thread on it. Connections arriving on the listener surface as ForwardChannelIncoming events.
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_request_remote_forward(
+    handle: usize,
+    address: *const c_char,
+    port: u16,
+) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        let address = match read_c_arg(address).required() {
+            Some(value) => value,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        let (reply_tx, reply_rx) = std_mpsc::channel();
+        let command = WorkerCommand::RequestRemoteForward {
+            address,
+            port: port as u32,
+            reply: reply_tx,
+        };
+
+        {
+            let guard = session.command_tx.lock().unwrap_or_else(|p| p.into_inner());
+            match guard.as_ref() {
+                Some(tx) => {
+                    if tx.send(command).is_err() {
+                        return NOVA_SSH_RESULT_CLOSED;
+                    }
+                }
+                None => return NOVA_SSH_RESULT_CLOSED,
+            }
+        }
+
+        match reply_rx.recv() {
+            Ok(Ok(bound_port)) => bound_port as c_int,
+            Ok(Err(_)) => NOVA_SSH_RESULT_REMOTE_FORWARD_FAILED,
+            Err(_) => NOVA_SSH_RESULT_CLOSED,
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_channel_write(
+    handle: usize,
+    channel_id: u32,
+    data: *const u8,
+    data_len: usize,
+) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        if data.is_null() && data_len != 0 {
+            return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+        }
+
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        let bytes = if data_len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(data, data_len) }.to_vec()
+        };
+
+        // Backpressure instead of unbounded queueing. Without this the caller can push data toward a
+        // remote that has stopped consuming it, and every payload accumulates in the per-channel
+        // writer queue until memory runs out. Reporting WOULD_BLOCK makes the caller stop reading its
+        // local socket, and TCP flow control throttles the local peer from there — no data is dropped
+        // and no channel is closed for being merely slow.
+        let budget = session.shared.forward_write_budget(channel_id);
+        if let Some(budget) = &budget {
+            // Check-then-add without a CAS loop: for a given channel only that channel's pump calls
+            // this, and the writer task only ever subtracts. So a concurrent release can make this
+            // admit a payload it would otherwise refuse — never the reverse.
+            let queued = budget.load(Ordering::Acquire);
+
+            // Always admit into an empty queue, even an oversized payload: refusing it forever would
+            // wedge a channel against a chunk nothing is actually blocking.
+            if queued > 0 && queued.saturating_add(bytes.len()) > MAX_QUEUED_FORWARD_WRITE_BYTES {
+                return NOVA_SSH_RESULT_WOULD_BLOCK;
+            }
+
+            budget.fetch_add(bytes.len(), Ordering::AcqRel);
+        }
+
+        let reserved = bytes.len();
+        let result = send_command(
+            &session,
+            WorkerCommand::WriteForwardChannel {
+                channel_id,
+                data: bytes,
+            },
+        );
+
+        // Nothing will ever write these bytes, so nothing would ever release the reservation.
+        if result != NOVA_SSH_RESULT_OK {
+            if let Some(budget) = &budget {
+                budget.fetch_sub(reserved, Ordering::AcqRel);
+            }
+        }
+
+        result
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_channel_eof(handle: usize, channel_id: u32) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        send_command(&session, WorkerCommand::ForwardChannelEof { channel_id })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_channel_close(handle: usize, channel_id: u32) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        send_command(&session, WorkerCommand::CloseForwardChannel { channel_id })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_submit_response(
+    handle: usize,
+    response_kind: u32,
+    data: *const u8,
+    data_len: usize,
+) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        if data.is_null() && data_len != 0 {
+            return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+        }
+
+        let kind = match response_kind {
+            1 => NovaSshResponseKind::HostKeyDecision,
+            2 => NovaSshResponseKind::Password,
+            3 => NovaSshResponseKind::Passphrase,
+            4 => NovaSshResponseKind::KeyboardInteractive,
+            _ => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+        let payload = if data_len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(data, data_len) }.to_vec()
+        };
+
+        // Auth and host-key prompts happen before the worker enters its shell loop,
+        // so responses must bypass the command channel to avoid deadlocking startup.
+        session
+            .shared
+            .queue_response(QueuedResponse { kind, payload });
+        NOVA_SSH_RESULT_OK
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_close(handle: usize) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        let session = match registry_remove(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
+
+        if let Some(tx) = session
+            .command_tx
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+        {
+            let _ = tx.send(WorkerCommand::Close);
+        }
+
+        session.shared.mark_closed();
+
+        if let Some(worker) = session
+            .worker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+        {
+            let _ = worker.join();
+        }
+
+        NOVA_SSH_RESULT_OK
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_sftp_transfer(
+    request_json: *const c_char,
+    progress_callback: Option<NovaSftpTransferProgressCallback>,
+    progress_context: *mut c_void,
+    response_json: *mut *mut c_char,
+) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        if request_json.is_null() || response_json.is_null() {
+            return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+        }
+
+        unsafe {
+            *response_json = ptr::null_mut();
+        }
+
+        let request_text = match unsafe { CStr::from_ptr(request_json) }.to_str() {
+            Ok(value) => value,
+            Err(_) => {
+                return write_sftp_response_json(
+                    response_json,
+                    NOVA_SSH_RESULT_INVALID_ARGUMENT,
+                    "invalid-argument",
+                    "Native backend stub rejected a non-UTF8 SFTP request.",
+                );
+            }
+        };
+
+        let request = match serde_json::from_str::<SftpTransferRequest>(request_text) {
+            Ok(value) => value,
+            Err(_) => {
+                return write_sftp_response_json(
+                    response_json,
+                    NOVA_SSH_RESULT_INVALID_ARGUMENT,
+                    "invalid-argument",
+                    "Native backend stub rejected invalid SFTP request JSON.",
+                );
+            }
+        };
+
+        if sftp_request_has_blank_fields(&request) {
+            return write_sftp_response_json(
+                response_json,
+                NOVA_SSH_RESULT_INVALID_ARGUMENT,
+                "invalid-argument",
+                "Native backend stub rejected an incomplete SFTP request.",
+            );
+        }
+
+        let progress = SftpProgressEmitter {
+            callback: progress_callback,
+            context: progress_context,
+        };
+
+        match run_sftp_transfer(request, progress) {
+            Ok(()) => write_sftp_response_json(
+                response_json,
+                NOVA_SSH_RESULT_OK,
+                "ok",
+                "Native SFTP transfer completed.",
+            ),
+            Err(error) => {
+                let (result, status, message) = classify_sftp_transfer_error(&error);
+                write_sftp_response_json(response_json, result, status, &message)
+            }
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_sftp_list_directory(
+    request_json: *const c_char,
+    response_json: *mut *mut c_char,
+) -> c_int {
+    ffi_guard(NOVA_SSH_RESULT_PANIC, || {
+        if request_json.is_null() || response_json.is_null() {
+            return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+        }
+
+        unsafe {
+            *response_json = ptr::null_mut();
+        }
+
+        let request_text = match unsafe { CStr::from_ptr(request_json) }.to_str() {
+            Ok(value) => value,
+            Err(_) => {
+                return write_sftp_response_json(
+                    response_json,
+                    NOVA_SSH_RESULT_INVALID_ARGUMENT,
+                    "invalid-argument",
+                    "Native backend stub rejected a non-UTF8 remote path list request.",
+                );
+            }
+        };
+
+        let request = match serde_json::from_str::<RemotePathListRequest>(request_text) {
+            Ok(value) => value,
+            Err(_) => {
+                return write_sftp_response_json(
+                    response_json,
+                    NOVA_SSH_RESULT_INVALID_ARGUMENT,
+                    "invalid-argument",
+                    "Native backend stub rejected invalid remote path list request JSON.",
+                );
+            }
+        };
+
+        if remote_path_list_request_has_blank_fields(&request) {
+            return write_sftp_response_json(
+                response_json,
+                NOVA_SSH_RESULT_INVALID_ARGUMENT,
+                "invalid-argument",
+                "Native backend stub rejected an incomplete remote path list request.",
+            );
+        }
+
+        match run_remote_path_list(request) {
+            Ok(entries) => write_remote_path_list_response_json(
+                response_json,
+                NOVA_SSH_RESULT_OK,
+                "ok",
+                "Native remote path listing completed.",
+                entries,
+            ),
+            Err(error) => {
+                let (result, status, message) = classify_sftp_transfer_error(&error);
+                write_remote_path_list_response_json(
+                    response_json,
+                    result,
+                    status,
+                    &message,
+                    Vec::new(),
+                )
+            }
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_string_free(value: *mut c_char) {
+    ffi_guard((), || {
+        if !value.is_null() {
+            #[cfg(debug_assertions)]
+            OUTSTANDING_FFI_STRINGS.fetch_sub(1, Ordering::SeqCst);
+            drop(unsafe { CString::from_raw(value) });
+        }
+    })
+}
+
+impl ConnectConfig {
+    fn from_args(args: *const NovaSshConnectArgs) -> Option<Self> {
+        let args = unsafe { args.as_ref()? };
+        // Every one of these rejects invalid UTF-8; they differ only in what *absence* means.
+        let host = read_c_arg(args.host).required()?;
+        let user = read_c_arg(args.user).required()?;
+        let term = read_c_arg(args.term).or_default("xterm-256color")?;
+        let identity_file = read_c_arg(args.identity_file).optional()?;
+        let jump_hops_json = read_c_arg(args.jump_hops_json).optional()?;
+        let jump_hops = parse_jump_hops(jump_hops_json.as_deref(), &user)?;
+
+        Some(Self {
+            host,
+            user,
+            port: if args.port == 0 { 22 } else { args.port },
+            cols: if args.cols == 0 { 120 } else { args.cols },
+            rows: if args.rows == 0 { 30 } else { args.rows },
+            term,
+            identity_file,
+            use_agent: args.use_agent != 0,
+            jump_hops,
+            keepalive_interval_seconds: if args.keepalive_interval_seconds == 0 {
+                30
+            } else {
+                args.keepalive_interval_seconds
+            },
+            keepalive_count_max: if args.keepalive_count_max == 0 {
+                3
+            } else {
+                args.keepalive_count_max
+            },
+            remote_shell_kind: parse_remote_shell_kind(args.remote_shell_kind),
+            // These four are shell commands sent to the remote. Substituting U+FFFD into a command
+            // string is strictly worse than refusing it, which is why they reject rather than skip.
+            shell_detection_command: read_c_arg(args.shell_detection_command).optional()?,
+            bash_cwd_bootstrap: read_c_arg(args.bash_cwd_bootstrap).optional()?,
+            zsh_cwd_bootstrap: read_c_arg(args.zsh_cwd_bootstrap).optional()?,
+            fish_cwd_bootstrap: read_c_arg(args.fish_cwd_bootstrap).optional()?,
+        })
+    }
+}
+
+fn parse_remote_shell_kind(value: u32) -> RemoteShellKind {
+    match value {
+        1 => RemoteShellKind::Bash,
+        2 => RemoteShellKind::Zsh,
+        3 => RemoteShellKind::Fish,
+        4 => RemoteShellKind::Pwsh,
+        _ => RemoteShellKind::Auto,
+    }
+}
+
+fn detect_login_shell_output_to_kind(output: &str) -> RemoteShellKind {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return RemoteShellKind::Auto;
+    }
+
+    let token = trimmed
+        .split_whitespace()
+        .next()
+        .unwrap_or(trimmed)
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(trimmed)
+        .trim_end_matches(".exe")
+        .to_ascii_lowercase();
+
+    match token.as_str() {
+        "bash" => RemoteShellKind::Bash,
+        "zsh" => RemoteShellKind::Zsh,
+        "fish" => RemoteShellKind::Fish,
+        "pwsh" | "powershell" => RemoteShellKind::Pwsh,
+        _ => RemoteShellKind::Auto,
+    }
+}
+
+fn shell_single_quote(value: &str) -> String {
+    value.replace('\'', "'\"'\"'")
+}
+
+fn wrap_posix_startup_command(command: String) -> String {
+    format!("sh -lc '{}'", shell_single_quote(&command))
+}
+
+fn bash_login_startup() -> &'static str {
+    "if [ -f ~/.bash_profile ]; then . ~/.bash_profile; \
+elif [ -f ~/.bash_login ]; then . ~/.bash_login; \
+elif [ -f ~/.profile ]; then . ~/.profile; \
+fi"
+}
+
+fn zsh_login_startup() -> &'static str {
+    "if [ -f ~/.zprofile ]; then source ~/.zprofile; fi"
+}
+
+fn append_bounded_shell_detection_output(output: &mut Vec<u8>, data: &[u8]) -> bool {
+    let remaining = SHELL_DETECTION_MAX_OUTPUT_BYTES.saturating_sub(output.len());
+    if remaining == 0 {
+        return true;
+    }
+
+    output.extend_from_slice(&data[..data.len().min(remaining)]);
+    output.len() >= SHELL_DETECTION_MAX_OUTPUT_BYTES
+}
+
+fn build_startup_command(shell_kind: RemoteShellKind, config: &ConnectConfig) -> Option<String> {
+    match shell_kind {
+        RemoteShellKind::Bash => {
+            let bootstrap = config.bash_cwd_bootstrap.as_deref()?;
+            Some(wrap_posix_startup_command(format!(
+                "tmp_rc=$(mktemp)\ncat >\"$tmp_rc\" <<'__NOVA_BASHRC__'\n{bash_login_startup}\nif [ -f ~/.bashrc ]; then . ~/.bashrc; fi\n{bootstrap}\n__NOVA_BASHRC__\nexec bash --rcfile \"$tmp_rc\" -i",
+                bash_login_startup = bash_login_startup()
+            )))
+        }
+        RemoteShellKind::Zsh => {
+            let bootstrap = config.zsh_cwd_bootstrap.as_deref()?;
+            Some(wrap_posix_startup_command(format!(
+                "tmp_dir=$(mktemp -d)\ncat >\"$tmp_dir/.zprofile\" <<'__NOVA_ZPROFILE__'\n{zsh_login_startup}\n__NOVA_ZPROFILE__\ncat >\"$tmp_dir/.zshrc\" <<'__NOVA_ZSHRC__'\nif [ -f ~/.zshrc ]; then source ~/.zshrc; fi\n{bootstrap}\n__NOVA_ZSHRC__\nZDOTDIR=\"$tmp_dir\" exec zsh -il",
+                zsh_login_startup = zsh_login_startup()
+            )))
+        }
+        RemoteShellKind::Fish => {
+            let bootstrap = config.fish_cwd_bootstrap.as_deref()?;
+            Some(wrap_posix_startup_command(format!(
+                "tmp_dir=$(mktemp -d)\nmkdir -p \"$tmp_dir/fish\"\ncat >\"$tmp_dir/fish/config.fish\" <<'__NOVA_FISHRC__'\nif test -f ~/.config/fish/config.fish\n    source ~/.config/fish/config.fish\nend\n{bootstrap}\n__NOVA_FISHRC__\nXDG_CONFIG_HOME=\"$tmp_dir\" exec fish -i"
+            )))
+        }
+        RemoteShellKind::Auto | RemoteShellKind::Pwsh => None,
+    }
+}
+
+async fn detect_login_shell<H>(
+    session: &mut client::Handle<H>,
+    command: &str,
+) -> anyhow::Result<RemoteShellKind>
+where
+    H: client::Handler + Send + 'static,
+{
+    let mut channel = session.channel_open_session().await?;
+    channel.exec(true, command).await?;
+
+    let detection_result = tokio::time::timeout(SHELL_DETECTION_TIMEOUT, async {
+        let mut output = Vec::new();
+        loop {
+            match channel.wait().await {
+                Some(ChannelMsg::Data { data }) => {
+                    if append_bounded_shell_detection_output(&mut output, data.as_ref()) {
+                        break;
+                    }
+                }
+                Some(ChannelMsg::ExtendedData { .. }) => {}
+                Some(ChannelMsg::ExitStatus { .. })
+                | Some(ChannelMsg::ExitSignal { .. })
+                | Some(ChannelMsg::Success)
+                | Some(ChannelMsg::Failure)
+                | Some(ChannelMsg::WindowAdjusted { .. })
+                | Some(ChannelMsg::XonXoff { .. })
+                | Some(ChannelMsg::Open { .. })
+                | Some(ChannelMsg::OpenFailure(_)) => {}
+                Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                Some(ChannelMsg::RequestPty { .. })
+                | Some(ChannelMsg::RequestShell { .. })
+                | Some(ChannelMsg::Exec { .. })
+                | Some(ChannelMsg::Signal { .. })
+                | Some(ChannelMsg::RequestSubsystem { .. })
+                | Some(ChannelMsg::RequestX11 { .. })
+                | Some(ChannelMsg::SetEnv { .. })
+                | Some(ChannelMsg::WindowChange { .. })
+                | Some(ChannelMsg::AgentForward { .. })
+                | Some(_) => {}
+            }
+        }
+
+        detect_login_shell_output_to_kind(String::from_utf8_lossy(&output).as_ref())
+    })
+    .await;
+
+    let _ = channel.close().await;
+    match detection_result {
+        Ok(shell_kind) => Ok(shell_kind),
+        Err(_) => Err(anyhow::anyhow!("shell detection timed out")),
+    }
+}
+
+/// The three distinct outcomes of reading a C string argument.
+///
+/// #121: this used to be `Option<String>` produced via `to_string_lossy()`, which collapsed "not
+/// supplied" and "supplied but not valid UTF-8" into the same value — and worse, silently turned the
+/// second into a *plausible* string with U+FFFD substituted for the bad bytes. That is the same class
+/// of defect as #152, where the DllImport ANSI default mangled non-ASCII into U+FFFD; the SFTP entry
+/// points reject invalid encoding explicitly, and the connect path quietly accepted it.
+///
+/// The rule the call sites now follow: **invalid encoding is always an error**, and absence keeps
+/// whatever meaning it already had at that site. Keeping the two apart is what makes that expressible
+/// — with a single `None` an optional argument cannot tell "the caller left this out, use the default"
+/// from "the caller sent garbage, refuse".
+enum CArg {
+    /// Null, or present but empty/whitespace once trimmed.
+    Absent,
+    /// Present, non-empty, and not valid UTF-8.
+    InvalidUtf8,
+    Value(String),
+}
+
+impl CArg {
+    /// For arguments that must be supplied: absent and invalid both reject.
+    fn required(self) -> Option<String> {
+        match self {
+            CArg::Value(value) => Some(value),
+            CArg::Absent | CArg::InvalidUtf8 => None,
+        }
+    }
+
+    /// For optional arguments: invalid rejects, absent yields `None`.
+    ///
+    /// The doubled `Option` is what lets a caller write `read_c_arg(x).optional()?` — the outer `?`
+    /// propagates the rejection, the inner `None` means "not supplied". Without this an invalid
+    /// `identity_file` would silently fall back to password auth, and an invalid `bash_cwd_bootstrap`
+    /// would silently disable cwd tracking, which is exactly the trap a uniform `None` sets.
+    fn optional(self) -> Option<Option<String>> {
+        match self {
+            CArg::InvalidUtf8 => None,
+            CArg::Absent => Some(None),
+            CArg::Value(value) => Some(Some(value)),
+        }
+    }
+
+    /// For optional arguments with a default: invalid rejects, absent takes the default.
+    fn or_default(self, fallback: &str) -> Option<String> {
+        match self {
+            CArg::InvalidUtf8 => None,
+            CArg::Absent => Some(fallback.to_owned()),
+            CArg::Value(value) => Some(value),
+        }
+    }
+}
+
+fn read_c_arg(value: *const c_char) -> CArg {
+    if value.is_null() {
+        return CArg::Absent;
+    }
+
+    match unsafe { CStr::from_ptr(value) }.to_str() {
+        Err(_) => CArg::InvalidUtf8,
+        Ok(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                CArg::Absent
+            } else {
+                CArg::Value(trimmed.to_owned())
+            }
+        }
+    }
+}
+
+fn write_sftp_response_json(
+    response_json: *mut *mut c_char,
+    result: c_int,
+    status: &str,
+    message: &str,
+) -> c_int {
+    let response = SftpTransferResponse { status, message };
+    let json = match serde_json::to_string(&response) {
+        Ok(value) => value,
+        Err(_) => return result,
+    };
+
+    let raw = ffi_string_into_raw(json);
+    if raw.is_null() {
+        return result;
+    }
+    unsafe {
+        *response_json = raw;
+    }
+    result
+}
+
+fn write_remote_path_list_response_json(
+    response_json: *mut *mut c_char,
+    result: c_int,
+    status: &str,
+    message: &str,
+    entries: Vec<RemotePathListEntry>,
+) -> c_int {
+    let response = RemotePathListResponse {
+        status,
+        message,
+        entries,
+    };
+    let json = match serde_json::to_string(&response) {
+        Ok(value) => value,
+        Err(_) => return result,
+    };
+
+    let raw = ffi_string_into_raw(json);
+    if raw.is_null() {
+        return result;
+    }
+    unsafe {
+        *response_json = raw;
+    }
+    result
+}
+
+fn jump_hops_have_blank_fields(jump_hops: &[JumpHopRequest]) -> bool {
+    jump_hops.iter().any(|hop| {
+        hop.host.trim().is_empty()
+            || hop
+                .user
+                .as_deref()
+                .is_some_and(|user| user.trim().is_empty())
+            || hop.port == 0
+    })
+}
+
+fn sftp_request_has_blank_fields(request: &SftpTransferRequest) -> bool {
+    let jump_host_is_blank = jump_hops_have_blank_fields(&request.connection.jump_hops);
+
+    request.connection.host.trim().is_empty()
+        || request.connection.user.trim().is_empty()
+        || request.connection.port == 0
+        || request
+            .connection
+            .password
+            .as_deref()
+            .is_some_and(|password| password.trim().is_empty())
+        || request
+            .connection
+            .identity_file_path
+            .as_deref()
+            .is_some_and(|path| path.trim().is_empty())
+        || request.connection.known_hosts_file_path.trim().is_empty()
+        || jump_host_is_blank
+        || request.transfer.direction.trim().is_empty()
+        || request.transfer.kind.trim().is_empty()
+        || request.transfer.local_path.trim().is_empty()
+        || request.transfer.remote_path.trim().is_empty()
+        || request
+            .transfer
+            .cancellation_marker_path
+            .as_deref()
+            .is_some_and(|path| path.trim().is_empty())
+}
+
+fn remote_path_list_request_has_blank_fields(request: &RemotePathListRequest) -> bool {
+    let jump_host_is_blank = jump_hops_have_blank_fields(&request.connection.jump_hops);
+
+    request.connection.host.trim().is_empty()
+        || request.connection.user.trim().is_empty()
+        || request.connection.port == 0
+        || request
+            .connection
+            .password
+            .as_deref()
+            .is_some_and(|password| password.trim().is_empty())
+        || request
+            .connection
+            .identity_file_path
+            .as_deref()
+            .is_some_and(|path| path.trim().is_empty())
+        || request.connection.known_hosts_file_path.trim().is_empty()
+        || jump_host_is_blank
+        || request.path.trim().is_empty()
+}
+
+impl NativeKnownHostsVerifier {
+    fn load(path: &str) -> anyhow::Result<Self> {
+        let store_path = Path::new(path);
+        if !store_path.exists() {
+            return Ok(Self {
+                entries: Arc::new(Vec::new()),
+            });
+        }
+
+        let json = std::fs::read_to_string(store_path)?;
+        let entries = serde_json::from_str::<Vec<NativeKnownHostEntry>>(&json)?;
+        Ok(Self {
+            entries: Arc::new(entries),
+        })
+    }
+
+    fn verify(
+        &self,
+        host: &str,
+        port: u16,
+        algorithm: &str,
+        fingerprint: &str,
+    ) -> anyhow::Result<()> {
+        let expected_host = host.trim();
+        let expected_port = normalize_known_host_port(port);
+        let expected_algorithm = normalize_known_host_algorithm(algorithm);
+        let expected_fingerprint = normalize_known_host_fingerprint(fingerprint);
+
+        let existing = self.entries.iter().find(|entry| {
+            entry.host.trim().eq_ignore_ascii_case(expected_host)
+                && normalize_known_host_port(entry.port) == expected_port
+        });
+
+        match existing {
+            None => anyhow::bail!(
+                "Unknown host key for {}:{}. Add the server key to the native known-hosts store before transferring files.",
+                host,
+                port
+            ),
+            Some(entry)
+                if normalize_known_host_algorithm(&entry.algorithm) == expected_algorithm
+                    && normalize_known_host_fingerprint(&entry.fingerprint)
+                        == expected_fingerprint =>
+            {
+                Ok(())
+            }
+            Some(_) => anyhow::bail!(
+                "Host key mismatch for {}:{}. The native known-hosts store entry does not match the server key.",
+                host,
+                port
+            ),
+        }
+    }
+}
+
+fn normalize_known_host_port(port: u16) -> u16 {
+    if port == 0 { 22 } else { port }
+}
+
+fn normalize_known_host_algorithm(algorithm: &str) -> String {
+    algorithm.trim().to_owned()
+}
+
+fn normalize_known_host_fingerprint(fingerprint: &str) -> String {
+    let normalized = fingerprint.trim();
+    if normalized.is_empty() {
+        return String::new();
+    }
+
+    const PREFIX: &str = "SHA256:";
+    if normalized.len() >= PREFIX.len() && normalized[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
+        format!("{}{}", PREFIX, normalized[PREFIX.len()..].trim())
+    } else {
+        normalized.to_owned()
+    }
+}
+
+fn run_sftp_transfer(
+    request: SftpTransferRequest,
+    progress: SftpProgressEmitter,
+) -> anyhow::Result<()> {
+    validate_supported_sftp_mode(&request.transfer)?;
+
+    let runtime = Builder::new_current_thread().enable_all().build()?;
+    runtime.block_on(async move {
+        let mut request = request;
+        let known_hosts =
+            NativeKnownHostsVerifier::load(&request.connection.known_hosts_file_path)?;
+        let client_config = Arc::new(client::Config::default());
+        let auth = TransferAuthConfig::take_from(&mut request.connection);
+
+        let (_jump_sessions, mut session) =
+            connect_transfer_session(&request.connection, &auth, &known_hosts, &client_config)
+                .await?;
+        perform_sftp_transfer(&mut session, &request.transfer, progress).await
+    })
+}
+
+/// Connects a transfer session, tunnelling through each jump hop in order — the transfer twin
+/// of `establish_session`, differing only in handler (known-hosts file instead of interactive
+/// prompts) and auth (non-interactive only). The jump handles are returned alongside the target
+/// session; the caller holds them so the tunnels outlive the transfer.
+async fn connect_transfer_session(
+    connection: &SftpConnectionRequest,
+    auth: &TransferAuthConfig,
+    known_hosts: &NativeKnownHostsVerifier,
+    client_config: &Arc<client::Config>,
+) -> anyhow::Result<(
+    Vec<client::Handle<TransferClientHandler>>,
+    client::Handle<TransferClientHandler>,
+)> {
+    let mut jump_sessions: Vec<client::Handle<TransferClientHandler>> =
+        Vec::with_capacity(connection.jump_hops.len());
+    for hop in &connection.jump_hops {
+        let hop_port = if hop.port == 0 { 22 } else { hop.port };
+        let hop_handler = TransferClientHandler {
+            host: hop.host.clone(),
+            port: hop_port,
+            known_hosts: known_hosts.clone(),
+        };
+
+        let mut hop_session = match jump_sessions.last() {
+            None => {
+                client::connect(
+                    client_config.clone(),
+                    (hop.host.as_str(), hop_port),
+                    hop_handler,
+                )
+                .await?
+            }
+            Some(previous) => {
+                let stream = open_tunnel_channel(previous, hop.host.as_str(), hop_port)
+                    .await?
+                    .into_stream();
+                client::connect_stream(client_config.clone(), stream, hop_handler).await?
+            }
+        };
+
+        let hop_user = hop
+            .user
+            .as_deref()
+            .filter(|user| !user.trim().is_empty())
+            .unwrap_or(connection.user.as_str());
+        authenticate_transfer(hop_user, auth, &mut hop_session).await?;
+        jump_sessions.push(hop_session);
+    }
+
+    let target_handler = TransferClientHandler {
+        host: connection.host.clone(),
+        port: connection.port,
+        known_hosts: known_hosts.clone(),
+    };
+
+    let mut session = if let Some(last_jump) = jump_sessions.last() {
+        let stream = open_tunnel_channel(last_jump, connection.host.as_str(), connection.port)
+            .await?
+            .into_stream();
+        client::connect_stream(client_config.clone(), stream, target_handler).await?
+    } else {
+        client::connect(
+            client_config.clone(),
+            (connection.host.as_str(), connection.port),
+            target_handler,
+        )
+        .await?
+    };
+
+    authenticate_transfer(&connection.user, auth, &mut session).await?;
+    Ok((jump_sessions, session))
+}
+
+fn run_remote_path_list(
+    request: RemotePathListRequest,
+) -> anyhow::Result<Vec<RemotePathListEntry>> {
+    let runtime = Builder::new_current_thread().enable_all().build()?;
+    runtime.block_on(async move {
+        let mut request = request;
+        let known_hosts =
+            NativeKnownHostsVerifier::load(&request.connection.known_hosts_file_path)?;
+        let client_config = Arc::new(client::Config::default());
+        let auth = TransferAuthConfig::take_from(&mut request.connection);
+
+        let (_jump_sessions, mut session) =
+            connect_transfer_session(&request.connection, &auth, &known_hosts, &client_config)
+                .await?;
+        list_remote_directory(&mut session, &request.path).await
+    })
+}
+
+async fn authenticate_transfer<H>(
+    user: &str,
+    auth: &TransferAuthConfig,
+    session: &mut client::Handle<H>,
+) -> anyhow::Result<()>
+where
+    H: client::Handler + Send + 'static,
+{
+    // Same first-position rule as the interactive path: a configured identity file is offered
+    // before the agent is consulted. But its failure is only FINAL without use_agent — the
+    // terminal path falls back from a rejected or unreadable file to the agent, and a transfer
+    // for the same profile must reach the same server the same way, not fail where the terminal
+    // connects (Codex review on #334).
+    if let Some(identity_file) = auth.identity_file.as_deref() {
+        match load_secret_key(Path::new(identity_file), None) {
+            Ok(key) => {
+                let hash_alg = session.best_supported_rsa_hash().await?.flatten();
+                let result = session
+                    .authenticate_publickey(
+                        user.to_owned(),
+                        PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
+                    )
+                    .await?;
+                if result.success() {
+                    return Ok(());
+                }
+
+                if !auth.use_agent {
+                    anyhow::bail!("Authentication failed.");
+                }
+            }
+            Err(_) if auth.use_agent => {
+                // Unreadable (or passphrase-protected) file: the agent may still hold a usable
+                // key, exactly as it does for the interactive path.
+            }
+            Err(_) => {
+                anyhow::bail!(
+                    "Failed to load identity file '{}' for non-interactive native SFTP auth. Encrypted keys require interactive passphrase entry, which is not available for transfers.",
+                    identity_file
+                );
+            }
+        }
+    }
+
+    if auth.use_agent && try_agent_auth(user, session).await {
+        return Ok(());
+    }
+
+    if let Some(password) = auth.password.as_deref() {
+        // russh's API takes an owned String, so this copy is unavoidable and its
+        // lifetime is russh's to manage. Our own copy is still wiped when `auth` drops.
+        let result = session
+            .authenticate_password(user.to_owned(), password.to_owned())
+            .await?;
+        if result.success() {
+            return Ok(());
+        }
+
+        anyhow::bail!("Authentication failed.");
+    }
+
+    if auth.use_agent {
+        anyhow::bail!(
+            "SSH agent authentication failed and no password or identity file was available to fall back to. Check that the agent is running and holds a key the server accepts."
+        )
+    }
+
+    anyhow::bail!(
+        "Native SFTP transfer requires an SSH agent, a password, or an identity file for non-interactive authentication."
+    )
+}
+
+async fn perform_sftp_transfer<H>(
+    session: &mut client::Handle<H>,
+    transfer: &SftpTransferRequestBody,
+    progress: SftpProgressEmitter,
+) -> anyhow::Result<()>
+where
+    H: client::Handler + Send + 'static,
+{
+    validate_supported_sftp_mode(transfer)?;
+
+    let channel = session.channel_open_session().await?;
+    channel.request_subsystem(true, "sftp").await?;
+    let sftp = SftpSession::new(channel.into_stream()).await?;
+    let direction = transfer.direction.trim().to_ascii_lowercase();
+    let kind = transfer.kind.trim().to_ascii_lowercase();
+    let cancellation_marker_path = transfer.cancellation_marker_path.as_deref();
+    let mut copy_buffer = vec![0u8; COPY_BUFFER_SIZE];
+    ensure_transfer_not_canceled(cancellation_marker_path)?;
+
+    match (direction.as_str(), kind.as_str()) {
+        ("download", "file") => {
+            download_file_from_remote(
+                &sftp,
+                &transfer.remote_path,
+                Path::new(&transfer.local_path),
+                cancellation_marker_path,
+                progress,
+                &mut copy_buffer,
+            )
+            .await?;
+        }
+        ("upload", "file") => {
+            let remote_target = resolve_upload_file_target(
+                &sftp,
+                Path::new(&transfer.local_path),
+                &transfer.remote_path,
+            )
+            .await?;
+            upload_file_to_remote(
+                &sftp,
+                Path::new(&transfer.local_path),
+                &remote_target,
+                cancellation_marker_path,
+                progress,
+                &mut copy_buffer,
+            )
+            .await?;
+        }
+        ("download", "directory") => {
+            let local_root =
+                PathBuf::from(&transfer.local_path).join(remote_basename(&transfer.remote_path)?);
+            download_directory_from_remote(
+                &sftp,
+                &transfer.remote_path,
+                &local_root,
+                cancellation_marker_path,
+                progress,
+                &mut copy_buffer,
+            )
+            .await?;
+        }
+        ("upload", "directory") => {
+            let local_root = PathBuf::from(&transfer.local_path);
+            let remote_root =
+                resolve_upload_directory_target(&sftp, &local_root, &transfer.remote_path).await?;
+            upload_directory_to_remote(
+                &sftp,
+                &local_root,
+                &remote_root,
+                cancellation_marker_path,
+                progress,
+                &mut copy_buffer,
+            )
+            .await?;
+        }
+        _ => anyhow::bail!(
+            "Native SFTP transfer mode '{}/{}' is not implemented yet.",
+            direction,
+            kind
+        ),
+    }
+
+    sftp.close().await?;
+    Ok(())
+}
+
+async fn list_remote_directory<H>(
+    session: &mut client::Handle<H>,
+    remote_path: &str,
+) -> anyhow::Result<Vec<RemotePathListEntry>>
+where
+    H: client::Handler + Send + 'static,
+{
+    let channel = session.channel_open_session().await?;
+    channel.request_subsystem(true, "sftp").await?;
+    let sftp = SftpSession::new(channel.into_stream()).await?;
+
+    let home_directory = if remote_path.trim().starts_with('~') {
+        Some(
+            sftp.canonicalize(".")
+                .await
+                .map_err(|error| map_remote_transfer_error(".", error))?,
+        )
+    } else {
+        None
+    };
+    let expanded_remote_path = expand_remote_home_path(remote_path, home_directory.as_deref())?;
+    let mut entries = sftp
+        .read_dir(expanded_remote_path.clone())
+        .await
+        .map_err(|error| map_remote_transfer_error(&expanded_remote_path, error))?
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.file_name());
+
+    let mapped = entries
+        .into_iter()
+        .map(|entry| {
+            let name = entry.file_name();
+            let full_path = join_remote_path(&expanded_remote_path, &name);
+            RemotePathListEntry {
+                name,
+                full_path,
+                is_directory: entry.metadata().is_dir(),
+                modified_at_unix_seconds: entry.metadata().mtime.map(|value| value as u64),
+            }
+        })
+        .collect();
+
+    sftp.close().await?;
+    Ok(mapped)
+}
+
+fn validate_supported_sftp_mode(transfer: &SftpTransferRequestBody) -> anyhow::Result<()> {
+    let direction = transfer.direction.trim().to_ascii_lowercase();
+    let kind = transfer.kind.trim().to_ascii_lowercase();
+    if (direction == "download" || direction == "upload") && (kind == "file" || kind == "directory")
+    {
+        return Ok(());
+    }
+
+    Err(anyhow::Error::new(NativeSftpTransferError::new(
+        NativeSftpTransferErrorKind::NotImplemented,
+        format!(
+            "Native SFTP transfer mode '{}/{}' is not implemented yet.",
+            direction, kind
+        ),
+    )))
+}
+
+async fn download_file_from_remote(
+    sftp: &SftpSession,
+    remote_path: &str,
+    local_path: &Path,
+    cancellation_marker_path: Option<&str>,
+    progress: SftpProgressEmitter,
+    copy_buffer: &mut [u8],
+) -> anyhow::Result<()> {
+    let total_bytes = sftp
+        .metadata(remote_path.to_owned())
+        .await
+        .map(|metadata| metadata.size)
+        .unwrap_or(None);
+    let mut remote_file = sftp
+        .open(remote_path.to_owned())
+        .await
+        .map_err(|error| map_remote_transfer_error(remote_path, error))?;
+    if let Some(parent) = local_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|error| map_local_transfer_error(parent, error))?;
+        }
+    }
+
+    // Download into a sibling `.ntildepart` file and rename on success. Writing straight
+    // to `local_path` would truncate an existing good copy the moment the file is
+    // created — before a single byte arrives — so a cancelled or failed re-download
+    // used to destroy the previous version and leave a truncated file behind.
+    let partial_path = partial_download_path(local_path);
+    let mut local_file = create_partial_download_file(&partial_path).await?;
+
+    if let Err(error) = copy_file_with_cancellation(
+        &mut remote_file,
+        &mut local_file,
+        cancellation_marker_path,
+        total_bytes,
+        remote_path,
+        progress,
+        copy_buffer,
+    )
+    .await
+    {
+        drop(local_file);
+        discard_partial_download(&partial_path).await;
+        return Err(error);
+    }
+
+    if let Err(error) = local_file.flush().await {
+        drop(local_file);
+        discard_partial_download(&partial_path).await;
+        return Err(map_local_transfer_error(&partial_path, error));
+    }
+
+    // Close the handle before renaming: Windows refuses to rename a file that still
+    // has an open handle.
+    drop(local_file);
+
+    // Close the remote handle *before* the rename so that the rename is the last
+    // fallible operation, and therefore the single commit point. With the rename first,
+    // a failing shutdown would report the transfer as failed even though the
+    // destination had already been replaced - and in a directory download would abort
+    // the remaining files having already committed this one.
+    if let Err(error) = remote_file.shutdown().await {
+        discard_partial_download(&partial_path).await;
+        return Err(error.into());
+    }
+
+    if let Err(error) = tokio::fs::rename(&partial_path, local_path).await {
+        discard_partial_download(&partial_path).await;
+        return Err(map_local_transfer_error(local_path, error));
+    }
+
+    Ok(())
+}
+
+async fn upload_file_to_remote(
+    sftp: &SftpSession,
+    local_path: &Path,
+    remote_path: &str,
+    cancellation_marker_path: Option<&str>,
+    progress: SftpProgressEmitter,
+    copy_buffer: &mut [u8],
+) -> anyhow::Result<()> {
+    let total_bytes = std::fs::metadata(local_path)
+        .ok()
+        .map(|metadata| metadata.len());
+    let mut local_file = TokioFile::open(local_path)
+        .await
+        .map_err(|error| map_local_transfer_error(local_path, error))?;
+    let mut remote_file = sftp
+        .create(remote_path.to_owned())
+        .await
+        .map_err(|error| map_remote_transfer_error(remote_path, error))?;
+    copy_file_with_cancellation(
+        &mut local_file,
+        &mut remote_file,
+        cancellation_marker_path,
+        total_bytes,
+        &local_path.to_string_lossy(),
+        progress,
+        copy_buffer,
+    )
+    .await?;
+    remote_file.shutdown().await?;
+    Ok(())
+}
+
+async fn resolve_upload_file_target(
+    sftp: &SftpSession,
+    local_path: &Path,
+    remote_path: &str,
+) -> anyhow::Result<String> {
+    let local_name = local_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("Local file name is required for native SFTP upload."))?;
+    let home_directory = if remote_path.trim().starts_with('~') {
+        Some(
+            sftp.canonicalize(".")
+                .await
+                .map_err(|error| map_remote_transfer_error(".", error))?,
+        )
+    } else {
+        None
+    };
+    let expanded_remote_path = expand_remote_home_path(remote_path, home_directory.as_deref())?;
+    let remote_path_is_dir = if sftp
+        .try_exists(expanded_remote_path.clone())
+        .await
+        .map_err(|error| map_remote_transfer_error(&expanded_remote_path, error))?
+    {
+        sftp.metadata(expanded_remote_path.clone())
+            .await
+            .map_err(|error| map_remote_transfer_error(&expanded_remote_path, error))?
+            .is_dir()
+    } else {
+        false
+    };
+
+    resolve_upload_file_destination_path(
+        local_name,
+        remote_path,
+        home_directory.as_deref(),
+        remote_path_is_dir,
+    )
+}
+
+async fn download_directory_from_remote(
+    sftp: &SftpSession,
+    remote_root: &str,
+    local_root: &Path,
+    cancellation_marker_path: Option<&str>,
+    progress: SftpProgressEmitter,
+    copy_buffer: &mut [u8],
+) -> anyhow::Result<()> {
+    tokio::fs::create_dir_all(local_root)
+        .await
+        .map_err(|error| map_local_transfer_error(local_root, error))?;
+
+    let mut pending = VecDeque::from([(remote_root.to_owned(), local_root.to_path_buf())]);
+    while let Some((remote_dir, local_dir)) = pending.pop_front() {
+        ensure_transfer_not_canceled(cancellation_marker_path)?;
+        tokio::fs::create_dir_all(&local_dir)
+            .await
+            .map_err(|error| map_local_transfer_error(&local_dir, error))?;
+
+        let mut entries = sftp
+            .read_dir(remote_dir.clone())
+            .await
+            .map_err(|error| map_remote_transfer_error(&remote_dir, error))?
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.file_name());
+
+        for entry in entries {
+            ensure_transfer_not_canceled(cancellation_marker_path)?;
+            let file_name = entry.file_name();
+            validate_remote_entry_name(&file_name)?;
+            let remote_child = join_remote_path(&remote_dir, &file_name);
+            let local_child = local_dir.join(&file_name);
+            ensure_within_download_root(local_root, &local_child)?;
+            let metadata = entry.metadata();
+
+            if metadata.is_dir() {
+                pending.push_back((remote_child, local_child));
+                continue;
+            }
+
+            if metadata.is_regular() {
+                download_file_from_remote(
+                    sftp,
+                    &remote_child,
+                    &local_child,
+                    cancellation_marker_path,
+                    progress,
+                    copy_buffer,
+                )
+                .await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn upload_directory_to_remote(
+    sftp: &SftpSession,
+    local_root: &Path,
+    remote_root: &str,
+    cancellation_marker_path: Option<&str>,
+    progress: SftpProgressEmitter,
+    copy_buffer: &mut [u8],
+) -> anyhow::Result<()> {
+    ensure_remote_directory_exists(sftp, remote_root).await?;
+
+    let mut pending = VecDeque::from([(local_root.to_path_buf(), remote_root.to_owned())]);
+    while let Some((local_dir, remote_dir)) = pending.pop_front() {
+        ensure_transfer_not_canceled(cancellation_marker_path)?;
+        let mut entries =
+            std::fs::read_dir(&local_dir)?.collect::<Result<Vec<_>, std::io::Error>>()?;
+        entries.sort_by_key(|entry| entry.file_name());
+
+        for entry in entries {
+            ensure_transfer_not_canceled(cancellation_marker_path)?;
+            let local_child = entry.path();
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy().into_owned();
+            let remote_child = join_remote_path(&remote_dir, &file_name);
+            let metadata = std::fs::symlink_metadata(&local_child)?;
+
+            if metadata.is_dir() {
+                ensure_remote_directory_exists(sftp, &remote_child).await?;
+                pending.push_back((local_child, remote_child));
+                continue;
+            }
+
+            if metadata.is_file() {
+                upload_file_to_remote(
+                    sftp,
+                    &local_child,
+                    &remote_child,
+                    cancellation_marker_path,
+                    progress,
+                    copy_buffer,
+                )
+                .await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn resolve_upload_directory_target(
+    sftp: &SftpSession,
+    local_root: &Path,
+    remote_path: &str,
+) -> anyhow::Result<String> {
+    let local_name = local_root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!("Local directory name is required for native SFTP upload.")
+        })?;
+    let normalized_remote = normalize_remote_directory_path(remote_path)?;
+
+    if sftp
+        .try_exists(normalized_remote.clone())
+        .await
+        .map_err(|error| map_remote_transfer_error(&normalized_remote, error))?
+    {
+        let metadata = sftp
+            .metadata(normalized_remote.clone())
+            .await
+            .map_err(|error| map_remote_transfer_error(&normalized_remote, error))?;
+        if metadata.is_dir() {
+            return Ok(join_remote_path(&normalized_remote, local_name));
+        }
+    }
+
+    Ok(normalized_remote)
+}
+
+async fn ensure_remote_directory_exists(sftp: &SftpSession, path: &str) -> anyhow::Result<()> {
+    let normalized = normalize_remote_directory_path(path)?;
+    if normalized == "/" {
+        return Ok(());
+    }
+
+    let is_absolute = normalized.starts_with('/');
+    let mut current = if is_absolute {
+        String::from("/")
+    } else {
+        String::new()
+    };
+
+    for part in normalized.split('/').filter(|part| !part.is_empty()) {
+        current = if current == "/" {
+            format!("/{}", part)
+        } else if current.is_empty() {
+            part.to_owned()
+        } else {
+            format!("{}/{}", current, part)
+        };
+
+        if !sftp
+            .try_exists(current.clone())
+            .await
+            .map_err(|error| map_remote_transfer_error(&current, error))?
+        {
+            sftp.create_dir(current.clone())
+                .await
+                .map_err(|error| map_remote_transfer_error(&current, error))?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn copy_file_with_cancellation<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    cancellation_marker_path: Option<&str>,
+    total_bytes: Option<u64>,
+    current_path: &str,
+    progress: SftpProgressEmitter,
+    copy_buffer: &mut [u8],
+) -> anyhow::Result<()>
+where
+    R: AsyncReadExt + Unpin,
+    W: AsyncWriteExt + Unpin,
+{
+    let mut bytes_done = 0u64;
+    let mut bytes_since_cancellation_check = 0u64;
+    ensure_transfer_not_canceled(cancellation_marker_path)?;
+    loop {
+        let read = reader.read(copy_buffer).await?;
+        if read == 0 {
+            break;
+        }
+
+        writer.write_all(&copy_buffer[..read]).await?;
+        bytes_done += read as u64;
+        bytes_since_cancellation_check += read as u64;
+        if should_check_for_cancellation(bytes_since_cancellation_check) {
+            ensure_transfer_not_canceled(cancellation_marker_path)?;
+            bytes_since_cancellation_check = 0;
+        }
+        progress.emit(bytes_done, total_bytes, current_path);
+    }
+
+    Ok(())
+}
+
+fn ensure_transfer_not_canceled(cancellation_marker_path: Option<&str>) -> anyhow::Result<()> {
+    if let Some(path) = cancellation_marker_path {
+        if Path::new(path).exists() {
+            return Err(anyhow::Error::new(NativeSftpTransferError::new(
+                NativeSftpTransferErrorKind::Canceled,
+                "Transfer canceled.",
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn should_check_for_cancellation(bytes_since_last_check: u64) -> bool {
+    bytes_since_last_check >= CANCELLATION_CHECK_INTERVAL_BYTES
+}
+
+fn classify_sftp_transfer_error(error: &anyhow::Error) -> (c_int, &'static str, String) {
+    if let Some(native_error) = error.downcast_ref::<NativeSftpTransferError>() {
+        return match native_error.kind {
+            NativeSftpTransferErrorKind::Canceled => (
+                NOVA_SSH_RESULT_CANCELED,
+                "canceled",
+                native_error.message.clone(),
+            ),
+            NativeSftpTransferErrorKind::NotImplemented => (
+                NOVA_SSH_RESULT_NOT_IMPLEMENTED,
+                "not-implemented",
+                native_error.message.clone(),
+            ),
+            NativeSftpTransferErrorKind::InvalidArgument => (
+                NOVA_SSH_RESULT_INVALID_ARGUMENT,
+                "invalid-argument",
+                native_error.message.clone(),
+            ),
+            NativeSftpTransferErrorKind::RemotePathNotFound
+            | NativeSftpTransferErrorKind::LocalPathNotFound
+            | NativeSftpTransferErrorKind::PermissionDenied => (
+                NOVA_SSH_RESULT_CLOSED,
+                "error",
+                native_error.message.clone(),
+            ),
+        };
+    }
+
+    (NOVA_SSH_RESULT_CLOSED, "error", error.to_string())
+}
+
+fn map_remote_transfer_error<E>(path: &str, error: E) -> anyhow::Error
+where
+    E: std::fmt::Display,
+{
+    let message = error.to_string();
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("permission denied") {
+        return anyhow::Error::new(NativeSftpTransferError::new(
+            NativeSftpTransferErrorKind::PermissionDenied,
+            format!("Permission denied: {}", path),
+        ));
+    }
+
+    if lower.contains("no such file") || lower.contains("not found") {
+        return anyhow::Error::new(NativeSftpTransferError::new(
+            NativeSftpTransferErrorKind::RemotePathNotFound,
+            format!("Remote path not found: {}", path),
+        ));
+    }
+
+    anyhow::anyhow!(message)
+}
+
+fn map_local_transfer_error(path: &Path, error: std::io::Error) -> anyhow::Error {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => anyhow::Error::new(NativeSftpTransferError::new(
+            NativeSftpTransferErrorKind::LocalPathNotFound,
+            format!("Local path not found: {}", path.display()),
+        )),
+        std::io::ErrorKind::PermissionDenied => anyhow::Error::new(NativeSftpTransferError::new(
+            NativeSftpTransferErrorKind::PermissionDenied,
+            format!("Permission denied: {}", path.display()),
+        )),
+        _ => anyhow::anyhow!(error),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeSftpTransferErrorKind {
+    Canceled,
+    NotImplemented,
+    InvalidArgument,
+    RemotePathNotFound,
+    LocalPathNotFound,
+    PermissionDenied,
+}
+
+#[derive(Debug)]
+struct NativeSftpTransferError {
+    kind: NativeSftpTransferErrorKind,
+    message: String,
+}
+
+impl NativeSftpTransferError {
+    fn new(kind: NativeSftpTransferErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for NativeSftpTransferError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for NativeSftpTransferError {}
+
+fn remote_basename(path: &str) -> anyhow::Result<String> {
+    let normalized = normalize_remote_directory_path(path)?;
+    let basename = normalized
+        .rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            anyhow::anyhow!("Remote directory name is required for native SFTP transfer.")
+        })?;
+
+    // A remote path ending in `/..` (or `/.`) would otherwise yield a basename of
+    // ".." and relocate the download root a level above the directory the user
+    // chose. User-supplied rather than server-supplied, so this is hygiene rather
+    // than the vulnerability fixed in validate_remote_entry_name — but the root
+    // still has to land where the user pointed it.
+    if basename == "." || basename == ".." {
+        return Err(anyhow::Error::new(NativeSftpTransferError::new(
+            NativeSftpTransferErrorKind::InvalidArgument,
+            format!(
+                "Remote directory path '{path}' resolves to '{basename}' and cannot be \
+                 used as a download directory name."
+            ),
+        )));
+    }
+
+    Ok(basename)
+}
+
+fn resolve_upload_file_destination_path(
+    local_name: &str,
+    remote_path: &str,
+    home_directory: Option<&str>,
+    remote_path_is_dir: bool,
+) -> anyhow::Result<String> {
+    let trimmed_remote_path = remote_path.trim();
+    let expanded_remote_path = expand_remote_home_path(remote_path, home_directory)?;
+    if trimmed_remote_path == "~" || remote_path_is_dir {
+        return Ok(join_remote_path(&expanded_remote_path, local_name));
+    }
+
+    Ok(expanded_remote_path)
+}
+
+fn expand_remote_home_path(path: &str, home_directory: Option<&str>) -> anyhow::Result<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow::Error::new(NativeSftpTransferError::new(
+            NativeSftpTransferErrorKind::InvalidArgument,
+            "Remote file path is required for native SFTP transfer.",
+        )));
+    }
+
+    if trimmed == "~" {
+        return normalize_remote_directory_path(home_directory.ok_or_else(|| {
+            anyhow::Error::new(NativeSftpTransferError::new(
+                NativeSftpTransferErrorKind::InvalidArgument,
+                "Remote home directory is unavailable for native SFTP upload.",
+            ))
+        })?);
+    }
+
+    if let Some(relative_path) = trimmed.strip_prefix("~/") {
+        let home_directory = normalize_remote_directory_path(home_directory.ok_or_else(|| {
+            anyhow::Error::new(NativeSftpTransferError::new(
+                NativeSftpTransferErrorKind::InvalidArgument,
+                "Remote home directory is unavailable for native SFTP upload.",
+            ))
+        })?)?;
+        return Ok(join_remote_path(&home_directory, relative_path));
+    }
+
+    Ok(trimmed.to_owned())
+}
+
+fn normalize_remote_directory_path(path: &str) -> anyhow::Result<String> {
+    let trimmed = path.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Ok("/".to_owned());
+    }
+
+    if trimmed == "." || trimmed == ".." {
+        return Err(anyhow::Error::new(NativeSftpTransferError::new(
+            NativeSftpTransferErrorKind::InvalidArgument,
+            format!("Remote directory path '{trimmed}' is not supported for native SFTP transfer."),
+        )));
+    }
+
+    Ok(trimmed.to_owned())
+}
+
+/// Suffix used for in-progress downloads so a cancelled or failed transfer never
+/// leaves a truncated file at the destination path.
+const PARTIAL_DOWNLOAD_SUFFIX: &str = ".ntildepart";
+
+/// Validates a **server-supplied** directory entry name before it is joined onto a
+/// local path.
+///
+/// Entry names returned by `read_dir` are attacker-controlled: a malicious or
+/// compromised server chooses them. `Path::join` with an absolute component silently
+/// *replaces* the base rather than nesting under it, so an unchecked join turns a
+/// directory download into an arbitrary file write anywhere the process can reach.
+///
+/// A legitimate entry name is exactly one normal path component. Requiring that (and
+/// that the component round-trips to the original string) rejects every escape shape
+/// at once: `..`, `.`, empty, `/` or `\` separators, absolute and drive-relative
+/// paths (`/etc/cron.d/x`, `C:\Windows\x`, `C:x`), UNC prefixes, and interior NULs.
+fn validate_remote_entry_name(file_name: &str) -> anyhow::Result<()> {
+    let rejected = |reason: &str| {
+        anyhow::Error::new(NativeSftpTransferError::new(
+            NativeSftpTransferErrorKind::InvalidArgument,
+            format!(
+                "Remote server returned an unsafe directory entry name {file_name:?} \
+                 ({reason}). Refusing to write outside the download directory."
+            ),
+        ))
+    };
+
+    if file_name.is_empty() {
+        return Err(rejected("empty"));
+    }
+
+    if file_name.contains('\0') {
+        return Err(rejected("contains a NUL byte"));
+    }
+
+    // Reject both separators regardless of host platform: a name containing '\' is
+    // harmless on Unix but escapes on Windows, and the same server may serve both.
+    if file_name.contains('/') || file_name.contains('\\') {
+        return Err(rejected("contains a path separator"));
+    }
+
+    let mut components = Path::new(file_name).components();
+    match (components.next(), components.next()) {
+        (Some(Component::Normal(value)), None) if value == OsStr::new(file_name) => Ok(()),
+        _ => Err(rejected("is not a single relative path component")),
+    }
+}
+
+/// Defence in depth for [`validate_remote_entry_name`]: confirms a joined child path
+/// is still lexically inside the download root. Purely a guard against a future
+/// refactor reintroducing an unvalidated join — with name validation in place this
+/// never fires.
+fn ensure_within_download_root(local_root: &Path, candidate: &Path) -> anyhow::Result<()> {
+    if candidate.starts_with(local_root) {
+        return Ok(());
+    }
+
+    Err(anyhow::Error::new(NativeSftpTransferError::new(
+        NativeSftpTransferErrorKind::InvalidArgument,
+        format!(
+            "Refusing to write {} outside the download directory {}.",
+            candidate.display(),
+            local_root.display()
+        ),
+    )))
+}
+
+/// Monotonic discriminator for partial-download file names. Combined with the process
+/// id it keeps concurrent transfers - which `SftpService` runs on independent
+/// `Task.Run` jobs, including two jobs targeting the same destination - from ever
+/// sharing a scratch file.
+static PARTIAL_DOWNLOAD_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Destination for the in-progress copy: the final name plus a per-transfer unique
+/// discriminator and [`PARTIAL_DOWNLOAD_SUFFIX`], so the previous good copy at
+/// `local_path` survives a cancelled or failed transfer untouched.
+///
+/// The name must be unique rather than deterministic: two concurrent downloads to the
+/// same destination would otherwise open and truncate the same scratch file, interleave
+/// their writes, and each rename mismatched content into place while reporting success.
+fn partial_download_path(local_path: &Path) -> PathBuf {
+    let mut file_name = local_path
+        .file_name()
+        .map(OsString::from)
+        .unwrap_or_else(|| OsString::from("download"));
+    file_name.push(format!(
+        ".{}.{}{}",
+        std::process::id(),
+        PARTIAL_DOWNLOAD_COUNTER.fetch_add(1, Ordering::Relaxed),
+        PARTIAL_DOWNLOAD_SUFFIX
+    ));
+    local_path.with_file_name(file_name)
+}
+
+/// Creates the scratch file for an in-progress download.
+///
+/// Uses `create_new` (`O_EXCL` / `CREATE_NEW`) rather than `create`. Beyond catching a
+/// name collision, this is what makes the write safe in a destination directory another
+/// local actor can write to: `create` follows symlinks, so a pre-created
+/// `<destination>.<pid>.<n>.ntildepart` symlink would redirect the downloaded bytes into
+/// whatever it points at. `O_EXCL` refuses to open an existing path at all, symlink or
+/// not, so a planted link fails the transfer instead of being followed.
+async fn create_partial_download_file(partial_path: &Path) -> anyhow::Result<TokioFile> {
+    tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(partial_path)
+        .await
+        .map_err(|error| map_local_transfer_error(partial_path, error))
+}
+
+/// Best-effort removal of an abandoned partial download. Failures are ignored
+/// deliberately: the caller is already returning the original transfer error, and a
+/// leftover `.ntildepart` file is strictly less harmful than masking that error.
+async fn discard_partial_download(partial_path: &Path) {
+    let _ = tokio::fs::remove_file(partial_path).await;
+}
+
+fn join_remote_path(base: &str, child: &str) -> String {
+    let trimmed_base = base.trim_end_matches('/');
+    let trimmed_child = child.trim_matches('/');
+    if trimmed_base.is_empty() || trimmed_base == "/" {
+        format!("/{}", trimmed_child)
+    } else {
+        format!("{}/{}", trimmed_base, trimmed_child)
+    }
+}
+
+/// Upper bound for the raw TCP connect (incl. DNS resolution). Deliberately applies
+/// only to the socket phase — the SSH handshake and auth can involve user prompts
+/// (host-key decision, password) and are cancelled via SharedState::wait_closed
+/// instead of a wall-clock timeout.
+const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long session teardown waits for forward-channel writer tasks to flush their close.
+const FORWARD_CHANNEL_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+async fn connect_tcp_with_timeout(host: &str, port: u16) -> anyhow::Result<tokio::net::TcpStream> {
+    match tokio::time::timeout(
+        TCP_CONNECT_TIMEOUT,
+        tokio::net::TcpStream::connect((host, port)),
+    )
+    .await
+    {
+        Ok(Ok(stream)) => Ok(stream),
+        Ok(Err(error)) => Err(anyhow::anyhow!(
+            "TCP connect to {host}:{port} failed: {error}"
+        )),
+        Err(_) => Err(anyhow::anyhow!(
+            "TCP connect to {host}:{port} timed out after {}s",
+            TCP_CONNECT_TIMEOUT.as_secs()
+        )),
+    }
+}
+
+/// Opens a direct-tcpip channel through `session` to the next hop. This channel open IS that
+/// hop's TCP connect (performed by the server behind `session`), so it carries the same bound
+/// as a direct connect: a blackholed next hop would otherwise hang until the remote sshd
+/// gives up.
+async fn open_tunnel_channel<H>(
+    session: &client::Handle<H>,
+    host: &str,
+    port: u16,
+) -> anyhow::Result<russh::Channel<client::Msg>>
+where
+    H: client::Handler,
+{
+    tokio::time::timeout(
+        TCP_CONNECT_TIMEOUT,
+        session.channel_open_direct_tcpip(host.to_owned(), port as u32, "127.0.0.1", 0),
+    )
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "direct-tcpip open to {host}:{port} via jump host timed out after {}s",
+            TCP_CONNECT_TIMEOUT.as_secs()
+        )
+    })?
+    .map_err(Into::into)
+}
+
+/// Establishes the SSH session up to a ready shell channel: the jump chain hop by hop,
+/// TCP connect (bounded by TCP_CONNECT_TIMEOUT), handshake, auth, shell detection,
+/// PTY + shell/exec setup. Runs inside run_session's select! race against
+/// SharedState::wait_closed, so it must not consume `command_rx`. The jump handles are
+/// returned so every tunnel in the chain outlives establishment.
+///
+/// Each hop is a full SSH session in its own right — its own handshake, its own host-key
+/// verification through the shared prompt machinery, its own authentication — nested over a
+/// direct-tcpip channel of the previous hop, exactly as OpenSSH treats a `-J` chain.
+async fn establish_session(
+    config: &ConnectConfig,
+    shared: &Arc<SharedState>,
+    client_config: Arc<client::Config>,
+    forward_channels: ForwardChannels,
+) -> anyhow::Result<(
+    Vec<client::Handle<NovaClientHandler>>,
+    client::Handle<NovaClientHandler>,
+    russh::Channel<client::Msg>,
+)> {
+    let mut jump_sessions: Vec<client::Handle<NovaClientHandler>> =
+        Vec::with_capacity(config.jump_hops.len());
+    for hop in &config.jump_hops {
+        let hop_handler = NovaClientHandler {
+            shared: shared.clone(),
+            host: hop.host.clone(),
+            port: hop.port,
+            forward_channels: None,
+        };
+
+        let mut hop_session = match jump_sessions.last() {
+            None => {
+                let stream = connect_tcp_with_timeout(hop.host.as_str(), hop.port).await?;
+                client::connect_stream(client_config.clone(), stream, hop_handler).await?
+            }
+            Some(previous) => {
+                let stream = open_tunnel_channel(previous, hop.host.as_str(), hop.port)
+                    .await?
+                    .into_stream();
+                client::connect_stream(client_config.clone(), stream, hop_handler).await?
+            }
+        };
+
+        authenticate(
+            &hop.user,
+            config.identity_file.as_deref(),
+            config.use_agent,
+            shared,
+            &mut hop_session,
+        )
+        .await?;
+        jump_sessions.push(hop_session);
+    }
+
+    let handler = NovaClientHandler {
+        shared: shared.clone(),
+        host: config.host.clone(),
+        port: config.port,
+        forward_channels: Some(forward_channels),
+    };
+
+    let mut session = if let Some(last_jump) = jump_sessions.last() {
+        let stream = open_tunnel_channel(last_jump, config.host.as_str(), config.port)
+            .await?
+            .into_stream();
+        client::connect_stream(client_config.clone(), stream, handler).await?
+    } else {
+        let stream = connect_tcp_with_timeout(config.host.as_str(), config.port).await?;
+        client::connect_stream(client_config.clone(), stream, handler).await?
+    };
+
+    authenticate(
+        &config.user,
+        config.identity_file.as_deref(),
+        config.use_agent,
+        shared,
+        &mut session,
+    )
+    .await?;
+
+    let effective_shell_kind = if config.remote_shell_kind != RemoteShellKind::Auto {
+        config.remote_shell_kind
+    } else if let Some(command) = config.shell_detection_command.as_deref() {
+        match detect_login_shell(&mut session, command).await {
+            Ok(shell_kind) => shell_kind,
+            Err(_) => RemoteShellKind::Auto,
+        }
+    } else {
+        RemoteShellKind::Auto
+    };
+
+    let mut channel = session.channel_open_session().await?;
+    channel
+        .request_pty(
+            true,
+            &config.term,
+            config.cols as u32,
+            config.rows as u32,
+            0,
+            0,
+            &[],
+        )
+        .await?;
+    if let Some(startup_command) = build_startup_command(effective_shell_kind, config) {
+        channel.exec(true, startup_command).await?;
+    } else {
+        channel.request_shell(true).await?;
+    }
+
+    Ok((jump_sessions, session, channel))
+}
+
+fn run_session(
+    config: ConnectConfig,
+    shared: Arc<SharedState>,
+    mut command_rx: mpsc::UnboundedReceiver<WorkerCommand>,
+) -> anyhow::Result<()> {
+    let runtime = Builder::new_current_thread().enable_all().build()?;
+    runtime.block_on(async move {
+        let forward_channels = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let client_config = Arc::new(build_client_config(&config));
+
+        // Session establishment (TCP connect, handshake, auth, shell setup) used to run
+        // unguarded: nova_ssh_close's WorkerCommand::Close is only consumed by the main
+        // select loop below, so a connect stuck on a dead host made `worker.join()` hang
+        // — potentially on the .NET finalizer thread (#155). Race the whole phase
+        // against mark_closed(), and bound the raw TCP connects with a timeout. The
+        // handshake/auth legs deliberately carry no timeout of their own: they can block
+        // on user interaction (host-key and password prompts), and mark_closed already
+        // unblocks those via wait_for_response.
+        let (jump_sessions, mut session, mut channel) = tokio::select! {
+            result = establish_session(&config, &shared, client_config.clone(), forward_channels.clone()) => result?,
+            _ = shared.wait_closed() => {
+                // Closed while connecting: exit cleanly; nova_ssh_close is joining us.
+                return Ok(());
+            }
+        };
+
+        shared.queue_event(QueuedEvent {
+            kind: NovaSshEventKind::Connected,
+            payload: serde_json::to_vec(&ConnectedPayload {
+                host: &config.host,
+                port: config.port,
+                user: &config.user,
+            })?,
+            status_code: 0,
+            flags: NOVA_SSH_EVENT_FLAG_JSON,
+        });
+
+        let mut pending_command: Option<WorkerCommand> = None;
+        loop {
+            tokio::select! {
+                command = next_worker_command(&mut pending_command, &mut command_rx) => {
+                    match command {
+                        Some(WorkerCommand::Write(data)) => {
+                            channel.data(&data[..]).await?;
+                        }
+                        Some(WorkerCommand::Resize { cols, rows }) => {
+                            let (cols, rows, pending_resize_command) = coalesce_pending_resize_commands(
+                                &mut command_rx,
+                                cols,
+                                rows,
+                            );
+                            pending_command = pending_resize_command;
+
+                            channel.window_change(cols as u32, rows as u32, 0, 0).await?;
+                        }
+                        Some(WorkerCommand::OpenDirectTcpIp {
+                            host_to_connect,
+                            port_to_connect,
+                            originator_address,
+                            originator_port,
+                            reply,
+                        }) => {
+                            let result = open_direct_tcpip_channel(
+                                &session,
+                                forward_channels.clone(),
+                                shared.clone(),
+                                host_to_connect,
+                                port_to_connect,
+                                originator_address,
+                                originator_port,
+                            )
+                            .await;
+                            let _ = reply.send(result);
+                        }
+                        Some(WorkerCommand::RequestRemoteForward { address, port, reply }) => {
+                            // Awaiting the server's reply here briefly holds the select loop, the
+                            // same trade OpenDirectTcpIp already makes: both happen at session
+                            // setup or on user action, and the caller needs the verdict — a
+                            // remote forward that failed must fail loudly, not queue silently.
+                            shared.mark_remote_forward_requested();
+                            let result = session
+                                .tcpip_forward(address, port)
+                                .await
+                                .map(|reported| resolved_remote_forward_port(port, reported))
+                                .map_err(anyhow::Error::from);
+                            let _ = reply.send(result);
+                        }
+                        // These three only queue onto the target channel's writer task. They used to
+                        // `await` the write half here and propagate with `?`, which meant a single
+                        // failed forward-channel write tore down the entire session — terminal
+                        // included. A forward channel can now only take itself down.
+                        Some(WorkerCommand::WriteForwardChannel { channel_id, data }) => {
+                            write_forward_channel(&forward_channels, channel_id, data).await;
+                        }
+                        Some(WorkerCommand::ForwardChannelEof { channel_id }) => {
+                            send_forward_channel_eof(&forward_channels, channel_id).await;
+                        }
+                        Some(WorkerCommand::CloseForwardChannel { channel_id }) => {
+                            close_forward_channel(&forward_channels, channel_id).await;
+                        }
+                        Some(WorkerCommand::Close) | None => {
+                            close_all_forward_channels(&forward_channels).await;
+                            let _ = channel.eof().await;
+                            let _ = channel.close().await;
+                            break;
+                        }
+                    }
+                }
+                message = channel.wait() => {
+                    match message {
+                        // Both data arms park on the byte budget. While parked, this loop reads
+                        // nothing further — including WorkerCommands — which is intended: the
+                        // budget only fills when the managed poll loop has stopped draining, and
+                        // an unread channel is what makes SSH flow control throttle the remote.
+                        // A close still gets through, via queue_data_event's is_closed check.
+                        Some(ChannelMsg::Data { data }) => {
+                            if !shared.queue_data_event(QueuedEvent {
+                                kind: NovaSshEventKind::Data,
+                                payload: data.to_vec(),
+                                status_code: 0,
+                                flags: NOVA_SSH_EVENT_FLAG_BINARY,
+                            }).await {
+                                break;
+                            }
+                        }
+                        Some(ChannelMsg::ExtendedData { data, .. }) => {
+                            if !shared.queue_data_event(QueuedEvent {
+                                kind: NovaSshEventKind::Data,
+                                payload: data.to_vec(),
+                                status_code: 0,
+                                flags: NOVA_SSH_EVENT_FLAG_BINARY,
+                            }).await {
+                                break;
+                            }
+                        }
+                        Some(ChannelMsg::ExitStatus { exit_status }) => {
+                            shared.queue_event(QueuedEvent {
+                                kind: NovaSshEventKind::ExitStatus,
+                                payload: serde_json::to_vec(&ExitStatusPayload { exit_status })?,
+                                status_code: exit_status as i32,
+                                flags: NOVA_SSH_EVENT_FLAG_JSON,
+                            });
+                        }
+                        Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        let _ = session
+            .disconnect(Disconnect::ByApplication, "Closed by Ntilde", "en")
+            .await;
+        // Tear the chain down innermost-first, mirroring how it was built: each hop's transport
+        // is a channel of the hop before it, so disconnecting an outer hop first would just drop
+        // the inner ones mid-conversation.
+        for jump in jump_sessions.into_iter().rev() {
+            let _ = jump
+                .disconnect(Disconnect::ByApplication, "Closed by Ntilde", "en")
+                .await;
+        }
+        Ok(())
+    })
+}
+
+async fn next_worker_command(
+    pending_command: &mut Option<WorkerCommand>,
+    command_rx: &mut mpsc::UnboundedReceiver<WorkerCommand>,
+) -> Option<WorkerCommand> {
+    if let Some(command) = pending_command.take() {
+        return Some(command);
+    }
+
+    command_rx.recv().await
+}
+
+fn coalesce_pending_resize_commands(
+    command_rx: &mut mpsc::UnboundedReceiver<WorkerCommand>,
+    mut cols: u16,
+    mut rows: u16,
+) -> (u16, u16, Option<WorkerCommand>) {
+    let mut pending_command = None;
+
+    loop {
+        match command_rx.try_recv() {
+            Ok(WorkerCommand::Resize {
+                cols: next_cols,
+                rows: next_rows,
+            }) => {
+                cols = next_cols;
+                rows = next_rows;
+            }
+            Ok(command) => {
+                pending_command = Some(command);
+                break;
+            }
+            Err(mpsc::error::TryRecvError::Empty)
+            | Err(mpsc::error::TryRecvError::Disconnected) => {
+                break;
+            }
+        }
+    }
+
+    (cols, rows, pending_command)
+}
+
+async fn open_direct_tcpip_channel(
+    session: &client::Handle<NovaClientHandler>,
+    forward_channels: ForwardChannels,
+    shared: Arc<SharedState>,
+    host_to_connect: String,
+    port_to_connect: u32,
+    originator_address: String,
+    originator_port: u32,
+) -> anyhow::Result<u32> {
+    let channel = session
+        .channel_open_direct_tcpip(
+            host_to_connect,
+            port_to_connect,
+            originator_address,
+            originator_port,
+        )
+        .await?;
+
+    Ok(register_forward_channel(channel, forward_channels, shared, |_| {}).await)
+}
+
+/// The port a remote-forward listener actually bound. RFC 4254 §7.1 has the server include a
+/// port in REQUEST_SUCCESS only when the request asked for port 0 (server-allocated); for an
+/// explicit port the reply is empty, which russh's `tcpip_forward` surfaces as `Ok(0)`. Taking
+/// that 0 at face value would report every successful explicit-port forward as "listening on
+/// port 0" — success on an explicit port means the server bound exactly the port it was asked.
+fn resolved_remote_forward_port(requested: u32, reported: u32) -> u32 {
+    if reported == 0 { requested } else { reported }
+}
+
+/// Wires an open channel — outgoing direct-tcpip or incoming forwarded-tcpip; the machinery is
+/// direction-agnostic once the channel exists — into the forward plumbing: a writer task with its
+/// write budget, the channels-map entry, and a reader task feeding the event queue.
+///
+/// `before_reader` runs after the channel is reachable through the map but before the reader task
+/// can deliver a single byte. That slot exists for incoming channels: their announcement event
+/// must be queued there, or data events could reach the managed side while the channel id still
+/// means nothing to it — and a channel announced before the map entry existed could be closed
+/// into a void. Outgoing channels pass a no-op; their id travels through the FFI return instead.
+async fn register_forward_channel(
+    channel: russh::Channel<client::Msg>,
+    forward_channels: ForwardChannels,
+    shared: Arc<SharedState>,
+    before_reader: impl FnOnce(u32),
+) -> u32 {
+    let channel_id = u32::from(channel.id());
+    let (mut read_half, write_half) = channel.split();
+
+    // Writer task per forward channel. The session worker's select loop used to `await` the write
+    // half directly, so a remote that stopped reading a forwarded connection stalled the loop — and
+    // with it the shell channel's own reads and writes. Now the loop only queues, and blocking lives
+    // here where it can only hold up this one channel.
+    // The queue stays unbounded; the bound is enforced at the FFI door instead, where the caller can
+    // be told to retry (see nova_ssh_channel_write). This counter is that bound's state.
+    let write_budget = Arc::new(AtomicUsize::new(0));
+    shared.register_forward_write_budget(channel_id, write_budget.clone());
+
+    let (write_tx, mut write_rx) = mpsc::unbounded_channel::<ForwardWrite>();
+    let writer_budget = write_budget.clone();
+    let writer_shared = shared.clone();
+    let writer_task = tokio::spawn(async move {
+        // Ends when the sender is dropped (channel removed) after draining what is already queued.
+        while let Some(write) = write_rx.recv().await {
+            match write {
+                ForwardWrite::Data(data) => {
+                    let queued = data.len();
+                    let write_result = write_half.data(Cursor::new(data)).await;
+
+                    // Released whether or not the write succeeded: on failure the loop ends and the
+                    // budget goes away with the channel, but a stuck counter in between would make a
+                    // retrying caller spin against a channel that is already finished.
+                    writer_budget.fetch_sub(queued, Ordering::AcqRel);
+
+                    if write_result.is_err() {
+                        break;
+                    }
+                }
+                ForwardWrite::Eof => {
+                    if write_half.eof().await.is_err() {
+                        break;
+                    }
+                }
+                ForwardWrite::Close => {
+                    let _ = write_half.close().await;
+                    break;
+                }
+            }
+        }
+
+        // Every removal path ends this task — an explicit Close, a write failure, or the handle being
+        // dropped out of the map — so cleaning the budget up here covers all of them at once. It also
+        // has to happen: a leftover full counter would make a managed pump retry forever against a
+        // channel that no longer exists.
+        writer_shared.unregister_forward_write_budget(channel_id);
+    });
+
+    forward_channels.lock().await.insert(
+        channel_id,
+        ForwardChannelHandle {
+            writes: write_tx,
+            writer_task,
+        },
+    );
+
+    before_reader(channel_id);
+
+    let reader_shared = shared.clone();
+    let reader_channels = forward_channels.clone();
+    tokio::spawn(async move {
+        loop {
+            match read_half.wait().await {
+                // The data arms share the session-wide byte budget with terminal output. A
+                // parked reader stops consuming this channel only; on a closed session it just
+                // breaks — session teardown owns the map and task cleanup at that point.
+                Some(ChannelMsg::Data { data }) => {
+                    if !reader_shared
+                        .queue_data_event(QueuedEvent {
+                            kind: NovaSshEventKind::ForwardChannelData,
+                            payload: data.to_vec(),
+                            status_code: channel_id as i32,
+                            flags: NOVA_SSH_EVENT_FLAG_BINARY,
+                        })
+                        .await
+                    {
+                        break;
+                    }
+                }
+                Some(ChannelMsg::ExtendedData { data, .. }) => {
+                    if !reader_shared
+                        .queue_data_event(QueuedEvent {
+                            kind: NovaSshEventKind::ForwardChannelData,
+                            payload: data.to_vec(),
+                            status_code: channel_id as i32,
+                            flags: NOVA_SSH_EVENT_FLAG_BINARY,
+                        })
+                        .await
+                    {
+                        break;
+                    }
+                }
+                Some(ChannelMsg::Eof) => {
+                    reader_shared.queue_event(QueuedEvent {
+                        kind: NovaSshEventKind::ForwardChannelEof,
+                        payload: Vec::new(),
+                        status_code: channel_id as i32,
+                        flags: NOVA_SSH_EVENT_FLAG_JSON,
+                    });
+                }
+                Some(ChannelMsg::Close) | None => {
+                    reader_channels.lock().await.remove(&channel_id);
+                    reader_shared.queue_event(QueuedEvent {
+                        kind: NovaSshEventKind::ForwardChannelClosed,
+                        payload: Vec::new(),
+                        status_code: channel_id as i32,
+                        flags: NOVA_SSH_EVENT_FLAG_JSON,
+                    });
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+
+    channel_id
+}
+
+/// Queues one item for a forward channel's writer task. Only ever awaits the map lock, never the
+/// network, so callers on the session worker's select loop cannot be stalled by a slow peer.
+async fn queue_forward_write(
+    forward_channels: &ForwardChannels,
+    channel_id: u32,
+    write: ForwardWrite,
+) {
+    let sender = {
+        let channels = forward_channels.lock().await;
+        channels
+            .get(&channel_id)
+            .map(|handle| handle.writes.clone())
+    };
+
+    if let Some(sender) = sender {
+        // A send error means the writer task already ended (the channel died under us); the
+        // subsequent ForwardChannelClosed event is what the managed side acts on.
+        let _ = sender.send(write);
+    }
+}
+
+async fn write_forward_channel(forward_channels: &ForwardChannels, channel_id: u32, data: Vec<u8>) {
+    queue_forward_write(forward_channels, channel_id, ForwardWrite::Data(data)).await;
+}
+
+async fn send_forward_channel_eof(forward_channels: &ForwardChannels, channel_id: u32) {
+    queue_forward_write(forward_channels, channel_id, ForwardWrite::Eof).await;
+}
+
+async fn close_forward_channel(forward_channels: &ForwardChannels, channel_id: u32) {
+    // Removed from the map first so nothing can be queued behind the close, but the close itself is
+    // handed to the writer task so it lands *after* the data already queued ahead of it. Closing the
+    // write half here directly would truncate whatever was still in flight.
+    let handle = forward_channels.lock().await.remove(&channel_id);
+    if let Some(handle) = handle {
+        let _ = handle.writes.send(ForwardWrite::Close);
+    }
+}
+
+async fn close_all_forward_channels(forward_channels: &ForwardChannels) {
+    let handles = {
+        let mut channels = forward_channels.lock().await;
+        channels
+            .drain()
+            .map(|(_, handle)| handle)
+            .collect::<Vec<_>>()
+    };
+
+    let mut writer_tasks = Vec::with_capacity(handles.len());
+    for handle in handles {
+        let _ = handle.writes.send(ForwardWrite::Close);
+        writer_tasks.push(handle.writer_task);
+    }
+
+    // Give the writer tasks a bounded chance to flush their close. Bounded because a task blocked
+    // writing to a remote that has stopped reading would otherwise hang session teardown, which is
+    // reached from nova_ssh_close and must not block the .NET finalizer thread (#155).
+    let drain = async {
+        for writer_task in writer_tasks {
+            let _ = writer_task.await;
+        }
+    };
+    let _ = tokio::time::timeout(FORWARD_CHANNEL_DRAIN_TIMEOUT, drain).await;
+}
+
+async fn authenticate(
+    user: &str,
+    identity_file: Option<&str>,
+    use_agent: bool,
+    shared: &Arc<SharedState>,
+    session: &mut client::Handle<NovaClientHandler>,
+) -> anyhow::Result<()> {
+    // The configured identity file keeps first position. It predates agent support, so it must
+    // stay reachable: an agent stuffed with unrelated keys could otherwise exhaust the server's
+    // MaxAuthTries — closing the transport — before the file that used to connect this profile
+    // was ever offered (Codex review on #334).
+    if let Some(identity_file) = identity_file {
+        if let Some(auth_result) = try_public_key_auth(user, shared, session, identity_file).await?
+        {
+            if auth_result.success() {
+                return Ok(());
+            }
+        }
+    }
+
+    // Agent identities next, before anything that prompts: the agent is the one method that can
+    // still succeed without asking the user anything. Every failure shape (no agent, no keys,
+    // all keys refused) falls through.
+    if use_agent && try_agent_auth(user, session).await {
+        return Ok(());
+    }
+
+    let password = prompt_text(
+        shared,
+        NovaSshEventKind::PasswordPrompt,
+        "Password:",
+        NovaSshResponseKind::Password,
+    )?;
+    // As in authenticate_transfer: russh needs an owned String; our copy is wiped when
+    // `password` drops at the end of this function.
+    let password_auth = session
+        .authenticate_password(user.to_owned(), password.as_str().to_owned())
+        .await?;
+    if password_auth.success() {
+        return Ok(());
+    }
+
+    let keyboard_auth = authenticate_keyboard_interactive(user, shared, session).await?;
+    if keyboard_auth {
+        return Ok(());
+    }
+
+    anyhow::bail!("SSH authentication failed")
+}
+
+/// An agent client whose stream type is erased, so Unix sockets, Windows named pipes, and
+/// Pageant all come back as the same type from [`connect_to_agent`].
+type DynAgentClient = AgentClient<Box<dyn AgentStream + Send + Unpin + 'static>>;
+
+/// Every agent worth asking, in preference order — empty if there is none to find, which is not
+/// an error but the everyday state of a machine with no agent running. Unix has one candidate
+/// (SSH_AUTH_SOCK). Windows has up to two — the OpenSSH service pipe (or SSH_AUTH_SOCK naming
+/// another pipe), then Pageant — and both are returned rather than the first that connects: a
+/// pipe that answers but holds no usable key must not shadow a Pageant holding the right one
+/// (Codex review on #334).
+#[cfg(unix)]
+async fn connect_to_agents() -> Vec<DynAgentClient> {
+    match tokio::time::timeout(AGENT_PROTOCOL_TIMEOUT, AgentClient::connect_env()).await {
+        Ok(Ok(client)) => vec![client.dynamic()],
+        _ => Vec::new(),
+    }
+}
+
+#[cfg(windows)]
+async fn connect_to_agents() -> Vec<DynAgentClient> {
+    // The timeouts also bound connect_named_pipe's busy-pipe retry loop, which would otherwise
+    // spin forever.
+    const OPENSSH_AGENT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
+    let pipe = std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| OPENSSH_AGENT_PIPE.to_owned());
+
+    let mut agents = Vec::new();
+    if let Ok(Ok(client)) = tokio::time::timeout(
+        AGENT_PROTOCOL_TIMEOUT,
+        AgentClient::connect_named_pipe(&pipe),
+    )
+    .await
+    {
+        agents.push(client.dynamic());
+    }
+
+    if let Ok(Ok(client)) =
+        tokio::time::timeout(AGENT_PROTOCOL_TIMEOUT, AgentClient::connect_pageant()).await
+    {
+        agents.push(client.dynamic());
+    }
+
+    agents
+}
+
+/// The agent's identity list, with bounded patience: an agent that accepted the connection but
+/// never answers must read as "no agent", not hang authentication in front of the fallbacks it
+/// was supposed to precede (Codex review on #334).
+async fn agent_identities(agent: &mut DynAgentClient) -> Option<Vec<AgentIdentity>> {
+    match tokio::time::timeout(AGENT_PROTOCOL_TIMEOUT, agent.request_identities()).await {
+        Ok(Ok(identities)) => Some(identities),
+        _ => None,
+    }
+}
+
+/// The agent as a mid-authentication signer, with the signing request time-bounded. An error
+/// (including the timeout) makes `authenticate_publickey_with` return `Err`, which
+/// `try_agent_auth` treats as "stop offering agent keys" — the fallback methods then run.
+struct TimeboundAgentSigner {
+    agent: DynAgentClient,
+}
+
+impl Signer for TimeboundAgentSigner {
+    type Error = russh::AgentAuthError;
+
+    fn auth_sign(
+        &mut self,
+        key: &AgentIdentity,
+        hash_alg: Option<ssh_key::HashAlg>,
+        to_sign: Vec<u8>,
+    ) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send {
+        async move {
+            match tokio::time::timeout(
+                AGENT_SIGN_TIMEOUT,
+                self.agent.auth_sign(key, hash_alg, to_sign),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => Err(russh::AgentAuthError::Key(russh::keys::Error::IO(
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "the SSH agent did not answer the signing request in time",
+                    ),
+                ))),
+            }
+        }
+    }
+}
+
+/// The plain public key inside an agent identity, or `None` for the kinds this backend cannot
+/// offer yet (OpenSSH certificates need a different auth request).
+fn agent_identity_public_key(identity: AgentIdentity) -> Option<ssh_key::PublicKey> {
+    match identity {
+        AgentIdentity::PublicKey { key, .. } => Some(key),
+        AgentIdentity::Certificate { .. } => None,
+    }
+}
+
+/// Offers every plain public key the user's agents hold, agent by agent in discovery order,
+/// with the agent doing the signing. Returns whether one of them authenticated the session.
+///
+/// Deliberately infallible: no agent, an empty agent, a broken agent, and a server that refuses
+/// every key all end as `false`, and the caller moves on to the next method — the same behavior
+/// `ssh` has when an agent is absent or unhelpful. A transport-level failure also lands on
+/// `false`; the very next auth attempt surfaces it as the real error.
+async fn try_agent_auth<H>(user: &str, session: &mut client::Handle<H>) -> bool
+where
+    H: client::Handler + Send + 'static,
+{
+    for agent in connect_to_agents().await {
+        if try_one_agent(user, session, agent).await {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// One agent's keys against the session. `false` covers "this agent could not help" in every
+/// shape — no identities, all keys refused, the agent (or session) breaking mid-attempt — so the
+/// caller can move on to the next agent or the next method.
+async fn try_one_agent<H>(
+    user: &str,
+    session: &mut client::Handle<H>,
+    mut agent: DynAgentClient,
+) -> bool
+where
+    H: client::Handler + Send + 'static,
+{
+    let Some(identities) = agent_identities(&mut agent).await else {
+        return false;
+    };
+
+    // RSA keys need the strongest hash the server accepts (rsa-sha2-*, never ssh-rsa/SHA-1 if
+    // the server can do better); every other algorithm has exactly one form. Queried once, on
+    // the first RSA key — the answer comes from the server's ext-info and cannot change
+    // mid-authentication, so an agent full of RSA keys must not repeat the round trip per key.
+    let mut best_rsa_hash: Option<Option<ssh_key::HashAlg>> = None;
+
+    let mut signer = TimeboundAgentSigner { agent };
+    for key in identities.into_iter().filter_map(agent_identity_public_key) {
+        let hash_alg = if matches!(key.algorithm(), ssh_key::Algorithm::Rsa { .. }) {
+            match best_rsa_hash {
+                Some(hash) => hash,
+                None => match session.best_supported_rsa_hash().await {
+                    Ok(hash) => {
+                        let hash = hash.flatten();
+                        best_rsa_hash = Some(hash);
+                        hash
+                    }
+                    Err(_) => return false,
+                },
+            }
+        } else {
+            None
+        };
+
+        match session
+            .authenticate_publickey_with(user.to_owned(), key, hash_alg, &mut signer)
+            .await
+        {
+            Ok(result) if result.success() => return true,
+            // The server refused this key; the next one may be the right one.
+            Ok(_) => continue,
+            // The agent (or the session) stopped cooperating mid-attempt. This agent's remaining
+            // keys would hit the same wall, so stop offering them.
+            Err(_) => return false,
+        }
+    }
+
+    false
+}
+
+async fn try_public_key_auth(
+    user: &str,
+    shared: &Arc<SharedState>,
+    session: &mut client::Handle<NovaClientHandler>,
+    identity_file: &str,
+) -> anyhow::Result<Option<AuthResult>> {
+    let key = match load_secret_key(Path::new(identity_file), None) {
+        Ok(key) => key,
+        Err(_) => {
+            let passphrase = prompt_text(
+                shared,
+                NovaSshEventKind::PassphrasePrompt,
+                "Key passphrase:",
+                NovaSshResponseKind::Passphrase,
+            )?;
+            load_secret_key(Path::new(identity_file), Some(passphrase.as_str()))?
+        }
+    };
+
+    let hash_alg = session.best_supported_rsa_hash().await?.flatten();
+    let auth = session
+        .authenticate_publickey(
+            user.to_owned(),
+            PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
+        )
+        .await?;
+    Ok(Some(auth))
+}
+
+async fn authenticate_keyboard_interactive(
+    user: &str,
+    shared: &Arc<SharedState>,
+    session: &mut client::Handle<NovaClientHandler>,
+) -> anyhow::Result<bool> {
+    let mut response = session
+        .authenticate_keyboard_interactive_start(user.to_owned(), None::<String>)
+        .await?;
+
+    loop {
+        match response {
+            KeyboardInteractiveAuthResponse::Success => return Ok(true),
+            KeyboardInteractiveAuthResponse::Failure { .. } => return Ok(false),
+            KeyboardInteractiveAuthResponse::InfoRequest {
+                name,
+                instructions,
+                prompts,
+            } => {
+                let payload = KeyboardInteractivePromptPayload {
+                    name,
+                    instructions,
+                    prompts: prompts
+                        .into_iter()
+                        .map(|prompt| KeyboardPromptPayload {
+                            prompt: prompt.prompt,
+                            echo: prompt.echo,
+                        })
+                        .collect(),
+                };
+
+                shared.queue_event(QueuedEvent {
+                    kind: NovaSshEventKind::KeyboardInteractivePrompt,
+                    payload: serde_json::to_vec(&payload)?,
+                    status_code: 0,
+                    flags: NOVA_SSH_EVENT_FLAG_JSON,
+                });
+
+                let responses = wait_keyboard_responses(shared)?;
+                response = session
+                    .authenticate_keyboard_interactive_respond(responses.to_vec())
+                    .await?;
+            }
+        }
+    }
+}
+
+fn prompt_text(
+    shared: &Arc<SharedState>,
+    event_kind: NovaSshEventKind,
+    prompt: &str,
+    response_kind: NovaSshResponseKind,
+) -> anyhow::Result<Zeroizing<String>> {
+    shared.queue_event(QueuedEvent {
+        kind: event_kind,
+        payload: serde_json::to_vec(&TextPromptPayload { prompt })?,
+        status_code: 0,
+        flags: NOVA_SSH_EVENT_FLAG_JSON,
+    });
+
+    // The raw response payload is JSON containing the secret in cleartext
+    // (`{"text":"..."}`), so the buffer itself has to be wiped, not just the parsed
+    // string.
+    let payload = Zeroizing::new(
+        shared
+            .wait_for_response(response_kind)
+            .ok_or_else(|| anyhow::anyhow!("SSH prompt canceled"))?,
+    );
+    let response = serde_json::from_slice::<TextResponse>(&payload)?;
+    Ok(Zeroizing::new(response.text))
+}
+
+fn wait_keyboard_responses(
+    shared: &Arc<SharedState>,
+) -> anyhow::Result<Zeroizing<Vec<String>>> {
+    // Keyboard-interactive answers are credentials too - same treatment as prompt_text.
+    let payload = Zeroizing::new(
+        shared
+            .wait_for_response(NovaSshResponseKind::KeyboardInteractive)
+            .ok_or_else(|| anyhow::anyhow!("Keyboard-interactive prompt canceled"))?,
+    );
+    let response = serde_json::from_slice::<KeyboardInteractiveResponse>(&payload)?;
+    Ok(Zeroizing::new(response.responses))
+}
+
+#[cfg(test)]
+fn create_test_session_with_event(kind: NovaSshEventKind, payload: &[u8]) -> usize {
+    let shared = Arc::new(SharedState::new());
+    shared.queue_event(QueuedEvent {
+        kind,
+        payload: payload.to_vec(),
+        status_code: 0,
+        flags: NOVA_SSH_EVENT_FLAG_JSON,
+    });
+
+    registry_insert(NovaSshSession {
+        shared,
+        command_tx: Mutex::new(None),
+        worker: Mutex::new(None),
+    }) as usize
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // #155: session establishment races against wait_closed so nova_ssh_close can
+    // abort a stuck connect instead of hanging worker.join() (and the .NET
+    // finalizer thread). These pin the notify semantics that race depends on.
+    #[test]
+    fn wait_closed_resolves_after_mark_closed_from_another_thread() {
+        let shared = Arc::new(SharedState::new());
+        let closer = shared.clone();
+        let handle = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            closer.mark_closed();
+        });
+
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(5), shared.wait_closed())
+                .await
+                .expect("wait_closed must resolve after mark_closed");
+        });
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn wait_closed_resolves_immediately_when_already_closed() {
+        let shared = SharedState::new();
+        shared.mark_closed();
+
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_millis(100), shared.wait_closed())
+                .await
+                .expect("wait_closed must resolve without any notification when already closed");
+        });
+    }
+
+    #[test]
+    fn tcp_connect_timeout_reports_refused_connection_promptly() {
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            // Bind-then-drop gives a port with (almost certainly) no listener.
+            let port = {
+                let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                listener.local_addr().unwrap().port()
+            };
+            let result = connect_tcp_with_timeout("127.0.0.1", port).await;
+            assert!(result.is_err(), "connect to a closed port must fail");
+        });
+    }
+
+    #[test]
+    fn null_handle_operations_return_invalid_argument() {
+        let resize = nova_ssh_resize(0, 120, 30);
+        let write = nova_ssh_write(0, [1u8, 2, 3].as_ptr(), 3);
+        let forward_args = NovaSshDirectTcpIpArgs {
+            host_to_connect: ptr::null(),
+            port_to_connect: 80,
+            originator_address: ptr::null(),
+            originator_port: 1000,
+        };
+        let open = nova_ssh_open_direct_tcpip(0, &forward_args);
+        let channel_write = nova_ssh_channel_write(0, 1, [1u8, 2, 3].as_ptr(), 3);
+        let channel_eof = nova_ssh_channel_eof(0, 1);
+        let channel_close = nova_ssh_channel_close(0, 1);
+        let respond = nova_ssh_submit_response(0, 1, br#"{}"#.as_ptr(), 2);
+        let mut sftp_response = ptr::null_mut();
+        let sftp = nova_ssh_sftp_transfer(ptr::null(), None, ptr::null_mut(), &mut sftp_response);
+        let close = nova_ssh_close(0);
+
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, resize);
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, write);
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, open);
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, channel_write);
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, channel_eof);
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, channel_close);
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, respond);
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, sftp);
+        assert!(sftp_response.is_null());
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, close);
+    }
+
+    #[test]
+    fn sftp_transfer_rejects_unsupported_modes() {
+        let request = CString::new(
+            r#"{"connection":{"host":"example.com","user":"nova","port":22,"password":"secret","knownHostsFilePath":"known_hosts.json"},"transfer":{"direction":"sync","kind":"directory","localPath":"local.txt","remotePath":"/tmp/remote.txt"}}"#,
+        )
+        .unwrap();
+        let mut response = ptr::null_mut();
+
+        let rc = nova_ssh_sftp_transfer(request.as_ptr(), None, ptr::null_mut(), &mut response);
+
+        assert_eq!(NOVA_SSH_RESULT_NOT_IMPLEMENTED, rc);
+        assert!(!response.is_null());
+
+        let response_json = unsafe { CStr::from_ptr(response) }.to_str().unwrap();
+        let payload: serde_json::Value = serde_json::from_str(response_json).unwrap();
+        assert_eq!("not-implemented", payload["status"]);
+        assert_eq!(
+            "Native SFTP transfer mode 'sync/directory' is not implemented yet.",
+            payload["message"]
+        );
+
+        nova_ssh_string_free(response);
+    }
+
+    #[test]
+    fn sftp_list_directory_rejects_incomplete_requests() {
+        let request = CString::new(
+            r#"{"connection":{"host":"example.com","user":"nova","port":22,"password":"secret","knownHostsFilePath":"known_hosts.json"},"path":""}"#,
+        )
+        .unwrap();
+        let mut response = ptr::null_mut();
+
+        let rc = nova_ssh_sftp_list_directory(request.as_ptr(), &mut response);
+
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, rc);
+        assert!(!response.is_null());
+
+        let response_json = unsafe { CStr::from_ptr(response) }.to_str().unwrap();
+        let payload: serde_json::Value = serde_json::from_str(response_json).unwrap();
+        assert_eq!("invalid-argument", payload["status"]);
+        assert!(
+            payload["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("incomplete")
+        );
+
+        nova_ssh_string_free(response);
+    }
+
+    #[test]
+    fn remote_path_list_response_serializes_modified_unix_seconds() {
+        let mut response = ptr::null_mut();
+        let entries = vec![RemotePathListEntry {
+            name: "access.log".to_owned(),
+            full_path: "/srv/access.log".to_owned(),
+            is_directory: false,
+            modified_at_unix_seconds: Some(1_777_925_700),
+        }];
+
+        let rc = write_remote_path_list_response_json(
+            &mut response,
+            NOVA_SSH_RESULT_OK,
+            "ok",
+            "listed",
+            entries,
+        );
+
+        assert_eq!(NOVA_SSH_RESULT_OK, rc);
+        assert!(!response.is_null());
+
+        let response_json = unsafe { CStr::from_ptr(response) }.to_str().unwrap();
+        let payload: serde_json::Value = serde_json::from_str(response_json).unwrap();
+        assert_eq!(1_777_925_700u64, payload["entries"][0]["modifiedAtUnixSeconds"]);
+
+        nova_ssh_string_free(response);
+    }
+
+    #[test]
+    fn poll_reports_required_payload_length_before_copying() {
+        let payload = br#"{"host":"example.internal","fingerprint":"SHA256:test"}"#;
+        let session = create_test_session_with_event(NovaSshEventKind::HostKeyPrompt, payload);
+        assert_ne!(0, session);
+
+        let mut event = NovaSshEvent::default();
+        let mut tiny = [0u8; 8];
+        let rc = nova_ssh_poll_event(session, &mut event, tiny.as_mut_ptr(), tiny.len());
+
+        assert_eq!(NOVA_SSH_RESULT_BUFFER_TOO_SMALL, rc);
+        assert_eq!(NovaSshEventKind::HostKeyPrompt as u32, event.kind);
+        assert_eq!(payload.len() as u32, event.payload_len);
+
+        let close = nova_ssh_close(session);
+        assert_eq!(NOVA_SSH_RESULT_OK, close);
+    }
+
+    // The refactor in #173 item 1 turned peek-then-pop into a single take-if-fits, so the retry after
+    // BUFFER_TOO_SMALL is the path most at risk of losing or corrupting a payload. Nothing covered it
+    // before: the test above stops at the size report.
+    #[test]
+    fn retry_after_buffer_too_small_delivers_the_payload_intact() {
+        let payload = br#"{"host":"example.internal","fingerprint":"SHA256:retry-path"}"#;
+        let session = create_test_session_with_event(NovaSshEventKind::HostKeyPrompt, payload);
+        assert_ne!(0, session);
+
+        let mut event = NovaSshEvent::default();
+        let mut tiny = [0u8; 4];
+        assert_eq!(
+            NOVA_SSH_RESULT_BUFFER_TOO_SMALL,
+            nova_ssh_poll_event(session, &mut event, tiny.as_mut_ptr(), tiny.len())
+        );
+
+        // Size from the header the failed poll just wrote, exactly as the managed caller does.
+        let mut buffer = vec![0u8; event.payload_len as usize];
+        assert_eq!(
+            NOVA_SSH_RESULT_EVENT_READY,
+            nova_ssh_poll_event(session, &mut event, buffer.as_mut_ptr(), buffer.len())
+        );
+
+        assert_eq!(payload.len() as u32, event.payload_len);
+        assert_eq!(payload.as_slice(), &buffer[..], "payload came back altered");
+
+        // And the event is consumed, not left behind to be delivered twice.
+        let mut second = NovaSshEvent::default();
+        assert_eq!(
+            NOVA_SSH_RESULT_OK,
+            nova_ssh_poll_event(session, &mut second, buffer.as_mut_ptr(), buffer.len())
+        );
+
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(session));
+    }
+
+    #[test]
+    fn exactly_sized_buffer_is_accepted() {
+        // Boundary between TooSmall and Ready. An off-by-one here would either reject a correctly
+        // sized buffer forever (livelock in the managed retry loop) or overrun it.
+        let payload = b"0123456789";
+        let session = create_test_session_with_event(NovaSshEventKind::HostKeyPrompt, payload);
+
+        let mut event = NovaSshEvent::default();
+        let mut buffer = [0u8; 10];
+        assert_eq!(
+            NOVA_SSH_RESULT_EVENT_READY,
+            nova_ssh_poll_event(session, &mut event, buffer.as_mut_ptr(), buffer.len())
+        );
+        assert_eq!(payload.as_slice(), &buffer[..]);
+
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(session));
+    }
+
+    // Bug in the pre-#173 code, fixed as a side effect and worth pinning: a caller passing a null
+    // payload pointer with a large capacity passed the size check, skipped the copy (guarded on
+    // !payload.is_null()) and then *popped the event anyway* - silently destroying it. Now a null
+    // pointer is treated as zero capacity, so the event survives for a real retry.
+    #[test]
+    fn null_payload_pointer_does_not_consume_the_event() {
+        let payload = b"payload that must survive a header-only poll";
+        let session = create_test_session_with_event(NovaSshEventKind::HostKeyPrompt, payload);
+
+        let mut event = NovaSshEvent::default();
+        assert_eq!(
+            NOVA_SSH_RESULT_BUFFER_TOO_SMALL,
+            nova_ssh_poll_event(session, &mut event, ptr::null_mut(), 4096)
+        );
+        assert_eq!(payload.len() as u32, event.payload_len);
+
+        let mut buffer = vec![0u8; event.payload_len as usize];
+        assert_eq!(
+            NOVA_SSH_RESULT_EVENT_READY,
+            nova_ssh_poll_event(session, &mut event, buffer.as_mut_ptr(), buffer.len())
+        );
+        assert_eq!(payload.as_slice(), &buffer[..]);
+
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(session));
+    }
+
+    #[test]
+    fn queued_events_are_delivered_in_order() {
+        // take_event_if_fits pops under the same lock it peeked under; this guards the ordering that
+        // guarantees.
+        let shared = Arc::new(SharedState::new());
+        for i in 0u8..5 {
+            shared.queue_event(QueuedEvent {
+                kind: NovaSshEventKind::HostKeyPrompt,
+                payload: vec![i; 3],
+                status_code: i as i32,
+                flags: NOVA_SSH_EVENT_FLAG_JSON,
+            });
+        }
+        let session = registry_insert(NovaSshSession {
+            shared,
+            command_tx: Mutex::new(None),
+            worker: Mutex::new(None),
+        }) as usize;
+
+        for i in 0u8..5 {
+            let mut event = NovaSshEvent::default();
+            let mut buffer = [0u8; 8];
+            assert_eq!(
+                NOVA_SSH_RESULT_EVENT_READY,
+                nova_ssh_poll_event(session, &mut event, buffer.as_mut_ptr(), buffer.len())
+            );
+            assert_eq!(i as i32, event.status_code, "events came back out of order");
+            assert_eq!([i, i, i], buffer[..3]);
+        }
+
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(session));
+    }
+
+    #[test]
+    fn poll_copies_payload_when_buffer_is_large_enough() {
+        let payload = b"hello from ssh";
+        let session = create_test_session_with_event(NovaSshEventKind::Data, payload);
+        assert_ne!(0, session);
+
+        let mut event = NovaSshEvent::default();
+        let mut buffer = [0u8; 64];
+        let rc = nova_ssh_poll_event(session, &mut event, buffer.as_mut_ptr(), buffer.len());
+
+        assert_eq!(NOVA_SSH_RESULT_EVENT_READY, rc);
+        assert_eq!(NovaSshEventKind::Data as u32, event.kind);
+        assert_eq!(payload.len() as u32, event.payload_len);
+        assert_eq!(&buffer[..payload.len()], payload);
+
+        let close = nova_ssh_close(session);
+        assert_eq!(NOVA_SSH_RESULT_OK, close);
+    }
+
+    #[test]
+    fn submit_response_queues_prompt_data_even_before_worker_loop_runs() {
+        let shared = Arc::new(SharedState::new());
+        let (command_tx, _command_rx) = mpsc::unbounded_channel();
+        let session = registry_insert(NovaSshSession {
+            shared: shared.clone(),
+            command_tx: Mutex::new(Some(command_tx)),
+            worker: Mutex::new(None),
+        }) as usize;
+
+        let payload = br#"{"accept":true}"#;
+        let rc = nova_ssh_submit_response(
+            session,
+            NovaSshResponseKind::HostKeyDecision as u32,
+            payload.as_ptr(),
+            payload.len(),
+        );
+
+        assert_eq!(NOVA_SSH_RESULT_OK, rc);
+        let queued = shared.wait_for_response(NovaSshResponseKind::HostKeyDecision);
+        assert_eq!(Some(payload.to_vec()), queued);
+
+        let close = nova_ssh_close(session);
+        assert_eq!(NOVA_SSH_RESULT_OK, close);
+    }
+
+    #[test]
+    fn connect_config_reads_keepalive_settings_from_ffi_args() {
+        let host = CString::new("native.example").unwrap();
+        let user = CString::new("nova").unwrap();
+        let term = CString::new("xterm-256color").unwrap();
+
+        let args = NovaSshConnectArgs {
+            host: host.as_ptr(),
+            user: user.as_ptr(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: term.as_ptr(),
+            identity_file: ptr::null(),
+            jump_hops_json: ptr::null(),
+            keepalive_interval_seconds: 15,
+            keepalive_count_max: 7,
+            remote_shell_kind: 0,
+            shell_detection_command: ptr::null(),
+            bash_cwd_bootstrap: ptr::null(),
+            zsh_cwd_bootstrap: ptr::null(),
+            fish_cwd_bootstrap: ptr::null(),
+            use_agent: 1,
+        };
+
+        let config = ConnectConfig::from_args(&args).expect("config should parse");
+
+        assert_eq!(15, config.keepalive_interval_seconds);
+        assert_eq!(7, config.keepalive_count_max);
+        assert!(
+            config.use_agent,
+            "a non-zero use_agent must survive the FFI crossing"
+        );
+    }
+
+    #[test]
+    fn connect_config_reads_remote_shell_fields_from_ffi_args() {
+        let host = CString::new("native.example").unwrap();
+        let user = CString::new("nova").unwrap();
+        let term = CString::new("xterm-256color").unwrap();
+        let shell_detection_command = CString::new("sh -lc 'printf test'").unwrap();
+        let bash_cwd_bootstrap = CString::new("bash-bootstrap").unwrap();
+        let zsh_cwd_bootstrap = CString::new("zsh-bootstrap").unwrap();
+        let fish_cwd_bootstrap = CString::new("fish-bootstrap").unwrap();
+
+        let args = NovaSshConnectArgs {
+            host: host.as_ptr(),
+            user: user.as_ptr(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: term.as_ptr(),
+            identity_file: ptr::null(),
+            jump_hops_json: ptr::null(),
+            keepalive_interval_seconds: 15,
+            keepalive_count_max: 7,
+            remote_shell_kind: 2,
+            shell_detection_command: shell_detection_command.as_ptr(),
+            bash_cwd_bootstrap: bash_cwd_bootstrap.as_ptr(),
+            zsh_cwd_bootstrap: zsh_cwd_bootstrap.as_ptr(),
+            fish_cwd_bootstrap: fish_cwd_bootstrap.as_ptr(),
+            use_agent: 0,
+        };
+
+        let config = ConnectConfig::from_args(&args).expect("config should parse");
+
+        assert_eq!(RemoteShellKind::Zsh, config.remote_shell_kind);
+        assert_eq!(
+            Some("sh -lc 'printf test'".to_owned()),
+            config.shell_detection_command
+        );
+        assert_eq!(Some("bash-bootstrap".to_owned()), config.bash_cwd_bootstrap);
+        assert_eq!(Some("zsh-bootstrap".to_owned()), config.zsh_cwd_bootstrap);
+        assert_eq!(Some("fish-bootstrap".to_owned()), config.fish_cwd_bootstrap);
+    }
+
+    #[test]
+    fn detect_login_shell_output_to_kind_maps_known_tokens() {
+        assert_eq!(
+            RemoteShellKind::Bash,
+            detect_login_shell_output_to_kind("/bin/bash")
+        );
+        assert_eq!(
+            RemoteShellKind::Zsh,
+            detect_login_shell_output_to_kind("zsh")
+        );
+        assert_eq!(
+            RemoteShellKind::Fish,
+            detect_login_shell_output_to_kind("/usr/local/bin/fish")
+        );
+        assert_eq!(
+            RemoteShellKind::Pwsh,
+            detect_login_shell_output_to_kind("powershell")
+        );
+        assert_eq!(
+            RemoteShellKind::Auto,
+            detect_login_shell_output_to_kind("tcsh")
+        );
+    }
+
+    #[test]
+    fn client_config_uses_keepalive_without_forcing_inactivity_timeout() {
+        let config = ConnectConfig {
+            host: "native.example".to_owned(),
+            user: "nova".to_owned(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: "xterm-256color".to_owned(),
+            identity_file: None,
+            use_agent: false,
+            jump_hops: Vec::new(),
+            keepalive_interval_seconds: 15,
+            keepalive_count_max: 7,
+            remote_shell_kind: RemoteShellKind::Auto,
+            shell_detection_command: None,
+            bash_cwd_bootstrap: None,
+            zsh_cwd_bootstrap: None,
+            fish_cwd_bootstrap: None,
+        };
+
+        let client_config = build_client_config(&config);
+
+        assert_eq!(None, client_config.inactivity_timeout);
+        assert_eq!(
+            Some(Duration::from_secs(15)),
+            client_config.keepalive_interval
+        );
+        assert_eq!(7, client_config.keepalive_max);
+    }
+
+    #[test]
+    fn build_startup_command_wraps_bash_bootstrap() {
+        let config = ConnectConfig {
+            host: "native.example".to_owned(),
+            user: "nova".to_owned(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: "xterm-256color".to_owned(),
+            identity_file: None,
+            use_agent: false,
+            jump_hops: Vec::new(),
+            keepalive_interval_seconds: 30,
+            keepalive_count_max: 3,
+            remote_shell_kind: RemoteShellKind::Bash,
+            shell_detection_command: None,
+            bash_cwd_bootstrap: Some("printf 'cwd'".to_owned()),
+            zsh_cwd_bootstrap: None,
+            fish_cwd_bootstrap: None,
+        };
+
+        let command = build_startup_command(RemoteShellKind::Bash, &config)
+            .expect("bash command should be generated");
+
+        assert!(command.starts_with("sh -lc '"));
+        assert!(command.contains("tmp_rc=$(mktemp)"));
+        assert!(command.contains("exec bash --rcfile"));
+        assert!(command.contains("~/.bash_profile"));
+        assert!(command.contains("~/.bash_login"));
+        assert!(command.contains("~/.profile"));
+        assert!(command.contains("~/.bashrc"));
+    }
+
+    #[test]
+    fn build_startup_command_wraps_fish_bootstrap_in_posix_shell() {
+        let config = ConnectConfig {
+            host: "native.example".to_owned(),
+            user: "nova".to_owned(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: "xterm-256color".to_owned(),
+            identity_file: None,
+            use_agent: false,
+            jump_hops: Vec::new(),
+            keepalive_interval_seconds: 30,
+            keepalive_count_max: 3,
+            remote_shell_kind: RemoteShellKind::Fish,
+            shell_detection_command: None,
+            bash_cwd_bootstrap: None,
+            zsh_cwd_bootstrap: None,
+            fish_cwd_bootstrap: Some("printf 'cwd'".to_owned()),
+        };
+
+        let command = build_startup_command(RemoteShellKind::Fish, &config)
+            .expect("fish command should be generated");
+
+        assert!(command.starts_with("sh -lc '"));
+        assert!(command.contains("exec fish -i"));
+        assert!(command.contains("XDG_CONFIG_HOME"));
+    }
+
+    #[test]
+    fn build_startup_command_wraps_zsh_bootstrap_with_login_startup() {
+        let config = ConnectConfig {
+            host: "native.example".to_owned(),
+            user: "nova".to_owned(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: "xterm-256color".to_owned(),
+            identity_file: None,
+            use_agent: false,
+            jump_hops: Vec::new(),
+            keepalive_interval_seconds: 30,
+            keepalive_count_max: 3,
+            remote_shell_kind: RemoteShellKind::Zsh,
+            shell_detection_command: None,
+            bash_cwd_bootstrap: None,
+            zsh_cwd_bootstrap: Some("print cwd".to_owned()),
+            fish_cwd_bootstrap: None,
+        };
+
+        let command = build_startup_command(RemoteShellKind::Zsh, &config)
+            .expect("zsh command should be generated");
+
+        assert!(command.starts_with("sh -lc '"));
+        assert!(command.contains("$tmp_dir/.zprofile"));
+        assert!(command.contains("~/.zprofile"));
+        assert!(command.contains("exec zsh -il"));
+        assert!(command.contains("$tmp_dir/.zshrc"));
+    }
+
+    #[test]
+    fn build_startup_command_returns_none_for_auto_or_pwsh() {
+        let config = ConnectConfig {
+            host: "native.example".to_owned(),
+            user: "nova".to_owned(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: "xterm-256color".to_owned(),
+            identity_file: None,
+            use_agent: false,
+            jump_hops: Vec::new(),
+            keepalive_interval_seconds: 30,
+            keepalive_count_max: 3,
+            remote_shell_kind: RemoteShellKind::Auto,
+            shell_detection_command: Some("sh -lc 'printf bash'".to_owned()),
+            bash_cwd_bootstrap: Some("printf 'cwd'".to_owned()),
+            zsh_cwd_bootstrap: Some("print cwd".to_owned()),
+            fish_cwd_bootstrap: Some("printf cwd".to_owned()),
+        };
+
+        assert_eq!(None, build_startup_command(RemoteShellKind::Auto, &config));
+        assert_eq!(None, build_startup_command(RemoteShellKind::Pwsh, &config));
+    }
+
+    #[test]
+    fn append_bounded_shell_detection_output_truncates_at_limit() {
+        let mut output = vec![b'x'; SHELL_DETECTION_MAX_OUTPUT_BYTES - 2];
+
+        let reached_limit = append_bounded_shell_detection_output(&mut output, b"abcd");
+
+        assert!(reached_limit);
+        assert_eq!(SHELL_DETECTION_MAX_OUTPUT_BYTES, output.len());
+        assert_eq!(&output[output.len() - 2..], b"ab");
+    }
+
+    #[test]
+    fn worker_resize_burst_should_only_apply_latest_dimensions() {
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+
+        runtime.block_on(async {
+            let (command_tx, mut command_rx) = mpsc::unbounded_channel();
+            command_tx
+                .send(WorkerCommand::Resize {
+                    cols: 120,
+                    rows: 30,
+                })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize {
+                    cols: 140,
+                    rows: 40,
+                })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize {
+                    cols: 160,
+                    rows: 50,
+                })
+                .unwrap();
+            drop(command_tx);
+
+            let mut pending_command = None;
+            let first_command = next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("first resize command should be available");
+
+            let (cols, rows, pending_resize_command) = match first_command {
+                WorkerCommand::Resize { cols, rows } => {
+                    coalesce_pending_resize_commands(&mut command_rx, cols, rows)
+                }
+                _ => panic!("expected first worker command to be resize"),
+            };
+
+            pending_command = pending_resize_command;
+
+            assert_eq!((160, 50), (cols, rows));
+            assert!(pending_command.is_none());
+            assert!(command_rx.recv().await.is_none());
+        });
+    }
+
+    #[test]
+    fn worker_resize_burst_preserves_intervening_non_resize_command_order() {
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+
+        runtime.block_on(async {
+            let (command_tx, mut command_rx) = mpsc::unbounded_channel();
+            command_tx
+                .send(WorkerCommand::Resize {
+                    cols: 120,
+                    rows: 30,
+                })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize {
+                    cols: 140,
+                    rows: 40,
+                })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Write(vec![1, 2, 3]))
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize {
+                    cols: 160,
+                    rows: 50,
+                })
+                .unwrap();
+            drop(command_tx);
+
+            let mut pending_command = None;
+
+            let first_command = next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("first resize command should be available");
+            let (cols, rows, pending_resize_command) = match first_command {
+                WorkerCommand::Resize { cols, rows } => {
+                    coalesce_pending_resize_commands(&mut command_rx, cols, rows)
+                }
+                _ => panic!("expected first worker command to be resize"),
+            };
+
+            pending_command = pending_resize_command;
+            assert_eq!((140, 40), (cols, rows));
+
+            match next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("pending write command should be preserved")
+            {
+                WorkerCommand::Write(data) => assert_eq!(vec![1, 2, 3], data),
+                _ => panic!("expected pending worker command to be write"),
+            }
+
+            let second_command = next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("second resize command should still be queued");
+            let (cols, rows, pending_resize_command) = match second_command {
+                WorkerCommand::Resize { cols, rows } => {
+                    coalesce_pending_resize_commands(&mut command_rx, cols, rows)
+                }
+                _ => panic!("expected second worker command to be resize"),
+            };
+
+            pending_command = pending_resize_command;
+            assert_eq!((160, 50), (cols, rows));
+            assert!(pending_command.is_none());
+            assert!(command_rx.recv().await.is_none());
+        });
+    }
+
+    #[test]
+    fn resolve_upload_file_destination_path_appends_local_name_for_existing_directory() {
+        let resolved = resolve_upload_file_destination_path("upload.txt", "/tmp", None, true)
+            .expect("directory target should resolve");
+
+        assert_eq!("/tmp/upload.txt", resolved);
+    }
+
+    #[test]
+    fn resolve_upload_file_destination_path_expands_home_directory_shortcut() {
+        let resolved =
+            resolve_upload_file_destination_path("upload.txt", "~", Some("/home/nova"), false)
+                .expect("home directory shortcut should resolve");
+
+        assert_eq!("/home/nova/upload.txt", resolved);
+    }
+
+    #[test]
+    fn should_check_for_cancellation_only_after_interval_is_reached() {
+        assert!(!should_check_for_cancellation(64 * 1024));
+        assert!(!should_check_for_cancellation(
+            CANCELLATION_CHECK_INTERVAL_BYTES - 1
+        ));
+        assert!(should_check_for_cancellation(
+            CANCELLATION_CHECK_INTERVAL_BYTES
+        ));
+    }
+
+    // ---- #121 item 1: credential retention ----
+
+    fn connection_request_with_password(password: Option<&str>) -> SftpConnectionRequest {
+        let password_json = match password {
+            Some(value) => format!(r#","password":"{value}""#),
+            None => String::new(),
+        };
+        serde_json::from_str(&format!(
+            r#"{{"host":"example.com","user":"nova","port":22{password_json},"knownHostsFilePath":"known_hosts.json"}}"#
+        ))
+        .expect("connection request should deserialize")
+    }
+
+    #[test]
+    fn take_from_moves_the_password_out_of_the_request() {
+        let mut connection = connection_request_with_password(Some("s3cret"));
+
+        let auth = TransferAuthConfig::take_from(&mut connection);
+
+        assert_eq!(Some("s3cret"), auth.password.as_deref().map(String::as_str));
+        assert!(
+            connection.password.is_none(),
+            "the request must not retain a second copy of the credential"
+        );
+    }
+
+    #[test]
+    fn take_from_handles_a_request_without_a_password() {
+        let mut connection = connection_request_with_password(None);
+
+        let auth = TransferAuthConfig::take_from(&mut connection);
+
+        assert!(auth.password.is_none());
+        assert!(connection.password.is_none());
+    }
+
+    #[test]
+    fn take_from_is_idempotent() {
+        // A second call must not resurrect the credential from the request.
+        let mut connection = connection_request_with_password(Some("s3cret"));
+
+        let first = TransferAuthConfig::take_from(&mut connection);
+        let second = TransferAuthConfig::take_from(&mut connection);
+
+        assert!(first.password.is_some());
+        assert!(second.password.is_none());
+    }
+
+    #[test]
+    fn classify_sftp_transfer_error_uses_structured_error_kind_when_available() {
+        let error = NativeSftpTransferError::new(
+            NativeSftpTransferErrorKind::RemotePathNotFound,
+            "Remote path not found: /tmp/missing",
+        );
+        let anyhow_error = anyhow::Error::new(error);
+
+        let (result, status, message) = classify_sftp_transfer_error(&anyhow_error);
+
+        assert_eq!(NOVA_SSH_RESULT_CLOSED, result);
+        assert_eq!("error", status);
+        assert_eq!("Remote path not found: /tmp/missing", message);
+    }
+
+    // ---- #104: server-supplied entry names must not escape the download root ----
+
+    fn assert_entry_name_rejected(file_name: &str) {
+        let error = validate_remote_entry_name(file_name)
+            .expect_err(&format!("{file_name:?} should be rejected"));
+        let native = error
+            .downcast_ref::<NativeSftpTransferError>()
+            .expect("rejection should be a structured transfer error");
+        assert_eq!(
+            NativeSftpTransferErrorKind::InvalidArgument,
+            native.kind,
+            "{file_name:?} should map to invalid-argument"
+        );
+    }
+
+    #[test]
+    fn validate_remote_entry_name_accepts_ordinary_names() {
+        for name in [
+            "file.txt",
+            "nested-dir",
+            "with space.log",
+            "dot.in.middle",
+            "..prefixed",
+            "trailing..",
+            "...",
+            "\u{1f600}-emoji",
+        ] {
+            validate_remote_entry_name(name)
+                .unwrap_or_else(|error| panic!("{name:?} should be accepted: {error}"));
+        }
+    }
+
+    #[test]
+    fn validate_remote_entry_name_rejects_parent_and_current_directory() {
+        assert_entry_name_rejected("..");
+        assert_entry_name_rejected(".");
+    }
+
+    #[test]
+    fn validate_remote_entry_name_rejects_separators_and_traversal() {
+        assert_entry_name_rejected("../evil");
+        assert_entry_name_rejected("../../evil");
+        assert_entry_name_rejected("nested/child");
+        assert_entry_name_rejected("..\\evil");
+        assert_entry_name_rejected("nested\\child");
+    }
+
+    #[test]
+    fn validate_remote_entry_name_rejects_absolute_and_drive_relative_paths() {
+        // Path::join with any of these silently replaces the download root.
+        assert_entry_name_rejected("/etc/cron.d/payload");
+        assert_entry_name_rejected("/");
+        assert_entry_name_rejected("C:\\Windows\\System32\\payload.dll");
+        assert_entry_name_rejected("\\\\server\\share\\payload");
+    }
+
+    #[test]
+    fn validate_remote_entry_name_rejects_empty_and_nul_names() {
+        assert_entry_name_rejected("");
+        assert_entry_name_rejected("payload\0.txt");
+    }
+
+    #[test]
+    // The absolute join is the whole point of this test: it pins the `Path::join`
+    // replacement behaviour that makes validate_remote_entry_name necessary. Clippy's
+    // join_absolute_paths lint is exactly the bug being demonstrated.
+    #[allow(clippy::join_absolute_paths)]
+    fn path_join_with_absolute_entry_name_would_escape_the_root() {
+        // Documents *why* validation is required rather than relying on join semantics.
+        let root = Path::new("/home/nova/downloads");
+        let escaped = root.join("/etc/cron.d/payload");
+
+        assert_eq!(Path::new("/etc/cron.d/payload"), escaped);
+        assert!(!escaped.starts_with(root));
+        assert!(ensure_within_download_root(root, &escaped).is_err());
+    }
+
+    #[test]
+    fn ensure_within_download_root_accepts_nested_children() {
+        let root = Path::new("/home/nova/downloads");
+
+        ensure_within_download_root(root, &root.join("a"))
+            .expect("direct child should be accepted");
+        ensure_within_download_root(root, &root.join("a").join("b").join("c.txt"))
+            .expect("nested child should be accepted");
+    }
+
+    #[test]
+    fn ensure_within_download_root_rejects_sibling_prefix_collision() {
+        // "downloads-evil" shares a string prefix with "downloads" but is not inside it.
+        let root = Path::new("/home/nova/downloads");
+
+        assert!(ensure_within_download_root(root, Path::new("/home/nova/downloads-evil/x")).is_err());
+        assert!(ensure_within_download_root(root, Path::new("/home/nova/other")).is_err());
+    }
+
+    #[test]
+    fn remote_basename_rejects_paths_resolving_to_parent_directory() {
+        for path in ["/srv/data/..", "/srv/data/../", "..", "  ..  "] {
+            let error = remote_basename(path)
+                .expect_err(&format!("{path:?} should not yield a basename"));
+            let native = error
+                .downcast_ref::<NativeSftpTransferError>()
+                .expect("rejection should be a structured transfer error");
+            assert_eq!(NativeSftpTransferErrorKind::InvalidArgument, native.kind);
+        }
+    }
+
+    #[test]
+    fn remote_basename_still_resolves_ordinary_directories() {
+        assert_eq!("data", remote_basename("/srv/data").expect("should resolve"));
+        assert_eq!(
+            "data",
+            remote_basename("/srv/data/").expect("trailing slash should resolve")
+        );
+    }
+
+    // ---- #144: partial downloads must not clobber the destination ----
+
+    #[test]
+    fn partial_download_path_appends_suffix_beside_the_destination() {
+        let destination = Path::new("/home/nova/downloads/archive.tar.gz");
+        let partial = partial_download_path(destination);
+        let partial_name = partial
+            .file_name()
+            .and_then(|value| value.to_str())
+            .expect("partial should have a name");
+
+        // Same directory, so the rename is a cheap intra-volume move rather than a copy.
+        assert_eq!(
+            Path::new("/home/nova/downloads"),
+            partial.parent().expect("partial should stay in place")
+        );
+        // Prefixed with the full destination name, so a stray file is traceable to it.
+        // This also pins that with_extension is not used - that would turn
+        // "archive.tar.gz" into "archive.tar.ntildepart" and rename to the wrong path.
+        assert!(
+            partial_name.starts_with("archive.tar.gz."),
+            "unexpected partial name: {partial_name}"
+        );
+        assert!(
+            partial_name.ends_with(PARTIAL_DOWNLOAD_SUFFIX),
+            "unexpected partial name: {partial_name}"
+        );
+        assert_ne!(destination, partial);
+    }
+
+    #[test]
+    fn partial_download_path_is_unique_per_call() {
+        // Two concurrent downloads to the same destination must not share a scratch
+        // file; a deterministic name let their writes interleave.
+        let destination = Path::new("/home/nova/downloads/archive.tar.gz");
+        let first = partial_download_path(destination);
+        let second = partial_download_path(destination);
+
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn create_partial_download_file_refuses_an_existing_path() {
+        // O_EXCL is what stops a planted symlink at the scratch path from redirecting
+        // the downloaded bytes: an existing path fails rather than being followed.
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        runtime.block_on(async {
+            let dir = std::env::temp_dir().join(format!(
+                "nova-exclusive-{}-{}",
+                std::process::id(),
+                PARTIAL_DOWNLOAD_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            tokio::fs::create_dir_all(&dir)
+                .await
+                .expect("temp dir should be creatable");
+
+            let occupied = dir.join("already-there.ntildepart");
+            tokio::fs::write(&occupied, b"pre-existing content")
+                .await
+                .expect("pre-existing file should be writable");
+
+            let error = create_partial_download_file(&occupied)
+                .await
+                .expect_err("existing path should be refused");
+            assert!(
+                !error.to_string().is_empty(),
+                "refusal should carry a message"
+            );
+
+            // The pre-existing content must be untouched - not truncated.
+            let preserved = tokio::fs::read(&occupied)
+                .await
+                .expect("pre-existing file should still be readable");
+            assert_eq!(b"pre-existing content".to_vec(), preserved);
+
+            // A fresh path in the same directory still succeeds.
+            let fresh = dir.join("fresh.ntildepart");
+            let file = create_partial_download_file(&fresh)
+                .await
+                .expect("fresh path should be creatable");
+            drop(file);
+            assert!(fresh.exists());
+
+            let _ = tokio::fs::remove_dir_all(&dir).await;
+        });
+    }
+
+    #[test]
+    fn rename_replaces_an_existing_destination() {
+        // download_file_from_remote commits by renaming the `.ntildepart` scratch file
+        // over `local_path`, which assumes rename REPLACES an existing destination
+        // rather than failing. That holds on all three target platforms today
+        // (on Windows via SetFileInformationByHandle + FileRenameInfo.ReplaceIfExists),
+        // but it is a platform guarantee this crate silently depends on rather than one
+        // it controls: if it ever stopped holding, every re-download over an existing
+        // file would fail and directory re-downloads would abort at the first such file.
+        // Raised as a concern on PR #210; pinned here so a regression is caught by
+        // `cargo test` instead of by users.
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        runtime.block_on(async {
+            let dir = std::env::temp_dir().join(format!(
+                "nova-rename-{}-{}",
+                std::process::id(),
+                PARTIAL_DOWNLOAD_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            tokio::fs::create_dir_all(&dir)
+                .await
+                .expect("temp dir should be creatable");
+
+            let destination = dir.join("archive.tar.gz");
+            let partial = partial_download_path(&destination);
+            tokio::fs::write(&destination, b"stale previous download")
+                .await
+                .expect("destination should be writable");
+            tokio::fs::write(&partial, b"freshly downloaded bytes")
+                .await
+                .expect("partial should be writable");
+
+            tokio::fs::rename(&partial, &destination)
+                .await
+                .expect("rename must replace an existing destination");
+
+            assert_eq!(
+                b"freshly downloaded bytes".to_vec(),
+                tokio::fs::read(&destination)
+                    .await
+                    .expect("destination should be readable"),
+                "destination should hold the newly downloaded bytes"
+            );
+            assert!(
+                !partial.exists(),
+                "the scratch file should be consumed by the rename"
+            );
+
+            let _ = tokio::fs::remove_dir_all(&dir).await;
+        });
+    }
+
+    #[test]
+    fn discard_partial_download_removes_the_file_and_tolerates_a_missing_one() {
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        runtime.block_on(async {
+            let dir = std::env::temp_dir().join(format!(
+                "nova-partial-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            tokio::fs::create_dir_all(&dir)
+                .await
+                .expect("temp dir should be creatable");
+            let partial = dir.join("download.ntildepart");
+            tokio::fs::write(&partial, b"partial bytes")
+                .await
+                .expect("partial file should be writable");
+            assert!(partial.exists());
+
+            discard_partial_download(&partial).await;
+            assert!(!partial.exists(), "partial file should be removed");
+
+            // Second call must not panic or error - cleanup runs on paths that may
+            // already be gone.
+            discard_partial_download(&partial).await;
+
+            let _ = tokio::fs::remove_dir_all(&dir).await;
+        });
+    }
+
+}
+
+fn build_client_config(config: &ConnectConfig) -> client::Config {
+    client::Config {
+        inactivity_timeout: None,
+        keepalive_interval: Some(Duration::from_secs(
+            config.keepalive_interval_seconds as u64,
+        )),
+        keepalive_max: config.keepalive_count_max as usize,
+        ..<_>::default()
+    }
+}
+
+#[cfg(test)]
+mod ffi_guard_tests {
+    use super::*;
+
+    #[test]
+    fn ffi_guard_returns_default_on_panic() {
+        // Silence the default panic hook so the captured panic doesn't spam test output.
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let rc = ffi_guard(NOVA_SSH_RESULT_PANIC, || -> c_int { panic!("boom") });
+        std::panic::set_hook(prev);
+        assert_eq!(rc, NOVA_SSH_RESULT_PANIC);
+    }
+
+    #[test]
+    fn ffi_guard_passes_through_normal_return() {
+        let rc = ffi_guard(NOVA_SSH_RESULT_PANIC, || -> c_int { NOVA_SSH_RESULT_OK });
+        assert_eq!(rc, NOVA_SSH_RESULT_OK);
+    }
+
+    #[test]
+    fn poll_event_rejects_null_without_panic() {
+        let rc = nova_ssh_poll_event(0, std::ptr::null_mut(), std::ptr::null_mut(), 0);
+        assert_eq!(rc, NOVA_SSH_RESULT_INVALID_ARGUMENT);
+    }
+}
+
+#[cfg(test)]
+fn stub_session() -> NovaSshSession {
+    NovaSshSession {
+        shared: Arc::new(SharedState::new()),
+        command_tx: Mutex::new(None),
+        worker: Mutex::new(None),
+    }
+}
+
+#[cfg(test)]
+mod handle_abuse_tests {
+    use super::*;
+
+    #[test]
+    fn calls_after_close_fail_closed() {
+        let handle = registry_insert(stub_session()) as usize;
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
+
+        let mut event = NovaSshEvent::default();
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_poll_event(handle, &mut event, std::ptr::null_mut(), 0)
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_write(handle, [1u8].as_ptr(), 1)
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_resize(handle, 80, 24)
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_channel_eof(handle, 0)
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_submit_response(handle, 2, br#"{}"#.as_ptr(), 2)
+        );
+    }
+
+    #[test]
+    fn double_close_is_rejected() {
+        let handle = registry_insert(stub_session()) as usize;
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, nova_ssh_close(handle));
+    }
+
+    #[test]
+    fn concurrent_poll_and_close_never_crashes() {
+        for _ in 0..200 {
+            let handle = registry_insert(stub_session()) as usize;
+            let poller = std::thread::spawn(move || {
+                let mut event = NovaSshEvent::default();
+                for _ in 0..50 {
+                    let rc = nova_ssh_poll_event(handle, &mut event, std::ptr::null_mut(), 0);
+                    assert!(matches!(
+                        rc,
+                        NOVA_SSH_RESULT_OK
+                            | NOVA_SSH_RESULT_EVENT_READY
+                            | NOVA_SSH_RESULT_INVALID_ARGUMENT
+                    ));
+                }
+            });
+            let closer = std::thread::spawn(move || nova_ssh_close(handle));
+            poller.join().unwrap();
+            let _ = closer.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn two_concurrent_closes_yield_exactly_one_success() {
+        // concurrent_poll_and_close_never_crashes races poll against a *single* closer.
+        // This covers the other half of the #121 concern: two racing closers must not
+        // both observe success, or a caller could conclude it owns a teardown twice.
+        for _ in 0..200 {
+            let handle = registry_insert(stub_session()) as usize;
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+
+            let first_barrier = Arc::clone(&barrier);
+            let first = std::thread::spawn(move || {
+                first_barrier.wait();
+                nova_ssh_close(handle)
+            });
+            let second_barrier = Arc::clone(&barrier);
+            let second = std::thread::spawn(move || {
+                second_barrier.wait();
+                nova_ssh_close(handle)
+            });
+
+            let results = [
+                first.join().expect("closer should not panic"),
+                second.join().expect("closer should not panic"),
+            ];
+
+            assert_eq!(
+                1,
+                results
+                    .iter()
+                    .filter(|rc| **rc == NOVA_SSH_RESULT_OK)
+                    .count(),
+                "exactly one close must win, got {results:?}"
+            );
+            assert_eq!(
+                1,
+                results
+                    .iter()
+                    .filter(|rc| **rc == NOVA_SSH_RESULT_INVALID_ARGUMENT)
+                    .count(),
+                "the losing close must be refused, got {results:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn handle_ids_are_not_reused_after_close() {
+        // Underpins calls_after_close_fail_closed: if the registry recycled ids, a stale
+        // handle could silently address a *different* live session rather than being
+        // rejected, and "fail closed" would quietly become "act on the wrong session".
+        let first = registry_insert(stub_session()) as usize;
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(first));
+        let second = registry_insert(stub_session()) as usize;
+
+        assert_ne!(first, second, "a closed handle id must not be reissued");
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(second));
+    }
+}
+
+#[cfg(all(test, debug_assertions))]
+mod alloc_balance_tests {
+    use super::*;
+    use std::ffi::CString;
+
+    #[test]
+    fn malformed_list_request_frees_its_response_string() {
+        let before = OUTSTANDING_FFI_STRINGS.load(Ordering::SeqCst);
+        let bad = CString::new("{ not json").unwrap();
+        let mut response: *mut c_char = std::ptr::null_mut();
+        let _ = nova_ssh_sftp_list_directory(bad.as_ptr(), &mut response);
+        if !response.is_null() {
+            nova_ssh_string_free(response);
+        }
+        let after = OUTSTANDING_FFI_STRINGS.load(Ordering::SeqCst);
+        assert_eq!(before, after, "every FFI-allocated string must be freed");
+    }
+}
+
+/// #121: connect arguments reject invalid UTF-8 instead of mangling it.
+#[cfg(test)]
+mod connect_arg_encoding_tests {
+    use super::*;
+    use std::ffi::CString;
+
+    // These exercise ConnectConfig::from_args directly rather than nova_ssh_connect, because a call
+    // that *succeeds* returns a handle and spawns a worker thread that tries to reach the host. Testing
+    // the parse in isolation keeps the "absent still defaults" and "absent still skips" halves
+    // assertable without any network attempt.
+    //
+    // All three behaviours have to be distinguished. A test that only checked "invalid is rejected"
+    // would pass against a naive fix that returns None for invalid *and* silently drops optional
+    // arguments — which would disable identity-file auth and cwd tracking without a word.
+
+    /// Not valid UTF-8: a lone continuation byte, a bad two-byte sequence, and a surrogate half.
+    const BAD_UTF8: &[u8] = b"\x80\xC3\x28\xED\xA0\x80";
+
+    fn bad_utf8_cstring() -> CString {
+        CString::new(BAD_UTF8).expect("fixture must not contain an interior NUL")
+    }
+
+    fn valid_base_args(host: &CString, user: &CString) -> NovaSshConnectArgs {
+        NovaSshConnectArgs {
+            host: host.as_ptr(),
+            user: user.as_ptr(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn connect_args_reject_invalid_utf8_in_required_fields() {
+        let good = CString::new("nova").unwrap();
+        let bad = bad_utf8_cstring();
+
+        let mut args = valid_base_args(&good, &good);
+        args.host = bad.as_ptr();
+        assert!(
+            ConnectConfig::from_args(&args).is_none(),
+            "an invalid-UTF-8 host must be refused, not accepted with U+FFFD substituted"
+        );
+
+        let mut args = valid_base_args(&good, &good);
+        args.user = bad.as_ptr();
+        assert!(
+            ConnectConfig::from_args(&args).is_none(),
+            "an invalid-UTF-8 user must be refused"
+        );
+    }
+
+    #[test]
+    fn connect_args_reject_invalid_utf8_in_defaulted_fields() {
+        // The discriminating case for `or_default`: invalid must reject rather than quietly fall back
+        // to the default, which would send a mangled TERM to the remote.
+        let good = CString::new("nova").unwrap();
+        let bad = bad_utf8_cstring();
+
+        let mut args = valid_base_args(&good, &good);
+        args.term = bad.as_ptr();
+
+        assert!(
+            ConnectConfig::from_args(&args).is_none(),
+            "an invalid-UTF-8 term must be refused, not replaced with the default"
+        );
+    }
+
+    #[test]
+    fn connect_args_reject_invalid_utf8_in_optional_fields() {
+        // The discriminating case for `optional`: invalid must reject rather than be treated as
+        // "not supplied", which would silently fall back to password auth or disable cwd tracking.
+        let good = CString::new("nova").unwrap();
+        let bad = bad_utf8_cstring();
+
+        type Setter = fn(&mut NovaSshConnectArgs, *const c_char);
+
+        let sites: [(&str, Setter); 6] = [
+            ("identity_file", |a, p| a.identity_file = p),
+            ("jump_hops_json", |a, p| a.jump_hops_json = p),
+            ("shell_detection_command", |a, p| {
+                a.shell_detection_command = p
+            }),
+            ("bash_cwd_bootstrap", |a, p| a.bash_cwd_bootstrap = p),
+            ("zsh_cwd_bootstrap", |a, p| a.zsh_cwd_bootstrap = p),
+            ("fish_cwd_bootstrap", |a, p| a.fish_cwd_bootstrap = p),
+        ];
+
+        for (name, apply) in sites {
+            let mut args = valid_base_args(&good, &good);
+            apply(&mut args, bad.as_ptr());
+
+            assert!(
+                ConnectConfig::from_args(&args).is_none(),
+                "an invalid-UTF-8 {name} must be refused, not silently dropped"
+            );
+        }
+    }
+
+    #[test]
+    fn absent_optional_connect_args_keep_their_existing_meaning() {
+        // The other half, and the reason `optional()` returns a doubled Option: absence must still mean
+        // "not supplied". Without this assertion the rejection tests above would also pass against a
+        // fix that refused *every* absent optional argument, breaking every password-auth connection.
+        let good = CString::new("nova").unwrap();
+        let args = valid_base_args(&good, &good);
+
+        let config =
+            ConnectConfig::from_args(&args).expect("host and user alone must be sufficient");
+
+        assert_eq!(
+            "xterm-256color", config.term,
+            "absent term still takes the default"
+        );
+        assert!(
+            config.identity_file.is_none(),
+            "absent identity_file still means password auth"
+        );
+        assert!(
+            config.jump_hops.is_empty(),
+            "absent jump_hops_json still means no jump"
+        );
+        assert!(config.shell_detection_command.is_none());
+        assert!(config.bash_cwd_bootstrap.is_none());
+        assert!(config.zsh_cwd_bootstrap.is_none());
+        assert!(config.fish_cwd_bootstrap.is_none());
+    }
+
+    #[test]
+    fn supplied_optional_connect_args_are_preserved() {
+        // Guards the guard: if `optional()` returned Some(None) unconditionally, every test above would
+        // still pass while the arguments were silently discarded.
+        let good = CString::new("nova").unwrap();
+        let identity = CString::new("/home/nova/.ssh/id_ed25519").unwrap();
+        let bootstrap = CString::new("printf '\\033]7;%s\\a' \"$PWD\"").unwrap();
+
+        let mut args = valid_base_args(&good, &good);
+        args.identity_file = identity.as_ptr();
+        args.bash_cwd_bootstrap = bootstrap.as_ptr();
+
+        let config =
+            ConnectConfig::from_args(&args).expect("valid optional arguments must be accepted");
+
+        assert_eq!(
+            Some("/home/nova/.ssh/id_ed25519"),
+            config.identity_file.as_deref()
+        );
+        assert_eq!(
+            Some("printf '\\033]7;%s\\a' \"$PWD\""),
+            config.bash_cwd_bootstrap.as_deref()
+        );
+    }
+
+    #[test]
+    fn whitespace_only_connect_args_are_treated_as_absent_not_invalid() {
+        // Pre-existing behaviour that must survive the change: read_c_arg trims, and an argument that
+        // is empty once trimmed counts as absent rather than as a value or an error.
+        let good = CString::new("nova").unwrap();
+        let blank = CString::new("   ").unwrap();
+
+        let mut args = valid_base_args(&good, &good);
+        args.identity_file = blank.as_ptr();
+        args.term = blank.as_ptr();
+
+        let config = ConnectConfig::from_args(&args).expect("blank optionals must not reject");
+
+        assert!(config.identity_file.is_none());
+        assert_eq!("xterm-256color", config.term);
+    }
+
+    #[test]
+    fn jump_hops_json_chain_is_parsed_in_order_with_per_hop_defaults() {
+        let good = CString::new("nova").unwrap();
+        let hops = CString::new(
+            r#"[{"host":"bastion-one","user":"ops","port":2200},{"host":"bastion-two","user":null,"port":0}]"#,
+        )
+        .unwrap();
+
+        let mut args = valid_base_args(&good, &good);
+        args.jump_hops_json = hops.as_ptr();
+
+        let config = ConnectConfig::from_args(&args).expect("a valid chain must parse");
+
+        assert_eq!(2, config.jump_hops.len());
+        assert_eq!("bastion-one", config.jump_hops[0].host);
+        assert_eq!("ops", config.jump_hops[0].user);
+        assert_eq!(2200, config.jump_hops[0].port);
+        // The second hop exercises both defaults: no user means the connection's target user,
+        // port 0 means 22 — the same rules the single-hop FFI fields had.
+        assert_eq!("bastion-two", config.jump_hops[1].host);
+        assert_eq!("nova", config.jump_hops[1].user);
+        assert_eq!(22, config.jump_hops[1].port);
+    }
+
+    #[test]
+    fn jump_hops_json_empty_array_means_direct() {
+        let good = CString::new("nova").unwrap();
+        let hops = CString::new("[]").unwrap();
+
+        let mut args = valid_base_args(&good, &good);
+        args.jump_hops_json = hops.as_ptr();
+
+        let config = ConnectConfig::from_args(&args).expect("an empty chain must parse");
+
+        assert!(config.jump_hops.is_empty());
+    }
+
+    #[test]
+    fn jump_hops_json_rejects_malformed_json_and_blank_hosts() {
+        // Rejection, not best-effort: dropping or mangling a hop and connecting anyway would hand
+        // credentials to an endpoint the caller never named. Same rule as invalid UTF-8 above.
+        let good = CString::new("nova").unwrap();
+
+        for (label, payload) in [
+            ("malformed JSON", "[{"),
+            ("non-array JSON", r#"{"host":"bastion"}"#),
+            (
+                "blank hop host",
+                r#"[{"host":"  ","user":"ops","port":22}]"#,
+            ),
+            ("missing hop host", r#"[{"user":"ops","port":22}]"#),
+        ] {
+            let hops = CString::new(payload).unwrap();
+            let mut args = valid_base_args(&good, &good);
+            args.jump_hops_json = hops.as_ptr();
+
+            assert!(
+                ConnectConfig::from_args(&args).is_none(),
+                "{label} must refuse the connect, not degrade it"
+            );
+        }
+    }
+}
+
+/// Forward-channel write queueing (#173 item 2).
+///
+/// These exercise the queue in front of a forward channel's writer task, which is the part that keeps
+/// a stalled forward off the session worker's select loop. The writer task itself owns a russh
+/// `ChannelWriteHalf` that cannot be fabricated without a live server, so the tests stand in their own
+/// task behind an identical sender — the queueing, ordering and teardown rules are what they pin.
+#[cfg(test)]
+mod forward_channel_queue_tests {
+    use super::*;
+
+    /// Snapshot of what a recording channel's writer task has seen.
+    ///
+    /// Poison-tolerant, like every other lock in this file: the crate deliberately recovers the guard
+    /// rather than propagating a poisoned lock (see the ffi_guard work), so that one panicking thread
+    /// cannot turn every later acquisition into a second panic. A test is no reason to break that.
+    fn seen_labels(seen: &Arc<Mutex<Vec<&'static str>>>) -> Vec<&'static str> {
+        seen.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// A forward channel whose "writer task" just records what it received, in order.
+    fn recording_channel() -> (
+        ForwardChannelHandle,
+        Arc<Mutex<Vec<&'static str>>>,
+        Arc<tokio::sync::Notify>,
+    ) {
+        let (writes, mut write_rx) = mpsc::unbounded_channel::<ForwardWrite>();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let finished = Arc::new(tokio::sync::Notify::new());
+
+        let task_seen = seen.clone();
+        let task_finished = finished.clone();
+        let writer_task = tokio::spawn(async move {
+            while let Some(write) = write_rx.recv().await {
+                let label = match write {
+                    ForwardWrite::Data(_) => "data",
+                    ForwardWrite::Eof => "eof",
+                    ForwardWrite::Close => "close",
+                };
+                task_seen
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(label);
+                if label == "close" {
+                    break;
+                }
+            }
+            task_finished.notify_waiters();
+        });
+
+        (
+            ForwardChannelHandle {
+                writes,
+                writer_task,
+            },
+            seen,
+            finished,
+        )
+    }
+
+    async fn channels_with(channel_id: u32, handle: ForwardChannelHandle) -> ForwardChannels {
+        let channels: ForwardChannels = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        channels.lock().await.insert(channel_id, handle);
+        channels
+    }
+
+    #[tokio::test]
+    async fn writes_eof_and_close_reach_the_writer_in_order() {
+        let (handle, seen, finished) = recording_channel();
+        let channels = channels_with(7, handle).await;
+
+        write_forward_channel(&channels, 7, vec![1, 2, 3]).await;
+        write_forward_channel(&channels, 7, vec![4]).await;
+        send_forward_channel_eof(&channels, 7).await;
+        close_forward_channel(&channels, 7).await;
+
+        finished.notified().await;
+        assert_eq!(vec!["data", "data", "eof", "close"], seen_labels(&seen));
+    }
+
+    #[tokio::test]
+    async fn close_removes_the_channel_so_later_writes_are_dropped_not_reordered() {
+        let (handle, seen, finished) = recording_channel();
+        let channels = channels_with(9, handle).await;
+
+        write_forward_channel(&channels, 9, vec![1]).await;
+        close_forward_channel(&channels, 9).await;
+        // Arrives after the close was queued: it must not slip in front of it, and must not resurrect
+        // the channel either.
+        write_forward_channel(&channels, 9, vec![2]).await;
+
+        finished.notified().await;
+        assert_eq!(vec!["data", "close"], seen_labels(&seen));
+        assert!(channels.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn writes_to_an_unknown_channel_are_ignored() {
+        let channels: ForwardChannels = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+
+        // No channel 42: the managed side can legitimately still be draining events for a channel the
+        // reader task already removed. Must be a no-op, not a panic.
+        write_forward_channel(&channels, 42, vec![1]).await;
+        send_forward_channel_eof(&channels, 42).await;
+        close_forward_channel(&channels, 42).await;
+
+        assert!(channels.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn dropping_the_handle_still_delivers_what_was_already_queued() {
+        // Removing a channel drops its sender. Anything queued before that must still reach the writer
+        // rather than being discarded mid-stream.
+        let (handle, seen, finished) = recording_channel();
+        let channels = channels_with(11, handle).await;
+
+        write_forward_channel(&channels, 11, vec![1]).await;
+        write_forward_channel(&channels, 11, vec![2]).await;
+        let removed = channels.lock().await.remove(&11).expect("channel present");
+        drop(removed.writes);
+
+        let _ = tokio::time::timeout(Duration::from_secs(5), finished.notified()).await;
+        assert_eq!(vec!["data", "data"], seen_labels(&seen));
+    }
+
+    #[tokio::test]
+    async fn close_all_drains_every_channel() {
+        let (first, first_seen, _first_done) = recording_channel();
+        let (second, second_seen, _second_done) = recording_channel();
+        let channels = channels_with(1, first).await;
+        channels.lock().await.insert(2, second);
+
+        close_all_forward_channels(&channels).await;
+
+        assert!(channels.lock().await.is_empty());
+        assert_eq!(vec!["close"], seen_labels(&first_seen));
+        assert_eq!(vec!["close"], seen_labels(&second_seen));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn close_all_gives_up_on_a_writer_that_never_finishes() {
+        // Teardown is reached from nova_ssh_close, so it must not wait on a writer task blocked
+        // against a remote that stopped reading (#155). The map is still emptied.
+        let (writes, mut write_rx) = mpsc::unbounded_channel::<ForwardWrite>();
+        let writer_task = tokio::spawn(async move {
+            // Takes the close but never returns, standing in for a blocked network write.
+            let _ = write_rx.recv().await;
+            std::future::pending::<()>().await;
+        });
+        let channels = channels_with(
+            3,
+            ForwardChannelHandle {
+                writes,
+                writer_task,
+            },
+        )
+        .await;
+
+        // start_paused auto-advances time when nothing is runnable, so the drain timeout elapses
+        // instantly rather than costing two real seconds.
+        close_all_forward_channels(&channels).await;
+
+        assert!(channels.lock().await.is_empty());
+    }
+}
+
+/// Forward-write backpressure (Codex review on #325).
+///
+/// The per-channel writer queue is unbounded by design; the bound lives at the FFI door, where the
+/// caller can be told to retry. Retrying is what stops it reading its local socket, which is the only
+/// mechanism that throttles the local peer without dropping bytes or closing a merely-slow channel.
+#[cfg(test)]
+mod forward_write_backpressure_tests {
+    use super::*;
+
+    /// A registered session whose command channel accepts sends, plus a budget for `channel_id`.
+    ///
+    /// The receiver comes back with it and must stay bound for the test's duration: dropping it closes
+    /// the channel, and every send then fails with CLOSED instead of exercising the budget.
+    fn session_with_budget(
+        channel_id: u32,
+    ) -> (
+        usize,
+        Arc<AtomicUsize>,
+        Arc<SharedState>,
+        mpsc::UnboundedReceiver<WorkerCommand>,
+    ) {
+        let shared = Arc::new(SharedState::new());
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+
+        let budget = Arc::new(AtomicUsize::new(0));
+        shared.register_forward_write_budget(channel_id, budget.clone());
+
+        let handle = registry_insert(NovaSshSession {
+            shared: shared.clone(),
+            command_tx: Mutex::new(Some(command_tx)),
+            worker: Mutex::new(None),
+        }) as usize;
+
+        (handle, budget, shared, command_rx)
+    }
+
+    fn write(handle: usize, channel_id: u32, len: usize) -> c_int {
+        let data = vec![7u8; len];
+        nova_ssh_channel_write(handle, channel_id, data.as_ptr(), data.len())
+    }
+
+    #[test]
+    fn writes_within_the_budget_are_accepted_and_reserve_their_bytes() {
+        let (handle, budget, _shared, _command_rx) = session_with_budget(1);
+
+        assert_eq!(NOVA_SSH_RESULT_OK, write(handle, 1, 4096));
+        assert_eq!(4096, budget.load(Ordering::Acquire));
+
+        assert_eq!(NOVA_SSH_RESULT_OK, write(handle, 1, 1024));
+        assert_eq!(5120, budget.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_write_past_the_budget_reports_would_block_and_reserves_nothing() {
+        let (handle, budget, _shared, _command_rx) = session_with_budget(2);
+
+        // Fill the budget exactly, then ask for one more byte.
+        assert_eq!(
+            NOVA_SSH_RESULT_OK,
+            write(handle, 2, MAX_QUEUED_FORWARD_WRITE_BYTES)
+        );
+        assert_eq!(
+            MAX_QUEUED_FORWARD_WRITE_BYTES,
+            budget.load(Ordering::Acquire)
+        );
+
+        assert_eq!(NOVA_SSH_RESULT_WOULD_BLOCK, write(handle, 2, 1));
+
+        // The refused payload must not have been counted, or the queue would never recover.
+        assert_eq!(
+            MAX_QUEUED_FORWARD_WRITE_BYTES,
+            budget.load(Ordering::Acquire)
+        );
+    }
+
+    #[test]
+    fn an_oversized_payload_is_admitted_into_an_empty_queue() {
+        // Refusing it would wedge the channel: nothing is draining, so the queue can never get
+        // emptier than empty, and the caller would retry forever.
+        let (handle, budget, _shared, _command_rx) = session_with_budget(3);
+
+        let oversized = MAX_QUEUED_FORWARD_WRITE_BYTES * 2;
+        assert_eq!(NOVA_SSH_RESULT_OK, write(handle, 3, oversized));
+        assert_eq!(oversized, budget.load(Ordering::Acquire));
+
+        // But it does not become a licence for the next one.
+        assert_eq!(NOVA_SSH_RESULT_WOULD_BLOCK, write(handle, 3, 1));
+    }
+
+    #[test]
+    fn releasing_budget_lets_a_refused_write_through_on_retry() {
+        let (handle, budget, _shared, _command_rx) = session_with_budget(4);
+
+        assert_eq!(
+            NOVA_SSH_RESULT_OK,
+            write(handle, 4, MAX_QUEUED_FORWARD_WRITE_BYTES)
+        );
+        assert_eq!(NOVA_SSH_RESULT_WOULD_BLOCK, write(handle, 4, 64));
+
+        // What the writer task does once a write reaches the remote.
+        budget.fetch_sub(MAX_QUEUED_FORWARD_WRITE_BYTES, Ordering::AcqRel);
+
+        assert_eq!(NOVA_SSH_RESULT_OK, write(handle, 4, 64));
+        assert_eq!(64, budget.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_channel_with_no_budget_is_never_throttled() {
+        // An id the session does not know is either already torn down or never ours. Throttling it
+        // would leave a managed pump retrying against a channel that will never drain.
+        let (handle, _budget, shared, _command_rx) = session_with_budget(5);
+
+        assert_eq!(NOVA_SSH_RESULT_OK, write(handle, 99, 8));
+
+        // Same once a known channel's budget is unregistered, which is how teardown releases a
+        // caller that is mid-retry.
+        assert_eq!(
+            NOVA_SSH_RESULT_OK,
+            write(handle, 5, MAX_QUEUED_FORWARD_WRITE_BYTES)
+        );
+        assert_eq!(NOVA_SSH_RESULT_WOULD_BLOCK, write(handle, 5, 1));
+
+        shared.unregister_forward_write_budget(5);
+        assert_eq!(NOVA_SSH_RESULT_OK, write(handle, 5, 1));
+    }
+
+    #[test]
+    fn a_write_that_cannot_be_queued_releases_its_reservation() {
+        // send_command fails once the session is closed. If the reservation survived that, the budget
+        // would be permanently short by the size of a payload nothing will ever write.
+        let shared = Arc::new(SharedState::new());
+        let budget = Arc::new(AtomicUsize::new(0));
+        shared.register_forward_write_budget(6, budget.clone());
+
+        let handle = registry_insert(NovaSshSession {
+            shared: shared.clone(),
+            // No sender: stands in for a session whose worker has gone.
+            command_tx: Mutex::new(None),
+            worker: Mutex::new(None),
+        }) as usize;
+
+        assert_eq!(NOVA_SSH_RESULT_CLOSED, write(handle, 6, 2048));
+        assert_eq!(0, budget.load(Ordering::Acquire));
+    }
+}
+
+/// Event-queue byte budget (#173 item 1).
+///
+/// These pin the SharedState half of the contract: data-bearing events park their producer at the
+/// budget and are released by draining (or by close), while control events are never gated. The
+/// channel-reader half — that a parked reader makes SSH flow control throttle the remote — is
+/// russh's window machinery and needs a live server; the Docker E2E suite exercises that path.
+#[cfg(test)]
+mod event_queue_budget_tests {
+    use super::*;
+
+    fn data_event(len: usize) -> QueuedEvent {
+        QueuedEvent {
+            kind: NovaSshEventKind::Data,
+            payload: vec![0u8; len],
+            status_code: 0,
+            flags: NOVA_SSH_EVENT_FLAG_BINARY,
+        }
+    }
+
+    fn control_event(len: usize) -> QueuedEvent {
+        QueuedEvent {
+            kind: NovaSshEventKind::ExitStatus,
+            payload: vec![0u8; len],
+            status_code: 0,
+            flags: NOVA_SSH_EVENT_FLAG_JSON,
+        }
+    }
+
+    /// Lets the spawned producer make progress on the current-thread test runtime, then reports
+    /// whether it finished. Several yields, not one: admission takes a wake plus a re-check.
+    async fn settle(task: &tokio::task::JoinHandle<bool>) -> bool {
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        task.is_finished()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn under_budget_data_is_admitted_immediately_and_drain_releases_bytes() {
+        let shared = Arc::new(SharedState::new());
+
+        assert!(
+            shared
+                .queue_data_event(data_event(MAX_QUEUED_EVENT_BYTES))
+                .await
+        );
+        assert_eq!(
+            queued_data_event_cost(MAX_QUEUED_EVENT_BYTES),
+            shared.queued_data_bytes.load(Ordering::Acquire)
+        );
+
+        match shared.take_event_if_fits(usize::MAX) {
+            EventRead::Ready(event) => assert_eq!(MAX_QUEUED_EVENT_BYTES, event.payload.len()),
+            _ => panic!("the queued data event must pop"),
+        }
+
+        assert_eq!(0, shared.queued_data_bytes.load(Ordering::Acquire));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn over_budget_data_parks_its_producer_until_the_queue_drains() {
+        let shared = Arc::new(SharedState::new());
+
+        // One admitted event may overshoot the budget (soft cap); the *next* one must park.
+        assert!(
+            shared
+                .queue_data_event(data_event(MAX_QUEUED_EVENT_BYTES))
+                .await
+        );
+
+        let parked = tokio::spawn({
+            let shared = shared.clone();
+            async move { shared.queue_data_event(data_event(1)).await }
+        });
+
+        assert!(
+            !settle(&parked).await,
+            "a producer over budget must park, not enqueue"
+        );
+
+        match shared.take_event_if_fits(usize::MAX) {
+            EventRead::Ready(_) => {}
+            _ => panic!("draining must succeed"),
+        }
+
+        assert!(
+            settle(&parked).await,
+            "draining below budget must wake the parked producer"
+        );
+        assert!(parked.await.expect("producer task must not panic"));
+        assert_eq!(
+            queued_data_event_cost(1),
+            shared.queued_data_bytes.load(Ordering::Acquire)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn close_wakes_a_parked_producer_and_refuses_its_event() {
+        let shared = Arc::new(SharedState::new());
+
+        assert!(
+            shared
+                .queue_data_event(data_event(MAX_QUEUED_EVENT_BYTES))
+                .await
+        );
+
+        let parked = tokio::spawn({
+            let shared = shared.clone();
+            async move { shared.queue_data_event(data_event(1)).await }
+        });
+        assert!(!settle(&parked).await);
+
+        shared.mark_closed();
+
+        assert!(settle(&parked).await, "close must wake a parked producer");
+        assert!(
+            !parked.await.expect("producer task must not panic"),
+            "an event refused by close must report false so the reader stops"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn control_events_neither_count_toward_nor_wait_on_the_budget() {
+        let shared = Arc::new(SharedState::new());
+
+        // A control payload larger than the whole budget still admits the next data event
+        // immediately: only data-bearing bytes count.
+        shared.queue_event(control_event(MAX_QUEUED_EVENT_BYTES * 2));
+        assert_eq!(0, shared.queued_data_bytes.load(Ordering::Acquire));
+        assert!(shared.queue_data_event(data_event(16)).await);
+
+        // Popping the control event must not touch the data counter either — FIFO order, the
+        // control event is at the head.
+        match shared.take_event_if_fits(usize::MAX) {
+            EventRead::Ready(event) => assert_eq!(NovaSshEventKind::ExitStatus, event.kind),
+            _ => panic!("the control event must pop first"),
+        }
+        assert_eq!(
+            queued_data_event_cost(16),
+            shared.queued_data_bytes.load(Ordering::Acquire)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn empty_data_events_still_consume_budget_and_eventually_park() {
+        // Codex review finding on this change: zero-length Data frames consume no SSH window
+        // (flow control counts data bytes), so without a per-event surcharge a peer could spam
+        // them forever — never throttled, never counted, queue overhead growing without bound.
+        // The surcharge makes each empty event cost QUEUED_DATA_EVENT_OVERHEAD_BYTES, so the
+        // budget still fills and the producer still parks.
+        let shared = Arc::new(SharedState::new());
+
+        assert!(shared.queue_data_event(data_event(0)).await);
+        assert_eq!(
+            QUEUED_DATA_EVENT_OVERHEAD_BYTES,
+            shared.queued_data_bytes.load(Ordering::Acquire)
+        );
+
+        let empties_to_fill = MAX_QUEUED_EVENT_BYTES / QUEUED_DATA_EVENT_OVERHEAD_BYTES;
+        for _ in 1..empties_to_fill {
+            assert!(shared.queue_data_event(data_event(0)).await);
+        }
+
+        let parked = tokio::spawn({
+            let shared = shared.clone();
+            async move { shared.queue_data_event(data_event(0)).await }
+        });
+        assert!(
+            !settle(&parked).await,
+            "a stream of empty data events must fill the budget and park, not bypass it"
+        );
+
+        match shared.take_event_if_fits(usize::MAX) {
+            EventRead::Ready(_) => {}
+            _ => panic!("draining must succeed"),
+        }
+        assert!(
+            settle(&parked).await,
+            "draining must wake the parked producer"
+        );
+        assert!(parked.await.expect("producer task must not panic"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn popping_unaccounted_data_saturates_instead_of_wrapping_the_counter() {
+        let shared = Arc::new(SharedState::new());
+
+        // FFI tests queue data-kind events through queue_event, bypassing the accounting. The
+        // pop-side decrement must saturate at zero for them: a wrapped counter would read as
+        // "gigabytes queued" and park every later producer forever.
+        shared.queue_event(data_event(1024));
+        assert_eq!(0, shared.queued_data_bytes.load(Ordering::Acquire));
+
+        match shared.take_event_if_fits(usize::MAX) {
+            EventRead::Ready(_) => {}
+            _ => panic!("the event must pop"),
+        }
+
+        assert_eq!(0, shared.queued_data_bytes.load(Ordering::Acquire));
+        assert!(
+            shared.queue_data_event(data_event(1)).await,
+            "the counter must still admit producers after the unaccounted pop"
+        );
+    }
+}
+
+/// The agent side of authentication: discovery honors SSH_AUTH_SOCK, a real (in-process) agent's
+/// identities come back through the same client the auth path uses, and identity shapes the
+/// backend cannot offer are filtered out. The signing round trip against a live sshd is
+/// NativeSshDockerAgentAuthE2eTests' job.
+#[cfg(all(test, unix))]
+mod agent_auth_tests {
+    use super::*;
+    use futures::StreamExt;
+
+    /// Both tests mutate SSH_AUTH_SOCK, which is process-global; serialized so cargo test's
+    /// parallel threads cannot interleave a set with a remove. tokio's mutex, not std's,
+    /// because the guard is held across the tests' await points.
+    static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// Deterministic on purpose: a fixed seed avoids depending on ssh-key's optional rand
+    /// feature, and key uniqueness is irrelevant to what these tests assert.
+    fn test_key() -> ssh_key::PrivateKey {
+        ssh_key::PrivateKey::from(ssh_key::private::Ed25519Keypair::from_seed(&[7u8; 32]))
+    }
+
+    #[tokio::test]
+    async fn discovery_and_identity_listing_work_against_a_real_agent() {
+        let _env = ENV_LOCK.lock().await;
+
+        let dir = std::env::temp_dir().join(format!("rusty-ssh-agent-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir must be creatable");
+        let socket_path = dir.join("agent.sock");
+        let _ = std::fs::remove_file(&socket_path);
+
+        // russh's own agent server, over a Unix socket, seeded through the same protocol a real
+        // ssh-add uses — so the client half being tested talks to something honest.
+        let listener =
+            tokio::net::UnixListener::bind(&socket_path).expect("agent socket must bind");
+        let connections = futures::stream::unfold(listener, |listener| async {
+            let accepted = listener.accept().await.map(|(stream, _)| stream);
+            Some((accepted, listener))
+        })
+        .boxed();
+        let server = tokio::spawn(russh::keys::agent::server::serve(connections, ()));
+
+        let mut seeding_client = AgentClient::connect_uds(&socket_path)
+            .await
+            .expect("the agent socket must accept");
+        seeding_client
+            .add_identity(&test_key(), &[])
+            .await
+            .expect("adding a key must succeed");
+
+        // SAFETY (edition 2024 set_var contract): no other thread reads the environment while
+        // ENV_LOCK is held, and nothing else in this test binary reads SSH_AUTH_SOCK at all.
+        unsafe { std::env::set_var("SSH_AUTH_SOCK", &socket_path) };
+        let mut discovered = connect_to_agents().await;
+        let identities = match discovered.first_mut() {
+            Some(agent) => agent.request_identities().await,
+            None => panic!("connect_to_agents must find the agent SSH_AUTH_SOCK names"),
+        };
+        unsafe { std::env::remove_var("SSH_AUTH_SOCK") };
+        server.abort();
+
+        let keys: Vec<_> = identities
+            .expect("identities must list")
+            .into_iter()
+            .filter_map(agent_identity_public_key)
+            .collect();
+        assert_eq!(1, keys.len());
+        assert_eq!(
+            test_key()
+                .public_key()
+                .to_openssh()
+                .expect("test key must encode"),
+            keys[0].to_openssh().expect("listed key must encode"),
+            "the listed identity must be the key the agent was seeded with"
+        );
+    }
+
+    /// start_paused: the socket never becomes readable, so tokio auto-advances the clock to the
+    /// protocol deadline and the test finishes in wall-clock milliseconds, not five seconds.
+    #[tokio::test(start_paused = true)]
+    async fn a_wedged_agent_times_out_instead_of_hanging_authentication() {
+        let dir =
+            std::env::temp_dir().join(format!("rusty-ssh-agent-wedged-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir must be creatable");
+        let socket_path = dir.join("agent.sock");
+        let _ = std::fs::remove_file(&socket_path);
+
+        // Accepts the connection and then never answers — healthy at the socket level, dead at
+        // the protocol level, so only the bounded timeout can save the caller. The accepted
+        // stream is held open deliberately: closing it would end the test via EOF, not timeout.
+        let listener =
+            tokio::net::UnixListener::bind(&socket_path).expect("agent socket must bind");
+        let hold = tokio::spawn(async move {
+            let _held = listener.accept().await;
+            std::future::pending::<()>().await;
+        });
+
+        let mut agent = AgentClient::connect_uds(&socket_path)
+            .await
+            .expect("the wedged agent's socket still accepts connections")
+            .dynamic();
+
+        assert!(
+            agent_identities(&mut agent).await.is_none(),
+            "a wedged agent must read as no agent, so authentication reaches its fallbacks"
+        );
+        hold.abort();
+    }
+
+    #[tokio::test]
+    async fn a_machine_without_an_agent_yields_none_not_an_error() {
+        let _env = ENV_LOCK.lock().await;
+
+        // SAFETY: see above — single reader, serialized by ENV_LOCK.
+        unsafe { std::env::remove_var("SSH_AUTH_SOCK") };
+        assert!(
+            connect_to_agents().await.is_empty(),
+            "no SSH_AUTH_SOCK is the everyday no-agent state, not an error"
+        );
+    }
+}
+
+/// nova_ssh_request_remote_forward's FFI contract: argument validation, the round trip through
+/// the worker command, and the mapping of a server refusal onto its own result code. The live
+/// half — a real tcpip-forward against a real sshd, and the forwarded-tcpip channels it produces —
+/// runs in the Docker E2E suite.
+#[cfg(test)]
+mod remote_forward_request_tests {
+    use super::*;
+
+    fn session_with_command_channel() -> (usize, mpsc::UnboundedReceiver<WorkerCommand>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let handle = registry_insert(NovaSshSession {
+            shared: Arc::new(SharedState::new()),
+            command_tx: Mutex::new(Some(tx)),
+            worker: Mutex::new(None),
+        }) as usize;
+        (handle, rx)
+    }
+
+    #[test]
+    fn request_validates_handle_address_and_liveness() {
+        let address = CString::new("127.0.0.1").unwrap();
+
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_request_remote_forward(usize::MAX, address.as_ptr(), 8080),
+            "an unknown handle must be refused"
+        );
+
+        let handle = registry_insert(stub_session()) as usize;
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_request_remote_forward(handle, ptr::null(), 8080),
+            "a null bind address must be refused, not defaulted — the caller is naming a listener"
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_CLOSED,
+            nova_ssh_request_remote_forward(handle, address.as_ptr(), 8080),
+            "a session with no worker command channel is closed, not invalid"
+        );
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
+    }
+
+    #[test]
+    fn request_round_trips_the_bound_port_through_the_worker() {
+        let (handle, mut rx) = session_with_command_channel();
+
+        // Stands in for the worker's select arm: receive the command, answer with the port the
+        // server bound. The FFI call blocks its thread on the reply, hence the second thread.
+        let responder = std::thread::spawn(move || match rx.blocking_recv() {
+            Some(WorkerCommand::RequestRemoteForward {
+                address,
+                port,
+                reply,
+            }) => {
+                assert_eq!("127.0.0.1", address);
+                assert_eq!(9101, port);
+                let _ = reply.send(Ok(9101));
+            }
+            _ => panic!("expected a RequestRemoteForward command"),
+        });
+
+        let address = CString::new("127.0.0.1").unwrap();
+        assert_eq!(
+            9101,
+            nova_ssh_request_remote_forward(handle, address.as_ptr(), 9101)
+        );
+
+        responder.join().expect("responder must not panic");
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
+    }
+
+    /// russh yields `Ok(0)` for the empty REQUEST_SUCCESS a server sends when an explicit port
+    /// was requested (RFC 4254 §7.1 puts a port in the reply only for port-0 requests). The
+    /// worker must report the port that is actually listening, not the encoding artifact.
+    #[test]
+    fn an_explicit_port_request_answered_with_zero_resolves_to_the_requested_port() {
+        assert_eq!(18080, resolved_remote_forward_port(18080, 0));
+        // A server that echoes (or, for port 0, allocates) a port is believed as-is.
+        assert_eq!(18080, resolved_remote_forward_port(18080, 18080));
+        assert_eq!(49152, resolved_remote_forward_port(0, 49152));
+    }
+
+    /// The unsolicited-channel gate: a session starts having asked for nothing, and flips —
+    /// permanently — when the first tcpip-forward request is sent. server_channel_open_forwarded_tcpip
+    /// refuses every open before that flip.
+    #[test]
+    fn a_fresh_session_has_requested_no_remote_forward_until_one_is_marked() {
+        let shared = SharedState::new();
+        assert!(!shared.has_requested_remote_forward());
+
+        shared.mark_remote_forward_requested();
+        assert!(shared.has_requested_remote_forward());
+    }
+
+    #[test]
+    fn a_server_refusal_maps_to_the_remote_forward_result_code() {
+        let (handle, mut rx) = session_with_command_channel();
+
+        let responder = std::thread::spawn(move || match rx.blocking_recv() {
+            Some(WorkerCommand::RequestRemoteForward { reply, .. }) => {
+                let _ = reply.send(Err(anyhow::anyhow!("administratively prohibited")));
+            }
+            _ => panic!("expected a RequestRemoteForward command"),
+        });
+
+        let address = CString::new("127.0.0.1").unwrap();
+        assert_eq!(
+            NOVA_SSH_RESULT_REMOTE_FORWARD_FAILED,
+            nova_ssh_request_remote_forward(handle, address.as_ptr(), 9102),
+            "a refusal is its own outcome — not closed, not a channel-open failure"
+        );
+
+        responder.join().expect("responder must not panic");
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
+    }
+}

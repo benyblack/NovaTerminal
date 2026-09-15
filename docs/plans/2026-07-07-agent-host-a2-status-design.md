@@ -10,10 +10,10 @@ completion/stall events instead of polling screens. Also absorbs ROADMAP §5.2
 
 Expose per-session status and an event channel:
 
-- `novaterminal.get_session_status` — current status with confidence tier
-- `novaterminal.wait_for_events` — long-poll for status changes, command
+- `ntilde.get_session_status` — current status with confidence tier
+- `ntilde.wait_for_events` — long-poll for status changes, command
   completion, bells, and stalls
-- status summary included in `novaterminal.list_sessions`
+- status summary included in `ntilde.list_sessions`
 - optional user-facing notification when a long-running command finishes
 
 The change must:
@@ -32,10 +32,10 @@ The change must:
 Signals that already exist, per pane:
 
 - **PTY truth (always available)** — `ITerminalLifecycle`
-  (`src/NovaTerminal.Pty/ITerminalSession.cs`): `IsProcessRunning`,
+  (`src/Ntilde.Pty/ITerminalSession.cs`): `IsProcessRunning`,
   `HasActiveChildProcesses`, `ExitCode`, `OnExit`; `ITerminalIO.OnOutputReceived`.
 - **Shell integration (precise, opt-in)** — `ShellLifecycleTracker`
-  (`src/NovaTerminal.App/CommandAssist/ShellIntegration/Runtime/`):
+  (`src/Ntilde.App/CommandAssist/ShellIntegration/Runtime/`):
   `PromptReady`, `CommandAccepted`, `CommandStarted`,
   `CommandFinished(exitCode, duration)`, `WorkingDirectoryChanged`, already
   surfaced as `TerminalPane` events (`CommandStarted`, `CommandFinished`,
@@ -66,7 +66,7 @@ hard-code them.
 
 `confidence` is `precise` when the pane's shell integration is active,
 `heuristic` otherwise. Agents (and Warp-style comparisons) get honesty for
-free: NovaTerminal reports *how* it knows, which tmux-layer scrapers cannot.
+free: Ntilde reports *how* it knows, which tmux-layer scrapers cannot.
 
 ## Architecture
 
@@ -105,10 +105,10 @@ free: NovaTerminal reports *how* it knows, which tmux-layer scrapers cannot.
 
 ### MCP tools
 
-- `novaterminal.get_session_status` — one session's status, human-readable
-- `novaterminal.wait_for_events` — long-poll wrapper; the tool description
+- `ntilde.get_session_status` — one session's status, human-readable
+- `ntilde.wait_for_events` — long-poll wrapper; the tool description
   teaches the cursor protocol ("pass nextSeq from the previous call")
-- `novaterminal.list_sessions` — status column added
+- `ntilde.list_sessions` — status column added
 
 ### Notifications (ROADMAP §5.2 absorbed)
 

@@ -1,0 +1,199 @@
+using Ntilde.Platform.Ssh.Launch;
+using Ntilde.Platform.Ssh.Models;
+using Ntilde.Platform.Ssh.Native;
+using Ntilde.Platform.Ssh.Sessions;
+using Ntilde.Platform.Ssh.Storage;
+using Ntilde.Pty;
+
+namespace Ntilde.Platform.Tests.Ssh;
+
+public sealed class SshSessionFactoryTests
+{
+    [Fact]
+    public void Create_ForNativeProfileRoutesToNativeSession()
+    {
+        var profileId = Guid.Parse("e94d09da-1269-4ecf-86b2-81bd4ec483cc");
+        var store = new InMemorySshProfileStore(new SshProfile
+        {
+            Id = profileId,
+            Name = "native",
+            Host = "native.internal",
+            User = "nova",
+            BackendKind = SshBackendKind.Native
+        });
+
+        var factory = new SshSessionFactory(store, launcher: null, nativeInterop: new StubNativeSshInterop());
+        using ITerminalSession session = factory.Create(profileId);
+
+        Assert.IsType<NativeSshSession>(session);
+    }
+
+    [Fact]
+    public void Create_ForNativeJumpHostProfile_LogsSelectedPath()
+    {
+        var profileId = Guid.Parse("d786b616-6b8a-4f57-b095-2e8f8b0d6907");
+        var store = new InMemorySshProfileStore(new SshProfile
+        {
+            Id = profileId,
+            Name = "native-jump",
+            Host = "target.internal",
+            User = "nova",
+            BackendKind = SshBackendKind.Native,
+            JumpHops =
+            [
+                new SshJumpHop { Host = "jump.internal" }
+            ]
+        });
+        var logs = new List<string>();
+
+        var factory = new SshSessionFactory(store, launcher: null, nativeInterop: new StubNativeSshInterop());
+        using ITerminalSession session = factory.Create(profileId, log: logs.Add);
+
+        Assert.IsType<NativeSshSession>(session);
+        Assert.Contains(logs, message => message.Contains("backend=native", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(logs, message => message.Contains("path=jump-host", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Create_ForNativeProfileWhenExperimentalToggleDisabled_ThrowsClearError()
+    {
+        var profileId = Guid.Parse("76b0d0aa-cdde-4eb5-835d-f94df74485b6");
+        var store = new InMemorySshProfileStore(new SshProfile
+        {
+            Id = profileId,
+            Name = "native-disabled",
+            Host = "native.internal",
+            User = "nova",
+            BackendKind = SshBackendKind.Native
+        });
+
+        var factory = new SshSessionFactory(store, launcher: null, nativeInterop: new StubNativeSshInterop(), nativeSshEnabled: false);
+
+        InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() => factory.Create(profileId));
+
+        Assert.Contains("disabled", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("OpenSSH", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Create_ForNativeProfileWithRemoteForward_BuildsASession()
+    {
+        // This exact shape used to be the capability gate's last refusal ("supports local and
+        // dynamic port forwards only"). Remote forwards are served natively now, so the factory
+        // must route the profile like any other native one.
+        var profileId = Guid.Parse("3f1e1c02-9a4b-4c1d-8b5e-6d0a2f7c1b44");
+        var store = new InMemorySshProfileStore(new SshProfile
+        {
+            Id = profileId,
+            Name = "native-remote-forward",
+            Host = "native.internal",
+            User = "nova",
+            BackendKind = SshBackendKind.Native,
+            Forwards =
+            [
+                new PortForward
+                {
+                    Kind = PortForwardKind.Remote,
+                    SourcePort = 8080,
+                    DestinationHost = "svc.internal",
+                    DestinationPort = 80
+                }
+            ]
+        });
+        var logs = new List<string>();
+
+        var factory = new SshSessionFactory(store, launcher: null, nativeInterop: new StubNativeSshInterop());
+        using ITerminalSession session = factory.Create(profileId, log: logs.Add);
+
+        Assert.IsType<NativeSshSession>(session);
+        Assert.DoesNotContain(logs, message => message.Contains("refused", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Create_ForNativeProfileWithJumpHopChain_BuildsASessionAndLogsTheChainLength()
+    {
+        // This exact shape used to be refused with "Multiple jump hops are not supported".
+        // The chain is served natively now, so the factory must route it like any other native
+        // profile — and say in the log that a chain, not a single hop, is in play.
+        var profileId = Guid.Parse("5c7d9e10-2b3a-4d5e-9f01-7a8b9c0d1e22");
+        var store = new InMemorySshProfileStore(new SshProfile
+        {
+            Id = profileId,
+            Name = "native-multi-hop",
+            Host = "target.internal",
+            User = "nova",
+            BackendKind = SshBackendKind.Native,
+            JumpHops =
+            [
+                new SshJumpHop { Host = "jump-one.internal" },
+                new SshJumpHop { Host = "jump-two.internal" }
+            ]
+        });
+        var logs = new List<string>();
+
+        var factory = new SshSessionFactory(store, launcher: null, nativeInterop: new StubNativeSshInterop());
+        using ITerminalSession session = factory.Create(profileId, log: logs.Add);
+
+        Assert.IsType<NativeSshSession>(session);
+        Assert.Contains(logs, message => message.Contains("path=jump-chain:2", StringComparison.Ordinal));
+    }
+
+    // Not covered here: an OpenSSH profile carrying a remote forward. The capability gate sits in the
+    // Native arm of SshSessionFactory.Create, so OpenSSH cannot reach it — and asserting that through
+    // the factory would construct a real OpenSshSession, which compiles an ssh_config to disk.
+
+    private sealed class InMemorySshProfileStore : ISshProfileStore
+    {
+        public InMemorySshProfileStore(SshProfile profile)
+        {
+            Profile = profile;
+        }
+
+        public SshProfile Profile { get; }
+
+        public IReadOnlyList<SshProfile> GetProfiles() => new[] { Profile };
+
+        public SshProfile? GetProfile(Guid profileId) => Profile.Id == profileId ? Profile : null;
+
+        public void SaveProfile(SshProfile profile) => throw new NotSupportedException();
+
+        public bool DeleteProfile(Guid profileId) => throw new NotSupportedException();
+    }
+
+    private sealed class StubNativeSshInterop : INativeSshInterop
+    {
+        public NovaSshSafeHandle Connect(NativeSshConnectionOptions options) => new(new IntPtr(1), ownsHandle: false);
+        public IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(NativeSshConnectionOptions connectionOptions, string remotePath, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public void RunSftpTransfer(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions, Action<NativeSftpTransferProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public NativeSshEvent? PollEvent(NovaSshSafeHandle sessionHandle) => null;
+        public void Write(NovaSshSafeHandle sessionHandle, ReadOnlySpan<byte> data)
+        {
+        }
+
+        public void Resize(NovaSshSafeHandle sessionHandle, int cols, int rows)
+        {
+        }
+
+        public int OpenDirectTcpIp(NovaSshSafeHandle sessionHandle, NativePortForwardOpenOptions options) => 1;
+
+        public void WriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
+        {
+        }
+
+        public void SendChannelEof(NovaSshSafeHandle sessionHandle, int channelId)
+        {
+        }
+
+        public void CloseChannel(NovaSshSafeHandle sessionHandle, int channelId)
+        {
+        }
+
+        public void Close(NovaSshSafeHandle sessionHandle)
+        {
+        }
+
+        public void SubmitResponse(NovaSshSafeHandle sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
+        {
+        }
+    }
+}

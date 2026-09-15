@@ -1,0 +1,32 @@
+using Ntilde;
+using Ntilde.Shell.Backup;
+
+internal static class Program
+{
+    [STAThread]
+    private static int Main(string[] args)
+    {
+        if (SshAskPassCommand.IsSupportedCliMode(args))
+        {
+            return SshAskPassCommand.Execute(args, Console.Out, Console.Error);
+        }
+
+        if (VtReportCommand.IsSupportedCliMode(args))
+        {
+            return VtReportCommand.Execute(args, Console.Out, Console.Error);
+        }
+
+        if (ReplayCommand.IsSupportedCliMode(args))
+        {
+            return ReplayCommand.Execute(args, Console.Out, Console.Error);
+        }
+
+        if (BackupCommand.IsSupportedCliMode(args))
+        {
+            return BackupCommand.Execute(args, Console.Out, Console.Error);
+        }
+
+        Console.Error.WriteLine("Unsupported CLI mode.");
+        return 2;
+    }
+}

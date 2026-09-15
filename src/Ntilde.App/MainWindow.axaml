@@ -1,0 +1,457 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Ntilde.Controls;assembly=Ntilde"
+        xmlns:shell="clr-namespace:Ntilde.Shell;assembly=Ntilde"
+        x:Class="Ntilde.MainWindow"
+        Title="Ntilde"
+        Width="1200" Height="800"
+        MinWidth="400" MinHeight="200"
+        x:Name="RootWindow"
+        ExtendClientAreaToDecorationsHint="True"
+        WindowDecorationsTheme="{StaticResource NtildeWindowDecorationsTheme}"
+        TransparencyLevelHint=""
+        Background="Transparent">
+    <Window.Resources>
+        <DataTemplate x:Key="TabHeaderTemplate">
+            <TextBlock Text="{Binding}" Foreground="White"
+                       FontSize="10" VerticalAlignment="Center"
+                       HorizontalAlignment="Center"
+                       Padding="6,1,6,1"
+                       Margin="0,0,0,0"/>
+        </DataTemplate>
+    </Window.Resources>
+    <Window.Styles>
+        <Style Selector="Button#BtnNewTab">
+            <Setter Property="Opacity" Value="1.0"/>
+        </Style>
+        <Style Selector="Button#BtnNewTab:pointerover">
+            <Setter Property="Opacity" Value="1.0"/>
+            <Setter Property="Background" Value="#40FFFFFF"/>
+        </Style>
+
+        <!-- TabItem Styles for Transparency -->
+        <Style Selector="TabItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="TabItem:pointerover /template/ Border#PART_Border">
+             <Setter Property="Background" Value="#1AFFFFFF"/>
+        </Style>
+        <Style Selector="TabItem:selected /template/ Border#PART_Border">
+             <Setter Property="Background" Value="#33FFFFFF"/>
+        </Style>
+
+        <Style Selector="TabControl.vertical-tabs TabItem">
+            <Setter Property="MinHeight" Value="44"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+
+        <!-- Vertical mode replaces the horizontal selected-tab underline (App.axaml's
+             "TabItem:selected /template/Border#PART_Border" sets BorderThickness 0 0 0 2,
+             which outranks the template's BorderThickness binding) with a 3px LEFT accent
+             bar: UpdateTabVisuals keeps a constant 3,0,0,0 thickness on every TabItem and
+             paints only the selected one's BorderBrush. Re-asserting the thickness here
+             (window styles apply after the App ones) lets that value reach the template
+             border on the selected tab; unselected tabs get it via the plain template
+             binding. -->
+        <Style Selector="TabControl.vertical-tabs TabItem:selected /template/ Border#PART_Border">
+            <Setter Property="BorderThickness" Value="3 0 0 0"/>
+        </Style>
+
+        <!-- GridSplitter Custom Template for thinner lines with larger hit area -->
+        <Style Selector="GridSplitter">
+            <Setter Property="Background" Value="#2D2D2D"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="Transparent">
+                        <Rectangle Name="PART_Line" Fill="{TemplateBinding Background}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="GridSplitter[ResizeDirection=Columns] /template/ Rectangle#PART_Line">
+            <Setter Property="Width" Value="1"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="GridSplitter[ResizeDirection=Rows] /template/ Rectangle#PART_Line">
+            <Setter Property="Height" Value="1"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </Window.Styles>
+    <Grid x:Name="MainRoot" Background="Transparent" PointerPressed="TopLevel_PointerPressed">
+        <!-- Unified background layer for the entire window -->
+        <Grid x:Name="WindowBackground" IsHitTestVisible="False" />
+
+        <!-- TabControl spanning full window, headers in title bar area -->
+        <TabControl Name="Tabs" Margin="0"
+                    TabStripPlacement="Top"
+                    Padding="0"
+                    BorderThickness="0"
+                    ZIndex="60"
+                    RenderOptions.BitmapInterpolationMode="HighQuality">
+            <TabControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </TabControl.ItemsPanel>
+            <TabControl.Theme>
+                <ControlTheme TargetType="TabControl">
+                    <Setter Property="Template">
+                        <ControlTemplate>
+                            <DockPanel>
+                                <!-- Keep the 36px title band clear in vertical mode: the title-bar
+                                     button overlay and the window-drag area live there (drag
+                                     bubbles to MainRoot's handler). Height 0 in horizontal mode
+                                     collapses this to a no-op. Reconfigured at runtime by
+                                     UpdateTabHeaderViewport - never by swapping Theme/ItemsPanel. -->
+                                <Border Name="PART_TitleBandSpacer"
+                                        DockPanel.Dock="Top"
+                                        Height="0"
+                                        Background="Transparent" />
+                                <Grid Name="PART_TabSidebar" DockPanel.Dock="Top">
+                                    <ScrollViewer Name="PART_TabHeaderScrollViewer"
+                                                  Margin="0,0,440,0"
+                                                  Height="36"
+                                                  HorizontalScrollBarVisibility="Hidden"
+                                                  VerticalScrollBarVisibility="Disabled">
+                                        <ItemsPresenter Name="PART_ItemsPresenter"
+                                                      ClipToBounds="True"
+                                                      ItemsPanel="{TemplateBinding ItemsPanel}" />
+                                    </ScrollViewer>
+                                    <Border Name="PART_TabStripResizeGrip"
+                                            Width="5"
+                                            HorizontalAlignment="Right"
+                                            Background="Transparent"
+                                            Cursor="SizeWestEast"
+                                            IsVisible="False" />
+                                    <!-- Drag-to-reorder insert indicator: an accent line at the
+                                         current drop gap. It lives in this Grid (ZIndex keeps it above
+                                         the headers) so it can span the strip in either orientation.
+                                         The static look (brush, corner radius, top-left alignment) is
+                                         set here once; MainWindow's drag wiring owns thickness, length,
+                                         position and visibility - the thickness runs along Width in
+                                         vertical mode and along Height in horizontal, sourced solely
+                                         from TabInsertIndicatorThickness in code, so no Width/Height
+                                         is set here on purpose. -->
+                                    <Border Name="PART_TabInsertIndicator"
+                                            Background="#4FB0D4"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Top"
+                                            CornerRadius="1"
+                                            ZIndex="10"
+                                            IsVisible="False"
+                                            IsHitTestVisible="False" />
+                                    <!-- Vertical-mode overflow pill: a bottom-pinned affordance
+                                         over the scrolling headers when rows run past the sidebar
+                                         viewport (horizontal mode keeps the title-bar
+                                         TabOverflowBadge instead). Inert by default exactly like
+                                         PART_TabInsertIndicator above - IsVisible=False and colors
+                                         unset here; UpdateTabOverflowPill (from
+                                         UpdateTabHeaderViewport) owns visibility, text and
+                                         Background/Foreground. The code-set background is opaque so
+                                         rows scroll under it, and this fixed top hairline separates
+                                         it from the last visible row. Focusable=False keeps clicks
+                                         from stealing keyboard focus from the terminal (same rule
+                                         as BtnNewTab). The right margin keeps the pill clear of
+                                         PART_TabStripResizeGrip (right-edge, 5px wide, full
+                                         height): without it the pill would cover the grip's
+                                         bottom-right corner and make the strip un-resizable while
+                                         tabs overflow. -->
+                                    <Button Name="PART_TabOverflowPill"
+                                            Focusable="False"
+                                            Cursor="Hand"
+                                            Padding="0,6"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Bottom"
+                                            Margin="0,0,10,0"
+                                            ZIndex="5"
+                                            IsVisible="False"
+                                            BorderThickness="0,1,0,0"
+                                            BorderBrush="#28FFFFFF">
+                                        <Button.Content>
+                                            <TextBlock Name="PART_TabOverflowPillText"
+                                                       FontSize="10"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
+                                        </Button.Content>
+                                    </Button>
+                                </Grid>
+                                <ContentPresenter Name="PART_SelectedContentHost"
+                                                Margin="0"
+                                                Background="Transparent"
+                                                Content="{TemplateBinding SelectedContent}"
+                                                ContentTemplate="{TemplateBinding SelectedContentTemplate}" />
+                            </DockPanel>
+                        </ControlTemplate>
+                    </Setter>
+                </ControlTheme>
+            </TabControl.Theme>
+            <!-- Tabs added dynamically -->
+        </TabControl>
+
+
+
+        <!-- Home for TabOverflowBadge whenever Tab List (open_tab_list) is not Pinned. MainWindow's
+             RebuildTitleBar re-parents the badge into TitleBarItemsHost, immediately after the Tab
+             List button, every time that action IS Pinned (see PlaceTabOverflowBadge) - the badge
+             adjacency has to follow the user's pinned order, so it cannot live at a fixed position
+             of its own (Codex P2 round 2 on PR #342: a fixed Grid.Column="0" placement kept it
+             structurally separate from the button it's meant to sit beside). This slot exists so the
+             badge always has *some* logical parent to detach from before every re-parent - Avalonia
+             throws if you Add a control that still has one - and so it renders nothing and can't
+             intercept clicks while parked here. IsHitTestVisible=False is belt-and-braces on top of
+             the badge's own IsVisible=False. -->
+        <Panel x:Name="TitleBarBadgeParkingSlot" IsHitTestVisible="False">
+            <TextBlock Name="TabOverflowBadge"
+                       IsVisible="False"
+                       Foreground="#FFD25A"
+                       FontSize="11"
+                       VerticalAlignment="Center"
+                       HorizontalAlignment="Left"
+                       Margin="2,0,0,0"/>
+        </Panel>
+
+        <!-- Overlay layer for custom buttons (right aligned, leaving space for the system caption
+             buttons). Contents are built by MainWindow.RebuildTitleBar from TitleBarCatalog +
+             the user's saved placement, so nothing but the + button is declared here.
+
+             The 140 in the right margin is a STARTING VALUE, not the reserve. It is what three
+             45px caption buttons plus spacing and the border margin come to, and it holds only
+             until MainWindow.UpdateCaptionButtonReserve has measured the strip that is actually
+             there - which is a different width wherever the window manager does not advertise
+             minimize and maximize, since the theme hides those buttons and ~92px of this would
+             otherwise sit empty. Kept as the pre-measurement value because it is the widest case,
+             so the first paint can only be too generous, never overlap the buttons. macOS keeps
+             its own collapsed value (caption on the left) - see UpdateCaptionButtonReserve. -->
+        <Grid VerticalAlignment="Top" Height="32" HorizontalAlignment="Right" ZIndex="100" x:Name="TitleBar" Margin="0,4,140,0" Background="Transparent">
+            <Grid.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Customize Title Bar..." Name="MenuCustomizeTitleBar"/>
+                </ContextMenu>
+            </Grid.ContextMenu>
+            <StackPanel Name="TitleBarItemsHost" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent">
+                <!-- The + button is declared rather than generated: it is locked into the bar and
+                     carries this flyout's real content. TitleBarViewFactory reinserts it on every
+                     rebuild instead of rebuilding it. Focusable=False keeps clicks from stealing
+                     keyboard focus from the terminal. -->
+                <Button Name="BtnNewTab" Content="+"
+                        Foreground="White"
+                        Background="Transparent"
+                        BorderThickness="0" Focusable="False"
+                        FontSize="18"
+                        FontWeight="Light"
+                        Padding="8,4"
+                        CornerRadius="4"
+                        Margin="4,0,0,0"
+                        ToolTip.Tip="New Tab">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <Separator />
+                            <MenuItem Header="New SSH Connection..." Name="MenuNewSshConnection" />
+                            <MenuItem Header="Manage Profiles..." Name="MenuManageProfiles" />
+                            <MenuItem Header="Agent Activity..." Name="MenuAgentActivity" />
+                            <Separator />
+                            <MenuItem Header="About Ntilde..." Name="MenuAbout" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+                <!-- The agent observe light is declared rather than generated, and is deliberately
+                     NOT a TitleBarCatalog entry: catalog items are user-pinnable and therefore
+                     user-removable, and this indicator must have no off switch (see
+                     docs/mcp/security.md - the only way to have no indicator is to disable agent
+                     access itself). It is instead locked into the bar the same way BtnNewTab is:
+                     the same instance is re-inserted by MainWindow.PlaceAgentObserveIndicator after
+                     every RebuildTitleBar rather than rebuilt, so the Click handler wired once in
+                     the constructor and the FindControl lookups in RefreshAgentObserveIndicator
+                     keep resolving. It is appended LAST - after everything Populate emitted,
+                     including the overflow button - so its position cannot be moved by the user's
+                     layout: this StackPanel is right-aligned, so the final child is the one slot
+                     whose on-screen location never shifts when items are pinned, unpinned,
+                     reordered, or auto-surfaced. Contrast TabOverflowBadge, which deliberately
+                     tracks a user-movable button because it annotates that button. -->
+                <Button Name="AgentObserveIndicator"
+                        IsVisible="False"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="6,0"
+                        Focusable="False"
+                        VerticalAlignment="Center"
+                        ToolTip.Tip="Agent access is enabled. Click to open the agent activity journal.">
+                    <Ellipse Name="AgentObserveIndicatorDot" Width="7" Height="7" Fill="#6B737F"/>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <Border Name="RecordingToast"
+                IsVisible="False"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Margin="0,44,16,0"
+                MinWidth="320"
+                MaxWidth="440"
+                Padding="12"
+                Background="#20242C"
+                BorderBrush="#3A404A"
+                BorderThickness="1"
+                CornerRadius="8"
+                ZIndex="180">
+            <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="*,Auto">
+                <TextBlock Name="RecordingToastTitle"
+                           Text="Recording started"
+                           Foreground="White"
+                           FontWeight="SemiBold" />
+                <Button Name="RecordingToastClose"
+                        Grid.Column="1"
+                        Content="✕"
+                        Width="28"
+                        Height="28"
+                        Margin="8,0,0,0"
+                        Background="Transparent"
+                        Foreground="#C9CFD9"
+                        BorderThickness="0"
+                        Focusable="False"/>
+                <TextBlock Name="RecordingToastMessage"
+                           Grid.Row="1"
+                           Grid.ColumnSpan="2"
+                           Margin="0,8,0,0"
+                           Foreground="#C9CFD9"
+                           TextWrapping="Wrap" />
+                <StackPanel Grid.Row="2"
+                            Grid.ColumnSpan="2"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            Margin="0,10,0,0"
+                            Spacing="8">
+                    <Button Name="RecordingToastOpenFolder"
+                            Content="Open folder"
+                            Focusable="False"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Update-ready notice (#91). Deliberately not the RecordingToast: a recording toast and
+             an update notice can be live simultaneously, and this one has no auto-hide timer -
+             dismissing it leaves the update staged for the next restart. -->
+        <Border Name="UpdateToast"
+                IsVisible="False"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="0,0,16,16"
+                MinWidth="320"
+                MaxWidth="440"
+                Padding="12"
+                Background="#20242C"
+                BorderBrush="#3A404A"
+                BorderThickness="1"
+                CornerRadius="8"
+                ZIndex="180">
+            <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="*,Auto">
+                <TextBlock Name="UpdateToastTitle"
+                           Text="Update ready"
+                           Foreground="White"
+                           FontWeight="SemiBold" />
+                <Button Name="UpdateToastClose"
+                        Grid.Column="1"
+                        Content="✕"
+                        Width="28"
+                        Height="28"
+                        Margin="8,0,0,0"
+                        Background="Transparent"
+                        Foreground="#C9CFD9"
+                        BorderThickness="0"
+                        Focusable="False"/>
+                <TextBlock Name="UpdateToastMessage"
+                           Grid.Row="1"
+                           Grid.ColumnSpan="2"
+                           Margin="0,8,0,0"
+                           Foreground="#C9CFD9"
+                           TextWrapping="Wrap" />
+                <StackPanel Grid.Row="2"
+                            Grid.ColumnSpan="2"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            Margin="0,10,0,0"
+                            Spacing="8">
+                    <Button Name="UpdateToastRestart"
+                            Content="Restart now"
+                            Focusable="False"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Search Overlay -->
+        <Border Name="SearchPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Right" 
+                Margin="0,50,20,0" Background="#383838" CornerRadius="4" Padding="6" Width="420"
+                BorderBrush="#505050" BorderThickness="1" ZIndex="200">
+            <Border.Resources>
+                <SolidColorBrush x:Key="TextControlBackground">#1a1a1a</SolidColorBrush>
+                <SolidColorBrush x:Key="TextControlBackgroundPointerOver">#1a1a1a</SolidColorBrush>
+                <SolidColorBrush x:Key="TextControlBackgroundFocused">#1a1a1a</SolidColorBrush>
+                <SolidColorBrush x:Key="TextControlForeground">White</SolidColorBrush>
+                <SolidColorBrush x:Key="TextControlForegroundPointerOver">White</SolidColorBrush>
+                <SolidColorBrush x:Key="TextControlForegroundFocused">White</SolidColorBrush>
+            </Border.Resources>
+            <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto, Auto, Auto">
+                <TextBox Name="SearchBox" PlaceholderText="Search..." 
+                         BorderThickness="1" BorderBrush="#505050" 
+                         VerticalContentAlignment="Center" 
+                         Padding="8,4" Margin="2"/>
+                
+                <!-- Options -->
+                <ToggleButton Name="SearchCaseSensitive" Grid.Column="1" Content="Aa" 
+                              Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
+                              ToolTip.Tip="Match Case"/>
+                <ToggleButton Name="SearchRegex" Grid.Column="2" Content=".*" 
+                              Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
+                              ToolTip.Tip="Use Regular Expression"/>
+
+                <TextBlock Name="SearchCount" Grid.Column="3" Text="0/0" Foreground="#AAA" 
+                           VerticalAlignment="Center" Margin="8,0" FontSize="12"/>
+                <Button Name="SearchPrev" Grid.Column="4" Content="▲" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                <Button Name="SearchNext" Grid.Column="5" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                <Button Name="SearchClose" Grid.Column="6" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+            </Grid>
+        </Border>
+
+        <!-- Transfer Center Overlay -->
+        <Border Name="TransferOverlay" IsVisible="False" 
+                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Width="350" Height="400"
+                Margin="0,0,20,50"
+                Background="#1E1E1E" BorderBrush="#333" BorderThickness="1" CornerRadius="8"
+                ZIndex="600">
+            <Grid RowDefinitions="Auto, *">
+                <Grid Name="TransferTitleBar" Background="#2D2D2D" Height="32">
+                    <TextBlock Text="Recent Transfers" VerticalAlignment="Center" Margin="10,0" FontSize="12" FontWeight="Bold"/>
+                    <Button Name="BtnCloseTransfers" Content="✕" HorizontalAlignment="Right" Width="32" Background="Transparent" BorderThickness="0"/>
+                </Grid>
+                <ContentControl Name="TransferCenterHost" Grid.Row="1"/>
+            </Grid>
+        </Border>
+
+        <!-- Command Palette Overlay -->
+        <Grid Name="CommandPaletteOverlay" ZIndex="999" IsVisible="False" Background="#80000000">
+            <Border Width="600" Height="400" Background="#252526" BorderBrush="#007ACC" BorderThickness="1" CornerRadius="4" VerticalAlignment="Top" Margin="0,80,0,0">
+                <Grid RowDefinitions="Auto, *">
+                    <TextBox Name="CommandSearchBox" PlaceholderText="Type a command..." FontSize="14" Padding="10" BorderThickness="0,0,0,1" BorderBrush="#333333" Background="Transparent" />
+                    <ListBox Name="CommandList" Grid.Row="1" Background="Transparent" BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="shell:TerminalCommand">
+                                <Grid ColumnDefinitions="*, 100">
+                                    <TextBlock Text="{Binding FullTitle}" Foreground="#E0E0E0" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Shortcut}" Foreground="#888888" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="11"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </Grid>
+
+    </Grid>
+</Window>

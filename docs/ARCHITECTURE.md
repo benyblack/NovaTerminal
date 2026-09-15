@@ -1,7 +1,7 @@
-# NovaTerminal – Architecture & Design Rationale
+# Ntilde – Architecture & Design Rationale
 
 This document describes the **internal architecture**, **invariants**, and **design trade-offs**
-of NovaTerminal.
+of Ntilde.
 
 It is authoritative for contributors and automated agents.
 
@@ -9,7 +9,7 @@ It is authoritative for contributors and automated agents.
 
 ## 1. Architectural Goals
 
-NovaTerminal is designed to satisfy four non-negotiable goals:
+Ntilde is designed to satisfy four non-negotiable goals:
 
 1. **Deterministic terminal semantics**
 2. **Cross-platform behavioral parity**
@@ -22,7 +22,7 @@ All architectural decisions follow from these goals.
 
 ## 2. Assembly Graph
 
-NovaTerminal is structured as thirteen focused .NET assemblies. The dependency graph is acyclic. Each assembly's namespace matches its assembly name (enforced by `tests/NovaTerminal.Architecture.Tests/NamespaceAlignmentTests`).
+Ntilde is structured as thirteen focused .NET assemblies. The dependency graph is acyclic. Each assembly's namespace matches its assembly name (enforced by `tests/Ntilde.Architecture.Tests/NamespaceAlignmentTests`).
 
 ```
 Cli ──► App ──► Platform ──► Pty ──► Replay ──► VT
@@ -46,7 +46,7 @@ Four of those thirteen are **leaves with no project references at all**:
 reference list is the point — it is what lets `McpServer` share real code with
 the app without acquiring a transitive path into `App`, `VT`, `Pty` or
 `Rendering`. An earlier attempt routed the MCP backup tools through
-`NovaTerminal.Platform`, which has no App or VT dependency but does reference
+`Ntilde.Platform`, which has no App or VT dependency but does reference
 `Pty`, and that broke `McpServer`'s Pty-independence invariant with the
 reasoning fully intact. Each empty list is asserted individually by the
 architecture tests.
@@ -55,36 +55,36 @@ Concretely, from the `.csproj` graph:
 
 | Assembly | Depends on | Owns |
 |---|---|---|
-| `NovaTerminal.VT` | (leaf) | VT/ANSI parser, terminal buffer state, scrollback, reflow |
-| `NovaTerminal.Replay` | VT | Session recording/playback, snapshots, replay format v2 |
-| `NovaTerminal.Rendering` | VT, SkiaSharp | Skia glyph atlas/cache, pixel grid, sixel decoder |
-| `NovaTerminal.Pty` | Replay | PTY transport: rust-PTY adapter, session contracts. **Does not depend on VT** — see arch test `Pty_must_not_depend_on_Vt` |
-| `NovaTerminal.Platform` | Pty | Platform-utilities: input routing, path mapping, SSH transport/sessions, credential vault |
-| `NovaTerminal.CommandAssist` | (leaf) | Command Assist domain, models, storage, shell integration, view-models and application core. **No Avalonia** — see arch test `CommandAssist_must_not_depend_on_Avalonia_or_the_App` |
-| `NovaTerminal.Backup` | (leaf) | `.novabackup` bundle format, export/import/restore, the category-to-path catalogue, the debounced snapshot scheduler. Never reads secret storage |
-| `NovaTerminal.VtContract` | (leaf) | The machine-readable VT capability catalogue (`vt-capabilities.json`) and its strict schema validation |
-| `NovaTerminal.AgentHost.Contracts` | (leaf) | Wire protocol between the app's agent host and any external client: frames, discovery, source-generated JSON context |
-| `NovaTerminal.App` | Platform, VT, Rendering, Pty, Replay, CommandAssist, Backup, AgentHost.Contracts | Avalonia UI shell: windows, controls, command palette, settings, themes, command-assist views, Agent Output panel |
-| `NovaTerminal.McpServer` | AgentHost.Contracts, Backup, VtContract | stdio MCP server: repo/dev-companion tools, config validators, and the opt-in observe/act channel into live sessions. **Must not reference App, VT, Pty or Rendering** |
-| `NovaTerminal.Cli` | App | Headless CLI shim (`vt-report`, `--replay`, askpass, `backup` verbs) |
-| `NovaTerminal.Conformance` | VtContract | VT conformance matrix tool used by tests and CI |
+| `Ntilde.VT` | (leaf) | VT/ANSI parser, terminal buffer state, scrollback, reflow |
+| `Ntilde.Replay` | VT | Session recording/playback, snapshots, replay format v2 |
+| `Ntilde.Rendering` | VT, SkiaSharp | Skia glyph atlas/cache, pixel grid, sixel decoder |
+| `Ntilde.Pty` | Replay | PTY transport: rust-PTY adapter, session contracts. **Does not depend on VT** — see arch test `Pty_must_not_depend_on_Vt` |
+| `Ntilde.Platform` | Pty | Platform-utilities: input routing, path mapping, SSH transport/sessions, credential vault |
+| `Ntilde.CommandAssist` | (leaf) | Command Assist domain, models, storage, shell integration, view-models and application core. **No Avalonia** — see arch test `CommandAssist_must_not_depend_on_Avalonia_or_the_App` |
+| `Ntilde.Backup` | (leaf) | `.ntildebackup` bundle format, export/import/restore, the category-to-path catalogue, the debounced snapshot scheduler. Never reads secret storage |
+| `Ntilde.VtContract` | (leaf) | The machine-readable VT capability catalogue (`vt-capabilities.json`) and its strict schema validation |
+| `Ntilde.AgentHost.Contracts` | (leaf) | Wire protocol between the app's agent host and any external client: frames, discovery, source-generated JSON context |
+| `Ntilde.App` | Platform, VT, Rendering, Pty, Replay, CommandAssist, Backup, AgentHost.Contracts | Avalonia UI shell: windows, controls, command palette, settings, themes, command-assist views, Agent Output panel |
+| `Ntilde.McpServer` | AgentHost.Contracts, Backup, VtContract | stdio MCP server: repo/dev-companion tools, config validators, and the opt-in observe/act channel into live sessions. **Must not reference App, VT, Pty or Rendering** |
+| `Ntilde.Cli` | App | Headless CLI shim (`vt-report`, `--replay`, askpass, `backup` verbs) |
+| `Ntilde.Conformance` | VtContract | VT conformance matrix tool used by tests and CI |
 
 ### Hard Rule
 
-> **No OS-specific logic in `NovaTerminal.VT`.** VT is the leaf — no Avalonia, no Skia, no native interop, no I/O. Enforced by `LayeringTests.Vt_must_be_a_leaf_assembly`.
+> **No OS-specific logic in `Ntilde.VT`.** VT is the leaf — no Avalonia, no Skia, no native interop, no I/O. Enforced by `LayeringTests.Vt_must_be_a_leaf_assembly`.
 
 ---
 
-## 3. Terminal Engine — `NovaTerminal.VT`
+## 3. Terminal Engine — `Ntilde.VT`
 
 The terminal engine is the **single source of truth** for terminal semantics. The Avalonia UI is downstream — if the rendered pixels look wrong, the bug is in the VT engine, not the renderer.
 
 ### 3.1 Responsibilities
-- Parse VT / ANSI escape sequences (`src/NovaTerminal.VT/AnsiParser.cs`)
-- Maintain deterministic screen state in `TerminalBuffer` (`src/NovaTerminal.VT/TerminalBuffer.cs` + partial files)
+- Parse VT / ANSI escape sequences (`src/Ntilde.VT/AnsiParser.cs`)
+- Maintain deterministic screen state in `TerminalBuffer` (`src/Ntilde.VT/TerminalBuffer.cs` + partial files)
 - Handle alternate-screen transitions
-- Manage scrollback (`src/NovaTerminal.VT/Buffer/ScrollbackPages.cs`)
-- Perform lossless reflow on resize (`src/NovaTerminal.VT/TerminalBuffer.ReflowEngine.cs`)
+- Manage scrollback (`src/Ntilde.VT/Buffer/ScrollbackPages.cs`)
+- Perform lossless reflow on resize (`src/Ntilde.VT/TerminalBuffer.ReflowEngine.cs`)
 - Provide read-only snapshots for rendering and replay
 
 ### 3.2 Components
@@ -122,7 +122,7 @@ This enables deterministic replay, cross-platform parity testing, and safe refac
 
 ---
 
-## 4. Recording / Playback — `NovaTerminal.Replay`
+## 4. Recording / Playback — `Ntilde.Replay`
 
 A focused module that owns the record/replay file format and the snapshot/byte-stream coupling. References VT for snapshot types (`BufferSnapshot`), but is independent of Pty, Rendering, and App.
 
@@ -130,11 +130,11 @@ A focused module that owns the record/replay file format and the snapshot/byte-s
 
 ---
 
-## 5. Renderer Primitives — `NovaTerminal.Rendering`
+## 5. Renderer Primitives — `Ntilde.Rendering`
 
 Skia-only helpers: glyph atlas (`GlyphAtlas`), glyph cache (`GlyphCache`), pixel grid math (`PixelGrid`), font wrappers (`SharedSKFont`, `SharedSKTypeface`), image registry, sixel decoder, render performance metrics.
 
-This module is intentionally **Avalonia-agnostic**. The actual Avalonia `DrawOperation` and viewport (`TerminalDrawOperation`, `TerminalView`) live in `src/NovaTerminal.App/Shell/` today — see Known Tech Debt below for the planned extraction.
+This module is intentionally **Avalonia-agnostic**. The actual Avalonia `DrawOperation` and viewport (`TerminalDrawOperation`, `TerminalView`) live in `src/Ntilde.App/Shell/` today — see Known Tech Debt below for the planned extraction.
 
 **Invariants** (enforced by `LayeringTests.Rendering_only_depends_on_Vt_and_Skia`)
 - Rendering is a pure function of (buffer snapshot, metrics, theme).
@@ -143,7 +143,7 @@ This module is intentionally **Avalonia-agnostic**. The actual Avalonia `DrawOpe
 
 ---
 
-## 6. PTY Transport — `NovaTerminal.Pty`
+## 6. PTY Transport — `Ntilde.Pty`
 
 Native OS integration via the Rust PTY library (`rusty_pty.dll`/`.so`/`.dylib`). Defines the session contracts and `RustPtySession` as the canonical implementation.
 
@@ -163,19 +163,19 @@ Native OS integration via the Rust PTY library (`rusty_pty.dll`/`.so`/`.dylib`).
 
 ---
 
-## 7. Platform / SSH — `NovaTerminal.Platform`
+## 7. Platform / SSH — `Ntilde.Platform`
 
-This is **not** the terminal engine. It's a platform-utilities library: input routing (`Input/`), path mapping (`Paths/WslPathMapper`), the SSH stack (`Ssh/{Native,OpenSsh,Sessions,Storage,Transport}`), and the credential vault. It was renamed from `NovaTerminal.Core` to `NovaTerminal.Platform` (issue #76) to end the three-way "Core" name overload; the original "Core" terminal engine had earlier been renamed to `NovaTerminal.VT` during the namespace-alignment work.
+This is **not** the terminal engine. It's a platform-utilities library: input routing (`Input/`), path mapping (`Paths/WslPathMapper`), the SSH stack (`Ssh/{Native,OpenSsh,Sessions,Storage,Transport}`), and the credential vault. It was renamed from `Ntilde.Core` to `Ntilde.Platform` (issue #76) to end the three-way "Core" name overload; the original "Core" terminal engine had earlier been renamed to `Ntilde.VT` during the namespace-alignment work.
 
 This is also where session-orchestration helpers (such as a future `SessionBufferBinder`) belong.
 
 ---
 
-## 8. UI Shell — `NovaTerminal.App`
+## 8. UI Shell — `Ntilde.App`
 
 Avalonia 12.0.4 application. Hosts windows, controls (`TerminalPane`, `MainWindow`, `SettingsWindow`), view-models, themes, and command-palette. Composes everything below.
 
-Shell composition glue (startup orchestration, app paths/logging/services, session & workspace managers, theme manager, command registry, profiles, the Avalonia view host) lives in `src/NovaTerminal.App/Shell/`, namespace `NovaTerminal.Shell` — renamed from `App/Core/` + `NovaTerminal.Core` (issue #76).
+Shell composition glue (startup orchestration, app paths/logging/services, session & workspace managers, theme manager, command registry, profiles, the Avalonia view host) lives in `src/Ntilde.App/Shell/`, namespace `Ntilde.Shell` — renamed from `App/Core/` + `Ntilde.Core` (issue #76).
 
 ### Responsibilities
 - Window and pane management
@@ -193,9 +193,9 @@ Shell composition glue (startup orchestration, app paths/logging/services, sessi
 
 ---
 
-## 9. CLI Shim — `NovaTerminal.Cli`
+## 9. CLI Shim — `Ntilde.Cli`
 
-Headless tooling entry point used for `vt-report` and other automation use cases. Currently references `NovaTerminal.App`; a `NovaTerminal.Bootstrap` library should mediate so neither side reaches into the other (see Known Tech Debt).
+Headless tooling entry point used for `vt-report` and other automation use cases. Currently references `Ntilde.App`; a `Ntilde.Bootstrap` library should mediate so neither side reaches into the other (see Known Tech Debt).
 
 ---
 
@@ -206,13 +206,13 @@ Replay is a **core architectural feature**, not a debug tool.
 ```
 PTY byte stream
    ↓
-[Recorder]                  -- ReplayWriter (NovaTerminal.Replay)
+[Recorder]                  -- ReplayWriter (Ntilde.Replay)
    ↓
 Replay file
    ↓
-AnsiParser                  -- NovaTerminal.VT
+AnsiParser                  -- Ntilde.VT
    ↓
-TerminalBuffer              -- NovaTerminal.VT
+TerminalBuffer              -- Ntilde.VT
    ↓
 Buffer snapshot             -- compared in CI
 ```
@@ -223,7 +223,7 @@ Snapshots capture visible screen content, attributes, cursor state, alt/main fla
 
 ## 11. Cross-Platform Parity
 
-NovaTerminal enforces **behavioral parity** across OSes:
+Ntilde enforces **behavioral parity** across OSes:
 
 | Aspect | Must match across OSes |
 |---|---|
@@ -239,7 +239,7 @@ Allowed differences: window chrome, hotkeys, blur/transparency, credential stora
 
 ## 12. Architecture-Tests Safety Net
 
-`tests/NovaTerminal.Architecture.Tests/` uses [NetArchTest.Rules](https://github.com/BenMorris/NetArchTest) to encode layering and namespace rules as xUnit facts. Today's enforced rules:
+`tests/Ntilde.Architecture.Tests/` uses [NetArchTest.Rules](https://github.com/BenMorris/NetArchTest) to encode layering and namespace rules as xUnit facts. Today's enforced rules:
 
 **`LayeringTests`**
 - `Vt_must_be_a_leaf_assembly`
@@ -269,13 +269,13 @@ Adding a new layering invariant means adding a new fact. Reverting one of these 
 
 | Project | What it tests |
 |---|---|
-| `NovaTerminal.VT.Tests` | Fast unit suite for parser/buffer in isolation (no Avalonia, no Skia) |
-| `NovaTerminal.Rendering.Tests` | Skia primitives that don't need a GPU context |
-| `NovaTerminal.Platform.Tests` | Platform utilities + SSH; includes Docker-gated E2E (skipped without Docker) |
-| `NovaTerminal.App.Tests` | App-level integration — Avalonia-headless tests, replay regressions, golden PNG comparisons, command-assist |
-| `NovaTerminal.Architecture.Tests` | Layering and namespace rules (Section 12) |
-| `NovaTerminal.Benchmarks` | BenchmarkDotNet perf benchmarks (Exe, not auto-discovered by `dotnet test`) |
-| `NovaTerminal.ExternalSuites` | Vttest and Native-SSH external scenario drivers (Exe) |
+| `Ntilde.VT.Tests` | Fast unit suite for parser/buffer in isolation (no Avalonia, no Skia) |
+| `Ntilde.Rendering.Tests` | Skia primitives that don't need a GPU context |
+| `Ntilde.Platform.Tests` | Platform utilities + SSH; includes Docker-gated E2E (skipped without Docker) |
+| `Ntilde.App.Tests` | App-level integration — Avalonia-headless tests, replay regressions, golden PNG comparisons, command-assist |
+| `Ntilde.Architecture.Tests` | Layering and namespace rules (Section 12) |
+| `Ntilde.Benchmarks` | BenchmarkDotNet perf benchmarks (Exe, not auto-discovered by `dotnet test`) |
+| `Ntilde.ExternalSuites` | Vttest and Native-SSH external scenario drivers (Exe) |
 
 App-side tests use xunit.v3 + `Avalonia.Headless.XUnit 12.0.4` (which carries the dispatcher-cleanup fix; **do not downgrade** below 12.0.4 — earlier versions leak headless dispatcher threads and hang `dotnet test` under captured-stdout runners).
 
@@ -285,10 +285,10 @@ App-side tests use xunit.v3 + `Avalonia.Headless.XUnit 12.0.4` (which carries th
 
 These are tracked in follow-up plans under `docs/plans/`:
 
-- **Renderer composition still lives in App.** `src/NovaTerminal.App/Shell/TerminalView.cs` (2,604 LOC) and `TerminalDrawOperation.cs` (2,935 LOC) implement the Skia-backed Avalonia renderer. They belong in `NovaTerminal.Rendering` behind a thin Avalonia binding shell. Planned extraction: `2026-MM-DD-renderer-composition-extraction-plan.md`.
-- **SSH is fragmented across Platform and App.** `Platform/Ssh/` holds the transport, while `App/Services/Ssh/`, `App/ViewModels/Ssh/`, `App/Views/Ssh/`, and `App/Shell/{SftpService,VaultService,SshAskPassCommand}.cs` hold the user-facing surface. A `NovaTerminal.Ssh` (or `.Remote`) assembly would consolidate the non-UI portion.
-- **CommandAssist Phase 0 has one item left.** Tasks 1–2 and 7 of `docs/plans/2026-08-01-command-assist-v2-plan.md` Phase 0 (the `NovaTerminal.CommandAssist` assembly extraction and its Avalonia-free key/geometry abstractions, #114) landed first; tasks 3, 5 and 6 followed (`CommandAssistServices` composed at the App root and injected into `TerminalPane`, a single ranking path with the history store reduced to a recall gate, and the append-only JSONL history store with in-memory index and compaction). What remains is task 4: `CommandAssistController` is ~940 LOC doing session state, capture, and suggestion orchestration at once, and splits into `AssistSessionStateMachine` / `CapturePipeline` / `SuggestionOrchestrator`. (`JsonSnippetStore` deliberately stays whole-file JSON — it writes only on pin/unpin/delete.)
-- **CLI ↔ App reference direction.** `Cli` currently references `App` and is built via a nested MSBuild target (`BuildCliShim` in `App.csproj`). A `NovaTerminal.Bootstrap` library should mediate so `Cli → Bootstrap ← App` replaces `Cli → App`.
+- **Renderer composition still lives in App.** `src/Ntilde.App/Shell/TerminalView.cs` (2,604 LOC) and `TerminalDrawOperation.cs` (2,935 LOC) implement the Skia-backed Avalonia renderer. They belong in `Ntilde.Rendering` behind a thin Avalonia binding shell. Planned extraction: `2026-MM-DD-renderer-composition-extraction-plan.md`.
+- **SSH is fragmented across Platform and App.** `Platform/Ssh/` holds the transport, while `App/Services/Ssh/`, `App/ViewModels/Ssh/`, `App/Views/Ssh/`, and `App/Shell/{SftpService,VaultService,SshAskPassCommand}.cs` hold the user-facing surface. A `Ntilde.Ssh` (or `.Remote`) assembly would consolidate the non-UI portion.
+- **CommandAssist Phase 0 has one item left.** Tasks 1–2 and 7 of `docs/plans/2026-08-01-command-assist-v2-plan.md` Phase 0 (the `Ntilde.CommandAssist` assembly extraction and its Avalonia-free key/geometry abstractions, #114) landed first; tasks 3, 5 and 6 followed (`CommandAssistServices` composed at the App root and injected into `TerminalPane`, a single ranking path with the history store reduced to a recall gate, and the append-only JSONL history store with in-memory index and compaction). What remains is task 4: `CommandAssistController` is ~940 LOC doing session state, capture, and suggestion orchestration at once, and splits into `AssistSessionStateMachine` / `CapturePipeline` / `SuggestionOrchestrator`. (`JsonSnippetStore` deliberately stays whole-file JSON — it writes only on pin/unpin/delete.)
+- **CLI ↔ App reference direction.** `Cli` currently references `App` and is built via a nested MSBuild target (`BuildCliShim` in `App.csproj`). A `Ntilde.Bootstrap` library should mediate so `Cli → Bootstrap ← App` replaces `Cli → App`.
 - **Byte vs string at the PTY boundary.** `ITerminalIO.SendInput(string)` and `OnOutputReceived(Action<string>)` lose information at the byte-vs-codepoint boundary (UTF-8 split across reads, embedded NULs, lone surrogates). Migrating to `ReadOnlySpan<byte>` / `Action<ReadOnlyMemory<byte>>` is the planned follow-up to Phase 5.
 - **Buffer-snapshot recording.** Phase 5 removed `ITerminalSession.AttachBuffer` / `TakeSnapshot`. The byte-stream is still recorded; buffer snapshots at recording start/stop are gone. Re-introducing them as an orchestration helper (likely in `Replay` or `Platform`) is a small follow-up.
 - **`MainWindow.axaml.cs` is 8,755 LOC, `TerminalPane.axaml.cs` 5,029 LOC, `SettingsWindow.axaml.cs` 3,312 LOC** (measured 2026-09-03; each has grown 60-95% since this item was written, so the trend is the finding as much as the number). These code-behinds contain business logic that should live in services and view-models.
@@ -315,13 +315,13 @@ This architecture is intentionally **boring**. That is a feature.
 
 - Ghostty and WezTerm succeed because they are predictable.
 - Users forgive missing features. They do not forgive broken terminals.
-- NovaTerminal optimizes for **trust first**, features second.
+- Ntilde optimizes for **trust first**, features second.
 
 ---
 
 ## 17. Summary
 
-NovaTerminal is:
+Ntilde is:
 - deterministic by design
 - cross-platform by construction
 - test-gated by policy (arch tests + replay regression suite)

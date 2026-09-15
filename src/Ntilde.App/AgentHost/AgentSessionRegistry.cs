@@ -1,0 +1,166 @@
+using System;
+using System.Collections.Concurrent;
+using System.Linq;
+using Ntilde.AgentHost.Contracts;
+
+namespace Ntilde.AgentHost
+{
+    /// <summary>
+    /// Thread-safe registry of live terminal sessions for the agent-host
+    /// control channel (docs/agent-host/DIRECTION.md, milestone A1; design in
+    /// docs/plans/2026-07-07-agent-host-a1-observe-design.md).
+    ///
+    /// PR2 scope: pure bookkeeping. Panes register in <c>SetupCommon</c> and
+    /// unregister in <c>DetachFromUiThread</c>; MainWindow associates tabs
+    /// where it maintains <c>_paneOwnerTab</c>. The registry has no behavior
+    /// until the IPC endpoint (PR3) queries it, and it never keeps a pane
+    /// alive: entries are removed on dispose, not finalization.
+    /// </summary>
+    public sealed class AgentSessionRegistry
+    {
+        /// <summary>Process-wide instance used by the app wiring. Tests construct their own.</summary>
+        public static AgentSessionRegistry Instance => _instanceOverride ?? ProcessInstance;
+
+        private static readonly AgentSessionRegistry ProcessInstance = new();
+
+        // Thread-local, not a plain static: the override exists so one test can
+        // isolate the panes it constructs, and a plain static would redirect
+        // panes any other test happens to be constructing at the same moment —
+        // recreating the exact cross-test interference it is here to remove.
+        [ThreadStatic]
+        private static AgentSessionRegistry? _instanceOverride;
+
+        /// <summary>
+        /// Redirects <see cref="Instance"/> on the current thread to
+        /// <paramref name="registry"/> until the returned scope is disposed.
+        ///
+        /// Test seam (#357): TerminalPane hard-wires <see cref="Instance"/>, a
+        /// process-wide singleton shared by every concurrently-running test.
+        /// Anything subscribed there — a leaked MainWindow, the agent-host
+        /// endpoint another test's window started from the developer's real
+        /// settings — hears a test pane's registration and publishes actability
+        /// onto it, so tests about a pane's birth state need panes registered
+        /// somewhere nothing else is listening. Scope it synchronously around
+        /// construction: the pane captures the registry it registered with, so
+        /// the override does not need to survive past the constructor.
+        /// </summary>
+        internal static IDisposable OverrideInstanceForTesting(AgentSessionRegistry registry)
+        {
+            ArgumentNullException.ThrowIfNull(registry);
+            var scope = new InstanceOverrideScope(_instanceOverride);
+            _instanceOverride = registry;
+            return scope;
+        }
+
+        private sealed class InstanceOverrideScope : IDisposable
+        {
+            private readonly AgentSessionRegistry? _previous;
+            public InstanceOverrideScope(AgentSessionRegistry? previous) => _previous = previous;
+            public void Dispose() => _instanceOverride = _previous;
+        }
+
+        private readonly ConcurrentDictionary<Guid, AgentSessionRegistration> _sessions = new();
+
+        public int Count => _sessions.Count;
+
+        /// <summary>Raised after a session is added. Used by the endpoint to attach status-event forwarding.</summary>
+        public event Action<AgentSessionRegistration>? SessionRegistered;
+
+        /// <summary>Raised after a session is removed.</summary>
+        public event Action<AgentSessionRegistration>? SessionUnregistered;
+
+        /// <summary>Adds a registration. Returns false (and keeps the existing entry) on a duplicate PaneId.</summary>
+        public bool Register(AgentSessionRegistration registration)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+            if (!_sessions.TryAdd(registration.PaneId, registration)) return false;
+            SessionRegistered?.Invoke(registration);
+            return true;
+        }
+
+        /// <summary>Removes a registration; false when the pane was never registered (or already removed).</summary>
+        public bool Unregister(Guid paneId)
+        {
+            if (!_sessions.TryRemove(paneId, out var removed)) return false;
+            SessionUnregistered?.Invoke(removed);
+            return true;
+        }
+
+        /// <summary>Point-in-time array of live registrations (for the endpoint's status sweep).</summary>
+        public AgentSessionRegistration[] GetRegistrations() => _sessions.Values.ToArray();
+
+        public bool TryGet(Guid paneId, out AgentSessionRegistration registration)
+        {
+            var found = _sessions.TryGetValue(paneId, out var value);
+            registration = value!;
+            return found;
+        }
+
+        /// <summary>
+        /// Moves a registration to a new pane id. Session restore assigns a
+        /// persisted PaneId after construction (SessionManager.RestorePaneTree),
+        /// i.e. after the pane has already registered; the PaneId setter calls
+        /// this so the registry key always matches the pane.
+        ///
+        /// Returns true when the pane is addressable under <paramref name="newPaneId"/>
+        /// afterwards — including the "nothing was registered" case, which is
+        /// not a desync. Returns false only when the entry remains keyed under
+        /// <paramref name="oldPaneId"/> (new id collision, reverted); the caller
+        /// must then keep using the old id.
+        /// </summary>
+        public bool Rekey(Guid oldPaneId, Guid newPaneId)
+        {
+            if (oldPaneId == newPaneId) return true;
+            if (!_sessions.TryRemove(oldPaneId, out var registration)) return true;
+
+            registration.PaneId = newPaneId;
+            if (_sessions.TryAdd(newPaneId, registration)) return true;
+
+            // New id collided (should not happen — PaneIds are GUIDs). Restore the old entry.
+            registration.PaneId = oldPaneId;
+            _sessions.TryAdd(oldPaneId, registration);
+            return false;
+        }
+
+        /// <summary>Associates a pane with its owning tab. No-op for unknown panes.</summary>
+        public bool SetTabAssociation(Guid paneId, Guid tabId)
+        {
+            if (!_sessions.TryGetValue(paneId, out var registration)) return false;
+            registration.TabId = tabId;
+            return true;
+        }
+
+        /// <summary>
+        /// Point-in-time snapshot as wire DTOs, ordered by PaneId for a
+        /// deterministic listing. Safe to call from any thread: metadata comes
+        /// from the registration's lock-protected snapshot (pushed by the pane
+        /// on the UI thread), never from the Avalonia control. Rows/Cols are
+        /// informational int reads from the live buffer — actual screen reads
+        /// (PR3) go through the deterministic snapshot path under the buffer
+        /// lock.
+        /// </summary>
+        public SessionInfo[] ListSessions()
+        {
+            return _sessions.Values
+                .Select(r =>
+                {
+                    var status = r.StatusMachine.Snapshot();
+                    return new SessionInfo
+                    {
+                        PaneId = r.PaneId,
+                        TabId = r.TabId,
+                        Title = r.Title,
+                        ProfileName = r.ProfileName,
+                        Kind = r.Kind,
+                        Rows = r.Buffer.Rows,
+                        Cols = r.Buffer.Cols,
+                        IsActive = r.IsActive,
+                        Status = status.Kind.ToWire(),
+                        Confidence = status.Confidence.ToWire(),
+                    };
+                })
+                .OrderBy(s => s.PaneId)
+                .ToArray();
+        }
+    }
+}

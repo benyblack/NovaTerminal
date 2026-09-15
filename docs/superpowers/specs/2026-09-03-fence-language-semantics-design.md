@@ -178,7 +178,7 @@ other files. Extract it to `AgentOutput/MarkdownTheme.cs` as `internal sealed cl
 `AgentOutput/Fences/`. This keeps the renderer focused on block dispatch and makes each handler
 independently testable, which is the stated benefit of having an interface at all.
 
-No layering change: everything stays inside `NovaTerminal.App`, so the architecture guards are
+No layering change: everything stays inside `Ntilde.App`, so the architecture guards are
 unaffected.
 
 ## Edge cases
@@ -226,20 +226,20 @@ guard that an unrecognized language is untouched.
 
 ## Files touched
 
-- `src/NovaTerminal.App/AgentOutput/MarkdownRenderer.cs` — resolver call in `BuildCodeBlock`,
+- `src/Ntilde.App/AgentOutput/MarkdownRenderer.cs` — resolver call in `BuildCodeBlock`,
   depth parameter through `AppendBlocks`, `MarkdownRenderResult`
-- `src/NovaTerminal.App/AgentOutput/MarkdownTheme.cs` — **new** (extracted, +3 brushes)
-- `src/NovaTerminal.App/AgentOutput/Fences/IFenceBody.cs` — **new**
-- `src/NovaTerminal.App/AgentOutput/Fences/FenceBodyResolver.cs` — **new**
-- `src/NovaTerminal.App/AgentOutput/Fences/MarkdownFenceBody.cs` — **new**
-- `src/NovaTerminal.App/AgentOutput/Fences/DiffFenceBody.cs` — **new**
-- `src/NovaTerminal.App/AgentOutput/AgentOutputViewModel.cs` — `RenderFencedMarkdown`
-- `src/NovaTerminal.App/AgentOutput/AgentOutputPanel.axaml` and `.axaml.cs` — header switch,
+- `src/Ntilde.App/AgentOutput/MarkdownTheme.cs` — **new** (extracted, +3 brushes)
+- `src/Ntilde.App/AgentOutput/Fences/IFenceBody.cs` — **new**
+- `src/Ntilde.App/AgentOutput/Fences/FenceBodyResolver.cs` — **new**
+- `src/Ntilde.App/AgentOutput/Fences/MarkdownFenceBody.cs` — **new**
+- `src/Ntilde.App/AgentOutput/Fences/DiffFenceBody.cs` — **new**
+- `src/Ntilde.App/AgentOutput/AgentOutputViewModel.cs` — `RenderFencedMarkdown`
+- `src/Ntilde.App/AgentOutput/AgentOutputPanel.axaml` and `.axaml.cs` — header switch,
   pass the flag
-- `tests/NovaTerminal.App.Tests/AgentOutput/MarkdownRendererTests.cs` — extended
-- `tests/NovaTerminal.App.Tests/AgentOutput/FenceBodyTests.cs` — **new**
-- `tests/NovaTerminal.App.Tests/AgentOutput/AgentOutputPanelTests.cs` — switch visibility
-- `tests/NovaTerminal.App.Tests/AgentOutput/AgentOutputViewModelTests.cs` — the new property
+- `tests/Ntilde.App.Tests/AgentOutput/MarkdownRendererTests.cs` — extended
+- `tests/Ntilde.App.Tests/AgentOutput/FenceBodyTests.cs` — **new**
+- `tests/Ntilde.App.Tests/AgentOutput/AgentOutputPanelTests.cs` — switch visibility
+- `tests/Ntilde.App.Tests/AgentOutput/AgentOutputViewModelTests.cs` — the new property
 
 ## Accepted limitations
 

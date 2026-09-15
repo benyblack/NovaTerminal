@@ -3,18 +3,18 @@
 **Status:** Approved design — ready for implementation plan
 **Date:** 2026-06-11
 **Issue:** #100 (P0, security) — *Vault key derivation on Linux/macOS is trivially decryptable*
-**Area:** `src/NovaTerminal.App/Shell/VaultService.cs`
+**Area:** `src/Ntilde.App/Shell/VaultService.cs`
 
 ## Problem
 
 On Linux/macOS, vault secrets (SSH credentials) are AES-encrypted with a key any
 local process can derive:
 
-- **Linux:** key = `PBKDF2(contents of /etc/machine-id, "NovaVaultSalt", 10_000)`.
+- **Linux:** key = `PBKDF2(contents of /etc/machine-id, "NtildeVaultSalt", 10_000)`.
   `/etc/machine-id` is world-readable → offline decryption by any local user.
 - **macOS:** key = `PBKDF2($USER, same salt)` → effectively a public key.
 - `catch { }` in `GetPlatformKey()` silently falls back to the constant string
-  `"NovaTerminal-Fallback-Salt"` as key material.
+  `"Ntilde-Fallback-Salt"` as key material.
 - No vault-file permission enforcement.
 - `MainWindow` constructs the vault as `try { Vault = new VaultService(); } catch { }`,
   so init failure silently disables the vault with no user signal.
@@ -131,7 +131,7 @@ path is preserved (moved into `WindowsCredentialStore`).
 
 ## Legacy cleanup
 
-- On startup, if `…/LocalAppData/NovaTerminal/vault.dat` exists on Linux/macOS,
+- On startup, if `…/LocalAppData/Ntilde/vault.dat` exists on Linux/macOS,
   **delete it without reading** (best-effort; debug-log on failure). It was encrypted
   with the weak key and is a standing liability.
 - Windows production never wrote `vault.dat` (it uses Credential Manager), so no
@@ -146,7 +146,7 @@ path is preserved (moved into `WindowsCredentialStore`).
   (`errSecItemNotFound`, `errSecDuplicateItem` → update path).
 - **Linux:** functions take `GError**`; on error free with `g_error_free`, and free
   returned heap strings with `secret_password_free`. Define a stable
-  `SecretSchema` for NovaTerminal entries.
+  `SecretSchema` for Ntilde entries.
 - Zero transient secret buffers in `finally` where practical; free all native
   allocations in `finally`.
 
@@ -154,10 +154,10 @@ path is preserved (moved into `WindowsCredentialStore`).
 
 - **Migrate** the 14 `new VaultService(vaultPath)` test sites to
   `new VaultService(new InMemorySecretStore())`:
-  - `tests/NovaTerminal.App.Tests/Core/VaultServiceSshKeyTests.cs` (~118–150) — where a
+  - `tests/Ntilde.App.Tests/Core/VaultServiceSshKeyTests.cs` (~118–150) — where a
     test asserts cross-instance persistence, share one `InMemorySecretStore` between
     the two vaults.
-  - `tests/NovaTerminal.App.Tests/Ssh/SshInteractionServiceTests.cs` (10 sites) — one
+  - `tests/Ntilde.App.Tests/Ssh/SshInteractionServiceTests.cs` (10 sites) — one
     store per test.
   - Removes disk I/O and temp-file cleanup from these tests.
 - **New unit tests:**

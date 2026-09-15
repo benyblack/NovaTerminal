@@ -5,24 +5,24 @@ on:
     paths:
       - "docs/vt_coverage_matrix.md"
       - "docs/ghostty-gaps/vt_conformance_tooling.md"
-      - "src/NovaTerminal.App/Resources/vt-conformance-report.json"
-      - "src/NovaTerminal.Conformance/**"
-      - "src/NovaTerminal.VtContract/**"
-      - "tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs"
+      - "src/Ntilde.App/Resources/vt-conformance-report.json"
+      - "src/Ntilde.Conformance/**"
+      - "src/Ntilde.VtContract/**"
+      - "tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs"
       # Parser/buffer changes can invalidate matrix claims even when the matrix
       # itself is untouched, so run the gate for them too (#156).
-      - "src/NovaTerminal.VT/**"
+      - "src/Ntilde.VT/**"
       - ".github/workflows/vt-conformance.yml"
   push:
     branches: [main]
     paths:
       - "docs/vt_coverage_matrix.md"
       - "docs/ghostty-gaps/vt_conformance_tooling.md"
-      - "src/NovaTerminal.App/Resources/vt-conformance-report.json"
-      - "src/NovaTerminal.Conformance/**"
-      - "src/NovaTerminal.VtContract/**"
-      - "tests/NovaTerminal.VT.Tests/VtCapabilityContractTests.cs"
-      - "src/NovaTerminal.VT/**"
+      - "src/Ntilde.App/Resources/vt-conformance-report.json"
+      - "src/Ntilde.Conformance/**"
+      - "src/Ntilde.VtContract/**"
+      - "tests/Ntilde.VT.Tests/VtCapabilityContractTests.cs"
+      - "src/Ntilde.VT/**"
       - ".github/workflows/vt-conformance.yml"
   workflow_dispatch:
 
@@ -51,16 +51,16 @@ jobs:
           global-json-file: global.json
 
       - name: Restore conformance tool
-        run: dotnet restore src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj
+        run: dotnet restore src/Ntilde.Conformance/Ntilde.Conformance.csproj
 
       - name: Build conformance tool
-        run: dotnet build src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -c ${{ env.CONFIGURATION }} --no-restore
+        run: dotnet build src/Ntilde.Conformance/Ntilde.Conformance.csproj -c ${{ env.CONFIGURATION }} --no-restore
 
       - name: Validate matrix and generate report
-        run: dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -c ${{ env.CONFIGURATION }} --no-build -- --validate --report artifacts/vt-conformance/vt-conformance-report.json
+        run: dotnet run --project src/Ntilde.Conformance/Ntilde.Conformance.csproj -c ${{ env.CONFIGURATION }} --no-build -- --validate --report artifacts/vt-conformance/vt-conformance-report.json
 
       - name: Validate embedded app report is current
-        run: dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -c ${{ env.CONFIGURATION }} --no-build -- --validate --check-report src/NovaTerminal.App/Resources/vt-conformance-report.json
+        run: dotnet run --project src/Ntilde.Conformance/Ntilde.Conformance.csproj -c ${{ env.CONFIGURATION }} --no-build -- --validate --check-report src/Ntilde.App/Resources/vt-conformance-report.json
 
       - name: Upload VT conformance report
         if: always()

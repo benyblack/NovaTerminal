@@ -1,4 +1,4 @@
-# NovaTerminal - Production Execution Plan
+# Ntilde - Production Execution Plan
 
 Date: 2026-02-13  
 Status: Executed (PR1-PR4 complete)
@@ -12,10 +12,10 @@ Status: Executed (PR1-PR4 complete)
 
 ### Verification Completed
 
-- `dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release`
-- `dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "Category=Replay"`
-- `dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "Category=Stress|Category=Performance|Category=Latency"`
-- `dotnet build tests/NovaTerminal.ExternalSuites/NovaTerminal.ExternalSuites.csproj -c Release`
+- `dotnet test Ntilde.Tests/Ntilde.Tests.csproj -c Release`
+- `dotnet test Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "Category=Replay"`
+- `dotnet test Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "Category=Stress|Category=Performance|Category=Latency"`
+- `dotnet build tests/Ntilde.ExternalSuites/Ntilde.ExternalSuites.csproj -c Release`
 
 ---
 
@@ -59,9 +59,9 @@ Eliminate automatic credential submission triggered by terminal output text.
 - Keep key-based and agent-based SSH auth behavior unchanged.
 
 ### Files
-- `NovaTerminal/Core/RustPtySession.cs`
-- `NovaTerminal/Core/ITerminalSession.cs`
-- `NovaTerminal/Controls/TerminalPane.axaml.cs`
+- `Ntilde/Core/RustPtySession.cs`
+- `Ntilde/Core/ITerminalSession.cs`
+- `Ntilde/Controls/TerminalPane.axaml.cs`
 
 ### Acceptance Criteria
 - No code path sends credentials based on output containing `password:`.
@@ -92,9 +92,9 @@ Use one canonical key format for storing/retrieving SSH secrets.
 - If legacy value is found, re-save under canonical key.
 
 ### Files
-- `NovaTerminal/SettingsWindow.axaml.cs`
-- `NovaTerminal/Controls/TerminalPane.axaml.cs`
-- `NovaTerminal/Core/VaultService.cs`
+- `Ntilde/SettingsWindow.axaml.cs`
+- `Ntilde/Controls/TerminalPane.axaml.cs`
+- `Ntilde/Core/VaultService.cs`
 
 ### Acceptance Criteria
 - Save/read path uses canonical key consistently.
@@ -113,12 +113,12 @@ Stop writing runtime data under application install/base directory.
 
 ### Path Policy
 Use `Environment.SpecialFolder.LocalApplicationData` root:
-- `<LocalAppData>/NovaTerminal/settings.json`
-- `<LocalAppData>/NovaTerminal/themes/*.json`
-- `<LocalAppData>/NovaTerminal/logs/debug.log`
-- `<LocalAppData>/NovaTerminal/logs/startup_error.txt`
-- `<LocalAppData>/NovaTerminal/sessions/last_session.json`
-- `<LocalAppData>/NovaTerminal/recordings/*.rec`
+- `<LocalAppData>/Ntilde/settings.json`
+- `<LocalAppData>/Ntilde/themes/*.json`
+- `<LocalAppData>/Ntilde/logs/debug.log`
+- `<LocalAppData>/Ntilde/logs/startup_error.txt`
+- `<LocalAppData>/Ntilde/sessions/last_session.json`
+- `<LocalAppData>/Ntilde/recordings/*.rec`
 
 ### Implementation Pattern
 - Introduce a shared path helper (single source of truth).
@@ -126,12 +126,12 @@ Use `Environment.SpecialFolder.LocalApplicationData` root:
 - Ensure directory creation before write operations.
 
 ### Files
-- `NovaTerminal/Core/TerminalSettings.cs`
-- `NovaTerminal/Core/ThemeManager.cs`
-- `NovaTerminal/Core/TerminalLogger.cs`
-- `NovaTerminal/Core/SessionManager.cs`
-- `NovaTerminal/Controls/TerminalPane.axaml.cs`
-- `NovaTerminal/Program.cs`
+- `Ntilde/Core/TerminalSettings.cs`
+- `Ntilde/Core/ThemeManager.cs`
+- `Ntilde/Core/TerminalLogger.cs`
+- `Ntilde/Core/SessionManager.cs`
+- `Ntilde/Controls/TerminalPane.axaml.cs`
+- `Ntilde/Program.cs`
 
 ### Migration (P1)
 - One-time copy/merge from legacy locations if new location missing.
@@ -164,7 +164,7 @@ Compare outputs generated during CI runs, not checked-in fixture files.
 ### Files
 - `.github/workflows/ci.yml`
 - `tests/tools/compare_snapshots.py`
-- Replay/parity-producing test files under `NovaTerminal.Tests/ReplayTests/`
+- Replay/parity-producing test files under `Ntilde.Tests/ReplayTests/`
 
 ### Acceptance Criteria
 - Parity job fails when runtime output differs across OSes.
@@ -189,7 +189,7 @@ Ensure nightly workflow executes real stress coverage.
 
 ### Files
 - `.github/workflows/nightly.yml`
-- Optional: relevant test files in `NovaTerminal.Tests/`
+- Optional: relevant test files in `Ntilde.Tests/`
 
 ### Acceptance Criteria
 - Nightly runs non-zero stress/performance tests on all matrix OSes.
@@ -244,9 +244,9 @@ Mitigation: isolate stress/perf assertions to nightly or dedicated perf jobs, no
 ## Verification Commands
 
 ```powershell
-dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release
-dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "Category=Replay"
-dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "Category=Stress|Category=Performance|Category=Latency"
+dotnet test Ntilde.Tests/Ntilde.Tests.csproj -c Release
+dotnet test Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "Category=Replay"
+dotnet test Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "Category=Stress|Category=Performance|Category=Latency"
 ```
 
 ---

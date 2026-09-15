@@ -4,7 +4,7 @@
 
 **Goal:** Restore native SSH VT correctness for fullscreen exit, resize stability, and post-command newline behavior without changing the terminal parser or renderer unless tests prove that is necessary.
 
-**Architecture:** Treat [NativeSshSession.cs](/d:/projects/nova2/src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs) as the native-backend contract adapter. First pin the regressions with deterministic `INativeSshInterop`-driven tests and harden resize/output behavior there. Then add a separate end-to-end verification layer using the existing external-suite pattern so the real native event pipeline is covered without making Step 1 depend on live SSH.
+**Architecture:** Treat [NativeSshSession.cs](/d:/projects/nova2/src/Ntilde.Core/Ssh/Sessions/NativeSshSession.cs) as the native-backend contract adapter. First pin the regressions with deterministic `INativeSshInterop`-driven tests and harden resize/output behavior there. Then add a separate end-to-end verification layer using the existing external-suite pattern so the real native event pipeline is covered without making Step 1 depend on live SSH.
 
 **Tech Stack:** C#, .NET 10, xUnit, Avalonia, existing VT parser/buffer tests, native Rust `rusty_ssh` interop
 
@@ -13,8 +13,8 @@
 ### Task 1: Add failing native session tests for resize failure and buffer-level parity
 
 **Files:**
-- Modify: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionTests.cs`
-- Create: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
+- Modify: `tests/Ntilde.Core.Tests/Ssh/NativeSshSessionTests.cs`
+- Create: `tests/Ntilde.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -41,7 +41,7 @@ Use a fake interop that can:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests|FullyQualifiedName~NativeSshTerminalParityTests"
+dotnet test tests/Ntilde.Core.Tests/Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests|FullyQualifiedName~NativeSshTerminalParityTests"
 ```
 
 Expected: FAIL because native SSH does not yet pin or satisfy the new non-fatal resize and parity expectations.
@@ -57,14 +57,14 @@ Run the same command and confirm the new tests still fail for the expected produ
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionTests.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs
+git add tests/Ntilde.Core.Tests/Ssh/NativeSshSessionTests.cs tests/Ntilde.Core.Tests/Ssh/NativeSshTerminalParityTests.cs
 git commit -m "Add native SSH VT correctness regression tests"
 ```
 
 ### Task 2: Make native resize non-fatal and preserve session usability
 
 **Files:**
-- Modify: `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
+- Modify: `src/Ntilde.Core/Ssh/Sessions/NativeSshSession.cs`
 
 **Step 1: Write one more failing assertion if needed**
 
@@ -78,7 +78,7 @@ If Task 1 did not already pin it tightly enough, add a focused failing assertion
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests"
+dotnet test tests/Ntilde.Core.Tests/Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests"
 ```
 
 Expected: FAIL because resize exceptions still escape or poison the session path.
@@ -102,22 +102,22 @@ Run the same command and confirm the resize regression tests pass.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionTests.cs
+git add src/Ntilde.Core/Ssh/Sessions/NativeSshSession.cs tests/Ntilde.Core.Tests/Ssh/NativeSshSessionTests.cs
 git commit -m "Make native SSH resize failures non-fatal"
 ```
 
 ### Task 3: Harden native output parity for chunked fullscreen and prompt-return scenarios
 
 **Files:**
-- Modify: `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
-- Modify: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
+- Modify: `src/Ntilde.Core/Ssh/Sessions/NativeSshSession.cs`
+- Modify: `tests/Ntilde.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
 
 **Step 1: Run the parity tests to verify current failure**
 
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshTerminalParityTests"
+dotnet test tests/Ntilde.Core.Tests/Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshTerminalParityTests"
 ```
 
 Expected: FAIL because native output delivery is not yet pinned strongly enough for chunked alternate-screen and post-command newline parity.
@@ -141,7 +141,7 @@ Run the same command and confirm the parity tests pass.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
+dotnet test tests/Ntilde.Core.Tests/Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
 ```
 
 Expected: PASS.
@@ -149,7 +149,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs
+git add src/Ntilde.Core/Ssh/Sessions/NativeSshSession.cs tests/Ntilde.Core.Tests/Ssh/NativeSshTerminalParityTests.cs
 git commit -m "Harden native SSH output parity for VT correctness"
 ```
 
@@ -157,15 +157,15 @@ git commit -m "Harden native SSH output parity for VT correctness"
 
 **Files:**
 - No new product files
-- Reference only: `tests/NovaTerminal.Tests/AlternateScreenTests.cs`
-- Reference only: `tests/NovaTerminal.Tests/Regressions/MidnightCommanderTests.cs`
+- Reference only: `tests/Ntilde.Tests/AlternateScreenTests.cs`
+- Reference only: `tests/Ntilde.Tests/Regressions/MidnightCommanderTests.cs`
 
 **Step 1: Run alternate-screen and resize oracle tests**
 
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~AlternateScreenTests|FullyQualifiedName~MidnightCommanderTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~AlternateScreenTests|FullyQualifiedName~MidnightCommanderTests"
 ```
 
 Expected: PASS.
@@ -175,8 +175,8 @@ Expected: PASS.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSsh"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
+dotnet test tests/Ntilde.Core.Tests/Ntilde.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSsh"
 ```
 
 Expected: PASS.
@@ -205,11 +205,11 @@ git commit -m "Verify native SSH VT correctness hardening"
 ### Task 5: Build the Step 2 end-to-end native SSH verification harness
 
 **Files:**
-- Create: `tests/NovaTerminal.ExternalSuites/NativeSsh/NativeSshScenarioPlan.cs`
-- Create: `tests/NovaTerminal.ExternalSuites/NativeSsh/NativeSshTranscriptDriver.cs`
-- Create: `tests/NovaTerminal.ExternalSuites/tests/Replays/NativeSsh/.gitkeep`
-- Modify: `tests/NovaTerminal.ExternalSuites/Program.cs`
-- Modify: `tests/NovaTerminal.ExternalSuites/README.md`
+- Create: `tests/Ntilde.ExternalSuites/NativeSsh/NativeSshScenarioPlan.cs`
+- Create: `tests/Ntilde.ExternalSuites/NativeSsh/NativeSshTranscriptDriver.cs`
+- Create: `tests/Ntilde.ExternalSuites/tests/Replays/NativeSsh/.gitkeep`
+- Modify: `tests/Ntilde.ExternalSuites/Program.cs`
+- Modify: `tests/Ntilde.ExternalSuites/README.md`
 
 **Step 1: Write the failing harness entry points**
 
@@ -225,7 +225,7 @@ Add scenario placeholders for:
 Run:
 
 ```bash
-dotnet run --project tests/NovaTerminal.ExternalSuites/NovaTerminal.ExternalSuites.csproj -- --suite native-ssh --scenario fullscreen-exit --out tests/NovaTerminal.ExternalSuites/tests/Replays/NativeSsh/fullscreen-exit.rec
+dotnet run --project tests/Ntilde.ExternalSuites/Ntilde.ExternalSuites.csproj -- --suite native-ssh --scenario fullscreen-exit --out tests/Ntilde.ExternalSuites/tests/Replays/NativeSsh/fullscreen-exit.rec
 ```
 
 Expected: FAIL because the native-SSH external suite is not implemented yet.
@@ -246,17 +246,17 @@ Run the same command and confirm a `.rec` file is generated successfully for at 
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.ExternalSuites/NativeSsh/NativeSshScenarioPlan.cs tests/NovaTerminal.ExternalSuites/NativeSsh/NativeSshTranscriptDriver.cs tests/NovaTerminal.ExternalSuites/tests/Replays/NativeSsh/.gitkeep tests/NovaTerminal.ExternalSuites/Program.cs tests/NovaTerminal.ExternalSuites/README.md
+git add tests/Ntilde.ExternalSuites/NativeSsh/NativeSshScenarioPlan.cs tests/Ntilde.ExternalSuites/NativeSsh/NativeSshTranscriptDriver.cs tests/Ntilde.ExternalSuites/tests/Replays/NativeSsh/.gitkeep tests/Ntilde.ExternalSuites/Program.cs tests/Ntilde.ExternalSuites/README.md
 git commit -m "Add native SSH external verification harness"
 ```
 
 ### Task 6: Turn Step 2 recordings into replay-backed regression coverage
 
 **Files:**
-- Create: `tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs`
-- Create: `tests/NovaTerminal.Tests/Fixtures/Replay/native_ssh_fullscreen_exit.snap`
-- Create: `tests/NovaTerminal.Tests/Fixtures/Replay/native_ssh_prompt_return.snap`
-- Modify: `tests/NovaTerminal.Tests/Fixtures/Replay/` via new `.rec` artifacts copied from the external suite
+- Create: `tests/Ntilde.Tests/ReplayTests/NativeSshReplayParityTests.cs`
+- Create: `tests/Ntilde.Tests/Fixtures/Replay/native_ssh_fullscreen_exit.snap`
+- Create: `tests/Ntilde.Tests/Fixtures/Replay/native_ssh_prompt_return.snap`
+- Modify: `tests/Ntilde.Tests/Fixtures/Replay/` via new `.rec` artifacts copied from the external suite
 
 **Step 1: Write the failing replay tests**
 
@@ -270,14 +270,14 @@ Add replay tests that consume the Step 2 `.rec` artifacts and assert:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshReplayParityTests"
+dotnet test tests/Ntilde.Tests/Ntilde.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshReplayParityTests"
 ```
 
 Expected: FAIL until the new recordings and snapshots are checked in and validated.
 
 **Step 3: Write minimal implementation**
 
-Copy the generated `.rec` artifacts into `tests/NovaTerminal.Tests/Fixtures/Replay/`, capture the expected `.snap` files, and keep assertions focused on stable terminal end state rather than timing noise.
+Copy the generated `.rec` artifacts into `tests/Ntilde.Tests/Fixtures/Replay/`, capture the expected `.snap` files, and keep assertions focused on stable terminal end state rather than timing noise.
 
 **Step 4: Run the replay tests to verify pass**
 
@@ -286,7 +286,7 @@ Run the same command and confirm the native SSH replay parity tests pass.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs tests/NovaTerminal.Tests/Fixtures/Replay/native_ssh_fullscreen_exit.rec tests/NovaTerminal.Tests/Fixtures/Replay/native_ssh_fullscreen_exit.snap tests/NovaTerminal.Tests/Fixtures/Replay/native_ssh_prompt_return.rec tests/NovaTerminal.Tests/Fixtures/Replay/native_ssh_prompt_return.snap
+git add tests/Ntilde.Tests/ReplayTests/NativeSshReplayParityTests.cs tests/Ntilde.Tests/Fixtures/Replay/native_ssh_fullscreen_exit.rec tests/Ntilde.Tests/Fixtures/Replay/native_ssh_fullscreen_exit.snap tests/Ntilde.Tests/Fixtures/Replay/native_ssh_prompt_return.rec tests/Ntilde.Tests/Fixtures/Replay/native_ssh_prompt_return.snap
 git commit -m "Add native SSH replay parity coverage"
 ```
 
