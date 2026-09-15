@@ -88,7 +88,7 @@ public class PaneGridTruthDesyncTests
         await AtAPromptAsync(pane, "cd Ntilde");
 
         // The shell finishes the word in place.
-        pane.Parser!.Process("Terminal.CommandAssist/");
+        pane.Parser!.Process(".CommandAssist/");
 
         Assert.Equal("cd Ntilde.CommandAssist/", ReadQuery(pane)?.Text);
     }
