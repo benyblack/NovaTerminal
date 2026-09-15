@@ -420,14 +420,14 @@ namespace NovaTerminal.Shell
                         long now = DateTime.UtcNow.Ticks;
                         if (_cursorBlinkEnabled && _cursorBlinkTimer.IsEnabled && cursorSuppressedUntil <= now)
                         {
-                            TerminalLogger.Log($"[TerminalView] OnRenderTimerTick: VT cursor moved ({_lastCursorRow},{_lastCursorCol}). Resetting blink phase.");
+                            TerminalLogger.Debug($"[TerminalView] OnRenderTimerTick: VT cursor moved ({_lastCursorRow},{_lastCursorCol}). Resetting blink phase.");
                             _cursorBlinkPhase = true;
                             _cursorBlinkTimer.Stop();
                             _cursorBlinkTimer.Start();
                         }
                         else if (cursorSuppressedUntil > now)
                         {
-                            TerminalLogger.Log($"[TerminalView] OnRenderTimerTick: VT cursor moved, but suppressed until {cursorSuppressedUntil} (now {now})");
+                            TerminalLogger.Debug($"[TerminalView] OnRenderTimerTick: VT cursor moved, but suppressed until {cursorSuppressedUntil} (now {now})");
                         }
                     }
                 }
@@ -511,7 +511,7 @@ namespace NovaTerminal.Shell
             var m = _buffer.GetMemoryMetrics(_glyphCache.EntryCount, _glyphCache.AtlasByteSize);
 
             // Format for easy log parsing/grep
-            TerminalLogger.Log(
+            TerminalLogger.Debug(
                 $"[TerminalMemory] " +
                 $"ScrollbackMB={m.ScrollbackBytes / 1024.0 / 1024.0:F2} | " +
                 $"Pages={m.ActivePages} (pooled={m.PooledPages}) | " +
@@ -1435,10 +1435,10 @@ namespace NovaTerminal.Shell
                 SKTypeface primaryTypeface = ResolveMonospacePrimaryTypeface(configuredFamily, out bool usedFallback);
                 if (usedFallback && !string.Equals(primaryTypeface.FamilyName, configuredFamily, StringComparison.OrdinalIgnoreCase))
                 {
-                    TerminalLogger.Log($"[Render][Warn] configured font '{configuredFamily}' unavailable; using '{primaryTypeface.FamilyName}'.");
+                    TerminalLogger.Warning($"configured font '{configuredFamily}' unavailable; using '{primaryTypeface.FamilyName}'.");
                     if (GlyphDiagnosticsEnabled)
                     {
-                        TerminalLogger.Log($"[GlyphDiag] configured='{configuredFamily}' fallbackPrimary='{primaryTypeface.FamilyName}'");
+                        TerminalLogger.Debug($"[GlyphDiag] configured='{configuredFamily}' fallbackPrimary='{primaryTypeface.FamilyName}'");
                     }
                 }
 
@@ -2240,7 +2240,7 @@ namespace NovaTerminal.Shell
             if (cursorSuppressedTemporarily)
             {
                 hideCursor = true;
-                TerminalLogger.Log($"[TerminalView] Render: Cursor suppressed temporarily.");
+                TerminalLogger.Debug($"[TerminalView] Render: Cursor suppressed temporarily.");
             }
 
             // Create and dispatch custom draw op

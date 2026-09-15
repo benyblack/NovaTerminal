@@ -70,6 +70,13 @@ class Program
             // Before #109 they went to Console.WriteLine, i.e. nowhere in a GUI process.
             PtyLogger.Sink = static (level, message) => TerminalLogger.Log(ToLogLevel(level), message);
 
+            // Narrow the library default (Debug) to what a shipping app should keep. Debug is
+            // where the per-event diagnostics live — every unhandled control sequence, every
+            // cursor-blink decision — and they are produced on the parse and render threads at
+            // the rate the remote sends bytes. Kept behind an env var rather than a build flag so
+            // a bug report can ask for the detail without asking for a debug build.
+            TerminalLogger.MinimumLevel = ResolveLogLevel();
+
             // Log startup info
             TerminalLogger.Log("NovaTerminal started with args: " + string.Join(" ", args));
             TerminalLogger.Log("Log file path: " + AppLogger.GetLogFilePath());
@@ -96,6 +103,31 @@ class Program
     /// into one of them, at which point every PTY message would be silently mislevelled.
     /// <c>PtyLogLevelsMatchAppLogLevels</c> in the architecture tests pins the correspondence.
     /// </remarks>
+    /// <summary>
+    /// The debug log's threshold, from <c>NOVATERM_LOG_LEVEL</c> (debug|info|warning|error).
+    /// Defaults to Info: enough for the startup banner, the session lifecycle and every warning
+    /// or error, without the per-event stream that made <c>debug.log</c> grow by gigabytes a day.
+    /// </summary>
+    internal static LogLevel ResolveLogLevel()
+    {
+        string? requested = Environment.GetEnvironmentVariable("NOVATERM_LOG_LEVEL");
+        if (string.IsNullOrWhiteSpace(requested))
+        {
+            return LogLevel.Info;
+        }
+
+        return requested.Trim().ToLowerInvariant() switch
+        {
+            "debug" or "trace" or "verbose" => LogLevel.Debug,
+            "info" => LogLevel.Info,
+            "warning" or "warn" => LogLevel.Warning,
+            "error" => LogLevel.Error,
+            // An unrecognized value is a typo in a diagnostic knob, and silently keeping the
+            // default is how someone spends an afternoon wondering where their logs went.
+            _ => LogLevel.Debug,
+        };
+    }
+
     internal static LogLevel ToLogLevel(PtyLogLevel level) => level switch
     {
         PtyLogLevel.Debug => LogLevel.Debug,

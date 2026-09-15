@@ -794,7 +794,7 @@ namespace NovaTerminal.VT
                                     // dropping it.
                                     if (_csiTruncated)
                                     {
-                                        TerminalLogger.Log(
+                                        TerminalLogger.Debug(
                                             $"[ANSI_PARSER] Discarded a CSI truncated at {MaxCsiParamChars} parameter bytes (final byte '{c}').");
                                     }
                                     else
@@ -897,7 +897,7 @@ namespace NovaTerminal.VT
             {
                 if (pc >= '\x3C' && pc <= '\x3F')
                 {
-                    TerminalLogger.Log($"[ANSI_PARSER] Discarded CSI with a misplaced private-parameter byte: final '{finalByte}', params '{new string(parameters)}'.");
+                    TerminalLogger.Debug($"[ANSI_PARSER] Discarded CSI with a misplaced private-parameter byte: final '{finalByte}', params '{new string(parameters)}'.");
                     return;
                 }
             }
@@ -906,7 +906,7 @@ namespace NovaTerminal.VT
             {
                 if (ic >= '\x30' && ic <= '\x3F')
                 {
-                    TerminalLogger.Log($"[ANSI_PARSER] Discarded CSI with a parameter byte after an intermediate: final '{finalByte}', params '{new string(parameters)}'.");
+                    TerminalLogger.Debug($"[ANSI_PARSER] Discarded CSI with a parameter byte after an intermediate: final '{finalByte}', params '{new string(parameters)}'.");
                     return;
                 }
             }
@@ -1480,7 +1480,7 @@ namespace NovaTerminal.VT
                         }
                         break;
                     default:
-                        TerminalLogger.Log($"[ANSI_PARSER] Unhandled CSI: {finalByte} (private={isPrivate}), params={new string(parameters)}");
+                        TerminalLogger.Debug($"[ANSI_PARSER] Unhandled CSI: {finalByte} (private={isPrivate}), params={new string(parameters)}");
                         break;
                 }
             }
@@ -2161,7 +2161,7 @@ namespace NovaTerminal.VT
             }
             catch (Exception ex)
             {
-                TerminalLogger.Log($"[ANSI_PARSER] Sixel decode failed: {ex.Message}");
+                TerminalLogger.Debug($"[ANSI_PARSER] Sixel decode failed: {ex.Message}");
             }
         }
 
@@ -2669,7 +2669,7 @@ namespace NovaTerminal.VT
             // as defense in depth (padding, and whitespace that FromBase64String skips).
             if (payload.Length > ((Osc52MaxDecodedBytes / 3) + 1) * 4)
             {
-                TerminalLogger.Log($"[ANSI_PARSER] OSC 52 clipboard write dropped: encoded payload {payload.Length} chars exceeds the {Osc52MaxDecodedBytes} byte decoded cap");
+                TerminalLogger.Debug($"[ANSI_PARSER] OSC 52 clipboard write dropped: encoded payload {payload.Length} chars exceeds the {Osc52MaxDecodedBytes} byte decoded cap");
                 return;
             }
 
@@ -2686,7 +2686,7 @@ namespace NovaTerminal.VT
 
             if (decoded.Length > Osc52MaxDecodedBytes)
             {
-                TerminalLogger.Log($"[ANSI_PARSER] OSC 52 clipboard write dropped: decoded payload {decoded.Length} bytes exceeds {Osc52MaxDecodedBytes} byte cap");
+                TerminalLogger.Debug($"[ANSI_PARSER] OSC 52 clipboard write dropped: decoded payload {decoded.Length} bytes exceeds {Osc52MaxDecodedBytes} byte cap");
                 return;
             }
 
@@ -2879,7 +2879,7 @@ namespace NovaTerminal.VT
 
         private void HandleApc(string content)
         {
-            TerminalLogger.Log($"[ANSI_PARSER] HandleApc: {content.Substring(0, Math.Min(content.Length, 20))}...");
+            TerminalLogger.Debug($"[ANSI_PARSER] HandleApc: {content.Substring(0, Math.Min(content.Length, 20))}...");
             // Kitty protocol uses 'G' as command identifier in APC
             if (content.StartsWith("G"))
             {
@@ -2889,7 +2889,7 @@ namespace NovaTerminal.VT
 
         private void HandleKittyGraphics(string content, bool isTunneled)
         {
-            TerminalLogger.Log($"[ANSI_PARSER] HandleKittyGraphics: {content.Substring(0, Math.Min(content.Length, 40))}...");
+            TerminalLogger.Debug($"[ANSI_PARSER] HandleKittyGraphics: {content.Substring(0, Math.Min(content.Length, 40))}...");
 
             // The Kitty protocol control string starts with 'G'.
             if (content.StartsWith("G")) content = content.Substring(1);
@@ -2941,7 +2941,7 @@ namespace NovaTerminal.VT
 
             if (more)
             {
-                TerminalLogger.Log($"[ANSI_PARSER] Kitty chunk received, waiting for more (m=1). Buffer size: {_kittyPayloadBuffer.Length}");
+                TerminalLogger.Debug($"[ANSI_PARSER] Kitty chunk received, waiting for more (m=1). Buffer size: {_kittyPayloadBuffer.Length}");
                 return;
             }
 
@@ -2952,16 +2952,16 @@ namespace NovaTerminal.VT
                 {
                     // The payload blew past the cap mid-stream; discard it rather than
                     // decoding a truncated buffer. The finally below resets state.
-                    TerminalLogger.Log("[ANSI_PARSER] Kitty image discarded: payload exceeded size cap.");
+                    TerminalLogger.Debug("[ANSI_PARSER] Kitty image discarded: payload exceeded size cap.");
                     return;
                 }
 
                 string action = _kittyPendingParams.TryGetValue("a", out var aVal) ? aVal : "t";
-                TerminalLogger.Log($"[ANSI_PARSER] Kitty finalizing image. Action={action}, TotalPayload={_kittyPayloadBuffer.Length}");
+                TerminalLogger.Debug($"[ANSI_PARSER] Kitty finalizing image. Action={action}, TotalPayload={_kittyPayloadBuffer.Length}");
 
                 if (action == "q")
                 {
-                    TerminalLogger.Log($"[ANSI_PARSER] Kitty: Handling query (a=q)");
+                    TerminalLogger.Debug($"[ANSI_PARSER] Kitty: Handling query (a=q)");
                     // If we are likely under ConPTY and this is non-tunneled Kitty APC, advertise
                     // unsupported so clients can choose Sixel or other fallback.
                     // SECURITY (PR #280 review): the kitty `i=` param is attacker-controlled and
@@ -2996,14 +2996,14 @@ namespace NovaTerminal.VT
 
                 if (_isConPtyFilteringLikely && !isTunneled && !AllowNativeKittyGraphics)
                 {
-                    TerminalLogger.Log("[ANSI_PARSER] Kitty non-tunneled image skipped due to likely ConPTY filtering.");
+                    TerminalLogger.Debug("[ANSI_PARSER] Kitty non-tunneled image skipped due to likely ConPTY filtering.");
                     ClearKittyState();
                     return;
                 }
 
                 if (action != "t" && action != "T")
                 {
-                    TerminalLogger.Log($"[ANSI_PARSER] Kitty: skipping unsupported action '{action}'");
+                    TerminalLogger.Debug($"[ANSI_PARSER] Kitty: skipping unsupported action '{action}'");
                     ClearKittyState();
                     return;
                 }
@@ -3014,7 +3014,7 @@ namespace NovaTerminal.VT
                 // Handle optional 'G' prefix
                 if (combinedPayload.StartsWith("G")) combinedPayload = combinedPayload.Substring(1);
 
-                TerminalLogger.Log($"[ANSI_PARSER] Kitty payload preview: {combinedPayload.Substring(0, Math.Min(combinedPayload.Length, 20))}...");
+                TerminalLogger.Debug($"[ANSI_PARSER] Kitty payload preview: {combinedPayload.Substring(0, Math.Min(combinedPayload.Length, 20))}...");
                 byte[] data = Convert.FromBase64String(combinedPayload);
 
                 // Transport (kitty key `t`): d = inline payload (default), f = file whose path
@@ -3026,7 +3026,7 @@ namespace NovaTerminal.VT
                 string transport = _kittyPendingParams.TryGetValue("t", out var tVal) ? tVal : "d";
                 if (transport != "d" && transport != "f")
                 {
-                    TerminalLogger.Log($"[ANSI_PARSER] Kitty transport '{transport}' not supported, skipping.");
+                    TerminalLogger.Debug($"[ANSI_PARSER] Kitty transport '{transport}' not supported, skipping.");
                     ClearKittyState();
                     return;
                 }
@@ -3036,7 +3036,7 @@ namespace NovaTerminal.VT
                     var readBytes = ReadFileBytes;
                     if (readBytes == null)
                     {
-                        TerminalLogger.Log("[ANSI_PARSER] Kitty t=f image skipped: no ReadFileBytes delegate wired.");
+                        TerminalLogger.Debug("[ANSI_PARSER] Kitty t=f image skipped: no ReadFileBytes delegate wired.");
                         ClearKittyState();
                         return;
                     }
@@ -3044,7 +3044,7 @@ namespace NovaTerminal.VT
                     byte[]? fileData = readBytes(System.Text.Encoding.UTF8.GetString(data));
                     if (fileData == null)
                     {
-                        TerminalLogger.Log("[ANSI_PARSER] Kitty t=f image skipped: ReadFileBytes returned no data.");
+                        TerminalLogger.Debug("[ANSI_PARSER] Kitty t=f image skipped: ReadFileBytes returned no data.");
                         ClearKittyState();
                         return;
                     }
@@ -3073,7 +3073,7 @@ namespace NovaTerminal.VT
                         !int.TryParse(sVal, out rawWidth) || !int.TryParse(vVal, out rawHeight) ||
                         rawWidth <= 0 || rawHeight <= 0)
                     {
-                        TerminalLogger.Log("[ANSI_PARSER] Kitty raw payload missing valid s=/v= dimensions, skipping.");
+                        TerminalLogger.Debug("[ANSI_PARSER] Kitty raw payload missing valid s=/v= dimensions, skipping.");
                         ClearKittyState();
                         return;
                     }
@@ -3083,7 +3083,7 @@ namespace NovaTerminal.VT
                     // DecodeRawImage only rejects afterwards.
                     if (rawWidth > KittyMaxRawPixelDimension || rawHeight > KittyMaxRawPixelDimension)
                     {
-                        TerminalLogger.Log($"[ANSI_PARSER] Kitty raw dimensions {rawWidth}x{rawHeight} exceed the {KittyMaxRawPixelDimension}px guardrail, skipping.");
+                        TerminalLogger.Debug($"[ANSI_PARSER] Kitty raw dimensions {rawWidth}x{rawHeight} exceed the {KittyMaxRawPixelDimension}px guardrail, skipping.");
                         ClearKittyState();
                         return;
                     }
@@ -3112,12 +3112,12 @@ namespace NovaTerminal.VT
 
                 if (data.Length >= 8)
                 {
-                    TerminalLogger.Log($"[ANSI_PARSER] Kitty data magic: {BitConverter.ToString(data, 0, Math.Min(data.Length, 8))}, Decode");
+                    TerminalLogger.Debug($"[ANSI_PARSER] Kitty data magic: {BitConverter.ToString(data, 0, Math.Min(data.Length, 8))}, Decode");
                 }
 
                 if (ImageDecoder == null)
                 {
-                    TerminalLogger.Log("[ANSI_PARSER] IImageDecoder is null, cannot decode Kitty image.");
+                    TerminalLogger.Debug("[ANSI_PARSER] IImageDecoder is null, cannot decode Kitty image.");
                     ClearKittyState();
                     return;
                 }
@@ -3135,17 +3135,17 @@ namespace NovaTerminal.VT
                 }
                 if (imageHandle == null)
                 {
-                    TerminalLogger.Log("[ANSI_PARSER] IImageDecoder failed to decode Kitty image data.");
+                    TerminalLogger.Debug("[ANSI_PARSER] IImageDecoder failed to decode Kitty image data.");
                     ClearKittyState();
                     return;
                 }
 
-                TerminalLogger.Log($"[ANSI_PARSER] Kitty image decoded successfully: {pixelWidth}x{pixelHeight}");
+                TerminalLogger.Debug($"[ANSI_PARSER] Kitty image decoded successfully: {pixelWidth}x{pixelHeight}");
 
                 // Guardrail: Limit pixel dimensions
                 if (pixelWidth > 2000 || pixelHeight > 2000)
                 {
-                    TerminalLogger.Log($"[ANSI_PARSER] Kitty image pixel dimensions too large ({pixelWidth}x{pixelHeight}), skipping.");
+                    TerminalLogger.Debug($"[ANSI_PARSER] Kitty image pixel dimensions too large ({pixelWidth}x{pixelHeight}), skipping.");
                     ClearKittyState();
                     return;
                 }
@@ -3194,7 +3194,7 @@ namespace NovaTerminal.VT
                 int absRow = _buffer.CursorRow + (_buffer.TotalLines - _buffer.Rows);
                 if (_buffer.IsAltScreenActive) absRow = _buffer.CursorRow;
 
-                TerminalLogger.Log($"[ANSI_PARSER] Kitty image placement: CursorCol={_buffer.CursorCol}, CursorRow={_buffer.CursorRow}, absRow={absRow}, widthCells={width}, heightCells={height}, effectiveCellW={effectiveCellWidth}, effectiveCellH={effectiveCellHeight}");
+                TerminalLogger.Debug($"[ANSI_PARSER] Kitty image placement: CursorCol={_buffer.CursorCol}, CursorRow={_buffer.CursorRow}, absRow={absRow}, widthCells={width}, heightCells={height}, effectiveCellW={effectiveCellWidth}, effectiveCellH={effectiveCellHeight}");
                 var img = new TerminalImage(imageHandle, _buffer.CursorCol, absRow, width, height);
 
                 // `i=` numbers the image; a later frame reusing the number replaces this one
@@ -3248,7 +3248,7 @@ namespace NovaTerminal.VT
             }
             catch (Exception ex)
             {
-                TerminalLogger.Log($"[ANSI_PARSER] Failed to decode Kitty image: {ex.Message}");
+                TerminalLogger.Debug($"[ANSI_PARSER] Failed to decode Kitty image: {ex.Message}");
                 ClearKittyState();
             }
             finally
@@ -3294,7 +3294,7 @@ namespace NovaTerminal.VT
                     total += n;
                     if (total > maxBytes)
                     {
-                        TerminalLogger.Log($"[ANSI_PARSER] Kitty o=z inflate exceeded its {maxBytes} byte bound; discarding.");
+                        TerminalLogger.Debug($"[ANSI_PARSER] Kitty o=z inflate exceeded its {maxBytes} byte bound; discarding.");
                         return null;
                     }
                 }
@@ -3303,7 +3303,7 @@ namespace NovaTerminal.VT
             }
             catch (Exception ex)
             {
-                TerminalLogger.Log($"[ANSI_PARSER] Kitty o=z inflate failed: {ex.Message}");
+                TerminalLogger.Debug($"[ANSI_PARSER] Kitty o=z inflate failed: {ex.Message}");
                 return null;
             }
         }
@@ -3458,7 +3458,7 @@ namespace NovaTerminal.VT
             }
             catch (Exception ex)
             {
-                TerminalLogger.Log($"[ANSI_PARSER] Failed to decode iTerm2 image: {ex.Message}");
+                TerminalLogger.Debug($"[ANSI_PARSER] Failed to decode iTerm2 image: {ex.Message}");
             }
         }
 
