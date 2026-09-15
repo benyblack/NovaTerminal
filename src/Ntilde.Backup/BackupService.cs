@@ -23,6 +23,12 @@ public sealed class BackupService
 {
     public const string BundleExtension = ".ntildebackup";
 
+    /// <summary>
+    /// Extension written before the Ntilde rebrand. Listed and importable forever, never
+    /// written: a migrated backups/ folder is full of these.
+    /// </summary>
+    public const string LegacyBundleExtension = ".novabackup";
+
     private readonly TimeProvider _timeProvider;
     private readonly Action<string> _log;
 
@@ -1053,8 +1059,14 @@ public sealed class BackupService
         if (!Directory.Exists(BackupsDirectory)) return Array.Empty<SnapshotInfo>();
 
         var results = new List<SnapshotInfo>();
-        foreach (string path in Directory.GetFiles(BackupsDirectory, "*" + BundleExtension))
+        foreach (string path in Directory.EnumerateFiles(BackupsDirectory))
         {
+            if (!path.EndsWith(BundleExtension, StringComparison.OrdinalIgnoreCase)
+                && !path.EndsWith(LegacyBundleExtension, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             if (TryParseSnapshot(path, out var info)) results.Add(info!);
         }
 

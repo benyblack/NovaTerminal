@@ -235,6 +235,27 @@ public sealed class SnapshotTests
         Assert.Equal(2, service.ListSnapshots().Count);
     }
 
+    /// <summary>
+    /// The data-folder migration copies a NovaTerminal install's backups/ verbatim, so the
+    /// snapshot list must still see .novabackup files or a migrated user loses every restore
+    /// point the moment they upgrade.
+    /// </summary>
+    [Fact]
+    public void ListSnapshots_IncludesLegacyNovabackupFiles()
+    {
+        using var tree = BackupTestTree.CreatePopulated();
+        var service = new BackupService(tree.Root, Clock());
+        var info = service.Snapshot(SnapshotReason.Auto)!;
+        string legacyPath = Path.ChangeExtension(info.FilePath, BackupService.LegacyBundleExtension);
+        File.Move(info.FilePath, legacyPath);
+
+        var listed = service.ListSnapshots();
+
+        var only = Assert.Single(listed);
+        Assert.Equal(Path.GetFullPath(legacyPath), Path.GetFullPath(only.FilePath));
+        Assert.Equal(info.Id, only.Id);
+    }
+
     private static FixedTimeProvider Clock() =>
         new(new DateTimeOffset(2026, 8, 27, 9, 14, 0, TimeSpan.Zero));
 }
