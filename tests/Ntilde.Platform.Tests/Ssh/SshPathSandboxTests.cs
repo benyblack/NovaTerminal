@@ -55,7 +55,7 @@ public sealed class SshPathSandboxTests
     {
         string real = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Ntilde");
+            "ntilde");
 
         using var root = new TemporaryRoot();
 
@@ -82,7 +82,7 @@ public sealed class SshPathSandboxTests
         {
             string expected = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Ntilde");
+                "ntilde");
 
             Assert.Equal(expected, PlatformAppPaths.RootDirectory);
         }

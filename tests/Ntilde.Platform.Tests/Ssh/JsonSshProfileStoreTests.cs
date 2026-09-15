@@ -290,7 +290,7 @@ public sealed class JsonSshProfileStoreTests
             Assert.StartsWith(localAppData, path, StringComparison.Ordinal);
         }
 
-        Assert.EndsWith(Path.Combine("Ntilde", "ssh", "profiles.json"), path);
+        Assert.EndsWith(Path.Combine("ntilde", "ssh", "profiles.json"), path);
     }
 
     [Fact]
