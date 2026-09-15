@@ -85,9 +85,9 @@ public sealed class VtReportCliTests
             cliExecutablePath,
             "--vt-report");
 
-        Assert.Equal(0, buildExitCode);
+        Assert.True(buildExitCode == 0, $"dotnet build exited {buildExitCode}.{Environment.NewLine}stdout:{Environment.NewLine}{buildStdOut}{Environment.NewLine}stderr:{Environment.NewLine}{buildStdErr}");
         Assert.Equal(string.Empty, buildStdErr);
-        Assert.Equal(0, exitCode);
+        Assert.True(exitCode == 0, $"process exited {exitCode}.{Environment.NewLine}stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
         Assert.Equal(string.Empty, stderr);
         Assert.Contains("Ntilde VT Report", stdout);
         Assert.Contains("Matrix:", stdout);
@@ -109,9 +109,9 @@ public sealed class VtReportCliTests
             appExecutablePath,
             "--vt-report");
 
-        Assert.Equal(0, buildExitCode);
+        Assert.True(buildExitCode == 0, $"dotnet build exited {buildExitCode}.{Environment.NewLine}stdout:{Environment.NewLine}{buildStdOut}{Environment.NewLine}stderr:{Environment.NewLine}{buildStdErr}");
         Assert.Equal(string.Empty, buildStdErr);
-        Assert.Equal(0, exitCode);
+        Assert.True(exitCode == 0, $"process exited {exitCode}.{Environment.NewLine}stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
         Assert.Equal(string.Empty, stderr);
         Assert.Contains("Ntilde VT Report", stdout);
         Assert.Contains("Matrix:", stdout);
@@ -129,7 +129,7 @@ public sealed class VtReportCliTests
             "dotnet",
             $"build \"{appProjectPath}\" -c Release --no-restore -nodeReuse:false");
 
-        Assert.Equal(0, buildExitCode);
+        Assert.True(buildExitCode == 0, $"dotnet build exited {buildExitCode}.{Environment.NewLine}stdout:{Environment.NewLine}{buildStdOut}{Environment.NewLine}stderr:{Environment.NewLine}{buildStdErr}");
         Assert.Equal(string.Empty, buildStdErr);
         Assert.True(File.Exists(GetExecutablePath(appOutputDirectory, "Ntilde")));
         Assert.True(File.Exists(GetExecutablePath(appOutputDirectory, "Ntilde.Cli")));
