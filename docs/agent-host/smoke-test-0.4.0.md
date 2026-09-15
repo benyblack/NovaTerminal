@@ -4,7 +4,7 @@ Manual verification of A1–A4 on a real build before tagging 0.4.0. Layered —
 after any layer. Each check lists the action, the expected result, and the red flag.
 
 Paths assume the repo at its current location; adjust as needed. Config/state lives
-under `%LOCALAPPDATA%\Ntilde` (settings.json, agent-endpoint.json, recordings\).
+under `%LOCALAPPDATA%\ntilde` (settings.json, agent-endpoint.json, recordings\).
 
 ## 0. Build & launch
 
@@ -19,7 +19,7 @@ under `%LOCALAPPDATA%\Ntilde` (settings.json, agent-endpoint.json, recordings\).
   src\Ntilde.App\bin\Debug\net10.0\Ntilde.exe
   ```
   Expected: window opens, a shell tab is live. Red flag: crash → check
-  `%LOCALAPPDATA%\Ntilde\logs\startup_error.txt`.
+  `%LOCALAPPDATA%\ntilde\logs\startup_error.txt`.
 
 - [ ] Build the MCP server (Release) and wire it to Claude Code:
   ```
@@ -35,7 +35,7 @@ With **all** agent toggles off (fresh settings):
 
 - [ ] Ask the agent: run `ntilde.list_sessions`.
   Expected: the "unavailable / enable Agent access (observe)" guidance, not data.
-- [ ] Confirm there is **no** `%LOCALAPPDATA%\Ntilde\agent-endpoint.json` (or it is
+- [ ] Confirm there is **no** `%LOCALAPPDATA%\ntilde\agent-endpoint.json` (or it is
   empty). Red flag: an endpoint file exists while observe is off.
 
 ## 2. Settings toggles persist (UI)
@@ -45,7 +45,7 @@ Settings → the Agent access rows:
 - [ ] Verify three toggles exist: **Agent access (observe)**, **Agent replay
   export** (indented), **Agent access (act)** (indented). Toggle observe on,
   others off; Save. (Screenshots have no toggle of their own - they ride observe.)
-- [ ] Reopen Settings — observe still on. Check `%LOCALAPPDATA%\Ntilde\settings.json`:
+- [ ] Reopen Settings — observe still on. Check `%LOCALAPPDATA%\ntilde\settings.json`:
   `AgentAccessObserveEnabled: true`, `AgentReplayExportEnabled: false`,
   `AgentAccessActEnabled: false`. Red flag: values don't round-trip.
 - [ ] With observe now on, `agent-endpoint.json` appears next to settings.json.
@@ -70,7 +70,7 @@ Have a couple of tabs open; run something interactive (e.g. `vim` or a `ping -t`
 
 - [ ] With observe + replay-export on, produce some output in a pane, then
   `ntilde.export_replay <paneId>`.
-  Expected: returns a path under `%LOCALAPPDATA%\Ntilde\recordings\agent-exports\`
+  Expected: returns a path under `%LOCALAPPDATA%\ntilde\recordings\agent-exports\`
   and an event count. Red flag: `exportDisabled` (toggle didn't apply) or a path
   that doesn't exist.
 - [ ] Confirm the file exists and, opening it, that it contains `data`/`resize`
@@ -86,7 +86,7 @@ Have a couple of tabs open; run something interactive (e.g. `vim` or a `ping -t`
 ## 4b. Screenshots (A5) - observe only, no extra toggle
 
 - [ ] With only observe on, `capture_screen <paneId>` returns a `ntilde_screen_*.png`
-  path under `%LOCALAPPDATA%\Ntilde\recordings\agent-exports\`, with the
+  path under `%LOCALAPPDATA%\ntilde\recordings\agent-exports\`, with the
   pane's grid size. Open it: it should look like that pane - same font, same theme,
   same text - with no tab bar or other chrome. Red flag: `captureDisabled` (the
   gate was supposed to be gone), transparent background, or the wrong pane.

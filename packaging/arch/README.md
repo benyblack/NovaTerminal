@@ -119,7 +119,7 @@ re-pack it would inherit `build-deb.sh`'s Debian-specific `Depends:` derivation
   tree is not a Velopack install. Update through pacman.
 
 - **User data is never touched** by install, upgrade or removal. It lives at
-  `~/.local/share/Ntilde` via `AppPaths`, independent of install method.
+  `~/.local/share/ntilde` via `AppPaths`, independent of install method.
 
 - **No `.install` scriptlet.** `desktop-file-utils` and `hicolor-icon-theme` ship
   pacman hooks that refresh the desktop and icon caches, the same way their dpkg

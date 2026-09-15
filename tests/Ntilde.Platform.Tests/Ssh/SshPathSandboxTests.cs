@@ -10,7 +10,7 @@ namespace Ntilde.Platform.Tests.Ssh;
 /// <remarks>
 /// <para>
 /// <c>JsonSshProfileStore</c> and <c>OpenSshConfigCompiler</c> each resolved
-/// <c>%LOCALAPPDATA%\Ntilde\ssh</c> themselves and neither consulted the override, so a
+/// <c>%LOCALAPPDATA%\ntilde\ssh</c> themselves and neither consulted the override, so a
 /// redirected process — a test, a portable install, the screenshot harness — got a correctly
 /// sandboxed settings file, log directory and session store, and then reached straight past the
 /// sandbox for SSH data. It was found because a capture run wrote a fictional profile into a real

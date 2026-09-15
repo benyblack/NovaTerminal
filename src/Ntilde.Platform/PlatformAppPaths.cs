@@ -10,7 +10,7 @@ namespace Ntilde.Platform;
 /// <c>Platform</c> does not reference <c>App</c> (the dependency runs the other way), so code down
 /// here cannot call it. Two places resolved the root themselves instead and neither consulted the
 /// override: <c>JsonSshProfileStore</c> and <c>OpenSshConfigCompiler</c>. Both therefore read and
-/// wrote the machine's real <c>%LOCALAPPDATA%\Ntilde\ssh</c> even when the whole process had
+/// wrote the machine's real <c>%LOCALAPPDATA%\ntilde\ssh</c> even when the whole process had
 /// been redirected somewhere else — so a test, a portable install, or a capture harness got a
 /// correctly sandboxed <c>settings.json</c>, logs and sessions, and then reached straight past the
 /// sandbox for SSH data (#406).
@@ -25,12 +25,12 @@ namespace Ntilde.Platform;
 /// </remarks>
 public static class PlatformAppPaths
 {
-    private const string AppName = "Ntilde";
+    private const string AppName = "ntilde";
     private const string RootOverrideEnvVar = "NTILDE_APPDATA_ROOT";
 
     /// <summary>
     /// The application data root: <c>NTILDE_APPDATA_ROOT</c> when set, otherwise
-    /// <c>%LOCALAPPDATA%\Ntilde</c> (and the platform equivalent elsewhere).
+    /// <c>%LOCALAPPDATA%\ntilde</c> (and the platform equivalent elsewhere).
     /// </summary>
     /// <remarks>
     /// The override is used verbatim as the root, with no <c>Ntilde</c> segment appended —

@@ -26,7 +26,7 @@ Facts worth knowing (all verified against the vpk 1.2.0 source, see
   downloads its own channel's prior full package for delta generation.
 - The app bundle installs as `/Applications/Ntilde.app`; Velopack's update cache
   lives at `~/Library/Caches/velopack/NtildeApp`. User data stays where it always
-  was (`~/.local/share/Ntilde` via `AppPaths`) and is never touched by updates or
+  was (`~/.local/share/ntilde` via `AppPaths`) and is never touched by updates or
   uninstall.
 
 ## Dry run without cutting a release

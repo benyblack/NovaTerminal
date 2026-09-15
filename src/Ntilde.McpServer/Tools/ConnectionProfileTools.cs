@@ -23,7 +23,7 @@ public static class ConnectionProfileTools
         """
         # Ntilde connection-profile (SSH) JSON schema
 
-        Profiles are stored at `%LOCALAPPDATA%\Ntilde\ssh\profiles.json`. The on-disk
+        Profiles are stored at `%LOCALAPPDATA%\ntilde\ssh\profiles.json`. The on-disk
         format uses **PascalCase** field names and **integer-valued enums**. Passwords are
         never stored here — they live in the OS credential vault.
 

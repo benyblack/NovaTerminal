@@ -178,7 +178,7 @@ Security and integrity:
 ## 10. Enterprise Policy Hooks (Managed Environments)
 
 Policy file:
-- `%LOCALAPPDATA%\Ntilde\policy\workspace_policy.json`
+- `%LOCALAPPDATA%\ntilde\policy\workspace_policy.json`
 
 Supported policy fields:
 - `AllowWorkspaceBundleExport` (bool)
@@ -198,7 +198,7 @@ Behavior:
 ## 11. Audit Log
 
 Workspace/bundle/template operations are logged to:
-- `%LOCALAPPDATA%\Ntilde\logs\workspace_audit.log`
+- `%LOCALAPPDATA%\ntilde\logs\workspace_audit.log`
 
 Audit includes:
 - UTC timestamp
@@ -211,7 +211,7 @@ Audit includes:
 
 ### I do not see bundle commands
 - Your policy may disable bundle export/import.
-- Check `%LOCALAPPDATA%\Ntilde\policy\workspace_policy.json`.
+- Check `%LOCALAPPDATA%\ntilde\policy\workspace_policy.json`.
 
 ### Import/open fails with hash mismatch
 - Bundle content was modified/corrupted.

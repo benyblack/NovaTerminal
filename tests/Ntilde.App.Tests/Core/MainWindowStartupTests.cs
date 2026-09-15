@@ -494,8 +494,8 @@ public sealed class MainWindowStartupTests : IDisposable, IClassFixture<TestAppD
     }
 
     [Theory]
-    [InlineData(true, @"C:\Users\behna\AppData\Local\Ntilde\recordings\ntilde.rec", @"C:\Users\behna\AppData\Local\Ntilde\recordings", "explorer.exe", "/select,")]
-    [InlineData(true, null, @"C:\Users\behna\AppData\Local\Ntilde\recordings", @"C:\Users\behna\AppData\Local\Ntilde\recordings", "")]
+    [InlineData(true, @"C:\Users\behna\AppData\Local\ntilde\recordings\ntilde.rec", @"C:\Users\behna\AppData\Local\ntilde\recordings", "explorer.exe", "/select,")]
+    [InlineData(true, null, @"C:\Users\behna\AppData\Local\ntilde\recordings", @"C:\Users\behna\AppData\Local\ntilde\recordings", "")]
     [InlineData(false, "/tmp/ntilde/recordings/ntilde.rec", "/tmp/ntilde/recordings", "/tmp/ntilde/recordings", "")]
     public void ResolveRecordingRevealRequest_PrefersExactFileOnWindows(
         bool isWindows,

@@ -208,6 +208,33 @@ public sealed class AppPathsTests
     }
 
     [Fact]
+    public void MigrateLegacyRoot_SkipsAgentHostDiscoveryFile()
+    {
+        string temp = CreateTempDirectory();
+        try
+        {
+            string legacy = Path.Combine(temp, "NovaTerminal");
+            string fresh = Path.Combine(temp, "ntilde");
+            Directory.CreateDirectory(legacy);
+            File.WriteAllText(Path.Combine(legacy, "settings.json"), "{\"FontSize\":13}");
+            File.WriteAllText(
+                Path.Combine(legacy, Ntilde.AgentHost.Contracts.AgentHostProtocol.DiscoveryFileName),
+                "{\"pipeName\":\"stale\"}");
+
+            bool migrated = AppPaths.MigrateLegacyRoot(legacy, fresh);
+
+            Assert.True(migrated);
+            Assert.Equal("{\"FontSize\":13}", File.ReadAllText(Path.Combine(fresh, "settings.json")));
+            Assert.False(File.Exists(Path.Combine(fresh, Ntilde.AgentHost.Contracts.AgentHostProtocol.DiscoveryFileName)));
+            Assert.True(File.Exists(Path.Combine(fresh, AppPaths.MigrationMarkerFileName)));
+        }
+        finally
+        {
+            Directory.Delete(temp, recursive: true);
+        }
+    }
+
+    [Fact]
     public void RootDirectory_FolderNameIsLowercaseNtilde()
     {
         string? previous = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");

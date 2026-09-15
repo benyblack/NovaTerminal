@@ -51,7 +51,7 @@ runs on every push to `main`:
    - `ASTRO_SITE` — canonical origin (e.g. `https://ntilde.dev`).
      Default: `https://benyblack.github.io`.
    - `ASTRO_BASE` — path prefix Astro adds to every URL. Default:
-     `/Ntilde`. Set to empty for a custom-domain deployment.
+     `/ntilde`. Set to empty for a custom-domain deployment.
    The workflow forwards both to the Astro build.
 
 ## Stack

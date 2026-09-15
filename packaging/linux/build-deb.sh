@@ -392,7 +392,7 @@ Description: Modern terminal emulator
  Ntilde is a cross-platform terminal emulator with GPU-accelerated
  rendering, native SSH support, and tight shell integration.
  .
- This package installs the graphical application and the "nova" command. It does
+ This package installs the graphical application and the "ntilde" command. It does
  not register Ntilde as the system x-terminal-emulator; see ntilde(1) for how
  to do that yourself.
  .

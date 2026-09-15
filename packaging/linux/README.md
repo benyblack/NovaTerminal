@@ -143,7 +143,7 @@ version — see "Dry run without cutting a release" below.
   future SkiaSharp or AOT bump still trips the lintian gate instead of being waved
   through.
 - **User data is never touched** by updates or uninstall. It lives at
-  `~/.local/share/Ntilde` via `AppPaths`, independent of install method.
+  `~/.local/share/ntilde` via `AppPaths`, independent of install method.
 - **No maintainer scripts.** `desktop-file-utils` and `hicolor-icon-theme` ship dpkg
   triggers that refresh the desktop and icon caches, so the package needs no
   `postinst`/`prerm`.

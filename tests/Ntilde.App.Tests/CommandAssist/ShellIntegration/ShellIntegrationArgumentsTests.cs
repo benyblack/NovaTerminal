@@ -17,7 +17,7 @@ namespace Ntilde.Tests.CommandAssist.ShellIntegration;
 /// </summary>
 public sealed class ShellIntegrationArgumentsTests
 {
-    private const string BootstrapDir = @"C:\Users\x\AppData\Local\Ntilde\command-assist";
+    private const string BootstrapDir = @"C:\Users\x\AppData\Local\ntilde\command-assist";
 
     private static string OurBootstrap => Path.Combine(BootstrapDir, "command-assist-bootstrap.ps1");
 

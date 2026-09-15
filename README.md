@@ -68,14 +68,14 @@ existing install:
   under the new name. Re-enter SSH passwords once; the profiles themselves are already there.
 - **The old app will not update itself into Ntilde.** Install Ntilde from the links below, then
   uninstall NovaTerminal. Debian and Arch packages supersede `novaterminal` automatically.
-- **Package names changed:** `winget install benyblack.ntilde`, `brew install --cask
-  benyblack/tap/ntilde`, `ntilde-bin` on the AUR, `.deb` package `ntilde`. The command is now
-  `ntilde` (was `nova`).
+- **Package names changed:** `winget install benyblack.ntilde`, `ntilde-bin` on the AUR, `.deb`
+  package `ntilde`. The command is now `ntilde` (was `nova`).
 - **Old files still open.** `.novabackup` bundles, `.novaws.json` workspace exports and `.rec`
   recordings from NovaTerminal import and replay unchanged.
 - **Remote shell integration:** re-run the installer from Settings on each host; it writes
-  `~/.ntilde-shell-integration.sh`. Remove the old `~/.nova-shell-integration.sh` loader line
-  from your rc file by hand.
+  `~/.ntilde-shell-integration.sh` (or, on PowerShell hosts, `~/.ntilde-shell-integration.ps1`).
+  Remove the old `~/.nova-shell-integration.sh` loader line from your rc file by hand, or the old
+  `. ~/.nova-shell-integration.ps1` loader line from `$PROFILE`.
 - **Environment overrides** are renamed `NOVATERM_*` to `NTILDE_*` (for example
   `NTILDE_APPDATA_ROOT`).
 

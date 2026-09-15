@@ -206,6 +206,10 @@ namespace Ntilde.Shell
 
                 foreach (string file in Directory.GetFiles(legacyFull))
                 {
+                    // Skip the agent-host discovery file: it is written by the running app, and a
+                    // stale copy would point the MCP server at a dead NovaTerminal process.
+                    if (string.Equals(Path.GetFileName(file), Ntilde.AgentHost.Contracts.AgentHostProtocol.DiscoveryFileName, StringComparison.OrdinalIgnoreCase)) continue;
+
                     MigrateFileIfNeeded(file, Path.Combine(newFull, Path.GetFileName(file)));
                 }
 

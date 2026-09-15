@@ -179,6 +179,7 @@ else
     grep -q '^Package: ntilde$'   <<<"$info" || fail "wrong Package field"
     grep -q '^Replaces: novaterminal$'  <<<"$info" || fail "missing Replaces: novaterminal"
     grep -q '^Conflicts: novaterminal$' <<<"$info" || fail "missing Conflicts: novaterminal"
+    grep -q 'the "ntilde" command'      <<<"$info" || fail "Description still names the old command"
     grep -q '^Version: 0.4.0-1$'        <<<"$info" || fail "wrong Version field"
     grep -q '^Architecture: amd64$'     <<<"$info" || fail "wrong Architecture field"
     grep -q '^Depends: .*libc6 (>= 2.35)' <<<"$info" || fail "Depends lacks the glibc floor"

@@ -22,7 +22,7 @@ public static class SettingsTools
         """
         # Ntilde settings.json schema
 
-        Settings are stored at `%LOCALAPPDATA%\Ntilde\settings.json` (override dir via
+        Settings are stored at `%LOCALAPPDATA%\ntilde\settings.json` (override dir via
         `NTILDE_APPDATA_ROOT`). The on-disk format uses **PascalCase** field names and
         **integer-valued enums** (for embedded profiles). Every field has a default, so an empty
         object `{}` is valid. This tool/validator covers the top-level fields and the structural
