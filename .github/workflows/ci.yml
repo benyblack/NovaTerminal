@@ -2302,7 +2302,19 @@ jobs:
           echo "Testing against $tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
+          # TRANSITIONAL (remove after the first Ntilde stable release ships): the rebrand
+          # renamed the release assets and the packaging source files, so an end-to-end dry
+          # run against a pre-rebrand release cannot pass. Skip with a warning instead of
+          # failing the PR lane; test-build-arch.sh above still covers the generator.
+          if gh release view "$tag" --json assets -q '.assets[].name' | grep -q '^ntilde-linux-x64-'; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Newest stable release $tag predates the Ntilde rebrand (its assets are NovaTerminal-*, and its tree still has packaging/linux/nova.desktop). Skipping the end-to-end AUR dry run until the first Ntilde stable release; the generator unit tests above still ran."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download the release tarball
+        if: steps.rel.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.rel.outputs.tag }}
@@ -2323,6 +2335,7 @@ jobs:
       # container is root by default. The first CI run of this lane failed exactly
       # there. Same `useradd builder` shape smoke-test.sh uses for its makepkg phase.
       - name: Generate AUR sources
+        if: steps.rel.outputs.skip != 'true'
         env:
           TAG: ${{ steps.rel.outputs.tag }}
         run: |
@@ -2379,6 +2392,7 @@ jobs:
       # The real gate: makepkg, then a pristine archlinux:base that installs the
       # package and nothing else, then an Xvfb launch. See packaging/arch/smoke-test.sh.
       - name: Smoke test (Arch containers)
+        if: steps.rel.outputs.skip != 'true'
         run: |
           set -euo pipefail
           chmod +x packaging/arch/*.sh packaging/linux/*.sh
@@ -2388,7 +2402,7 @@ jobs:
       # downloadable for triage - they are small and are the first thing anyone
       # investigating this lane wants to read.
       - name: Upload generated AUR sources
-        if: always()
+        if: always() && steps.rel.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: aur-dryrun
