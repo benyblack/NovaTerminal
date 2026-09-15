@@ -98,6 +98,6 @@ public static class BackupTools
 
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Ntilde");
+            "ntilde");
     }
 }

@@ -133,6 +133,96 @@ public sealed class AppPathsTests
         Assert.EndsWith(Path.Combine("ssh", "native_known_hosts.json"), fullPath);
     }
 
+    [Fact]
+    public void MigrateLegacyRoot_CopiesEverythingExceptLogs_AndWritesMarker()
+    {
+        string temp = CreateTempDirectory();
+        try
+        {
+            string legacy = Path.Combine(temp, "NovaTerminal");
+            string fresh = Path.Combine(temp, "ntilde");
+            Directory.CreateDirectory(Path.Combine(legacy, "themes"));
+            Directory.CreateDirectory(Path.Combine(legacy, "logs"));
+            File.WriteAllText(Path.Combine(legacy, "settings.json"), "{\"FontSize\":13}");
+            File.WriteAllText(Path.Combine(legacy, "themes", "dark.json"), "{}");
+            File.WriteAllText(Path.Combine(legacy, "logs", "debug.log"), "noise");
+
+            bool migrated = AppPaths.MigrateLegacyRoot(legacy, fresh);
+
+            Assert.True(migrated);
+            Assert.Equal("{\"FontSize\":13}", File.ReadAllText(Path.Combine(fresh, "settings.json")));
+            Assert.True(File.Exists(Path.Combine(fresh, "themes", "dark.json")));
+            Assert.False(Directory.Exists(Path.Combine(fresh, "logs")));
+            Assert.True(File.Exists(Path.Combine(fresh, AppPaths.MigrationMarkerFileName)));
+            Assert.True(File.Exists(Path.Combine(legacy, "settings.json")));
+        }
+        finally
+        {
+            Directory.Delete(temp, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MigrateLegacyRoot_RunsOnce_MarkerBlocksSecondCopy()
+    {
+        string temp = CreateTempDirectory();
+        try
+        {
+            string legacy = Path.Combine(temp, "NovaTerminal");
+            string fresh = Path.Combine(temp, "ntilde");
+            Directory.CreateDirectory(legacy);
+            File.WriteAllText(Path.Combine(legacy, "settings.json"), "first");
+            Assert.True(AppPaths.MigrateLegacyRoot(legacy, fresh));
+
+            File.WriteAllText(Path.Combine(legacy, "settings.json"), "second");
+            File.SetLastWriteTimeUtc(Path.Combine(legacy, "settings.json"), DateTime.UtcNow.AddMinutes(5));
+
+            bool migratedAgain = AppPaths.MigrateLegacyRoot(legacy, fresh);
+
+            Assert.False(migratedAgain);
+            Assert.Equal("first", File.ReadAllText(Path.Combine(fresh, "settings.json")));
+        }
+        finally
+        {
+            Directory.Delete(temp, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MigrateLegacyRoot_NoLegacyFolder_DoesNothing()
+    {
+        string temp = CreateTempDirectory();
+        try
+        {
+            string fresh = Path.Combine(temp, "ntilde");
+
+            bool migrated = AppPaths.MigrateLegacyRoot(Path.Combine(temp, "NovaTerminal"), fresh);
+
+            Assert.False(migrated);
+            Assert.False(Directory.Exists(fresh));
+        }
+        finally
+        {
+            Directory.Delete(temp, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RootDirectory_FolderNameIsLowercaseNtilde()
+    {
+        string? previous = Environment.GetEnvironmentVariable("NTILDE_APPDATA_ROOT");
+        try
+        {
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", null);
+            Assert.Equal("ntilde", Path.GetFileName(AppPaths.RootDirectory));
+            Assert.Equal("NovaTerminal", Path.GetFileName(AppPaths.LegacyRootDirectory));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NTILDE_APPDATA_ROOT", previous);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), $"ntilde_paths_test_{Guid.NewGuid():N}");

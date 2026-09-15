@@ -5,7 +5,11 @@ namespace Ntilde.Shell
 {
     public static class AppPaths
     {
-        private const string AppName = "Ntilde";
+        private const string AppName = "ntilde";
+        /// <summary>Data folder name before the Ntilde rebrand. Read once for migration; never written.</summary>
+        private const string LegacyAppName = "NovaTerminal";
+        /// <summary>Written into the new root after the one-time copy so it never runs twice.</summary>
+        public const string MigrationMarkerFileName = ".migrated-from-novaterminal";
         private const string RootOverrideEnvVar = "NTILDE_APPDATA_ROOT";
         private static readonly object InitLock = new();
         private static bool _initialized;
@@ -30,6 +34,11 @@ namespace Ntilde.Shell
                     AppName);
             }
         }
+
+        /// <summary>Where a pre-rebrand install kept its data. Only consulted by <see cref="MigrateLegacyRoot"/>.</summary>
+        public static string LegacyRootDirectory => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            LegacyAppName);
 
         public static string SettingsFilePath => Path.Combine(RootDirectory, "settings.json");
         public static string ThemesDirectory => Path.Combine(RootDirectory, "themes");
@@ -77,6 +86,14 @@ namespace Ntilde.Shell
 
                 try
                 {
+                    // Skipped under the env override: tests and portable installs point at a
+                    // scratch root, and copying a developer's real NovaTerminal folder into it
+                    // would be a surprise. Real installs have no override set.
+                    if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(RootOverrideEnvVar)))
+                    {
+                        MigrateLegacyRoot(LegacyRootDirectory, RootDirectory);
+                    }
+
                     Directory.CreateDirectory(RootDirectory);
                     Directory.CreateDirectory(ThemesDirectory);
                     Directory.CreateDirectory(LogsDirectory);
@@ -163,6 +180,51 @@ namespace Ntilde.Shell
             catch
             {
                 // Best-effort migration only.
+            }
+        }
+
+        /// <summary>
+        /// One-time copy of a pre-rebrand data folder into the new root. Copies every top-level
+        /// file and every subdirectory except <c>logs</c>, newer-file-wins per file, never deletes
+        /// the source, and writes <see cref="MigrationMarkerFileName"/> so it runs once.
+        /// </summary>
+        /// <returns><c>true</c> when a copy ran; <c>false</c> when there was nothing to do.</returns>
+        public static bool MigrateLegacyRoot(string legacyRoot, string newRoot)
+        {
+            try
+            {
+                if (!Directory.Exists(legacyRoot)) return false;
+
+                string legacyFull = Path.GetFullPath(legacyRoot);
+                string newFull = Path.GetFullPath(newRoot);
+                if (PathsEqual(legacyFull, newFull)) return false;
+
+                string marker = Path.Combine(newFull, MigrationMarkerFileName);
+                if (File.Exists(marker)) return false;
+
+                Directory.CreateDirectory(newFull);
+
+                foreach (string file in Directory.GetFiles(legacyFull))
+                {
+                    MigrateFileIfNeeded(file, Path.Combine(newFull, Path.GetFileName(file)));
+                }
+
+                foreach (string directory in Directory.GetDirectories(legacyFull))
+                {
+                    string name = Path.GetFileName(directory);
+                    if (string.Equals(name, "logs", StringComparison.OrdinalIgnoreCase)) continue;
+                    MigrateDirectoryIfNeeded(directory, Path.Combine(newFull, name));
+                }
+
+                File.WriteAllText(
+                    marker,
+                    $"Settings were copied from {legacyFull} on {DateTime.UtcNow:O}. The old folder was left in place and can be deleted.{Environment.NewLine}");
+                return true;
+            }
+            catch
+            {
+                // Best-effort migration only; a failed copy must never block startup.
+                return false;
             }
         }
 

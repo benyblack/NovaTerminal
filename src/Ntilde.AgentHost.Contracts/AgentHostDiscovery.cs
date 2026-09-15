@@ -13,7 +13,7 @@ namespace Ntilde.AgentHost.Contracts;
 /// </summary>
 public static class AgentHostDiscovery
 {
-    private const string AppName = "Ntilde";
+    private const string AppName = "ntilde";
     public const string RootOverrideEnvVar = "NTILDE_APPDATA_ROOT";
 
     /// <summary>The app-data directory the discovery file is written into.</summary>
