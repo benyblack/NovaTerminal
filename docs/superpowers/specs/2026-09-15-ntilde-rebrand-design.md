@@ -201,6 +201,26 @@ automatically on first launch.
 - PR CI fully green. Known flakes (memory: unit-test host hang, cargo dep fetch, PTY
   backspace) get one re-run, not a debug session.
 
+## Amendments (2026-09-15, during planning)
+
+1. The Docker SSH e2e fixture (`tests/.../NativeSsh/Dockerfile`, user `nova`, prompt `nova$`,
+   image `novaterm-native-ssh-e2e`) is excluded from the rename. 25 byte-exact `.rec` fixtures
+   and the parity tests assert the recorded prompt literally.
+2. `packaging/arch` (AUR, `novaterminal-bin`) is on main and joins the rename: `ntilde-bin`,
+   `provides=('ntilde')`, `conflicts=('ntilde' 'novaterminal' 'novaterminal-bin')`,
+   `replaces=('novaterminal-bin')`.
+3. winget: the `0.3.0` manifests are deleted and replaced by `packaging/winget/template/`
+   with `__VERSION__` / `__SHA256__` placeholders, rendered at the first Ntilde release. A
+   manifest for an unpublished asset cannot carry a real hash.
+4. `novarec` is the replay header `type` field, not a file extension. New recordings write
+   `ntilderec`; readers accept both tokens.
+5. Release asset prefix is lowercase `ntilde-` (`ntilde-win-x64-v1.2.3.zip`); Velopack nupkgs
+   follow the pack ID: `NtildeApp-1.2.3-full.nupkg`.
+6. Homebrew PR #453 has not merged. The rebrand branch merges main after it lands and re-runs
+   the sweep over the new files.
+7. The mechanical work lands as two commits (path renames, then text) so rename detection and
+   `git log --follow` keep working.
+
 ## Risks
 
 | Risk | Mitigation |
