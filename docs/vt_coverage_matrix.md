@@ -88,6 +88,7 @@ It is designed to be:
 | DCH (P) | Delete chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
 | IL (L) / DL (M) | Insert/delete lines | ⚠ Partial | Replay | Buffer | Scroll region interactions |
 | ECH (X) | Erase chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
+| REP (b) | Repeat preceding graphic character | ✅ Supported | Unit: `tests/NovaTerminal.VT.Tests/RepeatCharacterTests.cs` | Parser+Buffer | Repeats only an immediately preceding graphic character (xterm rule); count clamped to one line |
 
 ---
 

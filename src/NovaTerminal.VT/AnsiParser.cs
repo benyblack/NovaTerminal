@@ -114,6 +114,26 @@ namespace NovaTerminal.VT
         private System.Text.StringBuilder _textBuffer = new System.Text.StringBuilder(4096);
         private bool _sawCursorHideInBatch;
         private bool _sawCursorShowAfterHideInBatch;
+
+        /// <summary>
+        /// The graphic character <c>REP</c> (<c>CSI Ps b</c>) would repeat, or <c>null</c> when
+        /// there is nothing repeatable. Set by <see cref="FlushText"/>; cleared by anything that
+        /// is not a graphic character.
+        /// </summary>
+        /// <remarks>
+        /// Tracked here rather than read back from the grid, because ECMA-48 §8.3.103 scopes the
+        /// repeat to the preceding <em>graphic</em> character: after a control, an escape sequence
+        /// or a cursor move there is nothing to repeat, and the cell under the cursor cannot say
+        /// so — it still holds whatever was painted there earlier. A stale repeat is worse than no
+        /// repeat, so the state is explicit and clears on everything it cannot vouch for.
+        ///
+        /// A <c>char</c> rather than a string, which also settles the multi-char cases: a
+        /// surrogate half or a combining mark is not a character anyone can repeat on its own, so
+        /// <see cref="TrailingRepeatableChar"/> answers null for them and REP becomes a no-op
+        /// rather than repeating half a grapheme. It also keeps the per-flush cost at a field
+        /// write, with no allocation on the print path.
+        /// </remarks>
+        private char? _lastGraphicChar;
         private static readonly TimeSpan CursorTransientSuppressionWindow = TimeSpan.FromMilliseconds(60);
 
         public float CellWidth { get; set; } = 10.0f;  // Default fallback
@@ -313,9 +333,44 @@ namespace NovaTerminal.VT
                 // `echo donedone`.
                 _swallowNextNewline = false;
 
+                // REP repeats whatever this run ended with, so the character is captured from the
+                // charset-mapped text that is actually painted — DEC special graphics included,
+                // which is the case ncurses uses `rep` for most (a box-drawing rule is one mapped
+                // character plus a repeat count).
+                _lastGraphicChar = TrailingRepeatableChar(_textBuffer);
+
                 _buffer.WriteContent(_textBuffer.ToString());
                 _textBuffer.Clear();
             }
+        }
+
+        /// <summary>
+        /// The last character of a printable run when it is one REP can repeat on its own, else
+        /// <c>null</c>. See <see cref="_lastGraphicChar"/> for why the answer is fail-closed.
+        /// </summary>
+        private static char? TrailingRepeatableChar(System.Text.StringBuilder text)
+        {
+            if (text.Length == 0)
+            {
+                return null;
+            }
+
+            char last = text[text.Length - 1];
+
+            // A surrogate is half a scalar and a combining mark belongs to the character in front
+            // of it; repeating either alone produces something the stream never asked for.
+            if (char.IsSurrogate(last))
+            {
+                return null;
+            }
+
+            return CharUnicodeInfo.GetUnicodeCategory(last) switch
+            {
+                UnicodeCategory.NonSpacingMark or
+                UnicodeCategory.SpacingCombiningMark or
+                UnicodeCategory.EnclosingMark => null,
+                _ => last,
+            };
         }
 
         /// <summary>
@@ -326,6 +381,10 @@ namespace NovaTerminal.VT
         /// </summary>
         private void ExecuteC0Control(char c)
         {
+            // A control is not a graphic character, so nothing survives it for REP to repeat.
+            // Bell included: ECMA-48 draws the line at "graphic", not at "moved the cursor".
+            _lastGraphicChar = null;
+
             if (c == '\a')
             {
                 OnBell?.Invoke();
@@ -944,6 +1003,12 @@ namespace NovaTerminal.VT
             // spellings is what let them through the first two times.
             bool bare = leader == '\0' && intermediates.Length == 0;
 
+            // Every control sequence ends the run of graphic characters REP could repeat, so the
+            // pending character is consumed here rather than in each of the forty-odd cases below.
+            // REP is the one that wants it, and it puts it back — `CSI 5 b CSI 5 b` is two repeats
+            // of the same character, not a repeat followed by a no-op.
+            char? repeatable = _lastGraphicChar;
+            _lastGraphicChar = null;
 
             try
             {
@@ -1025,6 +1090,26 @@ namespace NovaTerminal.VT
                         {
                             _buffer.HorizontalTab(GetCsiParamOrDefaultOne(validArgs, 0));
                             _buffer.Invalidate();
+                        }
+                        break;
+                    case 'b': // REP - Repeat the preceding graphic character (ECMA-48 §8.3.103).
+                              //
+                              // Not optional in practice: we advertise TERM=xterm-256color, whose
+                              // terminfo declares `rep=%p1%c\E[%p2%{1}%-%db`, so every ncurses
+                              // program on the far end of an SSH session uses this to draw runs —
+                              // borders, rules, padding, meter bars. While it was unimplemented
+                              // those runs rendered as a single character, and each one also cost
+                              // an "Unhandled CSI" line in the debug log.
+                        if (bare && repeatable is char toRepeat)
+                        {
+                            // Clamped to one line's worth. A repeat count is an amplification
+                            // factor — five bytes in, MaxCsiParamValue cells out — and no
+                            // producer needs more: ncurses only emits `rep` for a run it has
+                            // already decided fits the line. Same reasoning as the parameter
+                            // clamp itself, one level up.
+                            int repCount = Math.Min(Math.Max(1, arg0), _buffer.Cols);
+                            _buffer.WriteContent(new string(toRepeat, repCount));
+                            _lastGraphicChar = toRepeat;
                         }
                         break;
                     case 'P': // DCH - Delete Character
