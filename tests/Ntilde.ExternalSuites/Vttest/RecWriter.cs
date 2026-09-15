@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using Ntilde.VT;
 
 namespace Ntilde.ExternalSuites.Vttest
 {
@@ -47,7 +48,7 @@ namespace Ntilde.ExternalSuites.Vttest
                 throw new InvalidOperationException("Replay header has already been written.");
             }
 
-            _writer.Write("{\"type\":\"ntilderec\",\"v\":2,\"cols\":");
+            _writer.Write($"{{\"type\":\"{ReplayHeader.TypeToken}\",\"v\":2,\"cols\":");
             _writer.Write(cols);
             _writer.Write(",\"rows\":");
             _writer.Write(rows);

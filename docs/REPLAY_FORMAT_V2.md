@@ -19,7 +19,7 @@ The first line must be a JSON object:
 
 Fields:
 
-- `type` (`string`): must be `"ntilderec"`
+- `type` (`string`): must be `"ntilderec"`; readers also accept the pre-rebrand `"novarec"`
 - `v` (`int`): format version (`2`)
 - `cols` (`int`): initial terminal columns
 - `rows` (`int`): initial terminal rows

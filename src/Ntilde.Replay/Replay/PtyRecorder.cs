@@ -27,7 +27,7 @@ namespace Ntilde.Replay
 
             _header = new ReplayHeader
             {
-                Type = "ntilderec",
+                Type = ReplayHeader.TypeToken,
                 Cols = cols,
                 Rows = rows,
                 Shell = shell

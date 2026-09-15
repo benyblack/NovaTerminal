@@ -99,7 +99,7 @@ namespace Ntilde.Replay
             {
                 // Try to parse the VERY FIRST LINE as a v2 header
                 var header = JsonSerializer.Deserialize(line, ReplayJsonContext.Default.ReplayHeader);
-                if (header != null && header.Type == "ntilderec" && header.Version == 2)
+                if (header != null && ReplayHeader.IsKnownType(header.Type) && header.Version == 2)
                 {
                     isV2 = true;
                     if (onResizeCallback != null)

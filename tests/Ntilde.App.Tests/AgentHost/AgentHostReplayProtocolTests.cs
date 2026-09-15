@@ -258,7 +258,7 @@ public class AgentHostReplayProtocolTests : IDisposable
         string[] lines = File.ReadAllLines(result.FilePath).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
         var header = JsonSerializer.Deserialize(lines[0], ReplayJsonContext.Default.ReplayHeader);
         Assert.NotNull(header);
-        Assert.Equal("ntilderec", header!.Type);
+        Assert.Equal(ReplayHeader.TypeToken, header!.Type);
         Assert.Equal(2, header.Version);
 
         // Privacy invariant: output + resize only, never input.

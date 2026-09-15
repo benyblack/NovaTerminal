@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Xunit;
 using Ntilde.Replay;
+using Ntilde.VT;
 using System.Collections.Generic;
 
 namespace Ntilde.Platform.Tests.Replay
@@ -18,7 +19,7 @@ namespace Ntilde.Platform.Tests.Replay
             var lines = new List<string>
             {
                 // V2 Header
-                "{\"type\":\"ntilderec\",\"v\":2,\"cols\":80,\"rows\":24,\"date\":\"2026-03-04T00:00:00.0000000Z\",\"shell\":\"bash\"}",
+                $"{{\"type\":\"{ReplayHeader.TypeToken}\",\"v\":2,\"cols\":80,\"rows\":24,\"date\":\"2026-03-04T00:00:00.0000000Z\",\"shell\":\"bash\"}}",
                 // Events
                 "{\"t\":100,\"type\":\"data\",\"d\":\"SGVsbG8=\"}",
                 "{\"t\":200,\"type\":\"data\",\"d\":\"IFdvcmxk\"}",

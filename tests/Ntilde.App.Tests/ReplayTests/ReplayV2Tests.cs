@@ -502,9 +502,52 @@ namespace Ntilde.Tests.ReplayTests
 
         private static void WriteMinimalReplayWithSnapshot(string filePath, string snapshotJsonProperties)
         {
-            string header = "{\"type\":\"ntilderec\",\"v\":2,\"cols\":1,\"rows\":1,\"date\":\"2026-01-01T00:00:00.0000000Z\",\"shell\":\"\"}";
+            string header = $"{{\"type\":\"{ReplayHeader.TypeToken}\",\"v\":2,\"cols\":1,\"rows\":1,\"date\":\"2026-01-01T00:00:00.0000000Z\",\"shell\":\"\"}}";
             string snapshotEvent = $"{{\"t\":0,\"type\":\"snapshot\",\"s\":{{{snapshotJsonProperties}}}}}";
             File.WriteAllText(filePath, $"{header}\n{snapshotEvent}\n");
+        }
+
+        /// <summary>
+        /// Every recording made before the rebrand (and all 25 checked-in fixtures) carries
+        /// type "novarec". The runner must still detect them as v2, or they silently fall back
+        /// to the raw v1 path and replay the header line as terminal output.
+        /// </summary>
+        [Fact]
+        public async Task ReplayRunner_AcceptsLegacyNovarecHeaderAsV2()
+        {
+            string tempFile = Path.GetTempFileName();
+            try
+            {
+                string header = "{\"type\":\"novarec\",\"v\":2,\"cols\":40,\"rows\":5,\"date\":\"2026-01-01T00:00:00.0000000Z\",\"shell\":\"pwsh.exe\"}";
+                File.WriteAllText(tempFile, header + "\n");
+
+                int cols = 0, rows = 0;
+                var gathered = new StringBuilder();
+                var runner = new ReplayRunner(tempFile);
+                await runner.RunWithResultAsync(
+                    onDataCallback: data => { gathered.Append(Encoding.UTF8.GetString(data)); return Task.CompletedTask; },
+                    onResizeCallback: (c, r) => { cols = c; rows = r; return Task.CompletedTask; },
+                    options: new ReplayRunOptions { PlaybackMode = ReplayPlaybackMode.Virtual });
+
+                Assert.Equal(40, cols);
+                Assert.Equal(5, rows);
+                Assert.DoesNotContain("novarec", gathered.ToString());
+            }
+            finally
+            {
+                File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
+        public void ReplayHeader_KnowsBothTypeTokens()
+        {
+            Assert.Equal("ntilderec", ReplayHeader.TypeToken);
+            Assert.Equal("novarec", ReplayHeader.LegacyTypeToken);
+            Assert.True(ReplayHeader.IsKnownType("ntilderec"));
+            Assert.True(ReplayHeader.IsKnownType("novarec"));
+            Assert.False(ReplayHeader.IsKnownType("asciicast"));
+            Assert.False(ReplayHeader.IsKnownType(null));
         }
     }
 }

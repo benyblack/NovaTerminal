@@ -5,6 +5,15 @@ namespace Ntilde.VT
 {
     public class ReplayHeader
     {
+        /// <summary>Header type written by current recorders.</summary>
+        public const string TypeToken = "ntilderec";
+
+        /// <summary>Header type written before the Ntilde rebrand. Accepted on read forever.</summary>
+        public const string LegacyTypeToken = "novarec";
+
+        public static bool IsKnownType(string? type)
+            => type == TypeToken || type == LegacyTypeToken;
+
         [JsonPropertyName("type")]
         public string Type { get; set; } = "";
 
