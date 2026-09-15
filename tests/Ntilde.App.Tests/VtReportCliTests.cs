@@ -76,10 +76,13 @@ public sealed class VtReportCliTests
         string repoRoot = FindRepositoryRoot();
         string cliProjectPath = Path.Combine(repoRoot, "src", "Ntilde.Cli", "Ntilde.Cli.csproj");
         string cliExecutablePath = GetExecutablePath(Path.Combine(repoRoot, "src", "Ntilde.Cli", "bin", "Release", "net10.0"), "Ntilde.Cli");
+        // Builds the references too: with -p:BuildProjectReferences=false the compiler wants
+        // src/*/obj/Release/net10.0/ref/*.dll, which on CI only exist if AppBinary_* ran first.
+        // xunit orders cases by a name hash, so that dependency flipped when the namespace changed.
         (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
             repoRoot,
             "dotnet",
-            $"build \"{cliProjectPath}\" -c Release --no-restore -nodeReuse:false -p:BuildProjectReferences=false");
+            $"build \"{cliProjectPath}\" -c Release --no-restore -nodeReuse:false");
         (int exitCode, string stdout, string stderr) = RunProcessFromRepository(
             repoRoot,
             cliExecutablePath,
